@@ -35,6 +35,12 @@ final class CaptureEngine: ObservableObject {
     private let queue = DispatchQueue(label: "com.ibridge.encoder")
     private var didConfigure = false
 
+    /// Shared broadcaster for touch / key / audio events. Created when
+    /// a Mac connects and torn down when the connection drops.
+    private(set) var broadcaster: IBEventBroadcaster?
+
+    private(set) var audioEncoder: MicrophoneEncoder?
+
     // MARK: - Lifecycle
 
     /// Request permissions and start the AVCaptureSession. Called from
@@ -64,6 +70,31 @@ final class CaptureEngine: ObservableObject {
             stopStreaming()
         } else {
             await startStreaming()
+        }
+    }
+
+    /// V0.2 — receive touch events from the SwiftUI trackpad view
+    /// and forward them over the wire.
+    func sendTouch(_ event: TouchEvent) {
+        broadcaster?.send(event)
+    }
+
+    /// V0.2 — receive key events from the SwiftUI keyboard view and
+    /// forward them over the wire.
+    func sendKey(_ event: KeyEvent) {
+        broadcaster?.send(event)
+    }
+
+    /// V0.2 — toggle microphone capture. The Mac will hear whatever
+    /// the iPhone mic hears.
+    func setMicrophoneEnabled(_ enabled: Bool) {
+        if enabled {
+            if audioEncoder == nil {
+                audioEncoder = MicrophoneEncoder()
+            }
+            if let broadcaster { audioEncoder?.start(broadcaster: broadcaster) }
+        } else {
+            audioEncoder?.stop()
         }
     }
 
@@ -202,11 +233,24 @@ final class CaptureEngine: ObservableObject {
         case .ready:
             connectionState = .connected
             print("[iBridge] Mac connected")
+            // Build the event broadcaster now that we have a connection.
+            if let connection {
+                let b = IBEventBroadcaster(connection: connection, queue: queue)
+                broadcaster = b
+                // Start streaming mic audio if requested.
+                if let mic = audioEncoder {
+                    mic.start(broadcaster: b)
+                }
+            }
         case .failed(let error):
             print("[iBridge] connection failed: \(error)")
             connectionState = .failed
+            broadcaster = nil
+            audioEncoder?.stop()
         case .cancelled:
             connectionState = .idle
+            broadcaster = nil
+            audioEncoder?.stop()
         default:
             break
         }

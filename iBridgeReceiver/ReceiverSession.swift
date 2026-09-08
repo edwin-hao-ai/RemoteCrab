@@ -6,8 +6,9 @@ import iBridgeCore
 
 /// The Mac-side counterpart to iOS `CaptureEngine`. Browses for the
 /// Bonjour service, opens the first connection it sees, decodes H.264
-/// frames via VideoToolbox, and republishes the latest decoded frame
-/// for the SwiftUI preview view.
+/// frames via VideoToolbox, dispatches touch / key / audio events
+/// to their respective handlers, and republishes the latest decoded
+/// frame for the SwiftUI preview view.
 @MainActor
 final class ReceiverSession: ObservableObject {
 
@@ -23,12 +24,19 @@ final class ReceiverSession: ObservableObject {
     @Published private(set) var discovered: [DiscoveredPhone] = []
 
     /// The most recent decoded frame as a `CGImage` ready for display.
-    /// Updates at frame rate when streaming.
     @Published private(set) var latestFrame: CGImage?
 
     let browser = BonjourBrowser()
     let decoder = H264Decoder()
     let parser = IBWire.Parser()
+
+    /// Where `TouchEvent` / `KeyEvent` get posted. Defaults to a no-op
+    /// mock; the host wires up a real `CGEventInjector` (or a recording
+    /// one in tests).
+    var inputInjector: InputInjector = RecordingInputInjector()
+
+    /// Where `AudioPacket` get played through Mac speakers.
+    let audioPlayer = AudioPlayer()
 
     private var connection: NWConnection?
     private var connectionStartedAt: Date?
@@ -39,7 +47,10 @@ final class ReceiverSession: ObservableObject {
                 self?.latestFrame = image
             }
         }
+        audioPlayer.start()
     }
+
+    // MARK: - Discovery
 
     func start() {
         browser.start(serviceType: IBServiceType.tcp) { [weak self] phones in
@@ -51,7 +62,6 @@ final class ReceiverSession: ObservableObject {
 
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
-        // Auto-connect to the first device we haven't already connected to.
         if connection == nil, let phone = phones.first {
             connect(to: phone)
         }
@@ -73,10 +83,7 @@ final class ReceiverSession: ObservableObject {
                 self?.handleConnectionState(newState)
             }
         }
-
-        // Wire up receive loop.
         startReceiving(on: conn)
-
         conn.start(queue: .global())
         connection = conn
     }
@@ -127,6 +134,7 @@ final class ReceiverSession: ObservableObject {
 
     private func handleInbound(_ data: Data) {
         let frames = parser.append(data)
+        let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
         for frame in frames {
             switch frame.kind {
             case .metadata:
@@ -137,10 +145,21 @@ final class ReceiverSession: ObservableObject {
                 decoder.feedPPS(frame.payload)
             case .video:
                 decoder.feedVideo(frame.payload)
+            case .touch:
+                if let event = try? IBWire.decodeTouch(frame) {
+                    inputInjector.inject(touch: event, screenSize: screenSize)
+                }
+            case .key:
+                if let event = try? IBWire.decodeKey(frame) {
+                    inputInjector.inject(key: event)
+                }
+            case .audio:
+                if let packet = try? IBWire.decodeAudio(frame) {
+                    audioPlayer.consume(packet)
+                }
             }
         }
 
-        // Update latency readout.
         if case .streaming(let name, _) = state, let startedAt = connectionStartedAt {
             let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
             state = .streaming(name: name, latencyMs: ms)

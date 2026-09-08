@@ -22,6 +22,9 @@ public enum IBWire {
         case video    = 0x01
         case sps      = 0x02
         case pps      = 0x03
+        case touch    = 0x04   // JSON TouchEvent
+        case key      = 0x05   // JSON KeyEvent
+        case audio    = 0x06   // JSON AudioPacket (opus data base64-encoded)
     }
 
     // MARK: - Encoding
@@ -36,6 +39,26 @@ public enum IBWire {
     public static func encode(frame: IBNalFrame) -> Data {
         encodeFrame(kind: Kind(rawValue: frame.kind.rawValue) ?? .video,
                     payload: frame.data)
+    }
+
+    /// Encode a TouchEvent into the wire format.
+    public static func encode(touch: TouchEvent) throws -> Data {
+        let json = try JSONEncoder().encode(touch)
+        return encodeFrame(kind: .touch, payload: json)
+    }
+
+    /// Encode a KeyEvent into the wire format.
+    public static func encode(key: KeyEvent) throws -> Data {
+        let json = try JSONEncoder().encode(key)
+        return encodeFrame(kind: .key, payload: json)
+    }
+
+    /// Encode an AudioPacket into the wire format. The Opus payload is
+    /// base64-encoded inside the JSON envelope so all frames share the
+    /// same `Data` transport.
+    public static func encode(audio: AudioPacket) throws -> Data {
+        let json = try JSONEncoder().encode(audio)
+        return encodeFrame(kind: .audio, payload: json)
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -59,7 +82,7 @@ public enum IBWire {
     /// Incremental parser. Feed incoming bytes; receive zero or more
     /// complete frames back. Holds on to the trailing partial frame
     /// across calls so callers don't have to manage buffering.
-    public final class Parser {
+    public final class Parser: @unchecked Sendable {
 
         private var buffer = Data()
         public private(set) var framesParsed: Int = 0
@@ -99,7 +122,6 @@ public enum IBWire {
             guard buffer.count >= total else { return nil }
 
             // Strip the 4-byte length header.
-            let header = buffer.prefix(4)
             buffer.removeFirst(4)
 
             let kindByte = buffer[buffer.startIndex]
@@ -107,12 +129,28 @@ public enum IBWire {
             let payload = buffer.prefix(Int(length) - 1)
             buffer.removeFirst(Int(length) - 1)
 
-            _ = header // silence unused warning
             return Frame(
                 kind: Kind(rawValue: kindByte) ?? .video,
                 payload: Data(payload)
             )
         }
+    }
+
+    // MARK: - Decoded event helpers
+
+    /// Decode a `.touch` frame's payload into a `TouchEvent`.
+    public static func decodeTouch(_ frame: Frame) throws -> TouchEvent {
+        try JSONDecoder().decode(TouchEvent.self, from: frame.payload)
+    }
+
+    /// Decode a `.key` frame's payload into a `KeyEvent`.
+    public static func decodeKey(_ frame: Frame) throws -> KeyEvent {
+        try JSONDecoder().decode(KeyEvent.self, from: frame.payload)
+    }
+
+    /// Decode an `.audio` frame's payload into an `AudioPacket`.
+    public static func decodeAudio(_ frame: Frame) throws -> AudioPacket {
+        try JSONDecoder().decode(AudioPacket.self, from: frame.payload)
     }
 }
 
