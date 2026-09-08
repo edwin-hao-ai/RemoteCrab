@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>iBridge — Skeuomorphic Cinema</title>
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --surface: #1A1A1C;
+    --surface-2: #232328;
+    --metal: linear-gradient(180deg, #2A2A2E 0%, #1A1A1C 50%, #141416 100%);
+    --metal-hl: linear-gradient(180deg, #3A3A3E 0%, #2A2A2E 50%, #1A1A1C 100%);
+    --dial: radial-gradient(circle at 30% 30%, #3A3A3E, #141416);
+    --border: #2C2C2E;
+    --border-strong: #38383A;
+    --text: #FFFFFF;
+    --text-2: rgba(255,255,255,0.62);
+    --text-3: rgba(255,255,255,0.32);
+    --accent: #FF9500;
+    --success: #34C759;
+    --rec: #FF3B30;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: #050505;
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+
+  .page { max-width: 1280px; margin: 0 auto; padding: 64px 48px 96px; }
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 56px;
+  }
+  .page-header h1 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-2);
+  }
+  .page-header h1 span { color: var(--text); margin-left: 12px; }
+  .page-header .meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    letter-spacing: 0.04em;
+  }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  .devices {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 64px;
+    margin-bottom: 96px;
+    align-items: start;
+    justify-items: center;
+  }
+  .device { display: flex; flex-direction: column; align-items: center; gap: 24px; }
+  .device-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+  .device-name span { color: var(--accent); margin-left: 8px; }
+
+  /* iPhone — Cinema body */
+  .iphone {
+    width: 320px;
+    height: 660px;
+    background: var(--metal);
+    border-radius: 48px;
+    padding: 12px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06),
+      0 30px 80px rgba(0,0,0,0.8),
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      inset 0 -1px 0 rgba(0,0,0,0.5);
+  }
+  .iphone-screen {
+    width: 100%; height: 100%;
+    background: #000;
+    border-radius: 36px;
+    overflow: hidden;
+    position: relative;
+  }
+  .dynamic-island {
+    position: absolute;
+    top: 11px; left: 50%;
+    transform: translateX(-50%);
+    width: 100px; height: 28px;
+    background: #000; border-radius: 18px;
+    z-index: 100;
+  }
+
+  .mac-window {
+    width: 360px;
+    background: var(--metal);
+    border-radius: 14px;
+    box-shadow:
+      0 24px 60px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+  }
+  .mac-titlebar {
+    height: 38px;
+    background: var(--metal);
+    border-bottom: 1px solid #000;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 8px;
+    position: relative;
+  }
+  .traffic { display: flex; gap: 8px; }
+  .traffic span {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), inset 0 -1px 0 rgba(0,0,0,0.3);
+  }
+  .traffic span:nth-child(1) { background: #FF5F57; }
+  .traffic span:nth-child(2) { background: #FEBC2E; }
+  .traffic span:nth-child(3) { background: #28C840; }
+  .mac-titlebar .title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: var(--text-2);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* Status pill — metallic */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px;
+    background: var(--metal);
+    border-radius: 100px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    border: 1px solid #000;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .pill .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 6px var(--success), inset 0 1px 0 rgba(255,255,255,0.4);
+  }
+  .pill .ms { color: var(--text-2); }
+
+  /* Camera viewfinder */
+  .camera-screen { background: #000; }
+  .viewfinder {
+    flex: 1;
+    position: relative;
+    background:
+      radial-gradient(ellipse at 30% 30%, rgba(255,149,0,0.4), transparent 60%),
+      radial-gradient(ellipse at 70% 80%, rgba(120,40,80,0.3), transparent 60%),
+      linear-gradient(135deg, #141414, #1A1418);
+    overflow: hidden;
+  }
+  .vf-overlay {
+    position: absolute;
+    inset: 0;
+    padding: 56px 22px 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .vf-top, .vf-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+  .vf-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.6;
+    text-align: right;
+  }
+  .vf-meta .key { color: rgba(255,255,255,0.4); }
+  .vf-meta .val { color: #fff; font-weight: 600; }
+
+  /* Cinema-style dial */
+  .dial {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: var(--dial);
+    position: relative;
+    box-shadow:
+      inset 0 2px 4px rgba(0,0,0,0.5),
+      inset 0 -1px 0 rgba(255,255,255,0.05),
+      0 2px 4px rgba(0,0,0,0.5);
+    border: 1px solid #000;
+  }
+  .dial::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #2A2A2E, #141416);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .dial::after {
+    content: '';
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    width: 2px; height: 14px;
+    background: var(--accent);
+    border-radius: 1px;
+    box-shadow: 0 0 4px var(--accent);
+  }
+  .dial-stop {
+    width: 84px; height: 84px;
+    border-radius: 50%;
+    background: var(--metal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+      inset 0 2px 4px rgba(0,0,0,0.5),
+      inset 0 -1px 0 rgba(255,255,255,0.05),
+      0 4px 12px rgba(0,0,0,0.6);
+    border: 1px solid #000;
+  }
+  .dial-stop-inner {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, #FF5F57, #B81E0F);
+    box-shadow:
+      inset 0 2px 4px rgba(255,255,255,0.2),
+      inset 0 -2px 4px rgba(0,0,0,0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dial-stop-inner::after {
+    content: '';
+    width: 22px; height: 22px;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #fff, #E0E0E0);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+  }
+
+  /* Slider — cinema style */
+  .slider {
+    position: relative;
+    width: 100%;
+    height: 24px;
+    background: var(--metal);
+    border-radius: 12px;
+    border: 1px solid #000;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.5), inset 0 -1px 0 rgba(255,255,255,0.04);
+  }
+  .slider-fill {
+    position: absolute;
+    top: 3px; left: 3px;
+    height: calc(100% - 6px);
+    width: 60%;
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    border-radius: 9px;
+    box-shadow: 0 0 8px rgba(255,149,0,0.4);
+  }
+  .slider-knob {
+    position: absolute;
+    top: -4px;
+    left: calc(60% - 12px);
+    width: 24px; height: 32px;
+    background: var(--metal-hl);
+    border-radius: 6px;
+    border: 1px solid #000;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.1),
+      0 2px 4px rgba(0,0,0,0.5);
+  }
+
+  /* Trackpad — cinema */
+  .trackpad-screen {
+    background: var(--bg);
+    padding: 50px 0 0;
+  }
+  .tp-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 24px;
+    margin-bottom: 24px;
+  }
+  .tp-label .name {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+  }
+  .tp-label .name span { color: var(--accent); margin-left: 6px; }
+  .tp-area {
+    flex: 1;
+    margin: 0 16px;
+    background: var(--metal);
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #000;
+    box-shadow:
+      inset 0 2px 6px rgba(0,0,0,0.6),
+      inset 0 -1px 0 rgba(255,255,255,0.04);
+  }
+  .tp-cursor {
+    position: absolute;
+    top: 45%; left: 62%;
+    transform: translate(-50%, -50%);
+    width: 28px; height: 28px;
+  }
+  .tp-cursor::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    animation: pulse 1.6s ease-out infinite;
+    box-shadow: 0 0 12px var(--accent);
+  }
+  .tp-cursor::after {
+    content: '';
+    position: absolute;
+    inset: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  @keyframes pulse {
+    0% { transform: scale(0.8); opacity: 1; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .tp-modifiers {
+    display: flex;
+    justify-content: space-around;
+    padding: 18px 24px;
+    margin: 16px;
+    background: var(--metal);
+    border-radius: 16px;
+    border: 1px solid #000;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.04),
+      0 1px 2px rgba(0,0,0,0.5);
+  }
+  .tp-mod {
+    width: 44px; height: 32px;
+    background: var(--metal-hl);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--text-2);
+    border: 1px solid #000;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.1),
+      0 1px 0 rgba(0,0,0,0.5);
+  }
+  .tp-mod.active {
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    color: #fff;
+    border-color: #000;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      0 0 12px rgba(255,149,0,0.5);
+  }
+
+  /* Keyboard — cinema */
+  .keyboard-screen {
+    background: var(--bg);
+    padding: 50px 16px 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  .kb-buffer {
+    background: var(--metal);
+    border: 1px solid #000;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    min-height: 56px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-2);
+    display: flex;
+    align-items: center;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .kb-buffer .caret {
+    width: 2px; height: 16px;
+    background: var(--accent);
+    margin-left: 2px;
+    animation: blink 1s infinite;
+    box-shadow: 0 0 6px var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .kb-meta {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    padding: 0 4px;
+  }
+  .kb-rows {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    justify-content: flex-end;
+  }
+  .kb-row { display: flex; gap: 5px; justify-content: center; }
+  .kb-key {
+    flex: 1;
+    height: 40px;
+    background: var(--metal);
+    border: 1px solid #000;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--text);
+    transition: all 0.1s;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.08),
+      0 1px 0 rgba(0,0,0,0.5);
+  }
+  .kb-key.wide { flex: 2; }
+  .kb-key.wider { flex: 3; }
+  .kb-key.special {
+    background: var(--surface-2);
+    color: var(--text-2);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .kb-key.pressed {
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    color: #fff;
+    border-color: #000;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      0 0 12px rgba(255,149,0,0.5);
+    transform: translateY(1px);
+  }
+
+  /* Mac menu — metal */
+  .mac-menu {
+    width: 240px;
+    background: var(--metal-hl);
+    border-radius: 8px;
+    padding: 5px;
+    box-shadow:
+      0 24px 60px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+    border: 1px solid #000;
+  }
+  .mac-menu-item {
+    padding: 6px 12px;
+    border-radius: 5px;
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--text);
+  }
+  .mac-menu-item:hover {
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    color: #fff;
+  }
+  .mac-menu-item .shortcut {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-left: 24px;
+  }
+  .mac-menu-item:hover .shortcut { color: rgba(255,255,255,0.85); }
+  .mac-menu-section {
+    padding: 4px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--text-3);
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mac-menu-divider {
+    height: 1px;
+    background: rgba(0,0,0,0.6);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+    margin: 4px 8px;
+  }
+
+  /* Control panel — metal */
+  .control-panel { width: 360px; }
+  .cp-body { padding: 20px; background: var(--metal); }
+  .cp-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+  .cp-status .name { font-size: 15px; font-weight: 600; }
+  .cp-status .ms {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--success);
+  }
+  .cp-sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-3);
+    margin-bottom: 22px;
+  }
+  .cp-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.6);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .cp-row:last-child { border-bottom: none; }
+  .cp-row .label { font-size: 13px; color: var(--text-2); }
+  .cp-row .value {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text);
+  }
+  /* Toggle — cinema style */
+  .toggle {
+    width: 40px; height: 22px;
+    background: var(--metal);
+    border-radius: 11px;
+    position: relative;
+    border: 1px solid #000;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+  }
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 18px;
+    width: 18px; height: 18px;
+    background: var(--metal-hl);
+    border-radius: 50%;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.1),
+      0 1px 2px rgba(0,0,0,0.5);
+  }
+  .toggle.on::after {
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      0 0 8px rgba(255,149,0,0.4);
+  }
+  .toggle.off::after { left: 2px; }
+  .mic-meter {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 14px;
+  }
+  .mic-meter span {
+    width: 3px;
+    background: linear-gradient(180deg, var(--success), #1F7A3F);
+    border-radius: 1px;
+    box-shadow: 0 0 4px var(--success);
+  }
+  .mic-meter span:nth-child(1) { height: 30%; }
+  .mic-meter span:nth-child(2) { height: 50%; }
+  .mic-meter span:nth-child(3) { height: 70%; }
+  .mic-meter span:nth-child(4) { height: 95%; }
+  .mic-meter span:nth-child(5) { height: 80%; }
+  .mic-meter span:nth-child(6) { height: 60%; }
+  .mic-meter span:nth-child(7) { height: 45%; }
+  .mic-meter span:nth-child(8) { height: 35%; }
+  .mic-meter span:nth-child(9) { height: 25%; }
+  .mic-meter span:nth-child(10) { height: 15%; }
+
+  .device-tabs {
+    display: flex;
+    gap: 6px;
+    background: var(--metal);
+    border: 1px solid #000;
+    border-radius: 100px;
+    padding: 4px;
+    margin-bottom: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .device-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--text-3);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    padding: 6px 12px;
+    border-radius: 100px;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  .device-tabs button.active {
+    background: linear-gradient(180deg, var(--accent), #C77500);
+    color: #fff;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.3),
+      0 1px 4px rgba(0,0,0,0.5);
+  }
+
+  .design-notes {
+    margin-top: 80px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+  }
+  .design-notes h3 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    margin-bottom: 12px;
+  }
+  .design-notes p {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-3);
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="page-header">
+    <h1>iBridge Prototype<span>04 — Skeuomorphic Cinema</span></h1>
+    <div class="meta">METAL GRADIENTS · PHYSICAL DIALS · FILMIC PRO EXTREME</div>
+  </header>
+
+  <div class="section-label">iOS · iPhone + iPad (universal)</div>
+  <div class="devices">
+
+    <div class="device">
+      <div class="device-tabs">
+        <button class="active" onclick="showScreen(this,'iphone-camera','camera')">Camera</button>
+        <button onclick="showScreen(this,'iphone-camera','trackpad')">Trackpad</button>
+        <button onclick="showScreen(this,'iphone-camera','keyboard')">Keyboard</button>
+      </div>
+      <div class="iphone" id="iphone-camera">
+        <div class="dynamic-island"></div>
+        <div class="iphone-screen">
+          <div class="screen active" data-name="camera">
+            <div class="camera-screen" style="display:flex; flex-direction:column; height:100%;">
+              <div class="viewfinder">
+                <div class="vf-overlay">
+                  <div class="vf-top">
+                    <div class="pill"><span class="dot"></span><span style="color:#fff">CONNECTED</span><span class="ms">24ms</span></div>
+                    <div class="vf-meta">
+                      <div><span class="key">RES</span> <span class="val">1080P</span></div>
+                      <div><span class="key">FPS</span> <span class="val">30</span></div>
+                      <div><span class="key">ISO</span> <span class="val">200</span></div>
+                    </div>
+                  </div>
+                  <div class="vf-bottom">
+                    <div style="display:flex; flex-direction:column; gap:14px; align-items:center;">
+                      <div class="dial"></div>
+                      <div style="font-family:var(--mono); font-size:9px; color:var(--text-3); letter-spacing:0.1em;">FOCUS</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:12px; align-items:center;">
+                      <div class="dial-stop"><div class="dial-stop-inner"></div></div>
+                      <div style="font-family:var(--mono); font-size:9px; color:var(--text-3); letter-spacing:0.1em;">STOP</div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:14px; align-items:center;">
+                      <div class="dial"></div>
+                      <div style="font-family:var(--mono); font-size:9px; color:var(--text-3); letter-spacing:0.1em;">EXPOSURE</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="screen" data-name="trackpad">
+            <div class="trackpad-screen" style="display:flex; flex-direction:column; height:100%;">
+              <div class="tp-label">
+                <div class="name">TRACKPAD <span>●</span></div>
+                <div class="name">SENSITIVITY 3/5</div>
+              </div>
+              <div class="tp-area">
+                <div class="tp-cursor"></div>
+              </div>
+              <div class="tp-modifiers">
+                <div class="tp-mod">⌃</div>
+                <div class="tp-mod">⌥</div>
+                <div class="tp-mod active">⌘</div>
+                <div class="tp-mod">⇧</div>
+              </div>
+            </div>
+          </div>
+          <div class="screen" data-name="keyboard">
+            <div class="keyboard-screen">
+              <div class="kb-meta"><span>KEYBOARD · EN</span><span>↑ 12 CHARS</span></div>
+              <div class="kb-buffer">Hello world<span class="caret"></span></div>
+              <div class="kb-rows">
+                <div class="kb-row">
+                  <div class="kb-key">q</div><div class="kb-key">w</div><div class="kb-key">e</div>
+                  <div class="kb-key">r</div><div class="kb-key">t</div><div class="kb-key">y</div>
+                  <div class="kb-key">u</div><div class="kb-key">i</div><div class="kb-key">o</div>
+                  <div class="kb-key">p</div>
+                </div>
+                <div class="kb-row">
+                  <div class="kb-key">a</div><div class="kb-key">s</div><div class="kb-key pressed">d</div>
+                  <div class="kb-key">f</div><div class="kb-key">g</div><div class="kb-key">h</div>
+                  <div class="kb-key">j</div><div class="kb-key">k</div><div class="kb-key">l</div>
+                </div>
+                <div class="kb-row">
+                  <div class="kb-key special">⇧</div>
+                  <div class="kb-key">z</div><div class="kb-key">x</div><div class="kb-key">c</div>
+                  <div class="kb-key">v</div><div class="kb-key">b</div><div class="kb-key">n</div>
+                  <div class="kb-key">m</div>
+                  <div class="kb-key special">⌫</div>
+                </div>
+                <div class="kb-row">
+                  <div class="kb-key special">123</div>
+                  <div class="kb-key special">🌐</div>
+                  <div class="kb-key wider">space</div>
+                  <div class="kb-key special wide">⏎</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="device-name">iOS Capture <span>·</span></div>
+    </div>
+
+    <div class="device">
+      <div class="device-tabs">
+        <button class="active" disabled style="opacity:0.4; cursor:default;">Landscape</button>
+      </div>
+      <div class="iphone" id="iphone-landscape" style="width:520px; height:380px; border-radius:32px;">
+        <div class="iphone-screen" style="border-radius:24px;">
+          <div class="screen active">
+            <div class="camera-screen" style="display:flex; flex-direction:column; height:100%;">
+              <div class="viewfinder" style="flex:1;">
+                <div class="vf-overlay" style="padding:32px 28px 28px;">
+                  <div class="vf-top">
+                    <div class="pill"><span class="dot"></span><span style="color:#fff">CONNECTED</span><span class="ms">24ms</span></div>
+                    <div class="vf-meta">
+                      <div><span class="key">RES</span> <span class="val">1440P</span></div>
+                      <div><span class="key">FPS</span> <span class="val">30</span></div>
+                      <div><span class="key">CODEC</span> <span class="val">H.264</span></div>
+                    </div>
+                  </div>
+                  <div class="vf-bottom" style="display:block;">
+                    <div style="margin-bottom:14px;">
+                      <div style="display:flex; justify-content:space-between; font-family:var(--mono); font-size:9px; color:var(--text-3); letter-spacing:0.1em; margin-bottom:6px;">
+                        <span>BRIGHTNESS</span><span style="color:var(--accent)">+0.3</span>
+                      </div>
+                      <div class="slider"><div class="slider-fill"></div><div class="slider-knob"></div></div>
+                    </div>
+                    <div>
+                      <div style="display:flex; justify-content:space-between; font-family:var(--mono); font-size:9px; color:var(--text-3); letter-spacing:0.1em; margin-bottom:6px;">
+                        <span>SATURATION</span><span style="color:var(--accent)">+0.5</span>
+                      </div>
+                      <div class="slider"><div class="slider-fill" style="width:75%;"></div><div class="slider-knob" style="left:calc(75% - 12px);"></div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="device-name">iPad Capture <span>·</span></div>
+    </div>
+
+    <div class="device">
+      <div class="device-tabs">
+        <button class="active" onclick="showScreen(this,'mac-device','menu')">Menu</button>
+        <button onclick="showScreen(this,'mac-device','panel')">Panel</button>
+      </div>
+      <div id="mac-device" style="position:relative; min-height:380px; display:flex; align-items:flex-start; justify-content:center; padding-top:60px;">
+        <div class="screen active" data-name="menu">
+          <div class="mac-menu">
+            <div class="mac-menu-section"><span style="width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success);"></span>CONNECTED · 24ms</div>
+            <div class="mac-menu-divider"></div>
+            <div class="mac-menu-item">iPhone 15 Pro<span class="shortcut">1080P · 30</span></div>
+            <div class="mac-menu-item">Camera<span class="shortcut">⌃⌘C</span></div>
+            <div class="mac-menu-item">Microphone<span class="shortcut">⌃⌘M</span></div>
+            <div class="mac-menu-divider"></div>
+            <div class="mac-menu-item">Settings…<span class="shortcut">⌘,</span></div>
+            <div class="mac-menu-item">Quit iBridge<span class="shortcut">⌘Q</span></div>
+          </div>
+        </div>
+        <div class="screen" data-name="panel" style="width:100%; display:none;">
+          <div class="mac-window control-panel">
+            <div class="mac-titlebar">
+              <div class="traffic"><span></span><span></span><span></span></div>
+              <div class="title">iBridge</div>
+            </div>
+            <div class="cp-body">
+              <div class="cp-status">
+                <div class="name">iPhone 15 Pro</div>
+                <div class="ms">● 24ms</div>
+              </div>
+              <div class="cp-sub">CONNECTED · 192.168.1.42 · WiFi 5G</div>
+              <div class="cp-row"><div class="label">Camera</div><div class="toggle on"></div></div>
+              <div class="cp-row"><div class="label">Microphone</div><div class="toggle on"></div></div>
+              <div class="cp-row">
+                <div class="label">Mic Level</div>
+                <div class="mic-meter">
+                  <span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span>
+                </div>
+              </div>
+              <div class="cp-row"><div class="label">Resolution</div><div class="value">1080P · 30FPS</div></div>
+              <div class="cp-row"><div class="label">Latency</div><div class="value">24 ms</div></div>
+              <div class="cp-row"><div class="label">Bitrate</div><div class="value">3.2 Mbps</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="device-name">macOS Receiver <span>·</span></div>
+    </div>
+  </div>
+
+  <div class="design-notes">
+    <div>
+      <h3>Visual Language</h3>
+      <p>Real-world physical controls — metal gradients, inset/outset shadows that mimic machined aluminum, glowing indicator lights. Inspired by Blackmagic Camera, Filmic Pro, ARRI cinema cameras, and Things 3's skeuomorphic golden era. The accent is warm orange (like cinema equipment LEDs).</p>
+    </div>
+    <div>
+      <h3>Target User</h3>
+      <p>Cinematographers, filmmakers, video professionals who appreciate tactile aesthetics. People who like Filmic Pro, Blackmagic Camera, ProCam. Anyone who feels "skeuomorphism" is the most premium aesthetic.</p>
+    </div>
+    <div>
+      <h3>Trade-offs</h3>
+      <p>Polarizing — some users love this (it feels rich, crafted, intentional), others find it dated. Higher implementation cost (gradients, shadows, layers). Doesn't fit "modern flat" trends. But: instantly distinctive.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  function showScreen(btn, containerId, name) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const screens = container.querySelectorAll('.screen');
+    screens.forEach(s => {
+      if (s.dataset.name === name) s.classList.add('active');
+      else s.classList.remove('active');
+    });
+    const tabs = btn.parentElement.querySelectorAll('button');
+    tabs.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+</script>
+</body>
+</html>

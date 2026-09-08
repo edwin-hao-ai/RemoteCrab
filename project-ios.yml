@@ -1,0 +1,69 @@
+name: iBridgeCapture
+options:
+  bundleIdPrefix: com.ibridge
+  deploymentTarget:
+    iOS: "26.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.2"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+
+packages:
+  iBridgeCore:
+    path: iBridgeCore
+
+targets:
+  iBridgeCapture:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: iBridgeCapture
+        excludes:
+          - "Info.plist"
+    resources: []
+    dependencies:
+      - package: iBridgeCore
+        product: iBridgeCore
+    info:
+      path: iBridgeCapture/Info.plist
+      properties:
+        CFBundleDisplayName: iBridge
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageName: ""
+        UIRequiredDeviceCapabilities:
+          - armv7
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        NSCameraUsageDescription: iBridge turns your iPhone into a WiFi camera for your Mac.
+        NSMicrophoneUsageDescription: iBridge streams your iPhone microphone to your Mac.
+        NSLocalNetworkUsageDescription: iBridge discovers your Mac on the local WiFi network.
+        NSBonjourServices:
+          - _ibridge._tcp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeCapture
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MACCATALYST: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES

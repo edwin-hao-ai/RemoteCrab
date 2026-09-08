@@ -19,3 +19,18 @@ target
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# Swift / Xcode
+.DS_Store
+build/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+
+# iBridgeCore Swift Package
+iBridgeCore/.build/
+iBridgeCore/Package.resolved
