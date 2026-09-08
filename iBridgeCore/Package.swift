@@ -17,6 +17,11 @@ let package = Package(
         .target(
             name: "iBridgeCore",
             path: "Sources/iBridgeCore"
+        ),
+        .testTarget(
+            name: "iBridgeCoreTests",
+            dependencies: ["iBridgeCore"],
+            path: "Tests/iBridgeCoreTests"
         )
     ]
 )

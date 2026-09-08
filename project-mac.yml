@@ -52,3 +52,26 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: iBridgeReceiver/iBridgeReceiver.entitlements
+
+  # Camera Extension target — present as a stub. The full project setup
+  # for system extensions requires additional steps documented in RUN.md.
+  iBridgeCameraExtension:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: iBridgeCameraExtension/Sources
+    info:
+      path: iBridgeCameraExtension/Info.plist
+      properties:
+        CFBundleDisplayName: iBridge Camera
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.cmioextension-provider
+          NSExtensionPrincipalClass: CameraExtensionProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
+        INFOPLIST_FILE: iBridgeCameraExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iBridgeCameraExtension/CameraExtension.entitlements

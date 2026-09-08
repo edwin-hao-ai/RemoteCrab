@@ -120,12 +120,19 @@ public enum IBWire {
 
 extension Data {
     mutating func appendUInt32BE(_ value: UInt32) {
-        var be = value.bigEndian
-        Swift.withUnsafeBytes(of: &be) { self.append(contentsOf: $0) }
+        // Write byte-by-byte to avoid alignment issues.
+        self.append(UInt8((value >> 24) & 0xFF))
+        self.append(UInt8((value >> 16) & 0xFF))
+        self.append(UInt8((value >> 8) & 0xFF))
+        self.append(UInt8(value & 0xFF))
     }
 
     func readUInt32BE(at offset: Int) -> UInt32 {
-        let slice = self[self.startIndex.advanced(by: offset)..<self.startIndex.advanced(by: offset + 4)]
-        return slice.withUnsafeBytes { $0.load(as: UInt32.self) }.bigEndian
+        // Read byte-by-byte to avoid alignment traps on misaligned buffers.
+        let b0 = UInt32(self[self.startIndex.advanced(by: offset)])
+        let b1 = UInt32(self[self.startIndex.advanced(by: offset + 1)])
+        let b2 = UInt32(self[self.startIndex.advanced(by: offset + 2)])
+        let b3 = UInt32(self[self.startIndex.advanced(by: offset + 3)])
+        return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
     }
 }
