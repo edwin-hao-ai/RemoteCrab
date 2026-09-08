@@ -75,12 +75,6 @@ final class BonjourEndToEndTests: XCTestCase {
         connection.send(content: packet,
                         completion: .contentProcessed { _ in sendDone.fulfill() })
 
-        // Poll the parser until we have all the frames.
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) {
-            let parsed = collector.parser.append(Data())
-            let allFrames = collector.allFrames + parsed
-            if allFrames.count >= 4 { receivedExpect.fulfill() }
-        }
         // Poll the collector in a tight background queue until it has all frames.
         let pollQueue = DispatchQueue(label: "com.ibridge.test.poll")
         let poller = Poller(interval: 0.05, queue: pollQueue, shouldStop: { [weak collector] in

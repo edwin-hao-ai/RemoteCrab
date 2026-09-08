@@ -18,7 +18,7 @@ public protocol InputInjector: AnyObject {
 /// Records every input event for inspection in tests. Lives in
 /// `iBridgeCore` so the e2e tests don't need a macOS-specific test
 /// target.
-public final class RecordingInputInjector: InputInjector {
+public final class RecordingInputInjector: InputInjector, @unchecked Sendable {
 
     public struct RecordedTouch: Equatable {
         public let phase: TouchEvent.Phase

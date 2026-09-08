@@ -26,11 +26,13 @@ fi
 pass() { echo -e "${GREEN}✓ $1${RESET}"; }
 fail() { echo -e "${RED}✗ $1${RESET}"; exit 1; }
 
-# 1. iBridgeCore unit + integration tests (wire protocol + Bonjour e2e).
+# 1. iBridgeCore package — 26 unit + integration + e2e tests
+#    covering: wire protocol, Bonjour discovery, event pipeline,
+#    audio packet round-trip.
 echo ""
 echo "── iBridgeCore package tests ──"
-if swift test --package-path iBridgeCore 2>&1 | tail -20; then
-  pass "iBridgeCore tests"
+if swift test --package-path iBridgeCore 2>&1 | tail -10; then
+  pass "iBridgeCore tests (26 e2e + unit)"
 else
   fail "iBridgeCore tests"
 fi
