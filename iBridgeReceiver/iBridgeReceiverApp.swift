@@ -6,7 +6,7 @@ struct iBridgeReceiverApp: App {
     @StateObject private var session = ReceiverSession()
 
     var body: some Scene {
-        // Main preview window — hidden by default, shown from the menu bar.
+        // Preview window — full live feed.
         Window("iBridge Preview", id: "preview") {
             PreviewWindow()
                 .environmentObject(session)
@@ -15,20 +15,25 @@ struct iBridgeReceiverApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 800, height: 600)
 
-        // Floating control panel that can stay above other windows.
-        Window("iBridge Controls", id: "controls") {
+        // Floating control panel.
+        Window("iBridge Control Panel", id: "controls") {
             ControlPanelView()
                 .environmentObject(session)
-                .frame(width: 320, height: 380)
+                .frame(width: 380, height: 580)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.bottomTrailing)
+        .windowStyle(.hiddenTitleBar)
 
-        // Menu bar icon + dropdown.
+        // Menu bar popover — the polished V0.2 design.
         MenuBarExtra {
-            MenuBarMenu(session: session)
+            MenuBarMenu()
+                .environmentObject(session)
+                .frame(width: 320)
         } label: {
-            MenuBarIcon(state: session.state)
+            MenuBarIcon()
+                .environmentObject(session)
+                .frame(width: 22, height: 18)
         }
         .menuBarExtraStyle(.window)
     }
