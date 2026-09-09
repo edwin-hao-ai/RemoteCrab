@@ -28,12 +28,20 @@ public struct IBPrimaryButton: View {
     public init(
         style: Style = .stream,
         size: CGFloat = 72,
+        accessibilityLabel: String? = nil,
+        accessibilityHint: String? = nil,
         onTap: @escaping () -> Void = {}
     ) {
         self.style = style
         self.size = size
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityHint = accessibilityHint
         self.onTap = onTap
     }
+
+
+    private let accessibilityLabel: String?
+    private let accessibilityHint: String?
 
     public var body: some View {
         Button(action: onTap) {
@@ -56,6 +64,8 @@ public struct IBPrimaryButton: View {
             .animation(IBAnimation.snappy, value: isPressed)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel ?? defaultLabel)
+        .accessibilityHint(accessibilityHint ?? defaultHint)
         .onAppear {
             guard style == .stream else { return }
             withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
@@ -67,6 +77,22 @@ public struct IBPrimaryButton: View {
                 .onChanged { _ in isPressed = true }
                 .onEnded { _ in isPressed = false }
         )
+    }
+
+    private var defaultLabel: String {
+        switch style {
+        case .stream: return "Start streaming"
+        case .stop:   return "Stop streaming"
+        case .accent: return "Action"
+        }
+    }
+
+    private var defaultHint: String {
+        switch style {
+        case .stream: return "Toggles the iPhone camera feed on or off"
+        case .stop:   return "Toggles the iPhone camera feed on or off"
+        case .accent: return ""
+        }
     }
 
     @ViewBuilder

@@ -74,13 +74,13 @@ struct OnboardingFlow: View {
                 Button("Skip") { hasSeenOnboarding = true }
                     .font(IBFont.bodyMedium)
                     .foregroundStyle(.white.opacity(0.6))
-                Spacer()
-                Button {
-                    advance()
-                } label: {
-                    HStack(spacing: 6) {
-                        Text("Continue")
-                            .font(IBFont.bodyMedium.weight(.semibold))
+            Spacer()
+            Button {
+                advance()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(IBLocale.Onboarding.nextBtn)
+                        .font(IBFont.bodyMedium.weight(.semibold))
                         Image(systemName: "arrow.right")
                             .font(.system(size: 14, weight: .semibold))
                     }

@@ -47,7 +47,18 @@ public struct IBModifierBar: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(accessibilityLabel(for: modifier))
+                .accessibilityValue(activeModifiers.contains(modifier) ? "On" : "Off")
             }
+        }
+    }
+
+    private func accessibilityLabel(for modifier: Modifier) -> String {
+        switch modifier {
+        case .control: return "Control key"
+        case .option:  return "Option key"
+        case .command: return "Command key"
+        case .shift:   return "Shift key"
         }
     }
 

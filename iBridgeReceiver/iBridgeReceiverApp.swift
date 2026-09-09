@@ -41,6 +41,12 @@ struct iBridgeReceiverApp: App {
         .defaultPosition(.bottomTrailing)
         .windowStyle(.hiddenTitleBar)
 
+        // Standard macOS Settings scene (⌘,) — General / Streaming / About
+        Settings {
+            PreferencesView()
+                .environmentObject(session)
+        }
+
         // Menu bar popover.
         MenuBarExtra {
             MenuBarMenu()

@@ -188,6 +188,9 @@ private struct TouchpadCaptureSurface: UIViewRepresentable {
                 isPressed = pressed
             }
         }
+        view.isAccessibilityElement = true
+        view.accessibilityLabel = "Trackpad surface. Touch and drag to move the Mac cursor."
+        view.accessibilityTraits = .allowsDirectInteraction
         return view
     }
 

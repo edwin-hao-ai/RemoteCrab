@@ -4,6 +4,7 @@ import iBridgeCore
 struct ContentView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @State private var showConnectionSheet = false
+    @State private var showSettings = false
     @State private var micEnabled = false
     @State private var mode: Mode = .camera
 
@@ -29,6 +30,11 @@ struct ContentView: View {
         .sheet(isPresented: $showConnectionSheet) {
             ConnectionSheet(engine: engine)
                 .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showSettings) {
+            IOSSettingsView()
+                .environmentObject(engine)
+                .presentationDetents([.large])
         }
         .onChange(of: micEnabled) { _, new in
             engine.setMicrophoneEnabled(new)
@@ -67,6 +73,23 @@ struct ContentView: View {
                     }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Connection info")
+            .accessibilityHint("Shows the Mac you're connected to, resolution, and bitrate")
+
+            Button {
+                showSettings = true
+            } label: {
+                Image(systemName: "gear")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(IBSpace.s.pt + 2)
+                    .background {
+                        IBMaterial.bar(in: Circle())
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Video resolution, frame rate, microphone, and trackpad settings")
         }
     }
 
@@ -123,8 +146,11 @@ struct ContentView: View {
                 IBPrimaryButton(style: engine.isStreaming ? .stop : .stream) {
                     Task { await engine.toggleStreaming() }
                 }
+                .accessibilityLabel(engine.isStreaming ? "Stop streaming" : "Start streaming")
+                .accessibilityHint("Turns the iPhone camera feed on or off")
                 if engine.isStreaming {
                     micToggle
+                        .accessibilityLabel(micEnabled ? "Microphone is on. Tap to turn off." : "Microphone is off. Tap to turn on.")
                 }
             }
             Spacer()

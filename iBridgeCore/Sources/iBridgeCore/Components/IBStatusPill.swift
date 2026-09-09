@@ -49,6 +49,13 @@ public struct IBStatusPill: View {
         self.status = status
     }
 
+    private var accessibilityLabel: String {
+        if let ms = status.ms {
+            return "Connection \(status.label), latency \(ms) milliseconds"
+        }
+        return "Connection \(status.label)"
+    }
+
     @SwiftUI.State private var pulseScale: CGFloat = 1.0
 
     public var body: some View {
@@ -63,6 +70,7 @@ public struct IBStatusPill: View {
                         .opacity(status.isPulsing ? 0 : 1)
                 }
                 .shadow(color: status.dotColor.opacity(0.6), radius: 4, x: 0, y: 0)
+                .accessibilityHidden(true)
 
             Text(status.label)
                 .font(IBFont.eyebrowMono)
@@ -80,6 +88,8 @@ public struct IBStatusPill: View {
         .background {
             IBMaterial.bar(in: Capsule())
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityLabel)
         .onAppear {
             guard status.isPulsing else { return }
             withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) {
