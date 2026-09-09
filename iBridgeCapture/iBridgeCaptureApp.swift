@@ -6,11 +6,10 @@ struct iBridgeCaptureApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
                 .environmentObject(engine)
                 .preferredColorScheme(.dark)
                 .statusBarHidden()
-                .task { await engine.startIfNeeded() }
         }
     }
 }
