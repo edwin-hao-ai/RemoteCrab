@@ -1,7 +1,3 @@
-import AVFoundation
-import CoreMedia
-import CoreMediaIO
-import CoreVideo
 import Foundation
 import VideoToolbox
 import iBridgeCore
@@ -21,21 +17,30 @@ import iBridgeCore
 ///      extensions cannot be ad-hoc signed.
 ///   3. macOS user approval in **System Settings → Privacy & Security**
 ///      after first launch.
-public final class CameraExtensionBridge: @unchecked Sendable {
+public final class CameraExtensionBridge {
 
-    private let stream: CameraExtensionStream
-    private let queue = DispatchQueue(label: "com.ibridge.camera-bridge")
-
-    public init(stream: CameraExtensionStream) {
-        self.stream = stream
-    }
+    public init() {}
 
     /// Hand a freshly decoded H.264 NAL unit to the extension.
     /// The extension owns its own `VTDecompressionSession` and will
     /// produce a `CVPixelBuffer` for the next system frame pull.
+    ///
+    /// Implementation note: in V0.2 this is a stub that just logs the
+    /// payload size. Wiring it up requires an `NSXPCConnection` to
+    /// the system extension's exported `IBridgeStreamSink` object.
     public func feed(nalUnit: Data, kind: IBNalFrame.Kind) {
-        queue.async { [stream] in
-            stream.receive(nalUnit: nalUnit, kind: kind)
+        // STUB: see iBridgeCameraExtension/CameraExtensionStream.swift
+        // for the receiver-side of this bridge.
+        let label: String
+        switch kind {
+        case .sps:   label = "SPS"
+        case .pps:   label = "PPS"
+        case .video: label = "Video"
+        default:     label = "Other"
         }
+        // Real implementation:
+        //   let conn = NSXPCConnection(serviceName: "com.ibridge.camera-bridge")
+        //   conn.remoteObjectProxy.feed(nalUnit: nalUnit, kind: kind)
+        _ = label
     }
 }

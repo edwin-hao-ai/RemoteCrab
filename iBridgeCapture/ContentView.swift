@@ -5,23 +5,24 @@ struct ContentView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @State private var showConnectionSheet = false
     @State private var micEnabled = false
-    @State private var keyboardText = ""
     @State private var mode: Mode = .camera
 
-    enum Mode { case camera, touch, type }
+    enum Mode: String, CaseIterable, Hashable {
+        case camera = "Camera"
+        case touch  = "Trackpad"
+        case type   = "Keyboard"
+    }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            // Mode surface (camera preview / touchpad / keyboard).
             modeSurface
-                .ignoresSafeArea(edges: mode == .camera ? .all : .bottom)
 
             VStack {
                 topBar
                 Spacer()
-                modeBar
+                bottomBar
             }
             .padding(IBSpace.l.pt)
         }
@@ -29,8 +30,8 @@ struct ContentView: View {
             ConnectionSheet(engine: engine)
                 .presentationDetents([.medium])
         }
-        .onChange(of: micEnabled) { _, newValue in
-            engine.setMicrophoneEnabled(newValue)
+        .onChange(of: micEnabled) { _, new in
+            engine.setMicrophoneEnabled(new)
         }
     }
 
@@ -39,35 +40,26 @@ struct ContentView: View {
         switch mode {
         case .camera:
             CameraPreview(session: engine.captureSession)
+                .ignoresSafeArea()
         case .touch:
-            TouchpadView { event in
-                engine.sendTouch(event)
-            }
+            TouchpadScreen()
         case .type:
-            VStack(spacing: 0) {
-                Spacer()
-                KeyboardView(onEvent: { event in
-                    engine.sendKey(event)
-                }, text: $keyboardText)
-                .frame(height: 60)
-                .padding(.horizontal)
-                .padding(.bottom, 80)
-            }
+            KeyboardScreen()
         }
     }
 
     // MARK: - Top bar
 
     private var topBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             IBStatusPill(status: pillStatus)
             Spacer()
-            modeTabs
+            modeSelector
             Button {
                 showConnectionSheet = true
             } label: {
                 Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white)
                     .padding(IBSpace.s.pt + 2)
                     .background {
@@ -78,29 +70,40 @@ struct ContentView: View {
         }
     }
 
-    private var modeTabs: some View {
-        HStack(spacing: 6) {
-            ForEach([Mode.camera, .touch, .type], id: \.self) { m in
+    private var modeSelector: some View {
+        HStack(spacing: 2) {
+            ForEach(Mode.allCases, id: \.self) { m in
                 Button {
-                    mode = m
+                    withAnimation(IBAnimation.snappy) { mode = m }
                 } label: {
-                    Image(systemName: iconName(for: m))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(mode == m ? .white : .white.opacity(0.55))
-                        .frame(width: 32, height: 32)
-                        .background {
-                            if mode == m {
-                                IBMaterial.bar(in: Circle())
-                            }
+                    HStack(spacing: 5) {
+                        Image(systemName: symbolName(for: m))
+                            .font(.system(size: 11, weight: .medium))
+                        Text(m.rawValue)
+                            .font(IBFont.eyebrowMono)
+                            .ibEyebrowTracking()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .foregroundStyle(mode == m ? .white : .white.opacity(0.6))
+                    .background {
+                        if mode == m {
+                            Capsule()
+                                .fill(Color.accentColor)
+                        } else {
+                            Capsule()
+                                .fill(.white.opacity(0.08))
+                                .overlay(Capsule().strokeBorder(.white.opacity(0.10)))
                         }
+                    }
                 }
                 .buttonStyle(.plain)
             }
         }
     }
 
-    private func iconName(for m: Mode) -> String {
-        switch m {
+    private func symbolName(for mode: Mode) -> String {
+        switch mode {
         case .camera: return "camera.fill"
         case .touch:  return "hand.point.up.left.fill"
         case .type:   return "keyboard"
@@ -109,13 +112,13 @@ struct ContentView: View {
 
     // MARK: - Bottom bar
 
-    private var modeBar: some View {
+    private var bottomBar: some View {
         HStack {
             Spacer()
             VStack(spacing: IBSpace.s.pt) {
-                Text(modeLabel)
+                Text(mode.rawValue.uppercased())
                     .font(IBFont.eyebrowMono)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(.white.opacity(0.7))
                     .ibEyebrowTracking()
                 IBPrimaryButton(style: engine.isStreaming ? .stop : .stream) {
                     Task { await engine.toggleStreaming() }
@@ -138,21 +141,13 @@ struct ContentView: View {
             }
             .font(IBFont.monoMedium)
             .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .background {
                 IBMaterial.bar(in: Capsule())
             }
         }
         .buttonStyle(.plain)
-    }
-
-    private var modeLabel: String {
-        switch mode {
-        case .camera: return "CAMERA"
-        case .touch:  return "TRACKPAD"
-        case .type:   return "KEYBOARD"
-        }
     }
 
     private var pillStatus: IBStatusPill.Status {
