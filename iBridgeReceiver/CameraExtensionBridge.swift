@@ -7,7 +7,8 @@ import iBridgeCore
 /// processes share one definition.
 ///
 /// Owns either:
-///   • a real `NSXPCConnection` to `iBridgeCameraExtension.appex`
+///   • a real `NSXPCConnection` to
+///     `com.ibridge.iBridgeReceiver.Camera.systemextension`
 ///     (production path with code signing), or
 ///   • a direct in-process sink (simulator + dev path).
 public final class CameraExtensionBridge: @unchecked Sendable {
@@ -15,8 +16,11 @@ public final class CameraExtensionBridge: @unchecked Sendable {
     // MARK: - Mode selection
 
     public enum Mode: Equatable {
-        /// In-process mode: the bridge feeds the host's `ControlPanelView`
-        /// preview window directly. Works without code signing.
+        /// In-process mode: fallback tombstone for when the XPC
+        /// connection is unreachable (extension not installed yet or
+        /// crashed). The sink becomes a no-op until the bridge
+        /// reconnects; preview frames in the host UI flow via
+        /// `decoder.onDecoded`, not through this bridge.
         case inProcess
 
         /// XPC mode: the bridge hands frames to a real
@@ -34,6 +38,14 @@ public final class CameraExtensionBridge: @unchecked Sendable {
     private let sinkQueue = DispatchQueue(label: "com.ibridge.camera-bridge.sink")
     private let xpcQueue = DispatchQueue(label: "com.ibridge.camera-bridge.xpc")
 
+    /// When true (set by `start` in XPC mode, cleared by `stop`), a
+    /// dropped XPC connection is retried every 5 seconds.
+    private var shouldReconnect = false
+
+    /// Mach service name of the extension, kept so a dropped XPC
+    /// connection can be re-established.
+    private var xpcServiceName: String?
+
     /// Latest decoded format description from the iPhone stream. Used
     /// so the XPC side knows what format description to build.
     public private(set) var lastWidth: Int = 1920
@@ -50,8 +62,9 @@ public final class CameraExtensionBridge: @unchecked Sendable {
     // MARK: - Connection management
 
     /// Start the bridge. In XPC mode, this sets up an
-    /// `NSXPCConnection` and validates the connection. In in-process
-    /// mode, it just stores the sink for direct calls.
+    /// `NSXPCConnection` and keeps retrying every 5 seconds if it
+    /// drops (until `stop()` is called). In in-process mode, it just
+    /// stores the sink for direct calls.
     public func start(sink: IBridgeFrameSink) async throws {
         self.sink = sink
         switch mode {
@@ -59,14 +72,26 @@ public final class CameraExtensionBridge: @unchecked Sendable {
             // Nothing to set up — direct calls into `sink`.
             return
         case .xpc(let machServiceName):
-            try await connectXPC(serviceName: machServiceName)
+            xpcServiceName = machServiceName
+            shouldReconnect = true
+            attemptConnect(serviceName: machServiceName)
         }
     }
 
     public func stop() {
+        shouldReconnect = false
         sink?.stop()
         connection?.invalidate()
         connection = nil
+    }
+
+    /// Called when the iPhone stream ends (connection failed or
+    /// cancelled). Notifies the sink so the extension can stop its
+    /// stream; does NOT tear down the XPC connection.
+    public func streamStopped() {
+        sinkQueue.async { [weak self] in
+            self?.sink?.stop()
+        }
     }
 
     // MARK: - Public API used by the receiver
@@ -102,7 +127,19 @@ public final class CameraExtensionBridge: @unchecked Sendable {
 
     // MARK: - XPC wiring
 
-    private func connectXPC(serviceName: String) async throws {
+    /// (Re)establish the XPC connection to the extension. Any previous
+    /// connection is invalidated first so we never hold two live
+    /// connections to the same service.
+    private func attemptConnect(serviceName: String) {
+        if let old = connection {
+            // Clear handlers so invalidating the old connection doesn't
+            // schedule a duplicate reconnect.
+            old.invalidationHandler = nil
+            old.interruptionHandler = nil
+            old.invalidate()
+            connection = nil
+        }
+
         let connection = NSXPCConnection(serviceName: serviceName)
         connection.remoteObjectInterface = NSXPCInterface(with: IBridgeFrameSink.self)
         connection.exportedInterface = NSXPCInterface(with: IBridgeFrameSource.self)
@@ -114,22 +151,37 @@ public final class CameraExtensionBridge: @unchecked Sendable {
         source.nameProvider = { [weak self] in self?.lastDeviceName }
         connection.exportedObject = source
         connection.invalidationHandler = { [weak self] in
-            self?.mode = .inProcess
+            self?.handleConnectionDrop()
         }
         connection.interruptionHandler = { [weak self] in
-            self?.mode = .inProcess
+            self?.handleConnectionDrop()
         }
         connection.resume()
 
         guard let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
-            self?.mode = .inProcess
+            self?.handleConnectionDrop()
         }) as? IBridgeFrameSink else {
             connection.invalidate()
-            throw CameraExtensionError.badProxy
+            handleConnectionDrop()
+            return
         }
         self.connection = connection
         self.sink = proxy
+        self.mode = .xpc(machServiceName: serviceName)
         proxy.setFormat(width: lastWidth, height: lastHeight, fps: lastFPS)
+    }
+
+    /// The XPC connection dropped (interruption, invalidation, or a
+    /// remote-proxy error). Fall back to the in-process tombstone and,
+    /// unless `stop()` was called, try again in 5 seconds — the
+    /// extension may simply have started after the host.
+    private func handleConnectionDrop() {
+        mode = .inProcess
+        guard shouldReconnect, let serviceName = xpcServiceName else { return }
+        xpcQueue.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self, self.shouldReconnect else { return }
+            self.attemptConnect(serviceName: serviceName)
+        }
     }
 }
 

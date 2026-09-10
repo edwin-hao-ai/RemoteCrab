@@ -102,17 +102,11 @@ cd /Users/edwinhao/iBridge
 1. 真签构建（team 5XNDF727Y6，xcodegen 后
    `xcodebuild -scheme iBridgeReceiver -configuration Debug -allowProvisioningUpdates clean build`；
    必须 clean —— 增量 build 出过 adhoc 签名产物，sysextd 会拒绝）
-2. **打包修正（当前仓库代码的已知缺口，修复前每次部署都要做）**：
-   - 把嵌入的 `Contents/Library/SystemExtensions/iBridgeCameraExtension.systemextension`
-     重命名为 `com.ibridge.iBridgeReceiver.Camera.systemextension`
-     （sysextd 要求 .systemextension 文件名去后缀 == extension bundle id）
-   - 把该 bundle 的 `Contents/Info.plist` 的 `CFBundlePackageType`
-     从 `XPC!` 改成 `SYSX`（CMIO 系统扩展的类别判定靠它）
-   - 重签 extension + host（同一 Apple Development 证书 + 原 entitlements，
-     `--generate-entitlement-der --timestamp=none`），
-     `codesign --verify --deep --strict` 通过
-   - 仓库侧的正解（未做，Task 6 遗留）：project-mac.yml 里
-     `CFBundlePackageType: "SYSX"` + `PRODUCT_NAME: com.ibridge.iBridgeReceiver.Camera`
+2. ~~手动打包修正~~（已废弃）：自 51c5e30 起，新构建直接嵌入命名正确的
+   `com.ibridge.iBridgeReceiver.Camera.systemextension`，且
+   `CFBundlePackageType` 已是 `SYSX`，无需任何手动修补。
+   此前的重命名 + `plutil -replace CFBundlePackageType` + 重签步骤
+   只是 51c5e30 之前的临时 workaround。
 3. `cp -R` 到 `/Applications/iBridgeReceiver.app`，`open -a` 启动
    （host 必须在 /Applications 里运行）
 4. 启动时 `SystemExtensionManager` 自动提交

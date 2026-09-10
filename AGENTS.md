@@ -89,7 +89,7 @@ iBridge/
 │   ├── BonjourBrowser.swift      # NWBrowser wrapper
 │   ├── ControlPanelView.swift    # floating control panel
 │   ├── PreviewWindow.swift       # live preview window
-│   ├── CameraExtensionBridge.swift  # stub: host→extension XPC bridge
+│   ├── CameraExtensionBridge.swift  # host→extension XPC bridge
 │   ├── SystemExtensionManager.swift # OSSystemExtensionRequest activation for the CMIO sysex
 │   ├── Input/CGEventInjector.swift   # real CGEventPost injector
 │   ├── Input/InputInjector.swift    # protocol + RecordingInputInjector
@@ -331,7 +331,7 @@ doesn't render Liquid Glass correctly in headless mode.
 ### How the Camera Extension XPC bridge works
 A real `CMIOExtension` is **the** hardest part of this project. It
 needs:
-- A separate `app-extension` target compiled into the host app
+- A separate `system-extension` target compiled into the host app
 - Real XPC connection between the host (Receiver) and the extension
 - Code signing that survives the extension's separate sandbox
 - Apple's specific video-buffer-delivery callbacks
@@ -339,7 +339,7 @@ needs:
 The bridge is wired end to end:
 1. Host: `ReceiverSession` forwards H.264 NAL units to
    `CameraExtensionBridge`, which pushes them over XPC
-2. XPC: Mach service `com.ibridge.iBridgeReceiver.Camera`; the
+2. XPC: Mach service `5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames`; the
    extension-side `NSXPCListener` lives in `XPCFrameListener.swift`
 3. Extension: `ExtensionFrameSink` receives each NAL and feeds
    `CameraExtensionStream` / `StreamDecoder` (VideoToolbox), which

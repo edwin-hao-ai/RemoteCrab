@@ -38,7 +38,7 @@ targets:
         codeSign: true
       - target: iBridgeAudioExtension
         embed: true
-        codeSignOnCopy: true
+        codeSign: true
     info:
       path: iBridgeReceiver/Info.plist
       properties:
@@ -75,7 +75,7 @@ targets:
   # an "Embed System Extensions" copy-files phase (xcodegen emits it
   # automatically for a `system-extension` dependency with
   # `embed: true`). The CMIOExtensionMachServiceName lives in the
-  # target's hand-maintained Info.plist, not here.
+  # target's `info.properties` below — this yml is the source of truth.
   iBridgeCameraExtension:
     type: system-extension
     platform: macOS

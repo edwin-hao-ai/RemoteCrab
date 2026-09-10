@@ -131,11 +131,13 @@ final class ReceiverSession: ObservableObject {
             state = .error("\(error)")
             featureState = nil
             connection = nil
+            cameraBridge.streamStopped()
         case .cancelled:
             stopPingLoop()
             state = .searching
             featureState = nil
             connection = nil
+            cameraBridge.streamStopped()
         default:
             break
         }
