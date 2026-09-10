@@ -1,4 +1,5 @@
 import SwiftUI
+import ApplicationServices
 import iBridgeCore
 
 @main
@@ -16,6 +17,15 @@ struct iBridgeReceiverApp: App {
         iBridgeAUInstanceProvider.makeInstance = unit
         return unit
     }()
+
+    init() {
+        // Trigger the system permission dialog for Accessibility so
+        // iBridgeReceiver shows up in the user's Accessibility list.
+        let opts: NSDictionary = [
+            "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
+        ]
+        _ = AXIsProcessTrustedWithOptions(opts)
+    }
 
     var body: some Scene {
         // First-launch / minimal "running" view.

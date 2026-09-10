@@ -1,0 +1,148 @@
+<h2>哪个「连接器」概念最打动你？</h2>
+<p class="subtitle">iBridge = 把 iPhone 的相机 / 麦克风 / 触控板 / 键盘桥接给 Mac。四个方向都围绕「连接」，点击卡片选一个（选定后会精修配色和细节）</p>
+
+<style>
+  .icon-card-preview {
+    width: 100%; aspect-ratio: 1; border-radius: 22%; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  .icon-card-preview svg { width: 100%; height: 100%; display: block; }
+  .icon-name { font-weight: 600; }
+  .icon-desc { font-size: 13px; opacity: .75; line-height: 1.5; }
+  .small-size-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .small-size-row svg { border-radius: 22%; box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+</style>
+
+<div class="cards">
+
+  <!-- A: 信号桥 -->
+  <div class="card" data-choice="bridge-arcs" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="icon-card-preview">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <linearGradient id="bgA" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#16213E"/>
+              <stop offset="1" stop-color="#0F3460"/>
+            </linearGradient>
+          </defs>
+          <rect width="200" height="200" fill="url(#bgA)"/>
+          <!-- 桥弧：三道同心弧横跨两个设备 -->
+          <path d="M 45 118 A 55 55 0 0 1 155 118" fill="none" stroke="#4CC9F0" stroke-width="9" stroke-linecap="round" opacity=".45"/>
+          <path d="M 60 118 A 40 40 0 0 1 140 118" fill="none" stroke="#4CC9F0" stroke-width="9" stroke-linecap="round" opacity=".7"/>
+          <path d="M 75 118 A 25 25 0 0 1 125 118" fill="none" stroke="#4CC9F0" stroke-width="9" stroke-linecap="round"/>
+          <!-- 左：iPhone 竖圆角矩形 -->
+          <rect x="34" y="118" width="26" height="46" rx="8" fill="#fff"/>
+          <rect x="43" y="124" width="8" height="3" rx="1.5" fill="#16213E"/>
+          <!-- 右：Mac 横圆角矩形 -->
+          <rect x="140" y="126" width="30" height="38" rx="8" fill="#fff"/>
+          <rect x="149" y="132" width="12" height="3" rx="1.5" fill="#16213E"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3 class="icon-name">A · 信号桥</h3>
+      <p class="icon-desc">三道信号弧像一座桥，两端是手机剪影和 Mac 剪影。最直白地讲出「无线桥接两台设备」。故事性最强。</p>
+    </div>
+  </div>
+
+  <!-- B: 双环相扣 -->
+  <div class="card" data-choice="linked-devices" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="icon-card-preview">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <linearGradient id="bgB" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#0A84FF"/>
+              <stop offset="1" stop-color="#5E5CE6"/>
+            </linearGradient>
+          </defs>
+          <rect width="200" height="200" fill="url(#bgB)"/>
+          <!-- 竖环（iPhone）与横环（Mac）相扣 -->
+          <!-- 横环先画（在下层） -->
+          <rect x="96" y="76" width="72" height="52" rx="16" fill="none" stroke="#fff" stroke-width="11"/>
+          <!-- 竖环：中间留两个缺口形成"穿过"效果 -->
+          <path d="M 96 92 L 96 68 A 16 16 0 0 0 64 52 L 48 52 A 16 16 0 0 0 32 68 L 32 132 A 16 16 0 0 0 48 148 L 64 148 A 16 16 0 0 0 80 132 L 80 108"
+                fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round" transform="translate(16,0)"/>
+          <!-- 横环上的缺口：竖环穿过处盖住 -->
+          <rect x="94" y="66" width="13" height="24" fill="url(#bgB)"/>
+          <rect x="94" y="112" width="13" height="24" fill="url(#bgB)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3 class="icon-name">B · 双环相扣</h3>
+      <p class="icon-desc">一个竖环（iPhone）一个横环（Mac）像链环一样扣在一起。最「连接器」的概念，抽象、耐看，小尺寸也清晰。</p>
+    </div>
+  </div>
+
+  <!-- C: 光圈信号 -->
+  <div class="card" data-choice="aperture-signal" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="icon-card-preview">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <linearGradient id="bgC" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#1C1C1E"/>
+              <stop offset="1" stop-color="#3A3A3C"/>
+            </linearGradient>
+          </defs>
+          <rect width="200" height="200" fill="url(#bgC)"/>
+          <!-- 光圈：外环 + 6 片叶片 -->
+          <circle cx="92" cy="108" r="42" fill="none" stroke="#fff" stroke-width="8"/>
+          <g stroke="#fff" stroke-width="7" stroke-linecap="round">
+            <line x1="92" y1="90" x2="92" y2="70"/>
+            <line x1="108" y1="99" x2="123" y2="87"/>
+            <line x1="108" y1="117" x2="123" y2="129"/>
+            <line x1="92" y1="126" x2="92" y2="146"/>
+            <line x1="76" y1="117" x2="61" y2="129"/>
+            <line x1="76" y1="99" x2="61" y2="87"/>
+          </g>
+          <circle cx="92" cy="108" r="14" fill="#0A84FF"/>
+          <!-- 右上角信号波 -->
+          <path d="M 128 62 A 18 18 0 0 1 146 80" fill="none" stroke="#4CC9F0" stroke-width="8" stroke-linecap="round"/>
+          <path d="M 128 42 A 38 38 0 0 1 166 80" fill="none" stroke="#4CC9F0" stroke-width="8" stroke-linecap="round" opacity=".55"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3 class="icon-name">C · 光圈信号</h3>
+      <p class="icon-desc">相机光圈 + 右上角辐射的信号波。主打最强的功能（摄像头），信号波暗示无线传输。摄影类 App 用户一眼懂。</p>
+    </div>
+  </div>
+
+  <!-- D: 一笔连桥 -->
+  <div class="card" data-choice="single-stroke" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="icon-card-preview">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <linearGradient id="bgD" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#073B4C"/>
+              <stop offset="1" stop-color="#118AB2"/>
+            </linearGradient>
+            <linearGradient id="strokeD" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#fff"/>
+              <stop offset="1" stop-color="#7BDFF2"/>
+            </linearGradient>
+          </defs>
+          <rect width="200" height="200" fill="url(#bgD)"/>
+          <!-- 一条连续的线：从左点出发，起伏成桥拱，落到右点 -->
+          <path d="M 45 130 C 45 130 70 62 100 62 C 130 62 155 130 155 130"
+                fill="none" stroke="url(#strokeD)" stroke-width="11" stroke-linecap="round"/>
+          <circle cx="45" cy="130" r="12" fill="#fff"/>
+          <circle cx="155" cy="130" r="12" fill="#fff"/>
+          <!-- 桥拱顶部一个小相机点 -->
+          <circle cx="100" cy="62" r="7" fill="#FFD166"/>
+        </svg>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3 class="icon-name">D · 一笔连桥</h3>
+      <p class="icon-desc">一条线连起两个端点（iPhone 和 Mac），中间拱起成桥，桥顶一点是相机。最极简、最现代，像一条数据线弯成的桥。</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:24px">四个方向都不是终稿 —— 选定概念后我会精修比例、配色和小尺寸可读性，再生成全套 iOS 尺寸。也可以在终端直接告诉我你的想法（比如「A 的桥 + B 的颜色」）。</p>

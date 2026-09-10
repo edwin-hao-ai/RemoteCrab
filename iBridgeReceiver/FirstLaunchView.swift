@@ -39,16 +39,6 @@ struct FirstLaunchView: View {
                         .foregroundStyle(.white)
                 }
 
-                Text("iBridge")
-                    .font(.system(size: 36, weight: .semibold, design: .default))
-                    .foregroundStyle(.white)
-                    .padding(.top, 24)
-
-                Text("Mac receiver")
-                    .font(IBFont.eyebrowMono)
-                    .foregroundStyle(.white.opacity(0.55))
-                    .ibEyebrowTracking()
-
                 Spacer().frame(height: 32)
 
                 // Explanation card
