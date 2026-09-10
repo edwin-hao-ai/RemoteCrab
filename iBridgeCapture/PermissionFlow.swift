@@ -1,5 +1,6 @@
 import AVFoundation
 import Network
+import Speech
 import SwiftUI
 import iBridgeCore
 
@@ -16,13 +17,14 @@ struct PermissionFlow: View {
     @State private var results: [Stage: PermissionResult] = [:]
 
     enum Stage: String, CaseIterable, Identifiable {
-        case camera, microphone, localNetwork
+        case camera, microphone, speech, localNetwork
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .camera:        return "Camera Access"
             case .microphone:    return "Microphone Access"
+            case .speech:        return "Speech Recognition"
             case .localNetwork:  return "Local Network Access"
             }
         }
@@ -31,6 +33,7 @@ struct PermissionFlow: View {
             switch self {
             case .camera:        return "camera.fill"
             case .microphone:    return "mic.fill"
+            case .speech:        return "waveform"
             case .localNetwork:  return "wifi"
             }
         }
@@ -41,6 +44,8 @@ struct PermissionFlow: View {
                 return "iBridge turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
             case .microphone:
                 return "iBridge can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
+            case .speech:
+                return "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature."
             case .localNetwork:
                 return "iBridge uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
             }
@@ -98,6 +103,8 @@ struct PermissionFlow: View {
             result = await requestCamera()
         case .microphone:
             result = await requestMicrophone()
+        case .speech:
+            result = await requestSpeech()
         case .localNetwork:
             result = await requestLocalNetwork()
         }
@@ -149,6 +156,21 @@ struct PermissionFlow: View {
             return await withCheckedContinuation { cont in
                 AVCaptureDevice.requestAccess(for: .audio) { ok in
                     cont.resume(returning: ok ? .granted : .denied)
+                }
+            }
+        @unknown default: return .denied
+        }
+    }
+
+    private func requestSpeech() async -> PermissionResult {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .authorized: return .granted
+        case .denied, .restricted: return .denied
+        case .notDetermined:
+            return await withCheckedContinuation { cont in
+                SFSpeechRecognizer.requestAuthorization { auth in
+                    cont.resume(returning: auth == .authorized ? .granted : .denied)
                 }
             }
         @unknown default: return .denied
