@@ -49,6 +49,25 @@ public final class CGEventInjector: InputInjector {
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseDown, at: lastCursor)
             post(type: .leftMouseUp, at: lastCursor)
+        case .dragStart:
+            moveCursor(to: CGPoint(x: absX, y: absY))
+            post(type: .leftMouseDown, at: lastCursor)
+        case .threeFingerTap:
+            moveCursor(to: CGPoint(x: absX, y: absY))
+            let down = CGEvent(mouseEventSource: nil, mouseType: .otherMouseDown,
+                               mouseCursorPosition: lastCursor, mouseButton: .center)
+            down?.post(tap: .cghidEventTap)
+            let up = CGEvent(mouseEventSource: nil, mouseType: .otherMouseUp,
+                             mouseCursorPosition: lastCursor, mouseButton: .center)
+            up?.post(tap: .cghidEventTap)
+        case .forceClick:
+            moveCursor(to: CGPoint(x: absX, y: absY))
+            post(type: .rightMouseDown, at: lastCursor)
+            post(type: .rightMouseUp, at: lastCursor)
+        case .pinch, .threeFingerSwipe:
+            // System-level gestures (zoom / Mission Control) have no
+            // simple CGEvent equivalent; ignored for now.
+            break
         }
     }
 

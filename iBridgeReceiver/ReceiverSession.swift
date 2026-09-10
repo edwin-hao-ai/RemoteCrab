@@ -169,6 +169,9 @@ final class ReceiverSession: ObservableObject {
                 if let packet = try? IBWire.decodeAudio(frame) {
                     audioPlayer.consume(packet)
                 }
+            case .featureControl, .featureState, .ping:
+                // Mac → iPhone control / state frames; consumed by later tasks.
+                break
             }
         }
 
