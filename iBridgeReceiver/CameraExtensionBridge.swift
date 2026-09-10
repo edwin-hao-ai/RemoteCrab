@@ -10,7 +10,7 @@ import iBridgeCore
 ///   • a real `NSXPCConnection` to `iBridgeCameraExtension.appex`
 ///     (production path with code signing), or
 ///   • a direct in-process sink (simulator + dev path).
-public final class CameraExtensionBridge {
+public final class CameraExtensionBridge: @unchecked Sendable {
 
     // MARK: - Mode selection
 
@@ -39,6 +39,9 @@ public final class CameraExtensionBridge {
     public private(set) var lastWidth: Int = 1920
     public private(set) var lastHeight: Int = 1080
     public private(set) var lastFPS: Int = 30
+
+    /// Name of the connected iPhone, mirrored from stream metadata.
+    public private(set) var lastDeviceName: String?
 
     public init(mode: Mode) {
         self.mode = mode
@@ -80,6 +83,14 @@ public final class CameraExtensionBridge {
         }
     }
 
+    /// Called when stream metadata arrives so the extension can label
+    /// the camera after the connected iPhone.
+    public func updateDeviceName(_ name: String) {
+        sinkQueue.async { [weak self] in
+            self?.lastDeviceName = name
+        }
+    }
+
     /// Push a single decoded NAL unit into the extension / preview.
     /// `kind`: 1 = video, 2 = SPS, 3 = PPS (IBNalFrame.Kind raw values).
     public func feed(nalUnit: Data, kind: Int) {
@@ -95,11 +106,13 @@ public final class CameraExtensionBridge {
         let connection = NSXPCConnection(serviceName: serviceName)
         connection.remoteObjectInterface = NSXPCInterface(with: IBridgeFrameSink.self)
         connection.exportedInterface = NSXPCInterface(with: IBridgeFrameSource.self)
-        connection.exportedObject = HostSourceProvider { [weak self] in
+        let source = HostSourceProvider { [weak self] in
             (width: self?.lastWidth ?? 0,
              height: self?.lastHeight ?? 0,
              fps: self?.lastFPS ?? 0)
         }
+        source.nameProvider = { [weak self] in self?.lastDeviceName }
+        connection.exportedObject = source
         connection.invalidationHandler = { [weak self] in
             self?.mode = .inProcess
         }
@@ -126,6 +139,7 @@ public final class CameraExtensionBridge {
 /// ask about the current stream config.
 final class HostSourceProvider: NSObject, IBridgeFrameSource, @unchecked Sendable {
     let dimensionsProvider: () -> (width: Int, height: Int, fps: Int)
+    var nameProvider: () -> String? = { nil }
 
     init(dimensionsProvider: @escaping () -> (width: Int, height: Int, fps: Int)) {
         self.dimensionsProvider = dimensionsProvider
@@ -141,9 +155,16 @@ final class HostSourceProvider: NSObject, IBridgeFrameSource, @unchecked Sendabl
     }
 
     func deviceName() -> String? {
-        // Future: look up the connected iPhone's name.
-        nil
+        nameProvider()
     }
+}
+
+/// No-op sink used as a placeholder while the XPC connection is being
+/// established (or after it falls back to in-process mode).
+final class NullFrameSink: NSObject, IBridgeFrameSink {
+    func feed(nalUnit data: Data, kind: Int) {}
+    func setFormat(width: Int, height: Int, fps: Int) {}
+    func stop() {}
 }
 
 // MARK: - Errors

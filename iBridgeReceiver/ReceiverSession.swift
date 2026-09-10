@@ -30,6 +30,12 @@ final class ReceiverSession: ObservableObject {
     let decoder = H264Decoder()
     let parser = IBWire.Parser()
 
+    /// Feeds a copy of every inbound NAL to the camera extension.
+    /// Falls back to a no-op when the extension isn't reachable.
+    let cameraBridge = CameraExtensionBridge(
+        mode: .xpc(machServiceName: IBridgeCameraXPC.machServiceName)
+    )
+
     /// Where `TouchEvent` / `KeyEvent` get posted. Defaults to a no-op
     /// mock; the host wires up a real `CGEventInjector` (or a recording
     /// one in tests).
@@ -46,6 +52,9 @@ final class ReceiverSession: ObservableObject {
             Task { @MainActor in
                 self?.latestFrame = image
             }
+        }
+        Task { [cameraBridge] in
+            try? await cameraBridge.start(sink: NullFrameSink())
         }
         audioPlayer.start()
     }
@@ -141,10 +150,13 @@ final class ReceiverSession: ObservableObject {
                 handleMetadata(frame.payload)
             case .sps:
                 decoder.feedSPS(frame.payload)
+                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.sps.rawValue))
             case .pps:
                 decoder.feedPPS(frame.payload)
+                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.pps.rawValue))
             case .video:
                 decoder.feedVideo(frame.payload)
+                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.video.rawValue))
             case .touch:
                 if let event = try? IBWire.decodeTouch(frame) {
                     inputInjector.inject(touch: event, screenSize: screenSize)
@@ -172,6 +184,14 @@ final class ReceiverSession: ObservableObject {
             metadata = decoded
             if let sps = decoded.sps { decoder.feedSPS(sps) }
             if let pps = decoded.pps { decoder.feedPPS(pps) }
+            cameraBridge.updateFormat(width: decoded.width, height: decoded.height, fps: decoded.fps)
+            cameraBridge.updateDeviceName(decoded.deviceName)
+            if let sps = decoded.sps {
+                cameraBridge.feed(nalUnit: sps, kind: Int(IBNalFrame.Kind.sps.rawValue))
+            }
+            if let pps = decoded.pps {
+                cameraBridge.feed(nalUnit: pps, kind: Int(IBNalFrame.Kind.pps.rawValue))
+            }
         } catch {
             print("[iBridge] metadata decode failed: \(error)")
         }
