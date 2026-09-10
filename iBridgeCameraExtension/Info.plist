@@ -20,10 +20,12 @@
 	<string>0.2</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>NSExtension</key>
+	<key>CMIOExtension</key>
 	<dict>
-		<key>NSExtensionPointIdentifier</key>
-		<string>com.apple.cmioextension-provider</string>
+		<key>CMIOExtensionMachServiceName</key>
+		<string>5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera</string>
 	</dict>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>iBridge uses your iPhone as a camera for this Mac.</string>
 </dict>
 </plist>

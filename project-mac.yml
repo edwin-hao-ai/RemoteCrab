@@ -35,7 +35,7 @@ targets:
         product: iBridgeCore
       - target: iBridgeCameraExtension
         embed: true
-        codeSignOnCopy: true
+        codeSign: true
       - target: iBridgeAudioExtension
         embed: true
         codeSignOnCopy: true
@@ -52,6 +52,12 @@ targets:
         NSBonjourServices:
           - _ibridge._tcp
         NSMicrophoneUsageDescription: iBridge uses your Mac microphone for audio routing when the iPhone mic is unavailable.
+        NSSystemExtensionUsageDescription: iBridge installs a camera extension so other apps can use your iPhone as a webcam.
+        # xcodegen rewrites Info.plist from these properties alone —
+        # keep CFBundleLocalizations here or regeneration drops it.
+        CFBundleLocalizations:
+          - en
+          - zh-Hans
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver
@@ -63,11 +69,15 @@ targets:
         DEVELOPMENT_TEAM: "5XNDF727Y6"
 
   # Camera Extension target — exposes iBridge as a virtual webcam
-  # via CoreMediaIO (CMIO). When wired into the host via
-  # "Embed App Extensions", other Mac apps can pick "iBridge Camera"
-  # as their video input.
+  # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM
+  # extensions: this target builds as a .systemextension and is
+  # embedded into Contents/Library/SystemExtensions of the host via
+  # an "Embed System Extensions" copy-files phase (xcodegen emits it
+  # automatically for a `system-extension` dependency with
+  # `embed: true`). The CMIOExtensionMachServiceName lives in the
+  # target's hand-maintained Info.plist, not here.
   iBridgeCameraExtension:
-    type: app-extension
+    type: system-extension
     platform: macOS
     deploymentTarget: "26.0"
     sources:
@@ -81,8 +91,10 @@ targets:
         CFBundleDisplayName: iBridge Camera
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.cmioextension-provider
+        CFBundlePackageType: "XPC!"
+        CMIOExtension:
+          CMIOExtensionMachServiceName: 5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera
+        NSSystemExtensionUsageDescription: iBridge uses your iPhone as a camera for this Mac.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera

@@ -37,7 +37,10 @@ import Foundation
 /// Shared constants for the camera-extension XPC channel.
 public enum IBridgeCameraXPC {
     /// Mach service name the extension's `NSXPCListener` registers.
-    /// Matches the camera extension's bundle identifier.
-    public static let machServiceName = "com.ibridge.iBridgeReceiver.Camera"
+    /// Team-ID-prefixed because a system extension's sandbox can only
+    /// register team-prefixed mach services (and a sandboxed host can
+    /// only look those up). The `.frames` suffix keeps it distinct from
+    /// the CMIOExtensionMachServiceName in the extension's Info.plist.
+    public static let machServiceName = "5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames"
 }
 #endif

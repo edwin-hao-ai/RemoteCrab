@@ -12,5 +12,11 @@
     <true/>
     <key>com.apple.security.device.microphone</key>
     <true/>
+    <key>com.apple.developer.system-extension.install</key>
+    <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>5XNDF727Y6.com.ibridge</string>
+    </array>
 </dict>
 </plist>

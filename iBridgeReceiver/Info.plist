@@ -4,11 +4,6 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>en</string>
-		<string>zh-Hans</string>
-	</array>
 	<key>CFBundleDisplayName</key>
 	<string>iBridge</string>
 	<key>CFBundleExecutable</key>
@@ -17,6 +12,11 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -39,5 +39,7 @@
 	<string>iBridge discovers your iPhone on the local WiFi network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>iBridge uses your Mac microphone for audio routing when the iPhone mic is unavailable.</string>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>iBridge installs a camera extension so other apps can use your iPhone as a webcam.</string>
 </dict>
 </plist>
