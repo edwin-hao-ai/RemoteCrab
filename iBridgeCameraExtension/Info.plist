@@ -24,8 +24,6 @@
 	<dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.cmioextension-provider</string>
-		<key>NSExtensionPrincipalClass</key>
-		<string>CameraExtensionProvider</string>
 	</dict>
 </dict>
 </plist>

@@ -15,12 +15,8 @@ private let logger = Logger(subsystem: "com.ibridge", category: "CameraExtension
 /// frames from the connected iPhone.
 final class CameraExtensionProvider: NSObject {
 
-    /// Registered by the host (iBridgeReceiver) when a new iPhone is
-    /// accepted on the network. The provider hands incoming NAL frames
-    /// to the `stream` via this sink.
-    weak var frameSink: iBridgeFrameSink?
-
     private let deviceSource: CameraExtensionDevice
+    private let xpcListener: XPCFrameListener
 
     /// The live CMIO provider object handed to
     /// `CMIOExtensionProvider.startService(provider:)`.
@@ -28,6 +24,7 @@ final class CameraExtensionProvider: NSObject {
 
     override init() {
         self.deviceSource = CameraExtensionDevice()
+        self.xpcListener = XPCFrameListener(stream: deviceSource.streamSource)
         super.init()
         provider = CMIOExtensionProvider(source: self, clientQueue: nil)
         do {
@@ -35,15 +32,8 @@ final class CameraExtensionProvider: NSObject {
         } catch {
             logger.error("failed to add device: \(error.localizedDescription)")
         }
+        xpcListener.start()
     }
-}
-
-/// Protocol used by `CameraExtensionStream` to receive raw H.264 NAL
-/// frames coming from the iPhone over the network. The host
-/// (iBridgeReceiver) provides a concrete implementation.
-protocol iBridgeFrameSink: AnyObject {
-    /// Pull the next decoded video frame as a `CVPixelBuffer`.
-    func consumeNextPixelBuffer() -> Unmanaged<CMSampleBuffer>?
 }
 
 // MARK: - CMIOExtensionProviderSource

@@ -83,7 +83,6 @@ targets:
         CFBundleVersion: "1"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.cmioextension-provider
-          NSExtensionPrincipalClass: CameraExtensionProvider
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera

@@ -52,6 +52,12 @@ final class CameraExtensionStream: NSObject {
         )
     }
 
+    /// Release buffered frames. Called when the host disconnects or
+    /// the stream format changes.
+    func reset() {
+        decoder.reset()
+    }
+
     /// Fallback format advertised until the first SPS/PPS arrives from
     /// the iPhone: 1080p BGRA, matching the capture pipeline.
     private static func defaultFormatDescription() -> CMVideoFormatDescription {
@@ -149,6 +155,13 @@ final class StreamDecoder: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard !pixelBuffers.isEmpty else { return nil }
         return pixelBuffers.removeFirst()
+    }
+
+    func reset() {
+        lock.lock()
+        pixelBuffers.removeAll()
+        lastBuffer = nil
+        lock.unlock()
     }
 
     func makeSampleBuffer(from pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
