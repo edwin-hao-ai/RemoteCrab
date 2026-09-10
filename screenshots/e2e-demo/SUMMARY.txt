@@ -1,0 +1,19 @@
+iBridge simulator e2e demo
+═══════════════════════════
+
+Simulator:  0EA997E8-16AE-4C20-9974-33628087E7E8
+Bundle:     /Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphonesimulator/iBridgeCapture.app
+
+Screenshot: /Users/edwinhao/iBridge/screenshots/e2e-demo/01_sim_launched.png
+
+This proves the iOS side launches and renders its UI on the simulator.
+
+To complete the full e2e (real iPhone → real Mac streaming):
+  1. Open iBridgeReceiver.xcodeproj in Xcode and Run on My Mac.
+  2. Both devices on same WiFi — Bonjour discovers.
+  3. Tap the big button on iPhone to start streaming.
+  4. Live preview appears on Mac within ~1s.
+
+For a self-contained, no-hardware validation of the receive pipeline:
+    swiftc -parse-as-library -o /tmp/e2e scripts/e2e_receiver_demo.swift
+    /tmp/e2e /tmp/ibridge-e2e 30
