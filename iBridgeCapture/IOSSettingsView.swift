@@ -13,6 +13,8 @@ struct IOSSettingsView: View {
     @AppStorage("ibridge.ios.frameRate")    private var frameRate: Int = 30
     @AppStorage("ibridge.ios.trackpadSens")  private var trackpadSens: Int = 3
     @AppStorage("ibridge.ios.keepScreenOn") private var keepScreenOn: Bool = true
+    @AppStorage("ibridge.ios.labAirMouse")   private var labAirMouse = false
+    @AppStorage("ibridge.ios.labWheelScroll") private var labWheelScroll = false
 
     var body: some View {
         NavigationStack {
@@ -20,6 +22,7 @@ struct IOSSettingsView: View {
                 connectionSection
                 videoSection
                 inputSection
+                labsSection
                 aboutSection
             }
             .navigationTitle(IBLocale.Settings.title)
@@ -125,6 +128,19 @@ struct IOSSettingsView: View {
             Text("Input")
         } footer: {
             Text("Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3.")
+        }
+    }
+
+    private var labsSection: some View {
+        Section {
+            Toggle("Air mouse", isOn: $labAirMouse)
+                .accessibilityHint("Hold the floating button on the trackpad and tilt your iPhone to move the cursor")
+            Toggle("Wheel scrolling", isOn: $labWheelScroll)
+                .accessibilityHint("Hold the edge button on the trackpad and draw circles to scroll")
+        } header: {
+            Text("Labs")
+        } footer: {
+            Text("Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll.")
         }
     }
 

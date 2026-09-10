@@ -1,3 +1,4 @@
+import CoreMotion
 import QuartzCore
 import SwiftUI
 import UIKit
@@ -22,6 +23,33 @@ final class TouchSurfaceUIView: UIView {
     var sensitivity: Int = 3
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
+
+    /// Labs: gyro air mouse. Bridged from @AppStorage by the host.
+    var airMouseEnabled: Bool = false
+    /// Labs: circular wheel scrolling. Bridged from @AppStorage by the host.
+    var wheelScrollEnabled: Bool = false
+
+    /// Set by the host while its floating air-mouse button is held.
+    /// Starts/stops device-motion updates on change.
+    var airMouseActive: Bool = false {
+        didSet {
+            guard airMouseActive != oldValue else { return }
+            if airMouseActive { startAirMouse() } else { stopAirMouse() }
+        }
+    }
+
+    /// Set by the host while its floating wheel button is held. While
+    /// armed, single-finger touches steer the scroll wheel instead of
+    /// emitting .down/.move.
+    var wheelArmed: Bool = false {
+        didSet {
+            guard wheelArmed != oldValue else { return }
+            singlePan.isEnabled = !wheelArmed
+            wheelOrigin = nil
+            wheelLastAngle = nil
+            wheelAccumulator = 0
+        }
+    }
 
     private static let log = Logger(subsystem: "com.ibridge", category: "touchsurface")
 
@@ -49,6 +77,8 @@ final class TouchSurfaceUIView: UIView {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
             stopMomentum()
+            airMouseActive = false
+            wheelArmed = false
         }
     }
 
@@ -223,6 +253,10 @@ final class TouchSurfaceUIView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
         stopMomentum()
+        if wheelScrollEnabled && wheelArmed, let touch = touches.first {
+            wheelOrigin = touch.location(in: self)
+            wheelLastAngle = nil
+        }
         if primaryTouch == nil, let touch = touches.first {
             primaryTouch = touch
             forceClickFiredThisSequence = false
@@ -231,6 +265,10 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesMoved(touches, with: event)
+        if wheelScrollEnabled && wheelArmed {
+            handleWheelMove(touches)
+            return
+        }
         guard !forceClickFiredThisSequence,
               let primary = primaryTouch,
               touches.contains(primary),
@@ -253,6 +291,85 @@ final class TouchSurfaceUIView: UIView {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
         touchesEnded(touches, with: event)
+    }
+
+    // MARK: - Air mouse (labs)
+
+    private let motionManager = CMMotionManager()
+    /// Attitude captured on the first motion frame after activation;
+    /// subsequent frames emit .move deltas relative to it, so holding
+    /// a tilt keeps the cursor moving (joystick-style rate control).
+    private var referenceAttitude: CMAttitude?
+
+    /// Screen-width fraction of cursor travel per radian of tilt
+    /// (π rad ≈ 0.35 screen widths). Sign/direction to be calibrated
+    /// on a real device (方向待真机校准).
+    private let tiltGain: Float = 0.35 / .pi
+
+    private func startAirMouse() {
+        guard airMouseEnabled, motionManager.isDeviceMotionAvailable else { return }
+        referenceAttitude = nil
+        mediumImpact.impactOccurred()
+        Self.log.debug("air mouse activated")
+        motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
+        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+            guard let self, let motion else { return }
+            let attitude = motion.attitude
+            guard let ref = self.referenceAttitude else {
+                self.referenceAttitude = attitude
+                return
+            }
+            let dx = Float(attitude.roll - ref.roll) * self.tiltGain
+            let dy = Float(attitude.pitch - ref.pitch) * self.tiltGain
+            guard dx != 0 || dy != 0 else { return }
+            self.emit(phase: .move, at: nil, dx: dx, dy: dy)
+        }
+    }
+
+    private func stopAirMouse() {
+        motionManager.stopDeviceMotionUpdates()
+        referenceAttitude = nil
+    }
+
+    // MARK: - Wheel scrolling (labs)
+
+    private var wheelOrigin: CGPoint?
+    private var wheelLastAngle: CGFloat?
+    private var wheelAccumulator: CGFloat = 0
+    /// One scroll tick per 45° of rotation around the hold origin.
+    private let wheelTickAngle: CGFloat = .pi / 4
+    private let wheelTickDelta: Float = 0.02
+    /// Ignore angle samples this close to the origin — atan2 is too
+    /// jittery there to accumulate meaningfully.
+    private let wheelMinRadius: CGFloat = 20
+
+    private func handleWheelMove(_ touches: Set<UITouch>) {
+        guard let origin = wheelOrigin, let touch = touches.first else { return }
+        let p = touch.location(in: self)
+        let dx = p.x - origin.x
+        let dy = p.y - origin.y
+        guard hypot(dx, dy) >= wheelMinRadius else { return }
+        let angle = atan2(dy, dx)
+        defer { wheelLastAngle = angle }
+        guard let last = wheelLastAngle else { return }
+        // Wrap the angular delta to ±π so crossing the ±π seam of
+        // atan2 doesn't emit a full-turn tick.
+        var diff = angle - last
+        while diff > .pi { diff -= 2 * .pi }
+        while diff < -.pi { diff += 2 * .pi }
+        // Screen coordinates (y down): increasing angle = clockwise.
+        // Clockwise positive → dy +0.02 per tick (natural scroll down).
+        wheelAccumulator += diff
+        while wheelAccumulator >= wheelTickAngle {
+            wheelAccumulator -= wheelTickAngle
+            emit(phase: .scroll, at: nil, dy: wheelTickDelta)
+            selectionFeedback.selectionChanged()
+        }
+        while wheelAccumulator <= -wheelTickAngle {
+            wheelAccumulator += wheelTickAngle
+            emit(phase: .scroll, at: nil, dy: -wheelTickDelta)
+            selectionFeedback.selectionChanged()
+        }
     }
 
     // MARK: - Momentum
@@ -384,6 +501,10 @@ struct TouchSurface: UIViewRepresentable {
     var sensitivity: Int = 3
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
+    var airMouseEnabled: Bool = false
+    var wheelScrollEnabled: Bool = false
+    var airMouseActive: Bool = false
+    var wheelArmed: Bool = false
     var onEvent: ((TouchEvent) -> Void)?
     var onTouch: ((CGPoint, Bool) -> Void)?
 
@@ -402,6 +523,10 @@ struct TouchSurface: UIViewRepresentable {
         view.sensitivity = sensitivity
         view.scrollTickHaptics = scrollTickHaptics
         view.clickHaptics = clickHaptics
+        view.airMouseEnabled = airMouseEnabled
+        view.wheelScrollEnabled = wheelScrollEnabled
+        view.airMouseActive = airMouseActive
+        view.wheelArmed = wheelArmed
         view.onEvent = onEvent
         view.onTouch = onTouch
     }

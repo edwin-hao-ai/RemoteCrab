@@ -13,11 +13,15 @@ struct TouchpadScreen: View {
     @AppStorage("ibridge.ios.trackpadSens") private var trackpadSens: Int = 3
     /// Number of times the coach marks have been shown; >= 3 means never again.
     @AppStorage("ibridge.ios.trackpadCoachShown") private var coachShownCount: Int = 0
+    @AppStorage("ibridge.ios.labAirMouse") private var labAirMouse = false
+    @AppStorage("ibridge.ios.labWheelScroll") private var labWheelScroll = false
 
     @State private var modifiers: Set<IBModifierBar.Modifier> = []
     @State private var cursor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @State private var isPressed = false
     @State private var showCoach = false
+    @State private var airMouseActive = false
+    @State private var wheelArmed = false
 
     private static let log = Logger(subsystem: "com.ibridge", category: "trackpad")
 
@@ -53,6 +57,10 @@ struct TouchpadScreen: View {
             TouchSurface(
                 modifierMask: modifierMask,
                 sensitivity: trackpadSens,
+                airMouseEnabled: labAirMouse,
+                wheelScrollEnabled: labWheelScroll,
+                airMouseActive: airMouseActive,
+                wheelArmed: wheelArmed,
                 onEvent: { event in
                     engine.sendTouch(event)
                 },
@@ -74,6 +82,22 @@ struct TouchpadScreen: View {
                         .transition(.opacity)
                 }
                 Spacer()
+                if labWheelScroll || labAirMouse {
+                    HStack {
+                        if labWheelScroll {
+                            labButton(symbol: "dial.low", active: wheelArmed, label: "Wheel scrolling") {
+                                wheelArmed = $0
+                            }
+                        }
+                        Spacer()
+                        if labAirMouse {
+                            labButton(symbol: "gyroscope", active: airMouseActive, label: "Air mouse") {
+                                airMouseActive = $0
+                            }
+                        }
+                    }
+                    .padding(.bottom, 12)
+                }
                 IBModifierBar(activeModifiers: $modifiers)
                     .padding(.bottom, dockClearance)
             }
@@ -120,6 +144,36 @@ struct TouchpadScreen: View {
                 }
             }
         }
+    }
+
+    // MARK: - Labs floating buttons
+
+    /// Press-and-hold lab button. Holds `held` true for the duration of
+    /// the press; the surface reacts to the bridged state.
+    private func labButton(
+        symbol: String,
+        active: Bool,
+        label: String,
+        onHold: @escaping (Bool) -> Void
+    ) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(active ? Color.accentColor : .white.opacity(0.8))
+            .frame(width: 48, height: 48)
+            .background {
+                Circle()
+                    .fill(.black.opacity(0.4))
+                    .overlay(Circle().strokeBorder(.white.opacity(active ? 0.5 : 0.12)))
+            }
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in onHold(true) }
+                    .onEnded { _ in onHold(false) }
+            )
+            .accessibilityLabel(label)
+            .accessibilityHint("Hold to activate")
+            .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     // MARK: - Coach marks
