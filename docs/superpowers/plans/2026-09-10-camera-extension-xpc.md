@@ -323,36 +323,59 @@ git commit -m "Move camera XPC protocols to iBridgeCore, share with extension"
 
 ---
 
-### Task 3: Extension 端 XPC listener（`XPCFrameListener.swift`）
+### Task 3: Extension 端 XPC listener + `startService` 入口
+
+> **本节已在执行时修订**（2026-09-10）：Task 1 把 extension 三个文件重写为真实
+> CMIOExtension SDK API（source 协议模式），原 Task 3 代码引用的旧形状
+> （`device.stream`、`device.isAvailable`、`lastEmitted`、provider 直接继承
+> `CMIOExtensionProvider`）已不存在。本节代码以 Task 1 之后的文件为准。
+> 同时补上 Task 1 review 发现的入口缺失：没有任何地方调用
+> `CMIOExtensionProvider.startService(provider:)`，extension 加载了也不服务。
 
 **Files:**
 - Create: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/XPCFrameListener.swift`
+- Create: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/main.swift`
 - Modify: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionProvider.swift`
 - Modify: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionStream.swift`（加 `reset()`）
+- Modify: `project-mac.yml`（camera ext 去掉 `NSExtensionPrincipalClass`，改由 main.swift 入口）
 
 **Interfaces:**
-- Consumes: Task 2 的 `IBridgeFrameSink` / `IBridgeCameraXPC.machServiceName`；extension 已有的 `CameraExtensionStream.receive(nalUnit: Data, kind: IBNalFrame.Kind)`
+- Consumes: Task 2 的 `IBridgeFrameSink` / `IBridgeFrameSource` / `IBridgeCameraXPC.machServiceName`；extension 已有的 `CameraExtensionStream.receive(nalUnit: Data, kind: IBNalFrame.Kind)` 和 `deviceSource.streamSource`
 - Produces:
-  - `final class XPCFrameListener: NSObject, NSXPCListenerDelegate` — `init(stream:)` / `start()` / `var onHostConnectionChanged: ((Bool) -> Void)?`
-  - `CameraExtensionStream.reset()` — 清空解码缓冲
-  - `CameraExtensionProvider` init 时自动启动 listener，host 连接状态驱动 `device.isAvailable`
+  - `final class XPCFrameListener: NSObject, NSXPCListenerDelegate` — `init(stream: CameraExtensionStream)` / `start()`
+  - `final class ExtensionFrameSink: NSObject, IBridgeFrameSink`（Task 4 的 host 端会远程调用它）
+  - `CameraExtensionStream.reset()` / `StreamDecoder.reset()` — 清空解码缓冲
+  - `main.swift` 入口：`CMIOExtensionProvider.startService(provider:)`
 
-**背景：** extension 的 `CameraExtensionProvider.swift` 里有一个 Swift 协议 `iBridgeFrameSink`（小写 i，第 46-49 行）和 provider 上的 `weak var frameSink`（第 17 行）——**没有任何代码设置或调用它们**，是死代码，本 task 删除，用真正的 XPC 路径替代。extension 的 entitlements 已含 `com.apple.security.network.server`，可以注册 Mach service。
+**背景（三个要点）：**
+
+1. `CameraExtensionProvider.swift` 里有死代码：Swift 协议 `iBridgeFrameSink`
+   （小写 i，第 44-47 行）和 `weak var frameSink`（第 21 行）——没有任何代码
+   设置或调用它们。本 task 删除，用真正的 XPC 路径替代。
+2. **入口缺失**：extension 要真正服务，进程 main 必须调用
+   `CMIOExtensionProvider.startService(provider:)`（Apple 官方 camera
+   extension 模板就是 main.swift 干这件事）。`NSExtensionPrincipalClass`
+   的 beginRequest 路径不适用于 CMIO extension point，从 yml 删掉。
+3. **isAvailable 概念放弃**：真实 CMIO API 里 `CMIOExtensionDevice` 没有
+   isAvailable 属性。host 断开时自然没有帧流出（客户端看到黑帧/定格），
+   这就是 spec 要的"不可用"行为。`authorizedToStartStream` 保持
+   allow-all（spec V0.1 决定）。
+
+extension 的 entitlements 已含 `com.apple.security.network.server`，可以注册 Mach service。
 
 - [ ] **Step 1: 给 `CameraExtensionStream` / `StreamDecoder` 加 `reset()`**
 
 `CameraExtensionStream.swift` 中，`CameraExtensionStream` 类内（`receive(nalUnit:kind:)` 之后）加：
 
 ```swift
-    /// Release buffered frames and stop emitting. Called when the host
-    /// disconnects or the stream format changes.
+    /// Release buffered frames. Called when the host disconnects or
+    /// the stream format changes.
     func reset() {
         decoder.reset()
-        lastEmitted = .distantPast
     }
 ```
 
-`StreamDecoder` 类内加：
+`StreamDecoder` 类内（`dequeuePixelBuffer()` 之后）加：
 
 ```swift
     func reset() {
@@ -381,9 +404,6 @@ final class XPCFrameListener: NSObject, NSXPCListenerDelegate {
     private let stream: CameraExtensionStream
     private let log = Logger(subsystem: "com.ibridge", category: "camera-xpc")
 
-    /// Called when host connectivity changes (true = host connected).
-    var onHostConnectionChanged: ((Bool) -> Void)?
-
     init(stream: CameraExtensionStream) {
         self.stream = stream
         self.listener = NSXPCListener(machServiceName: IBridgeCameraXPC.machServiceName)
@@ -404,14 +424,13 @@ final class XPCFrameListener: NSObject, NSXPCListenerDelegate {
         connection.remoteObjectInterface = NSXPCInterface(with: IBridgeFrameSource.self)
         connection.invalidationHandler = { [weak self] in
             self?.stream.reset()
-            self?.onHostConnectionChanged?(false)
+            self?.log.info("host disconnected")
         }
         connection.interruptionHandler = { [weak self] in
-            self?.onHostConnectionChanged?(false)
+            self?.log.info("host connection interrupted")
         }
         connection.resume()
         log.info("host connected")
-        onHostConnectionChanged?(true)
         return true
     }
 }
@@ -443,65 +462,76 @@ final class ExtensionFrameSink: NSObject, IBridgeFrameSink {
 }
 ```
 
-- [ ] **Step 3: 重写 `CameraExtensionProvider.swift`**
+（与初版相比去掉了 `onHostConnectionChanged` 回调——isAvailable 概念放弃后没有消费者，留着就是死代码。）
 
-完整替换为：
+- [ ] **Step 3: 修改 `CameraExtensionProvider.swift` — 删死代码 + 启动 listener**
+
+三处改动（保留 Task 1 重写的真实 SDK 结构，不要整体替换文件）：
+
+1. 删除第 17-21 行的 `frameSink` 属性及其注释，删除第 41-47 行的
+   `protocol iBridgeFrameSink` 死协议及其注释。
+2. 在 `private let deviceSource: CameraExtensionDevice` 之后加属性：
+
+```swift
+    private let xpcListener: XPCFrameListener
+```
+
+3. `init()` 改为（加 listener 初始化和启动）：
+
+```swift
+    override init() {
+        self.deviceSource = CameraExtensionDevice()
+        self.xpcListener = XPCFrameListener(stream: deviceSource.streamSource)
+        super.init()
+        provider = CMIOExtensionProvider(source: self, clientQueue: nil)
+        do {
+            try provider.addDevice(deviceSource.device)
+        } catch {
+            logger.error("failed to add device: \(error.localizedDescription)")
+        }
+        xpcListener.start()
+    }
+```
+
+- [ ] **Step 4: 创建 `main.swift` + yml 去掉 principal class**
+
+创建 `iBridgeCameraExtension/Sources/iBridgeCameraExtension/main.swift`，完整内容：
 
 ```swift
 import CoreMediaIO
 import Foundation
-import IOKit
-import iBridgeCore
 
-/// The Camera Extension's top-level provider object.
-///
-/// `CMIOExtensionProvider` is the entry point the system calls when an
-/// app (Zoom, Teams, Photo Booth, OBS, …) starts consuming the camera.
-/// We expose a single device backed by a single stream that forwards
-/// frames from the connected iPhone.
-///
-/// Frames arrive over XPC: `iBridgeReceiver` connects to
-/// `IBridgeCameraXPC.machServiceName` and pushes H.264 NAL units,
-/// which `CameraExtensionStream` decodes via VideoToolbox.
-@objc(CameraExtensionProvider)
-final class CameraExtensionProvider: NSObject, CMIOExtensionProvider {
-
-    private let device: CameraExtensionDevice
-    private let xpcListener: XPCFrameListener
-
-    override init() {
-        self.device = CameraExtensionDevice()
-        self.xpcListener = XPCFrameListener(stream: device.stream)
-        super.init()
-        xpcListener.onHostConnectionChanged = { [weak self] connected in
-            self?.device.isAvailable = connected
-        }
-        xpcListener.start()
-    }
-
-    func connect(to client: CMIOExtensionClient) throws {
-        try device.connect(to: client)
-    }
-
-    func disconnect(from client: CMIOExtensionClient) {
-        device.disconnect(from: client)
-    }
-
-    // MARK: - CMIOExtensionProviderSource
-
-    var devices: [CMIOExtensionDevice] { [device] }
-
-    var providerName: String { "iBridge Camera" }
-}
-
-extension CameraExtensionProvider: CMIOExtensionProviderSource {}
-extension CameraExtensionDevice: CMIOExtensionDeviceSource {}
-extension CameraExtensionStream: CMIOExtensionStreamSource {}
+// Entry point for the CMIO camera extension. The system launches this
+// process when a client (Zoom, FaceTime, Photo Booth, …) enumerates or
+// opens the "iBridge Camera" device. `startService` never returns.
+let providerSource = CameraExtensionProvider()
+CMIOExtensionProvider.startService(provider: providerSource.provider)
 ```
 
-（变化点：删 `frameSink` 属性和死协议 `iBridgeFrameSink`；init 启动 XPC listener；连接状态驱动 `device.isAvailable`；加 `@objc(CameraExtensionProvider)` 保证 principal class 按 Info.plist 的名字解析。）
+`project-mac.yml` 的 `iBridgeCameraExtension.info.properties.NSExtension`
+改为（删除 `NSExtensionPrincipalClass` 一行）：
 
-- [ ] **Step 4: 构建验证 extension 编译通过**
+```yaml
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.cmioextension-provider
+```
+
+然后重新生成工程：
+
+Run:
+```bash
+cd /Users/edwinhao/iBridge
+xcodegen generate --spec project-mac.yml
+```
+Expected: 无错误输出（`💾  Generated project` 之类）
+
+注意：xcodegen 会把 `iBridgeReceiver/Info.plist` 里手工加的
+`CFBundleLocalizations` 块删掉（已知问题，见 Task 1 报告）。重新生成后
+检查 `git diff iBridgeReceiver/Info.plist`，若该块被删，用
+`git checkout -- iBridgeReceiver/Info.plist` 恢复（Info.plist 在 yml 里以
+`info.path` 引用、不由 xcodegen 管理内容，恢复是安全的）。
+
+- [ ] **Step 5: 构建验证 extension 编译通过**
 
 Run:
 ```bash
@@ -511,17 +541,17 @@ xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
 ```
 Expected: `** BUILD SUCCEEDED **`（extension 作为 embedded dependency 一并编译）
 
-- [ ] **Step 5: 跑全套测试**
+- [ ] **Step 6: 跑全套测试**
 
 Run: `./scripts/test.sh 2>&1 | tail -5`
 Expected: `All checks passed.`
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 cd /Users/edwinhao/iBridge
-git add iBridgeCameraExtension/Sources/iBridgeCameraExtension/
-git commit -m "Camera extension: XPC listener, wire host connection to isAvailable"
+git add iBridgeCameraExtension/Sources/iBridgeCameraExtension/ project-mac.yml
+git commit -m "Camera extension: XPC listener + startService entry point"
 ```
 
 ---
