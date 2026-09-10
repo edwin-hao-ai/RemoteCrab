@@ -1,0 +1,317 @@
+{
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "strings": {
+    "iBridge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iBridge" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iBridge" } }
+      }
+    },
+    "Mac receiver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mac receiver" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Mac 接收端" } }
+      }
+    },
+    "Looking for an iPhone on your WiFi…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Looking for an iPhone on your WiFi…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在 WiFi 上搜索 iPhone…" } }
+      }
+    },
+    "Connecting to %@…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connecting to %@…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在连接 %@…" } }
+      }
+    },
+    "Streaming from %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Streaming from %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在接收 %@ 的画面" } }
+      }
+    },
+    "Error: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "错误：%@" } }
+      }
+    },
+    "No Mac found on the WiFi network. Make sure iBridge Receiver is running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Mac found on the WiFi network. Make sure iBridge Receiver is running." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未在 WiFi 上找到 Mac。请确认 iBridge Receiver 正在运行。" } }
+      }
+    },
+    "Connection lost. Reconnecting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection lost. Reconnecting…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接已断开。正在重新连接…" } }
+      }
+    },
+    "LIVE": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LIVE" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "直播中" } }
+      }
+    },
+    "CONNECTION": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CONNECTION" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接" } }
+      }
+    },
+    "STREAMING": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "STREAMING" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推流" } }
+      }
+    },
+    "FEATURES": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "FEATURES" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "功能" } }
+      }
+    },
+    "ACTIONS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ACTIONS" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "操作" } }
+      }
+    },
+    "Streaming": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Streaming" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推流中" } }
+      }
+    },
+    "Resolution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resolution" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "分辨率" } }
+      }
+    },
+    "Frame rate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Frame rate" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "帧率" } }
+      }
+    },
+    "Audio quality": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Audio quality" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "音频质量" } }
+      }
+    },
+    "Mic on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mic on" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风开" } }
+      }
+    },
+    "Mic off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mic off" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风关" } }
+      }
+    },
+    "Camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Camera" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "摄像头" } }
+      }
+    },
+    "Microphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Microphone" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风" } }
+      }
+    },
+    "Trackpad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Trackpad" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板" } }
+      }
+    },
+    "Keyboard": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Keyboard" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "键盘" } }
+      }
+    },
+    "Settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Settings" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置" } }
+      }
+    },
+    "General": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "General" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "通用" } }
+      }
+    },
+    "Camera position": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Camera position" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "摄像头位置" } }
+      }
+    },
+    "Front": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Front" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "前置" } }
+      }
+    },
+    "Back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "后置" } }
+      }
+    },
+    "Open at Login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open at Login" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录时启动" } }
+      }
+    },
+    "Auto-reconnect on connection loss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Auto-reconnect on connection loss" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "断线后自动重连" } }
+      }
+    },
+    "Open iBridge at login": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open iBridge at login" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录时自动打开 iBridge" } }
+      }
+    },
+    "Start iBridge Receiver automatically when you log in.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Start iBridge Receiver automatically when you log in." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "登录时自动启动 iBridge Receiver。" } }
+      }
+    },
+    "About": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "About" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关于" } }
+      }
+    },
+    "Version": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Version" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "版本" } }
+      }
+    },
+    "Build": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Build" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "构建版本" } }
+      }
+    },
+    "Built for": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Built for" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "适配于" } }
+      }
+    },
+    "© iBridge. Local-first, no cloud, no analytics.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "© iBridge. Local-first, no cloud, no analytics." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "© iBridge。本地优先，无云端，无分析。" } }
+      }
+    },
+    "Open Preview Window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Preview Window" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开预览窗口" } }
+      }
+    },
+    "Open Control Panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Control Panel" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开控制面板" } }
+      }
+    },
+    "Preferences…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Preferences…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "偏好设置…" } }
+      }
+    },
+    "Quit iBridge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quit iBridge" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "退出 iBridge" } }
+      }
+    },
+    "No camera permission. Enable in iOS Settings → Privacy → Camera.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No camera permission. Enable in iOS Settings → Privacy → Camera." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未授权相机。请在 iOS 设置 → 隐私 → 相机 中开启。" } }
+      }
+    },
+    "No microphone permission. Enable in iOS Settings → Privacy → Microphone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No microphone permission. Enable in iOS Settings → Privacy → Microphone." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未授权麦克风。请在 iOS 设置 → 隐私 → 麦克风 中开启。" } }
+      }
+    },
+    "No local network permission. Enable in iOS Settings → Privacy → Local Network.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No local network permission. Enable in iOS Settings → Privacy → Local Network." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未授权本地网络。请在 iOS 设置 → 隐私 → 本地网络 中开启。" } }
+      }
+    }
+  },
+  "version": "1.0"
+}
