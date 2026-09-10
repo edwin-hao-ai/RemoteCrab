@@ -5,7 +5,6 @@ struct ContentView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @State private var showConnectionSheet = false
     @State private var showSettings = false
-    @State private var micEnabled = false
     @State private var mode: Mode = .camera
 
     enum Mode: String, CaseIterable, Hashable {
@@ -36,9 +35,6 @@ struct ContentView: View {
                 .environmentObject(engine)
                 .presentationDetents([.large])
         }
-        .onChange(of: micEnabled) { _, new in
-            engine.setMicrophoneEnabled(new)
-        }
         .onAppear {
             // E2E test mode: when IBRIDGE_AUTO_START=1 is set, skip
             // onboarding and surface a "Tap to start streaming" affordance.
@@ -61,6 +57,9 @@ struct ContentView: View {
                 UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
                 // No auto-toggle — user must tap to start.
             }
+        }
+        .task {
+            await engine.startIfNeeded()
         }
     }
 
@@ -173,7 +172,7 @@ struct ContentView: View {
                 .accessibilityHint("Turns the iPhone camera feed on or off")
                 if engine.isStreaming {
                     micToggle
-                        .accessibilityLabel(micEnabled ? "Microphone is on. Tap to turn off." : "Microphone is off. Tap to turn on.")
+                        .accessibilityLabel(engine.features.micOn ? "Microphone is on. Tap to turn off." : "Microphone is off. Tap to turn on.")
                 }
             }
             Spacer()
@@ -182,11 +181,11 @@ struct ContentView: View {
 
     private var micToggle: some View {
         Button {
-            micEnabled.toggle()
+            engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: micEnabled ? "mic.fill" : "mic.slash")
-                Text(micEnabled ? "Mic on" : "Mic off")
+                Image(systemName: engine.features.micOn ? "mic.fill" : "mic.slash")
+                Text(engine.features.micOn ? "Mic on" : "Mic off")
             }
             .font(IBFont.monoMedium)
             .foregroundStyle(.white)

@@ -99,7 +99,7 @@ struct IOSSettingsView: View {
                 .accessibilityLabel(IBLocale.Mic.on)
                 .accessibilityHint("Stream the iPhone microphone to your Mac")
                 .onChange(of: micEnabled) { _, new in
-                    engine.setMicrophoneEnabled(new)
+                    engine.features.set(feature: .microphone, enabled: new)
                 }
 
             Picker(IBLocale.Mode.trackpad, selection: $trackpadSens) {

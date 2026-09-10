@@ -1,10 +1,13 @@
 import Foundation
 import Network
+import os
 
 /// Sends typed events (`TouchEvent`, `KeyEvent`, `AudioPacket`) over an
 /// established `NWConnection`. Lives on the iOS side and is shared by
 /// the touchpad, keyboard, and microphone components.
 public final class IBEventBroadcaster: @unchecked Sendable {
+
+    private static let log = Logger(subsystem: "com.ibridge", category: "broadcaster")
 
     private let queue: DispatchQueue
     private let connection: NWConnection
@@ -42,7 +45,7 @@ public final class IBEventBroadcaster: @unchecked Sendable {
             let data = try encode()
             connection.send(content: data, completion: .contentProcessed { _ in })
         } catch {
-            print("[iBridge] encode \(kind) failed: \(error)")
+            Self.log.error("encode \(String(describing: kind), privacy: .public) failed: \(error, privacy: .public)")
         }
     }
 }

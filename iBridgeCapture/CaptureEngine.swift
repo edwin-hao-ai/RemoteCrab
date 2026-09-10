@@ -5,12 +5,15 @@ import Network
 import UIKit
 import VideoToolbox
 import iBridgeCore
+import os
 
 /// The brain of iBridgeCapture. Owns the camera, H.264 encoder, and
 /// the Bonjour-published TCP listener. Pushes compressed NAL frames
 /// out to whichever Mac connected first.
 @MainActor
 final class CaptureEngine: ObservableObject {
+
+    private static let log = Logger(subsystem: "com.ibridge", category: "capture")
 
     // Public state surfaced to SwiftUI.
     @Published private(set) var isStreaming = false
@@ -41,6 +44,12 @@ final class CaptureEngine: ObservableObject {
 
     private(set) var audioEncoder: MicrophoneEncoder?
 
+    /// Single source of truth for capability state. Bound by the UI
+    /// and mutated by remote FeatureControl frames alike.
+    let features = FeatureStore()
+
+    private let parser = IBWire.Parser()
+
     // MARK: - Lifecycle
 
     /// Request permissions and start the AVCaptureSession. Called from
@@ -48,6 +57,10 @@ final class CaptureEngine: ObservableObject {
     func startIfNeeded() async {
         guard !didConfigure else { return }
         didConfigure = true
+
+        features.onChange = { [weak self] snapshot in
+            self?.handleFeaturesChanged(snapshot)
+        }
 
         await requestPermissions()
 
@@ -59,7 +72,7 @@ final class CaptureEngine: ObservableObject {
                 }
             }
         } catch {
-            print("[iBridge] capture start failed: \(error)")
+            Self.log.error("capture start failed: \(error, privacy: .public)")
             connectionState = .failed
             didConfigure = false
         }
@@ -85,19 +98,6 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(event)
     }
 
-    /// V0.2 — toggle microphone capture. The Mac will hear whatever
-    /// the iPhone mic hears.
-    func setMicrophoneEnabled(_ enabled: Bool) {
-        if enabled {
-            if audioEncoder == nil {
-                audioEncoder = MicrophoneEncoder()
-            }
-            if let broadcaster { audioEncoder?.start(broadcaster: broadcaster) }
-        } else {
-            audioEncoder?.stop()
-        }
-    }
-
     func startStreaming() async {
         guard !isStreaming else { return }
         connectionState = .starting
@@ -105,7 +105,7 @@ final class CaptureEngine: ObservableObject {
             try startListener()
             isStreaming = true
         } catch {
-            print("[iBridge] listener start failed: \(error)")
+            Self.log.error("listener start failed: \(error, privacy: .public)")
             connectionState = .failed
         }
     }
@@ -117,6 +117,7 @@ final class CaptureEngine: ObservableObject {
         connection = nil
         isStreaming = false
         connectionState = .idle
+        parser.reset()
     }
 
     // MARK: - Setup
@@ -125,7 +126,7 @@ final class CaptureEngine: ObservableObject {
         let camera = await AVCaptureDevice.requestAccess(for: .video)
         let mic = await AVCaptureDevice.requestAccess(for: .audio)
         if !camera || !mic {
-            print("[iBridge] permissions denied — camera=\(camera) mic=\(mic)")
+            Self.log.error("permissions denied — camera=\(camera, privacy: .public) mic=\(mic, privacy: .public)")
         }
     }
 
@@ -188,7 +189,7 @@ final class CaptureEngine: ObservableObject {
 
         listener.start(queue: queue)
         self.listener = listener
-        print("[iBridge] Bonjour publishing: \(IBServiceType.tcp) / \(defaultServiceName())")
+        Self.log.info("Bonjour publishing: \(IBServiceType.tcp, privacy: .public) / \(self.defaultServiceName(), privacy: .public)")
     }
 
     private func defaultServiceName() -> String {
@@ -198,9 +199,9 @@ final class CaptureEngine: ObservableObject {
     private func handleListenerState(_ state: NWListener.State) {
         switch state {
         case .ready:
-            print("[iBridge] listener ready")
+            Self.log.info("listener ready")
         case .failed(let error):
-            print("[iBridge] listener failed: \(error)")
+            Self.log.error("listener failed: \(error, privacy: .public)")
             connectionState = .failed
         case .cancelled:
             connectionState = connection == nil ? .idle : .connected
@@ -220,6 +221,7 @@ final class CaptureEngine: ObservableObject {
             }
         }
         connection.start(queue: queue)
+        startReceiving(from: connection)
 
         // Send the metadata frame immediately so the receiver can set up
         // its H.264 decoder.
@@ -232,18 +234,18 @@ final class CaptureEngine: ObservableObject {
         switch state {
         case .ready:
             connectionState = .connected
-            print("[iBridge] Mac connected")
+            Self.log.info("Mac connected")
             // Build the event broadcaster now that we have a connection.
             if let connection {
                 let b = IBEventBroadcaster(connection: connection, queue: queue)
                 broadcaster = b
-                // Start streaming mic audio if requested.
-                if let mic = audioEncoder {
-                    mic.start(broadcaster: b)
-                }
+                // Tell the Mac the full feature state right away.
+                b.send(features.snapshot())
+                // Start mic only if the feature is on.
+                syncMicrophone(features.micOn)
             }
         case .failed(let error):
-            print("[iBridge] connection failed: \(error)")
+            Self.log.error("connection failed: \(error, privacy: .public)")
             connectionState = .failed
             broadcaster = nil
             audioEncoder?.stop()
@@ -256,6 +258,56 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    // MARK: - Receiving (Mac → iPhone control)
+
+    private func startReceiving(from connection: NWConnection) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            if let data, !data.isEmpty {
+                Task { @MainActor in
+                    self.handleInbound(data)
+                }
+            }
+            if error != nil { return }
+            if !isComplete && self.connection != nil {
+                self.startReceiving(from: connection)
+            }
+        }
+    }
+
+    private func handleInbound(_ data: Data) {
+        for frame in parser.append(data) {
+            switch frame.kind {
+            case .featureControl:
+                if let control = try? IBWire.decodeFeatureControl(frame) {
+                    features.apply(control)
+                }
+            case .ping:
+                broadcaster?.sendPingEcho(frame.payload)
+            default:
+                break // all other kinds are iPhone → Mac only
+            }
+        }
+    }
+
+    // MARK: - Feature state
+
+    private func handleFeaturesChanged(_ snapshot: FeatureStateSnapshot) {
+        broadcaster?.send(snapshot)
+        syncMicrophone(snapshot.micOn)
+    }
+
+    private func syncMicrophone(_ enabled: Bool) {
+        if enabled {
+            if audioEncoder == nil {
+                audioEncoder = MicrophoneEncoder()
+            }
+            if let broadcaster { audioEncoder?.start(broadcaster: broadcaster) }
+        } else {
+            audioEncoder?.stop()
+        }
+    }
+
     // MARK: - Sending
 
     private func sendMetadata(on connection: NWConnection) {
@@ -263,11 +315,11 @@ final class CaptureEngine: ObservableObject {
             let encoded = try IBWire.encode(metadata: metadata)
             connection.send(content: encoded, completion: .contentProcessed { error in
                 if let error {
-                    print("[iBridge] metadata send error: \(error)")
+                    Self.log.error("metadata send error: \(error, privacy: .public)")
                 }
             })
         } catch {
-            print("[iBridge] metadata encode error: \(error)")
+            Self.log.error("metadata encode error: \(error, privacy: .public)")
         }
     }
 
