@@ -1,7 +1,6 @@
 import SwiftUI
 import UIKit
 import iBridgeCore
-import os
 
 /// Keyboard mode (K3) — the real iOS system keyboard (IME / autocorrect /
 /// 中文) types into a hidden UITextField; committed text is diffed into
@@ -19,8 +18,6 @@ struct KeyboardScreen: View {
     @State private var committedText = ""
     @State private var keyboardHeight: CGFloat = 0
     @State private var keyboardHandle = SystemKeyboardInput.Handle()
-
-    private static let log = Logger(subsystem: "com.ibridge", category: "keyboard")
 
     /// Modifier bitmask shared with TouchEvent: shift=1, control=2,
     /// option=4, command=8.
@@ -74,6 +71,9 @@ struct KeyboardScreen: View {
             // Delay so the keyboard slides up with the surface instead
             // of racing the feature-dock transition.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                // Bail on a fast surface switch: don't steal focus
+                // for a keyboard that is no longer on screen.
+                guard engine.features.activeSurface == .keyboard else { return }
                 keyboardHandle.focus()
             }
         }

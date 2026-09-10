@@ -9,7 +9,8 @@ import Foundation
 /// shipped to the Mac.
 public enum TextDiff {
 
-    /// macOS virtual keycode for forward-delete (backspace).
+    /// macOS virtual keycode 51 — delete (backspace). Forward-delete
+    /// is a different key (117) and isn't used here.
     public static let backspaceKeyCode: UInt16 = 51
 
     public static func events(from old: String, to new: String) -> [KeyEvent] {

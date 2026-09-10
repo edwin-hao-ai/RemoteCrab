@@ -46,6 +46,7 @@ final class TouchSurfaceUIView: UIView {
             guard wheelArmed != oldValue else { return }
             singlePan.isEnabled = !wheelArmed
             wheelOrigin = nil
+            wheelTouch = nil
             wheelLastAngle = nil
             wheelAccumulator = 0
         }
@@ -255,6 +256,7 @@ final class TouchSurfaceUIView: UIView {
         stopMomentum()
         if wheelScrollEnabled && wheelArmed, let touch = touches.first {
             wheelOrigin = touch.location(in: self)
+            wheelTouch = touch
             wheelLastAngle = nil
         }
         if primaryTouch == nil, let touch = touches.first {
@@ -282,6 +284,12 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
+        if let wheel = wheelTouch, touches.contains(wheel) {
+            wheelTouch = nil
+            wheelOrigin = nil
+            wheelLastAngle = nil
+            wheelAccumulator = 0
+        }
         if let primary = primaryTouch, touches.contains(primary) {
             primaryTouch = nil
             forceClickFiredThisSequence = false
@@ -334,6 +342,9 @@ final class TouchSurfaceUIView: UIView {
     // MARK: - Wheel scrolling (labs)
 
     private var wheelOrigin: CGPoint?
+    /// The finger that armed the wheel; only its moves steer it.
+    /// (touches.first on the unordered set can pick a second finger.)
+    private weak var wheelTouch: UITouch?
     private var wheelLastAngle: CGFloat?
     private var wheelAccumulator: CGFloat = 0
     /// One scroll tick per 45° of rotation around the hold origin.
@@ -344,7 +355,9 @@ final class TouchSurfaceUIView: UIView {
     private let wheelMinRadius: CGFloat = 20
 
     private func handleWheelMove(_ touches: Set<UITouch>) {
-        guard let origin = wheelOrigin, let touch = touches.first else { return }
+        guard let origin = wheelOrigin,
+              let touch = wheelTouch,
+              touches.contains(touch) else { return }
         let p = touch.location(in: self)
         let dx = p.x - origin.x
         let dy = p.y - origin.y
@@ -363,12 +376,12 @@ final class TouchSurfaceUIView: UIView {
         while wheelAccumulator >= wheelTickAngle {
             wheelAccumulator -= wheelTickAngle
             emit(phase: .scroll, at: nil, dy: wheelTickDelta)
-            selectionFeedback.selectionChanged()
+            if scrollTickHaptics { selectionFeedback.selectionChanged() }
         }
         while wheelAccumulator <= -wheelTickAngle {
             wheelAccumulator += wheelTickAngle
             emit(phase: .scroll, at: nil, dy: -wheelTickDelta)
-            selectionFeedback.selectionChanged()
+            if scrollTickHaptics { selectionFeedback.selectionChanged() }
         }
     }
 

@@ -33,6 +33,10 @@ final class VoiceRecognizer {
     private var finalText = ""
     private var stopRequested = false
 
+    /// True while start() is between entry and a settled outcome, so
+    /// a re-entrant start() can't orphan an in-flight recognition task.
+    private var isStarting = false
+
     /// Incremented per start(); the stop() fallback timer compares
     /// against it so a stale timer can't tear down a newer session.
     private var sessionGeneration = 0
@@ -60,14 +64,19 @@ final class VoiceRecognizer {
     /// Requests speech authorization and starts a recognition session.
     /// Returns false when speech recognition is unavailable or denied.
     func start() async -> Bool {
-        guard !isRunning else { return true }
+        guard !isRunning, !isStarting else { return true }
+        isStarting = true
 
         let status = await Self.requestAuthorization()
         Self.log.info("speech authorization: \(status.rawValue, privacy: .public)")
-        guard status == .authorized else { return false }
+        guard status == .authorized else {
+            isStarting = false
+            return false
+        }
 
         guard let recognizer = makeRecognizer(), recognizer.isAvailable else {
             Self.log.error("no speech recognizer available")
+            isStarting = false
             return false
         }
         Self.log.info("on-device recognition: \(recognizer.supportsOnDeviceRecognition, privacy: .public)")
@@ -78,6 +87,7 @@ final class VoiceRecognizer {
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             Self.log.error("audio session setup failed: \(error.localizedDescription, privacy: .public)")
+            isStarting = false
             return false
         }
 
@@ -119,10 +129,12 @@ final class VoiceRecognizer {
             self.recognizer = nil
             inputNode.removeTap(onBus: 0)
             try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            isStarting = false
             return false
         }
 
         isRunning = true
+        isStarting = false
         return true
     }
 

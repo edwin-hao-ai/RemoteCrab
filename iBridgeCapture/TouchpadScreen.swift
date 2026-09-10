@@ -20,6 +20,10 @@ struct TouchpadScreen: View {
     @State private var cursor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @State private var isPressed = false
     @State private var showCoach = false
+    /// Bumped each time the coach marks show/dismiss; the 3.5 s fade
+    /// timer compares against it so a stale timer can't clip a newer
+    /// showing.
+    @State private var coachGeneration = 0
     @State private var airMouseActive = false
     @State private var wheelArmed = false
 
@@ -219,7 +223,10 @@ struct TouchpadScreen: View {
         withAnimation(.easeIn(duration: 0.4)) {
             showCoach = true
         }
+        coachGeneration += 1
+        let generation = coachGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            guard generation == coachGeneration, showCoach else { return }
             withAnimation(.easeOut(duration: 0.5)) {
                 showCoach = false
             }
@@ -228,6 +235,7 @@ struct TouchpadScreen: View {
 
     private func dismissCoach() {
         guard showCoach else { return }
+        coachGeneration += 1
         withAnimation(.easeOut(duration: 0.2)) {
             showCoach = false
         }

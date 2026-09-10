@@ -7,8 +7,8 @@ import iBridgeCore
 /// The permission-request flow that runs after the user taps
 /// "Allow Permissions & Connect" in onboarding.
 ///
-/// Asks for camera, microphone, and local-network permission one at a
-/// time with a "request card" between each. Falls back gracefully when
+/// Asks for camera, microphone, speech, and local-network permission
+/// one at a time with a "request card" between each. Falls back gracefully when
 /// a permission is denied (the user can still browse around, just
 /// without the relevant feature).
 struct PermissionFlow: View {
