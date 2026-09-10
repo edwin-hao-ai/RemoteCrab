@@ -27,6 +27,15 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .audio) { try IBWire.encode(audio: packet) }
     }
 
+    public func send(_ snapshot: FeatureStateSnapshot) {
+        send(kind: .featureState) { try IBWire.encode(featureState: snapshot) }
+    }
+
+    /// Echo a ping payload back to the Mac verbatim (RTT measurement).
+    public func sendPingEcho(_ payload: Data) {
+        send(kind: .ping) { IBWire.encodeFrame(kind: .ping, payload: payload) }
+    }
+
     private func send(kind: IBWire.Kind, _ encode: () throws -> Data) {
         guard connection.state == .ready else { return }
         do {

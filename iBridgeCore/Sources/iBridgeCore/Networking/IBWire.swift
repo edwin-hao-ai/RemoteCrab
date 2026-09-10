@@ -25,6 +25,9 @@ public enum IBWire {
         case touch    = 0x04   // JSON TouchEvent
         case key      = 0x05   // JSON KeyEvent
         case audio    = 0x06   // JSON AudioPacket (opus data base64-encoded)
+        case featureControl = 0x07   // JSON FeatureControl (Mac → iPhone)
+        case featureState  = 0x08    // JSON FeatureStateSnapshot (iPhone → Mac)
+        case ping          = 0x09    // 8-byte BE timestampMicros, echoed verbatim
     }
 
     // MARK: - Encoding
@@ -59,6 +62,29 @@ public enum IBWire {
     public static func encode(audio: AudioPacket) throws -> Data {
         let json = try JSONEncoder().encode(audio)
         return encodeFrame(kind: .audio, payload: json)
+    }
+
+    /// Encode a FeatureControl (Mac → iPhone remote toggle).
+    public static func encode(featureControl: FeatureControl) throws -> Data {
+        let json = try JSONEncoder().encode(featureControl)
+        return encodeFrame(kind: .featureControl, payload: json)
+    }
+
+    /// Encode a FeatureStateSnapshot (iPhone → Mac state sync).
+    public static func encode(featureState: FeatureStateSnapshot) throws -> Data {
+        let json = try JSONEncoder().encode(featureState)
+        return encodeFrame(kind: .featureState, payload: json)
+    }
+
+    /// Encode a ping frame. Payload is the 8-byte big-endian sender
+    /// timestamp in microseconds; the iPhone echoes it back verbatim
+    /// so the Mac can compute a real RTT.
+    public static func encodePing(sentMicros: UInt64) -> Data {
+        var payload = Data(capacity: 8)
+        for shift in stride(from: 56, through: 0, by: -8) {
+            payload.append(UInt8((sentMicros >> UInt64(shift)) & 0xFF))
+        }
+        return encodeFrame(kind: .ping, payload: payload)
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -151,6 +177,25 @@ public enum IBWire {
     /// Decode an `.audio` frame's payload into an `AudioPacket`.
     public static func decodeAudio(_ frame: Frame) throws -> AudioPacket {
         try JSONDecoder().decode(AudioPacket.self, from: frame.payload)
+    }
+
+    /// Decode a `.featureControl` frame's payload.
+    public static func decodeFeatureControl(_ frame: Frame) throws -> FeatureControl {
+        try JSONDecoder().decode(FeatureControl.self, from: frame.payload)
+    }
+
+    /// Decode a `.featureState` frame's payload.
+    public static func decodeFeatureState(_ frame: Frame) throws -> FeatureStateSnapshot {
+        try JSONDecoder().decode(FeatureStateSnapshot.self, from: frame.payload)
+    }
+
+    /// Decode a `.ping` frame's payload into the sender timestamp.
+    public static func decodePing(_ frame: Frame) -> UInt64 {
+        var value: UInt64 = 0
+        for byte in frame.payload.prefix(8) {
+            value = (value << 8) | UInt64(byte)
+        }
+        return value
     }
 }
 

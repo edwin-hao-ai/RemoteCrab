@@ -15,6 +15,11 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         case rightUp       // two-finger tap-up = right mouse up
         case scroll        // two-finger drag = scroll wheel
         case click         // tap (down + up in same spot) = left click
+        case dragStart        // double-tap-hold: begin drag (left button held)
+        case pinch            // two-finger pinch; dx = scale delta (+0.01 = +1%)
+        case threeFingerSwipe // dx/dy = unit direction vector (up = (0,1))
+        case threeFingerTap   // three-finger tap = middle click
+        case forceClick       // deep press (majorRadius) = right click
     }
 
     public enum Modifier: UInt8, Codable, Sendable {
@@ -147,5 +152,64 @@ public struct AudioPacket: Codable, Sendable, Equatable {
         try c.encode(sampleRate, forKey: .sampleRate)
         try c.encode(channels, forKey: .channels)
         try c.encode(timestampMicros, forKey: .timestampMicros)
+    }
+}
+
+/// The independently toggleable capabilities of an iPhone running
+/// iBridgeCapture. `.camera / .microphone / .voice` are background
+/// streams; `.trackpad / .keyboard` are input channels.
+public enum IBFeature: String, Codable, Sendable, CaseIterable {
+    case camera
+    case microphone
+    case voice
+    case trackpad
+    case keyboard
+}
+
+/// Mac → iPhone: toggle a feature remotely (kind 0x07).
+public struct FeatureControl: Codable, Sendable, Equatable {
+    public let feature: IBFeature
+    public let enabled: Bool
+
+    public init(feature: IBFeature, enabled: Bool) {
+        self.feature = feature
+        self.enabled = enabled
+    }
+}
+
+/// Which interaction surface currently occupies the iPhone screen.
+public enum Surface: String, Codable, Sendable {
+    case trackpad
+    case keyboard
+    case cameraPreview
+}
+
+/// iPhone → Mac: full feature-state snapshot (kind 0x08), sent on
+/// connect and on every change.
+public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
+    public let cameraOn: Bool
+    public let micOn: Bool
+    public let voiceOn: Bool
+    public let trackpadOn: Bool
+    public let keyboardOn: Bool
+    public let activeSurface: Surface
+    public let timestampMicros: UInt64
+
+    public init(
+        cameraOn: Bool,
+        micOn: Bool,
+        voiceOn: Bool,
+        trackpadOn: Bool,
+        keyboardOn: Bool,
+        activeSurface: Surface,
+        timestampMicros: UInt64
+    ) {
+        self.cameraOn = cameraOn
+        self.micOn = micOn
+        self.voiceOn = voiceOn
+        self.trackpadOn = trackpadOn
+        self.keyboardOn = keyboardOn
+        self.activeSurface = activeSurface
+        self.timestampMicros = timestampMicros
     }
 }

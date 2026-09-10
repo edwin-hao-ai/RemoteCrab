@@ -144,6 +144,27 @@ final class EventPipelineEndToEndTests: XCTestCase {
         // conditional compilation.
     }
 
+    // MARK: - Feature-state pipeline
+
+    func testFeatureStateSurvivesTCPTrip() throws {
+        // Encode → fragment arbitrarily → parse → decode, mirroring the
+        // existing pipeline tests' pattern.
+        let snap = FeatureStateSnapshot(
+            cameraOn: true, micOn: true, voiceOn: false,
+            trackpadOn: true, keyboardOn: true,
+            activeSurface: .trackpad, timestampMicros: 7
+        )
+        let wire = try IBWire.encode(featureState: snap)
+        let parser = IBWire.Parser()
+        // Feed byte-by-byte to prove fragmentation safety.
+        var frames: [IBWire.Frame] = []
+        for i in wire.indices {
+            frames.append(contentsOf: parser.append(wire[i..<wire.index(after: i)]))
+        }
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(try IBWire.decodeFeatureState(frames[0]), snap)
+    }
+
     // MARK: - Pipeline plumbing
 
     private struct Pipeline: @unchecked Sendable {

@@ -148,4 +148,39 @@ final class IBWireTests: XCTestCase {
         XCTAssertEqual(IBServiceType.tcp, "_ibridge._tcp")
         XCTAssertEqual(IBServiceType.domain, "local.")
     }
+
+    // MARK: - FeatureControl / FeatureState / Ping round-trip
+
+    func testRoundTripFeatureControl() throws {
+        let control = FeatureControl(feature: .microphone, enabled: true)
+        let data = try IBWire.encode(featureControl: control)
+        let parser = IBWire.Parser()
+        let frames = parser.append(data)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].kind, .featureControl)
+        XCTAssertEqual(try IBWire.decodeFeatureControl(frames[0]), control)
+    }
+
+    func testRoundTripFeatureState() throws {
+        let snap = FeatureStateSnapshot(
+            cameraOn: false, micOn: true, voiceOn: false,
+            trackpadOn: true, keyboardOn: false,
+            activeSurface: .keyboard, timestampMicros: 42
+        )
+        let data = try IBWire.encode(featureState: snap)
+        let parser = IBWire.Parser()
+        let frames = parser.append(data)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].kind, .featureState)
+        XCTAssertEqual(try IBWire.decodeFeatureState(frames[0]), snap)
+    }
+
+    func testRoundTripPing() throws {
+        let data = IBWire.encodePing(sentMicros: 9_876_543)
+        let parser = IBWire.Parser()
+        let frames = parser.append(data)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].kind, .ping)
+        XCTAssertEqual(IBWire.decodePing(frames[0]), 9_876_543)
+    }
 }

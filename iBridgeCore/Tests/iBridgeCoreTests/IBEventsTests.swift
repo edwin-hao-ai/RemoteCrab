@@ -167,4 +167,33 @@ final class IBEventsTests: XCTestCase {
         let audio = try IBWire.decodeAudio(frames[6])
         XCTAssertEqual(audio.opusData, Data([0xAA, 0xBB, 0xCC]))
     }
+
+    // MARK: - FeatureControl / FeatureStateSnapshot / new touch phases
+
+    func testFeatureControlRoundTrip() throws {
+        let control = FeatureControl(feature: .camera, enabled: false)
+        let data = try JSONEncoder().encode(control)
+        let decoded = try JSONDecoder().decode(FeatureControl.self, from: data)
+        XCTAssertEqual(decoded, control)
+    }
+
+    func testFeatureStateSnapshotRoundTrip() throws {
+        let snap = FeatureStateSnapshot(
+            cameraOn: true, micOn: false, voiceOn: false,
+            trackpadOn: true, keyboardOn: true,
+            activeSurface: .trackpad, timestampMicros: 123_456
+        )
+        let data = try JSONEncoder().encode(snap)
+        let decoded = try JSONDecoder().decode(FeatureStateSnapshot.self, from: data)
+        XCTAssertEqual(decoded, snap)
+    }
+
+    func testTouchEventNewPhasesRoundTrip() throws {
+        for phase: TouchEvent.Phase in [.dragStart, .pinch, .threeFingerSwipe, .threeFingerTap, .forceClick] {
+            let event = TouchEvent(phase: phase, x: 0.5, y: 0.5, dx: 0.02, dy: 1)
+            let data = try JSONEncoder().encode(event)
+            let decoded = try JSONDecoder().decode(TouchEvent.self, from: data)
+            XCTAssertEqual(decoded, event)
+        }
+    }
 }
