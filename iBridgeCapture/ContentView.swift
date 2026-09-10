@@ -41,18 +41,25 @@ struct ContentView: View {
         }
         .onAppear {
             // E2E test mode: when IBRIDGE_AUTO_START=1 is set, skip
-            // onboarding and auto-start streaming. This makes real-
-            // device e2e testing as simple as:
-            //   xcrun simctl launch booted com.ibridge.iBridgeCapture \
-            //     --setenv IBRIDGE_AUTO_START=1
-            //   # or on a real device:
-            //   # Settings → Developer → URL Schemes launch with env
+            // onboarding and surface a "Tap to start streaming" affordance.
+            //
+            // We deliberately do NOT auto-start streaming on appear:
+            //   1. The iOS Local Network permission dialog is a system
+            //      modal that the user must respond to manually.
+            //   2. Auto-starting behind the dialog leaves the user
+            //      unable to tell which app the prompt belongs to,
+            //      and on iPhone-with-Dynamic-Island the modal can
+            //      visually overlap our UI in confusing ways.
+            //   3. The user explicitly tapping the big red button makes
+            //      the cause-and-effect obvious: tap → permission
+            //      prompt → streaming starts.
+            //
+            // The env var is only used to bypass onboarding so the
+            // user lands directly on the camera mode with a big START
+            // button visible.
             if ProcessInfo.processInfo.environment["IBRIDGE_AUTO_START"] == "1" {
                 UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
-                Task {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    await engine.toggleStreaming()
-                }
+                // No auto-toggle — user must tap to start.
             }
         }
     }
