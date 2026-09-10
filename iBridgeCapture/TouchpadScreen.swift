@@ -1,19 +1,40 @@
 import SwiftUI
 import UIKit
 import iBridgeCore
+import os
 
-/// Touchpad mode — full-screen touch surface with visual cursor
-/// preview. The whole screen is the trackpad:
-/// • single-finger drag → move the Mac cursor
-/// • tap → left click
-/// • two-finger drag → scroll
-/// • two-finger tap → right click
-/// • modifier buttons at the bottom toggle ⌃⌥⌘⇧
+/// Trackpad mode — the whole screen is the Mac trackpad, driven by the
+/// shared `TouchSurface` (drag / click / right-click / scroll with
+/// momentum / double-tap-hold drag / pinch / force click / three-finger
+/// gestures, with haptics). A live cursor preview follows the finger,
+/// and the bottom modifier bar toggles ⌃⌥⌘⇧ that ride on every event.
 struct TouchpadScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
+    @AppStorage("ibridge.ios.trackpadSens") private var trackpadSens: Int = 3
+    /// Number of times the coach marks have been shown; >= 3 means never again.
+    @AppStorage("ibridge.ios.trackpadCoachShown") private var coachShownCount: Int = 0
+
     @State private var modifiers: Set<IBModifierBar.Modifier> = []
     @State private var cursor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @State private var isPressed = false
+    @State private var showCoach = false
+
+    private static let log = Logger(subsystem: "com.ibridge", category: "trackpad")
+
+    /// Feature dock height (48 pt buttons + 16 pt vertical padding)
+    /// plus ContentView's outer padding — the modifier bar floats above it.
+    private let dockClearance: CGFloat = 88
+
+    /// Modifier bitmask shared with TouchEvent: shift=1, control=2,
+    /// option=4, command=8.
+    private var modifierMask: UInt8 {
+        var mask: UInt8 = 0
+        if modifiers.contains(.shift) { mask |= 1 }
+        if modifiers.contains(.control) { mask |= 2 }
+        if modifiers.contains(.option) { mask |= 4 }
+        if modifiers.contains(.command) { mask |= 8 }
+        return mask
+    }
 
     var body: some View {
         ZStack {
@@ -28,89 +49,88 @@ struct TouchpadScreen: View {
             )
             .ignoresSafeArea()
 
-            // Live cursor preview. Visible while a finger is on the
-            // screen, fades out within 200 ms after lift.
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    Circle()
-                        .fill(Color.accentColor.opacity(0.95))
-                        .frame(width: 56, height: 56)
-                        .shadow(color: Color.accentColor.opacity(0.6), radius: 16)
-                        .overlay {
-                            Circle()
-                                .strokeBorder(Color.white.opacity(0.6), lineWidth: 1.5)
-                        }
-                        .position(
-                            x: cursor.x * geo.size.width,
-                            y: cursor.y * geo.size.height
-                        )
-                        .scaleEffect(isPressed ? 0.85 : 1.0)
-                        .animation(.spring(response: 0.18, dampingFraction: 0.7), value: cursor)
-                        .animation(.spring(response: 0.12, dampingFraction: 0.6), value: isPressed)
-                        .opacity(isPressed ? 1.0 : 0.85)
-
-                    // Subtle vertical + horizontal scan line, hinting
-                    // "the whole screen is the touch surface".
-                    if isPressed {
-                        Path { p in
-                            let x = cursor.x * geo.size.width
-                            p.move(to: CGPoint(x: x, y: 0))
-                            p.addLine(to: CGPoint(x: x, y: geo.size.height))
-                        }
-                        .stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
-                    }
-                }
-            }
-
-            VStack {
-                topHints
-                Spacer()
-                gestureHints
-                Spacer()
-                modifierBar
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 16)
-
             // The actual touch capture surface, covering everything.
-            TouchpadCaptureSurface(
-                modifiers: $modifiers,
-                cursor: $cursor,
-                isPressed: $isPressed,
+            TouchSurface(
+                modifierMask: modifierMask,
+                sensitivity: trackpadSens,
                 onEvent: { event in
                     engine.sendTouch(event)
+                },
+                onTouch: { location, pressed in
+                    cursor = location
+                    isPressed = pressed
+                    dismissCoach()
                 }
             )
             .ignoresSafeArea()
+
+            cursorPreview
+                .allowsHitTesting(false)
+
+            VStack {
+                Spacer()
+                if showCoach {
+                    coachMarks
+                        .transition(.opacity)
+                }
+                Spacer()
+                IBModifierBar(activeModifiers: $modifiers)
+                    .padding(.bottom, dockClearance)
+            }
+            .padding(.horizontal, 24)
+        }
+        .onAppear {
+            maybeShowCoach()
         }
     }
 
-    private var topHints: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Image(systemName: "hand.point.up.left.fill")
-                    .foregroundStyle(.white.opacity(0.7))
-                Text("TRACKPAD MODE")
-                    .font(IBFont.eyebrowMono)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .ibEyebrowTracking()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background {
-                Capsule()
-                    .fill(.black.opacity(0.5))
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.1)))
+    // MARK: - Cursor preview
+
+    /// Live cursor preview. Visible while a finger is on the screen,
+    /// fades out within 200 ms after lift.
+    private var cursorPreview: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.95))
+                    .frame(width: 56, height: 56)
+                    .shadow(color: Color.accentColor.opacity(0.6), radius: 16)
+                    .overlay {
+                        Circle()
+                            .strokeBorder(Color.white.opacity(0.6), lineWidth: 1.5)
+                    }
+                    .position(
+                        x: cursor.x * geo.size.width,
+                        y: cursor.y * geo.size.height
+                    )
+                    .scaleEffect(isPressed ? 0.85 : 1.0)
+                    .animation(.spring(response: 0.18, dampingFraction: 0.7), value: cursor)
+                    .animation(.spring(response: 0.12, dampingFraction: 0.6), value: isPressed)
+                    .opacity(isPressed ? 1.0 : 0.85)
+
+                // Subtle vertical scan line while pressed, hinting
+                // "the whole screen is the touch surface".
+                if isPressed {
+                    Path { p in
+                        let x = cursor.x * geo.size.width
+                        p.move(to: CGPoint(x: x, y: 0))
+                        p.addLine(to: CGPoint(x: x, y: geo.size.height))
+                    }
+                    .stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
+                }
             }
         }
-        .padding(.top, 8)
     }
 
-    private var gestureHints: some View {
+    // MARK: - Coach marks
+
+    /// First-run gesture hints. Shown on the first 3 entries into the
+    /// trackpad surface; fades out after 3.5 s or on any touch.
+    private var coachMarks: some View {
         VStack(spacing: 10) {
-            hint(symbol: "hand.draw", text: "Drag", description: "Move cursor")
-            hint(symbol: "circle.dashed", text: "Tap", description: "Left click")
-            hint(symbol: "rectangle.portrait", text: "Two fingers", description: "Scroll / right click")
+            coachLine(symbol: "hand.draw", text: "拖动 = 移动光标")
+            coachLine(symbol: "hand.tap", text: "双击按住 = 拖拽")
+            coachLine(symbol: "arrow.up.and.down", text: "双指 = 滚动 · 右键")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -119,187 +139,43 @@ struct TouchpadScreen: View {
                 .fill(.black.opacity(0.4))
                 .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.08)))
         }
+        // Touches fall through to the surface below, which dismisses.
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click")
     }
 
-    private func hint(symbol: String, text: String, description: String) -> some View {
+    private func coachLine(symbol: String, text: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 18))
                 .foregroundStyle(.white.opacity(0.7))
                 .frame(width: 28)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(text)
-                    .font(IBFont.bodyMedium)
-                    .foregroundStyle(.white)
-                Text(description)
-                    .font(IBFont.caption)
-                    .foregroundStyle(.white.opacity(0.5))
-            }
+            Text(text)
+                .font(IBFont.bodyMedium)
+                .foregroundStyle(.white)
             Spacer()
         }
     }
 
-    private var modifierBar: some View {
-        VStack(spacing: 8) {
-            Text("MODIFIER KEYS")
-                .font(IBFont.eyebrowMono)
-                .foregroundStyle(.white.opacity(0.5))
-                .ibEyebrowTracking()
-            IBModifierBar(activeModifiers: $modifiers)
+    private func maybeShowCoach() {
+        guard coachShownCount < 3 else { return }
+        coachShownCount += 1
+        Self.log.debug("coach marks shown (\(self.coachShownCount)/3)")
+        withAnimation(.easeIn(duration: 0.4)) {
+            showCoach = true
         }
-    }
-}
-
-// MARK: - Touch capture
-
-private struct TouchpadCaptureSurface: UIViewRepresentable {
-    @Binding var modifiers: Set<IBModifierBar.Modifier>
-    @Binding var cursor: CGPoint
-    @Binding var isPressed: Bool
-    let onEvent: (TouchEvent) -> Void
-
-    func makeUIView(context: Context) -> TouchpadUIView {
-        let view = TouchpadUIView()
-        view.onEvent = onEvent
-        view.onTouch = { location, pressed in
-            DispatchQueue.main.async {
-                cursor = location
-                isPressed = pressed
-            }
-        }
-        view.isAccessibilityElement = true
-        view.accessibilityLabel = "Trackpad surface. Touch and drag to move the Mac cursor."
-        view.accessibilityTraits = .allowsDirectInteraction
-        return view
-    }
-
-    func updateUIView(_ uiView: TouchpadUIView, context: Context) {
-        uiView.onEvent = onEvent
-        uiView.onTouch = { location, pressed in
-            DispatchQueue.main.async {
-                cursor = location
-                isPressed = pressed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                showCoach = false
             }
         }
     }
-}
 
-final class TouchpadUIView: UIView {
-
-    var onEvent: ((TouchEvent) -> Void)?
-    var onTouch: ((CGPoint, Bool) -> Void)?
-
-    private var modifierMask: UInt8 = 0
-    private var lastDragLocation: CGPoint?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isMultipleTouchEnabled = true
-
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        pan.minimumNumberOfTouches = 1
-        pan.maximumNumberOfTouches = 1
-        pan.cancelsTouchesInView = false
-        addGestureRecognizer(pan)
-
-        let scroll = UIPanGestureRecognizer(target: self, action: #selector(handleScroll(_:)))
-        scroll.minimumNumberOfTouches = 2
-        scroll.maximumNumberOfTouches = 2
-        scroll.cancelsTouchesInView = false
-        addGestureRecognizer(scroll)
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        addGestureRecognizer(tap)
-
-        let rightTap = UITapGestureRecognizer(target: self, action: #selector(handleRightTap(_:)))
-        rightTap.numberOfTouchesRequired = 2
-        addGestureRecognizer(rightTap)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    @objc private func handlePan(_ rec: UIPanGestureRecognizer) {
-        let location = rec.location(in: self)
-        let ts = UInt64(Date().timeIntervalSince1970 * 1_000_000)
-        switch rec.state {
-        case .began:
-            lastDragLocation = location
-            onTouch?(normalize(location), true)
-            emit(.init(
-                phase: .down,
-                x: Float(location.x / bounds.width),
-                y: Float(location.y / bounds.height),
-                modifiers: modifierMask,
-                timestampMicros: ts
-            ))
-        case .changed:
-            guard let last = lastDragLocation else { return }
-            let dx = Float(location.x - last.x) / Float(bounds.width)
-            let dy = Float(location.y - last.y) / Float(bounds.height)
-            lastDragLocation = location
-            onTouch?(normalize(location), true)
-            emit(.init(
-                phase: .move,
-                x: Float(location.x / bounds.width),
-                y: Float(location.y / bounds.height),
-                dx: dx, dy: dy,
-                modifiers: modifierMask,
-                timestampMicros: ts
-            ))
-        case .ended, .cancelled, .failed:
-            lastDragLocation = nil
-            onTouch?(normalize(location), false)
-            emit(.init(
-                phase: .up,
-                x: Float(location.x / bounds.width),
-                y: Float(location.y / bounds.height),
-                modifiers: modifierMask,
-                timestampMicros: ts
-            ))
-        default:
-            break
+    private func dismissCoach() {
+        guard showCoach else { return }
+        withAnimation(.easeOut(duration: 0.2)) {
+            showCoach = false
         }
-    }
-
-    @objc private func handleScroll(_ rec: UIPanGestureRecognizer) {
-        guard rec.state == .changed || rec.state == .ended else { return }
-        let translation = rec.translation(in: self)
-        rec.setTranslation(.zero, in: self)
-        let dx = Float(translation.x) / Float(bounds.width)
-        let dy = Float(translation.y) / Float(bounds.height)
-        emit(.init(
-            phase: .scroll, dx: dx, dy: dy,
-            modifiers: modifierMask,
-            timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)
-        ))
-    }
-
-    @objc private func handleTap(_ rec: UITapGestureRecognizer) {
-        let location = rec.location(in: self)
-        onTouch?(normalize(location), false)
-        emit(.init(
-            phase: .click,
-            x: Float(location.x / bounds.width),
-            y: Float(location.y / bounds.height),
-            modifiers: modifierMask,
-            timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)
-        ))
-    }
-
-    @objc private func handleRightTap(_ rec: UITapGestureRecognizer) {
-        let location = rec.location(in: self)
-        let ts = UInt64(Date().timeIntervalSince1970 * 1_000_000)
-        emit(.init(phase: .rightDown, x: Float(location.x / bounds.width), y: Float(location.y / bounds.height), modifiers: modifierMask, timestampMicros: ts))
-        emit(.init(phase: .rightUp, x: Float(location.x / bounds.width), y: Float(location.y / bounds.height), modifiers: modifierMask, timestampMicros: ts &+ 1))
-    }
-
-    private func normalize(_ p: CGPoint) -> CGPoint {
-        guard bounds.width > 0, bounds.height > 0 else { return .zero }
-        return CGPoint(x: p.x / bounds.width, y: p.y / bounds.height)
-    }
-
-    private func emit(_ event: TouchEvent) {
-        onEvent?(event)
     }
 }
