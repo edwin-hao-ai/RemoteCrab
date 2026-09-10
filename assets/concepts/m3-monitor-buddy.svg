@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#111F35"/>
+      <stop offset="1" stop-color="#04070E"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.46" r="0.52">
+      <stop offset="0" stop-color="#2C527E" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2C527E" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#465E80"/>
+      <stop offset="0.5" stop-color="#2E4059"/>
+      <stop offset="1" stop-color="#1A2740"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16283F"/>
+      <stop offset="1" stop-color="#0A1322"/>
+    </linearGradient>
+    <linearGradient id="eyeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7FE3FA"/>
+      <stop offset="1" stop-color="#2FA8DE"/>
+    </linearGradient>
+    <linearGradient id="standGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#31465F"/>
+      <stop offset="1" stop-color="#1D2C45"/>
+    </linearGradient>
+    <radialGradient id="ballGrad" cx="0.35" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#FFE3A6"/>
+      <stop offset="1" stop-color="#F5B53F"/>
+    </radialGradient>
+    <filter id="blur6" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="blur14" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <filter id="blur22" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+
+  <!-- ground shadow -->
+  <ellipse cx="512" cy="806" rx="215" ry="24" fill="#000000" opacity="0.4" filter="url(#blur22)"/>
+
+  <!-- antenna -->
+  <line x1="512" y1="322" x2="512" y2="242" stroke="#9FBEDD" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="512" cy="216" r="22" fill="url(#ballGrad)"/>
+  <circle cx="512" cy="216" r="22" fill="#FFD166" opacity="0.35" filter="url(#blur14)"/>
+  <path d="M 549 170 A 58 58 0 0 1 599 220" stroke="#4CC9F0" stroke-width="13" fill="none" stroke-linecap="round" opacity="0.9"/>
+  <path d="M 475 170 A 58 58 0 0 0 425 220" stroke="#4CC9F0" stroke-width="13" fill="none" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- arms -->
+  <path d="M 272 528 C 218 520 194 478 204 434" fill="none" stroke="#3A506E" stroke-width="27" stroke-linecap="round"/>
+  <path d="M 752 528 C 806 520 830 478 820 434" fill="none" stroke="#3A506E" stroke-width="27" stroke-linecap="round"/>
+
+  <!-- monitor frame -->
+  <rect x="272" y="322" width="480" height="376" rx="94" fill="url(#frame)"/>
+  <!-- frame top edge light -->
+  <path d="M 366 330 L 658 330" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="5" stroke-linecap="round"/>
+  <!-- frame bottom rim light -->
+  <path d="M 380 692 L 644 692" stroke="#4CC9F0" stroke-opacity="0.28" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- webcam dot in top bezel -->
+  <circle cx="512" cy="341" r="9" fill="#0A0F1C"/>
+  <circle cx="509" cy="338" r="3" fill="#4CC9F0" opacity="0.8"/>
+
+  <!-- screen -->
+  <rect x="312" y="362" width="400" height="296" rx="60" fill="url(#screen)"/>
+  <ellipse cx="512" cy="402" rx="160" ry="20" fill="#FFFFFF" opacity="0.05"/>
+
+  <!-- face: eye glows -->
+  <circle cx="432" cy="486" r="42" fill="#4CC9F0" opacity="0.22" filter="url(#blur14)"/>
+  <circle cx="592" cy="486" r="42" fill="#4CC9F0" opacity="0.22" filter="url(#blur14)"/>
+  <!-- eyes -->
+  <circle cx="432" cy="486" r="24" fill="url(#eyeGrad)"/>
+  <circle cx="592" cy="486" r="24" fill="url(#eyeGrad)"/>
+  <circle cx="440" cy="478" r="7" fill="#FFFFFF" opacity="0.95"/>
+  <circle cx="600" cy="478" r="7" fill="#FFFFFF" opacity="0.95"/>
+
+  <!-- cheeks -->
+  <ellipse cx="384" cy="552" rx="27" ry="15" fill="#F2A0C0" opacity="0.3" filter="url(#blur6)"/>
+  <ellipse cx="640" cy="552" rx="27" ry="15" fill="#F2A0C0" opacity="0.3" filter="url(#blur6)"/>
+
+  <!-- smile -->
+  <path d="M 470 550 Q 512 578 554 550" stroke="#7BDFF2" stroke-width="15" fill="none" stroke-linecap="round" opacity="0.35" filter="url(#blur6)"/>
+  <path d="M 470 550 Q 512 578 554 550" stroke="#7BDFF2" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+  <!-- stand -->
+  <path d="M 482 698 L 542 698 L 554 760 L 470 760 Z" fill="url(#standGrad)"/>
+  <rect x="414" y="756" width="196" height="32" rx="16" fill="url(#standGrad)"/>
+  <path d="M 440 762 L 584 762" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -34,3 +34,5 @@ DerivedData/
 # iBridgeCore Swift Package
 iBridgeCore/.build/
 iBridgeCore/Package.resolved
+# Superpowers brainstorming sessions
+.superpowers/

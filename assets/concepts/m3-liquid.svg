@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12223C"/>
+      <stop offset="0.55" stop-color="#0A1426"/>
+      <stop offset="1" stop-color="#05070F"/>
+    </linearGradient>
+
+    <!-- ambient light blobs that the glass refracts -->
+    <filter id="blurAmb" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="70"/>
+    </filter>
+    <filter id="blurGlass" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <filter id="blur4" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+    <filter id="blur8" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+    <filter id="blur16" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <filter id="blur24" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+
+    <linearGradient id="eyeGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8FE9FC"/>
+      <stop offset="1" stop-color="#2FA8DE"/>
+    </linearGradient>
+    <radialGradient id="ballGrad" cx="0.35" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#FFE9B8"/>
+      <stop offset="0.6" stop-color="#FFC95E"/>
+      <stop offset="1" stop-color="#EFA93A"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <clipPath id="frameClip">
+      <rect x="272" y="322" width="480" height="376" rx="94"/>
+    </clipPath>
+    <clipPath id="screenClip">
+      <rect x="312" y="362" width="400" height="296" rx="60"/>
+    </clipPath>
+    <clipPath id="armClipL"><rect x="150" y="380" width="180" height="200"/></clipPath>
+    <clipPath id="armClipR"><rect x="694" y="380" width="180" height="200"/></clipPath>
+  </defs>
+
+  <!-- ======================= background ======================= -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- ambient blobs (also reused blurred inside the glass) -->
+  <g id="ambience">
+    <circle cx="300" cy="270" r="240" fill="#2AA9E0" opacity="0.5" filter="url(#blurAmb)"/>
+    <circle cx="750" cy="770" r="270" fill="#6C4BD9" opacity="0.45" filter="url(#blurAmb)"/>
+    <circle cx="820" cy="240" r="160" fill="#1E6FB8" opacity="0.4" filter="url(#blurAmb)"/>
+  </g>
+
+  <!-- ground shadow -->
+  <ellipse cx="512" cy="808" rx="210" ry="22" fill="#000000" opacity="0.45" filter="url(#blur24)"/>
+
+  <!-- ======================= antenna ======================= -->
+  <line x1="512" y1="324" x2="512" y2="244" stroke="#C7D9EC" stroke-width="13" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="512" cy="216" r="34" fill="#FFC95E" opacity="0.35" filter="url(#blur16)"/>
+  <circle cx="512" cy="216" r="21" fill="url(#ballGrad)"/>
+  <circle cx="505" cy="208" r="6" fill="#FFFFFF" opacity="0.85"/>
+  <path d="M 549 170 A 58 58 0 0 1 599 220" stroke="#7BDFF2" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.95"/>
+  <path d="M 475 170 A 58 58 0 0 0 425 220" stroke="#7BDFF2" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.95"/>
+
+  <!-- ======================= glass arms ======================= -->
+  <g clip-path="url(#armClipL)">
+    <path d="M 272 528 C 218 520 194 478 204 434" fill="none" stroke="#A9C6E2" stroke-opacity="0.35" stroke-width="30" stroke-linecap="round"/>
+    <path d="M 268 520 C 224 512 204 478 212 442" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="7" stroke-linecap="round" filter="url(#blur4)"/>
+  </g>
+  <g clip-path="url(#armClipR)">
+    <path d="M 752 528 C 806 520 830 478 820 434" fill="none" stroke="#A9C6E2" stroke-opacity="0.35" stroke-width="30" stroke-linecap="round"/>
+    <path d="M 756 520 C 800 512 820 478 812 442" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="7" stroke-linecap="round" filter="url(#blur4)"/>
+  </g>
+
+  <!-- ======================= liquid glass frame ======================= -->
+  <g clip-path="url(#frameClip)">
+    <!-- refracted background through the glass -->
+    <use href="#ambience" filter="url(#blurGlass)" opacity="0.85"/>
+    <!-- frost layer -->
+    <rect x="272" y="322" width="480" height="376" fill="#BFD8EE" opacity="0.16"/>
+    <!-- diagonal sheen -->
+    <polygon points="272,322 560,322 380,698 272,698" fill="url(#sheen)"/>
+    <!-- bottom inner shadow -->
+    <rect x="272" y="640" width="480" height="58" fill="#000000" opacity="0.22" filter="url(#blur16)"/>
+  </g>
+  <!-- frame edge: specular top + soft rim -->
+  <rect x="272" y="322" width="480" height="376" rx="94" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
+  <path d="M 366 328 L 658 328" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="5" stroke-linecap="round" filter="url(#blur4)"/>
+  <path d="M 366 328 L 658 328" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 280 400 L 280 620" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
+  <path d="M 380 692 L 644 692" stroke="#7BDFF2" stroke-opacity="0.35" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
+
+  <!-- webcam dot in top bezel -->
+  <circle cx="512" cy="341" r="9" fill="#060B14" opacity="0.9"/>
+  <circle cx="509" cy="338" r="3" fill="#8FE9FC" opacity="0.9"/>
+
+  <!-- ======================= glass screen ======================= -->
+  <g clip-path="url(#screenClip)">
+    <rect x="312" y="362" width="400" height="296" fill="#060B16" opacity="0.78"/>
+    <use href="#ambience" filter="url(#blurGlass)" opacity="0.35"/>
+    <ellipse cx="512" cy="400" rx="170" ry="24" fill="#FFFFFF" opacity="0.06"/>
+    <rect x="312" y="600" width="400" height="58" fill="#12325A" opacity="0.25" filter="url(#blur16)"/>
+  </g>
+  <rect x="312" y="362" width="400" height="296" rx="60" fill="none" stroke="#9CCBEB" stroke-opacity="0.22" stroke-width="2.5"/>
+  <path d="M 372 366 L 652 366" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round" filter="url(#blur4)"/>
+
+  <!-- ======================= face ======================= -->
+  <!-- eye bloom -->
+  <circle cx="432" cy="486" r="40" fill="#4CC9F0" opacity="0.4" filter="url(#blur16)"/>
+  <circle cx="592" cy="486" r="40" fill="#4CC9F0" opacity="0.4" filter="url(#blur16)"/>
+  <!-- eyes -->
+  <circle cx="432" cy="486" r="24" fill="url(#eyeGrad)"/>
+  <circle cx="592" cy="486" r="24" fill="url(#eyeGrad)"/>
+  <circle cx="440" cy="478" r="7" fill="#FFFFFF" opacity="0.95"/>
+  <circle cx="600" cy="478" r="7" fill="#FFFFFF" opacity="0.95"/>
+
+  <!-- cheeks -->
+  <ellipse cx="384" cy="552" rx="26" ry="14" fill="#F2A0C0" opacity="0.28" filter="url(#blur8)"/>
+  <ellipse cx="640" cy="552" rx="26" ry="14" fill="#F2A0C0" opacity="0.28" filter="url(#blur8)"/>
+
+  <!-- smile -->
+  <path d="M 470 550 Q 512 578 554 550" stroke="#7BDFF2" stroke-width="15" fill="none" stroke-linecap="round" opacity="0.4" filter="url(#blur8)"/>
+  <path d="M 470 550 Q 512 578 554 550" stroke="#A5ECFA" stroke-width="13" fill="none" stroke-linecap="round"/>
+
+  <!-- ======================= glass stand ======================= -->
+  <g opacity="0.9">
+    <path d="M 482 698 L 542 698 L 554 758 L 470 758 Z" fill="#8FB2D4" opacity="0.3"/>
+    <rect x="414" y="754" width="196" height="32" rx="16" fill="#8FB2D4" opacity="0.3"/>
+    <rect x="414" y="754" width="196" height="32" rx="16" fill="none" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="2"/>
+    <path d="M 438 760 L 586 760" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

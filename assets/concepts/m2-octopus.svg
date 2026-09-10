@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101E33"/>
+      <stop offset="1" stop-color="#05080F"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#2A4E78" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#2A4E78" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="octo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#66D9F5"/>
+      <stop offset="1" stop-color="#2E9FD8"/>
+    </linearGradient>
+    <linearGradient id="tent" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4CC3EC"/>
+      <stop offset="1" stop-color="#2387BE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+
+  <!-- tentacles (behind body) -->
+  <g fill="none" stroke="url(#tent)" stroke-width="56" stroke-linecap="round">
+    <path d="M 352 624 C 330 700 310 742 348 792"/>
+    <path d="M 462 650 C 452 724 444 762 470 806"/>
+    <path d="M 566 650 C 576 724 584 762 558 806"/>
+    <path d="M 676 624 C 698 700 718 742 680 792"/>
+    <!-- raised waving tentacle -->
+    <path d="M 700 560 C 776 540 812 480 796 410 C 788 372 760 352 736 356"/>
+  </g>
+
+  <!-- body dome -->
+  <ellipse cx="512" cy="480" rx="212" ry="198" fill="url(#octo)"/>
+  <ellipse cx="452" cy="392" rx="120" ry="60" fill="#FFFFFF" opacity="0.18"/>
+
+  <!-- eyes -->
+  <circle cx="438" cy="470" r="40" fill="#FFFFFF"/>
+  <circle cx="586" cy="470" r="40" fill="#FFFFFF"/>
+  <circle cx="446" cy="478" r="18" fill="#0B1526"/>
+  <circle cx="594" cy="478" r="18" fill="#0B1526"/>
+  <circle cx="452" cy="471" r="6" fill="#FFFFFF"/>
+  <circle cx="600" cy="471" r="6" fill="#FFFFFF"/>
+
+  <!-- cheeks -->
+  <ellipse cx="382" cy="546" rx="30" ry="18" fill="#F2A0C0" opacity="0.4"/>
+  <ellipse cx="642" cy="546" rx="30" ry="18" fill="#F2A0C0" opacity="0.4"/>
+
+  <!-- smile -->
+  <path d="M 476 552 Q 512 580 548 552" stroke="#0B1526" stroke-width="14" fill="none" stroke-linecap="round"/>
+
+  <!-- gold orb held by raised tentacle -->
+  <circle cx="724" cy="352" r="26" fill="#FFD166"/>
+</svg>

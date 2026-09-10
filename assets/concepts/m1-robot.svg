@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#101E33"/>
+      <stop offset="1" stop-color="#05080F"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#2A4E78" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#2A4E78" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3D5474"/>
+      <stop offset="1" stop-color="#1B2942"/>
+    </linearGradient>
+    <linearGradient id="ear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#31465F"/>
+      <stop offset="1" stop-color="#16223A"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.38" cy="0.32" r="0.85">
+      <stop offset="0" stop-color="#4A7CC0"/>
+      <stop offset="0.45" stop-color="#22447E"/>
+      <stop offset="0.78" stop-color="#151538"/>
+      <stop offset="1" stop-color="#0B0A1E"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+
+  <!-- antenna -->
+  <line x1="512" y1="316" x2="512" y2="228" stroke="#8FB6D9" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="512" cy="202" r="26" fill="#FFD166"/>
+  <path d="M556 158 A64 64 0 0 1 612 214" stroke="#4CC9F0" stroke-width="15" fill="none" stroke-linecap="round" opacity="0.9"/>
+  <path d="M468 158 A64 64 0 0 0 412 214" stroke="#4CC9F0" stroke-width="15" fill="none" stroke-linecap="round" opacity="0.9"/>
+
+  <!-- ears -->
+  <rect x="206" y="470" width="58" height="130" rx="29" fill="url(#ear)"/>
+  <rect x="760" y="470" width="58" height="130" rx="29" fill="url(#ear)"/>
+
+  <!-- head -->
+  <rect x="264" y="316" width="496" height="448" rx="122" fill="url(#body)"/>
+  <ellipse cx="512" cy="352" rx="200" ry="26" fill="#FFFFFF" opacity="0.07"/>
+
+  <!-- lens eye -->
+  <circle cx="512" cy="505" r="152" fill="#0A0F1C"/>
+  <circle cx="512" cy="505" r="120" fill="url(#lens)"/>
+  <path d="M450 444 A84 84 0 0 1 568 430" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="20" fill="none" stroke-linecap="round"/>
+  <circle cx="566" cy="552" r="15" fill="#7BDFF2" opacity="0.85"/>
+
+  <!-- smile -->
+  <path d="M456 668 Q512 702 568 668" stroke="#7BDFF2" stroke-width="16" fill="none" stroke-linecap="round"/>
+</svg>
