@@ -43,6 +43,15 @@ final class TouchSurfaceUIView: UIView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// CADisplayLink strongly retains its target; stop momentum when the
+    /// view leaves the window so the view isn't kept alive mid-switch.
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            stopMomentum()
+        }
+    }
+
     // MARK: - Recognizers
 
     private func installRecognizers() {
@@ -102,7 +111,8 @@ final class TouchSurfaceUIView: UIView {
                 emit(phase: .down, at: location)
             }
         case .changed:
-            guard let last = lastDragLocation else { return }
+            guard let last = lastDragLocation,
+                  bounds.width > 0, bounds.height > 0 else { return }
             let rawDX = Float(location.x - last.x) / Float(bounds.width)
             let rawDY = Float(location.y - last.y) / Float(bounds.height)
             lastDragLocation = location
@@ -128,12 +138,14 @@ final class TouchSurfaceUIView: UIView {
         case .changed:
             rec.setTranslation(.zero, in: self)
             emitScroll(deltaPoints: translation)
-        case .ended, .cancelled:
+        case .ended:
             rec.setTranslation(.zero, in: self)
             let velocity = rec.velocity(in: self)
             if hypot(velocity.x, velocity.y) > 40 {
                 startMomentum(velocity: velocity)
             }
+        case .cancelled:
+            rec.setTranslation(.zero, in: self)
         default:
             break
         }
@@ -222,6 +234,7 @@ final class TouchSurfaceUIView: UIView {
         guard !forceClickFiredThisSequence,
               let primary = primaryTouch,
               touches.contains(primary),
+              event?.allTouches?.count == 1,
               primary.majorRadius > 30.0 else { return }
         forceClickFiredThisSequence = true
         Self.log.debug("forceClick majorRadius=\(primary.majorRadius, privacy: .public)")
