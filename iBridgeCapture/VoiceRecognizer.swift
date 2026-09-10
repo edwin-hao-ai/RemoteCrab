@@ -33,6 +33,10 @@ final class VoiceRecognizer {
     private var finalText = ""
     private var stopRequested = false
 
+    /// Incremented per start(); the stop() fallback timer compares
+    /// against it so a stale timer can't tear down a newer session.
+    private var sessionGeneration = 0
+
     // MARK: - Recognizer selection
 
     /// 端侧优先：zh-Hans → en-US → 系统默认。无端侧模型时允许服务端
@@ -89,6 +93,7 @@ final class VoiceRecognizer {
         finalText = ""
         finalDelivered = false
         stopRequested = false
+        sessionGeneration += 1
 
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
@@ -133,9 +138,10 @@ final class VoiceRecognizer {
         audioEngine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
 
+        let generation = sessionGeneration
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(1500))
-            self?.deliverFinal()
+            self?.deliverFinalIfCurrent(generation: generation)
         }
     }
 
@@ -146,6 +152,15 @@ final class VoiceRecognizer {
             partialText = result.bestTranscription.formattedString
             finalText = partialText
             if result.isFinal {
+                if isRunning {
+                    // Recognizer finalized on its own (Speech caps
+                    // sessions at ~1 min) while the user is still
+                    // holding — tear the audio side down like the
+                    // mid-session error path; onFinal still fires.
+                    isRunning = false
+                    audioEngine.stop()
+                    audioEngine.inputNode.removeTap(onBus: 0)
+                }
                 deliverFinal()
                 return
             }
@@ -163,6 +178,13 @@ final class VoiceRecognizer {
                 cleanup()
             }
         }
+    }
+
+    /// Fallback-timer entry point: delivers only if the session that
+    /// scheduled it is still the current one.
+    private func deliverFinalIfCurrent(generation: Int) {
+        guard generation == sessionGeneration else { return }
+        deliverFinal()
     }
 
     /// Fires onFinal at most once per session, with non-empty
