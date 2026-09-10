@@ -5,9 +5,10 @@ import iBridgeCore
 ///
 /// Camera and microphone are background-stream toggles; trackpad and
 /// keyboard are foreground surfaces that occupy the screen; voice is a
-/// hold-to-talk button (state only — recognition wiring lands in Plan 3).
+/// hold-to-talk button that drives the `VoiceRecognizer` speech session.
 struct FeatureDock: View {
     let features: FeatureStore
+    let voice: VoiceRecognizer
     @State private var voiceHeld = false
 
     var body: some View {
@@ -92,16 +93,49 @@ struct FeatureDock: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    guard !voiceHeld else { return }
-                    voiceHeld = true
-                    features.set(feature: .voice, enabled: true)
+                    startVoice()
                 }
                 .onEnded { _ in
-                    voiceHeld = false
-                    features.set(feature: .voice, enabled: false)
+                    stopVoice()
                 }
         )
         .accessibilityLabel(voiceHeld ? "Voice. Release to stop." : "Voice. Hold to talk.")
+        .accessibilityAction(named: "Toggle Voice Input") {
+            // VoiceOver double-tap can't express "release", so it toggles.
+            if voiceHeld {
+                stopVoice()
+            } else {
+                startVoice()
+            }
+        }
+    }
+
+    // MARK: - Voice hold-to-talk
+
+    private func startVoice() {
+        guard !voiceHeld else { return }
+        voiceHeld = true
+        features.set(feature: .voice, enabled: true)
+        Task { @MainActor in
+            let started = await voice.start()
+            if !started {
+                // No permission / recognizer unavailable — don't leave
+                // the button glowing a fake active state.
+                voiceHeld = false
+                features.set(feature: .voice, enabled: false)
+            } else if !voiceHeld {
+                // Finger released before the async start() resolved
+                // (quick tap) — stop immediately so the recognizer
+                // doesn't run on its own until the ~1 min system cap.
+                voice.stop()
+            }
+        }
+    }
+
+    private func stopVoice() {
+        voiceHeld = false
+        features.set(feature: .voice, enabled: false)
+        voice.stop()
     }
 
     private func buttonBody(

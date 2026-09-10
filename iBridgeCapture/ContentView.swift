@@ -5,6 +5,11 @@ struct ContentView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @State private var showConnectionSheet = false
     @State private var showSettings = false
+    @State private var voice = VoiceRecognizer()
+
+    /// Brief "Sent" confirmation shown on the voice card after the
+    /// finalized text has been dispatched to the Mac.
+    @State private var voiceSentFlash = false
 
     // PiP drag state: committed offset + in-flight gesture translation.
     @State private var pipOffset: CGSize = .zero
@@ -23,14 +28,19 @@ struct ContentView: View {
                 VStack {
                     topBar
                     Spacer()
-                    FeatureDock(features: engine.features)
+                    FeatureDock(features: engine.features, voice: voice)
                 }
                 .padding(IBSpace.l.pt)
 
                 if showsPiP {
                     pip(in: geo.size)
                 }
+
+                if voice.isRunning || voiceSentFlash {
+                    voiceCard
+                }
             }
+            .animation(IBAnimation.snappy, value: voice.isRunning || voiceSentFlash)
         }
         .sheet(isPresented: $showConnectionSheet) {
             ConnectionSheet(engine: engine)
@@ -42,6 +52,18 @@ struct ContentView: View {
                 .presentationDetents([.large])
         }
         .onAppear {
+            // Finalized dictation is typed into the Mac as a `.text`
+            // KeyEvent — the same channel the keyboard surface uses,
+            // but via `sendVoiceText` so it isn't gated on keyboardOn.
+            voice.onFinal = { text in
+                engine.sendVoiceText(text)
+                voiceSentFlash = true
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(800))
+                    voiceSentFlash = false
+                }
+            }
+
             // E2E test mode: when IBRIDGE_AUTO_START=1 is set, skip
             // onboarding and surface a "Tap to start streaming" affordance.
             //
@@ -170,6 +192,41 @@ struct ContentView: View {
             .accessibilityLabel("Settings")
             .accessibilityHint("Video resolution, frame rate, microphone, and trackpad settings")
         }
+    }
+
+    // MARK: - Voice recognition card
+
+    /// Floating hold-to-talk card, hovers above the dock on every
+    /// surface. Shows the live interim transcription while the
+    /// recognizer runs, then a brief "Sent" confirmation (~0.8 s)
+    /// after the final text is dispatched.
+    private var voiceCard: some View {
+        HStack(spacing: IBSpace.m.pt - 2) {
+            Image(systemName: voiceSentFlash ? "checkmark" : "waveform")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(voiceSentFlash ? IBColor.success : .red)
+                .symbolEffect(.pulse, isActive: voice.isRunning)
+            Text(voiceSentFlash
+                 ? "Sent"
+                 : (voice.partialText.isEmpty ? "Listening…" : voice.partialText))
+                .font(.system(size: 15))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, IBSpace.l.pt)
+        .padding(.vertical, IBSpace.m.pt - 2)
+        .background {
+            IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous))
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+        // Clear the dock (~64pt tall + l padding) below.
+        .padding(.bottom, IBSpace.huge.pt * 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(voiceSentFlash
+                            ? "Dictation sent"
+                            : "Voice input. \(voice.partialText.isEmpty ? "Listening" : voice.partialText)")
     }
 
     // MARK: - PiP camera preview

@@ -106,6 +106,14 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(event)
     }
 
+    /// Voice dictation result. Ships as a `.text` KeyEvent over the
+    /// same wire channel as the keyboard, but is deliberately NOT
+    /// gated on `keyboardOn` — voice is its own feature and must work
+    /// from any surface.
+    func sendVoiceText(_ text: String) {
+        broadcaster?.send(KeyEvent(action: .text, text: text))
+    }
+
     func startStreaming() async {
         guard !isStreaming else { return }
         connectionState = .starting
