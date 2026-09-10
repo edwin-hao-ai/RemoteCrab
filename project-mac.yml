@@ -91,13 +91,14 @@ targets:
         CFBundleDisplayName: iBridge Camera
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
-        CFBundlePackageType: "XPC!"
+        CFBundlePackageType: SYSX
         CMIOExtension:
           CMIOExtensionMachServiceName: 5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera
         NSSystemExtensionUsageDescription: iBridge uses your iPhone as a camera for this Mac.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
+        PRODUCT_NAME: com.ibridge.iBridgeReceiver.Camera
         INFOPLIST_FILE: iBridgeCameraExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: iBridgeCameraExtension/CameraExtension.entitlements
         CODE_SIGNING_ALLOWED: YES
