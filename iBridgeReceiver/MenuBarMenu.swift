@@ -198,22 +198,22 @@ struct MenuBarMenu: View {
             ToggleRow(icon: "camera.fill",
                       title: "Camera",
                       subtitle: "Live iPhone feed",
-                      isOn: .constant(true))
+                      isOn: featureBinding(.camera, \.cameraOn))
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "mic.fill",
                       title: "Microphone",
                       subtitle: "Stream iPhone mic",
-                      isOn: .constant(true))
+                      isOn: featureBinding(.microphone, \.micOn))
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
                       title: "Trackpad",
                       subtitle: "Control Mac cursor",
-                      isOn: .constant(true))
+                      isOn: featureBinding(.trackpad, \.trackpadOn))
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "keyboard",
                       title: "Keyboard",
                       subtitle: "Type on the Mac",
-                      isOn: .constant(true))
+                      isOn: featureBinding(.keyboard, \.keyboardOn))
         }
         .padding(.vertical, 4)
     }
@@ -261,6 +261,20 @@ struct MenuBarMenu: View {
             .padding(.horizontal, 14)
             .padding(.top, 6)
             .padding(.bottom, 2)
+    }
+
+    /// Live binding to the iPhone's feature state. Reads come from the
+    /// latest `featureState` snapshot; writes send a `featureControl`
+    /// frame. Until the first snapshot arrives the toggle shows off
+    /// and writes are dropped by `ReceiverSession` when disconnected.
+    private func featureBinding(
+        _ feature: IBFeature,
+        _ keyPath: KeyPath<FeatureStateSnapshot, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { session.featureState?[keyPath: keyPath] ?? false },
+            set: { session.setFeature(feature, $0) }
+        )
     }
 
     // Status derived from the live session state.

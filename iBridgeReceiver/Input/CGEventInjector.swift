@@ -22,23 +22,24 @@ public final class CGEventInjector: InputInjector {
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseUp, at: lastCursor)
         case .move:
-            // Apply incremental delta for smooth dragging.
             let dx = Double(touch.dx) * Double(screenSize.width)
             let dy = Double(touch.dy) * Double(screenSize.height)
             moveCursor(to: CGPoint(x: lastCursor.x + dx, y: lastCursor.y + dy))
-            post(type: .leftMouseDragged, at: lastCursor)
+            // Plain finger move = hover; while a drag is armed
+            // (dragStart seen, no up yet) = left-drag.
+            if isDragging {
+                post(type: .leftMouseDragged, at: lastCursor)
+            }
+        case .dragStart:
+            moveCursor(to: CGPoint(x: absX, y: absY))
+            post(type: .leftMouseDown, at: lastCursor)
+            isDragging = true
         case .scroll:
-            // Post a scroll event. Positive dy scrolls up; we follow
-            // Apple's "natural" convention (inverse).
-            let scrollEvent = CGEvent(
-                scrollWheelEvent2Source: nil,
-                units: .pixel,
-                wheelCount: 1,
-                wheel1: Int32(-touch.dy * 50),
-                wheel2: Int32(-touch.dx * 50),
-                wheel3: 0
-            )
-            scrollEvent?.post(tap: .cghidEventTap)
+            postScroll(dx: touch.dx, dy: touch.dy, commandHeld: false)
+        case .pinch:
+            // No public API posts magnification gestures; ⌘+scroll is
+            // the standard zoom shortcut honoured by most apps.
+            postScroll(dx: 0, dy: touch.dx, commandHeld: true)
         case .rightDown:
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseDown, at: lastCursor)
@@ -49,26 +50,19 @@ public final class CGEventInjector: InputInjector {
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseDown, at: lastCursor)
             post(type: .leftMouseUp, at: lastCursor)
-        case .dragStart:
-            moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .leftMouseDown, at: lastCursor)
         case .threeFingerTap:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            let down = CGEvent(mouseEventSource: nil, mouseType: .otherMouseDown,
-                               mouseCursorPosition: lastCursor, mouseButton: .center)
-            down?.post(tap: .cghidEventTap)
-            let up = CGEvent(mouseEventSource: nil, mouseType: .otherMouseUp,
-                             mouseCursorPosition: lastCursor, mouseButton: .center)
-            up?.post(tap: .cghidEventTap)
+            postOther(button: 2, down: true, at: lastCursor)   // middle click
+            postOther(button: 2, down: false, at: lastCursor)
+        case .threeFingerSwipe:
+            postMissionControl(dx: touch.dx, dy: touch.dy)
         case .forceClick:
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseDown, at: lastCursor)
             post(type: .rightMouseUp, at: lastCursor)
-        case .pinch, .threeFingerSwipe:
-            // System-level gestures (zoom / Mission Control) have no
-            // simple CGEvent equivalent; ignored for now.
-            break
         }
+        if touch.phase == .up { isDragging = false }
+        lastPhase = touch.phase
     }
 
     public func inject(key: KeyEvent) {
@@ -90,6 +84,9 @@ public final class CGEventInjector: InputInjector {
 
     // MARK: - Helpers
 
+    private var isDragging = false
+    private var lastPhase: TouchEvent.Phase?
+
     private func moveCursor(to point: CGPoint) {
         lastCursor = point
         let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
@@ -103,8 +100,51 @@ public final class CGEventInjector: InputInjector {
         event?.post(tap: .cghidEventTap)
     }
 
+    private func postScroll(dx: Float, dy: Float, commandHeld: Bool) {
+        let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: Int32(-dy * 50),
+            wheel2: Int32(-dx * 50),
+            wheel3: 0
+        )
+        if commandHeld { event?.flags = .maskCommand }
+        event?.post(tap: .cghidEventTap)
+    }
+
+    private func postOther(button: Int, down: Bool, at point: CGPoint) {
+        let type: CGEventType = down ? .otherMouseDown : .otherMouseUp
+        let event = CGEvent(mouseEventSource: nil, mouseType: type,
+                            mouseCursorPosition: point,
+                            mouseButton: CGMouseButton(rawValue: UInt32(button))!)
+        event?.post(tap: .cghidEventTap)
+    }
+
+    /// Three-finger swipes map to the Mac's built-in shortcuts:
+    /// up = Mission Control (⌃↑), down = App Exposé (⌃↓),
+    /// left/right = switch Space (⌃← / ⌃→).
+    private func postMissionControl(dx: Float, dy: Float) {
+        let keyCode: CGKeyCode
+        if abs(dy) >= abs(dx) {
+            keyCode = dy > 0 ? 126 : 125        // up / down
+        } else {
+            keyCode = dx > 0 ? 124 : 123        // right / left
+        }
+        postKeyCombo(code: keyCode, flags: .maskControl)
+    }
+
+    private func postKeyCombo(code: CGKeyCode, flags: CGEventFlags) {
+        let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
+        down?.flags = flags
+        down?.post(tap: .cghidEventTap)
+        let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        up?.post(tap: .cghidEventTap)
+    }
+
     private func postKey(code: UInt16, down: Bool) {
-        print("[iBridge] key \(down ? "down" : "up"): hid=\(code)")
+        let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+        event?.post(tap: .cghidEventTap)
     }
 
     private func typeText(_ text: String) {

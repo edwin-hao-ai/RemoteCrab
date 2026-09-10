@@ -108,7 +108,8 @@ final class ReceiverSession: ObservableObject {
         )
         conn.stateUpdateHandler = { [weak self] newState in
             Task { @MainActor in
-                self?.handleConnectionState(newState)
+                guard let self, self.connection === conn else { return }
+                self.handleConnectionState(newState)
             }
         }
         startReceiving(on: conn)
@@ -128,10 +129,12 @@ final class ReceiverSession: ObservableObject {
         case .failed(let error):
             stopPingLoop()
             state = .error("\(error)")
+            featureState = nil
             connection = nil
         case .cancelled:
             stopPingLoop()
             state = .searching
+            featureState = nil
             connection = nil
         default:
             break

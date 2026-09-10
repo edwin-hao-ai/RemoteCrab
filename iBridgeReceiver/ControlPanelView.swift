@@ -228,10 +228,10 @@ struct ControlPanelView: View {
             }
             Divider().opacity(0.15)
             HStack {
-                badge("CAM", active: true)
-                badge("MIC", active: true)
-                badge("TPAD", active: true)
-                badge("KEY", active: true)
+                badge("CAM", active: session.featureState?.cameraOn ?? false)
+                badge("MIC", active: session.featureState?.micOn ?? false)
+                badge("TPAD", active: session.featureState?.trackpadOn ?? false)
+                badge("KEY", active: session.featureState?.keyboardOn ?? false)
                 Spacer()
                 Text("V0.2")
                     .font(IBFont.eyebrowMono)
