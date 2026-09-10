@@ -6,35 +6,74 @@ import Foundation
 import VideoToolbox
 import iBridgeCore
 
-/// One H.264 stream exposed by the camera device. The system asks for
-/// new `CMSampleBuffer`s on a timer (via the delegate). We pull the
-/// most recent decoded frame from the host process via the
-/// `iBridgeFrameSink` callback.
-final class CameraExtensionStream: NSObject, CMIOExtensionStream {
+/// One H.264 stream exposed by the camera device. Frames decoded from
+/// the connected iPhone are pushed to the system via
+/// `CMIOExtensionStream.send(_:discontinuity:hostTimeInNanoseconds:)`.
+final class CameraExtensionStream: NSObject {
+
+    /// Stable identifier for the single video stream.
+    private static let streamID = UUID(uuidString: "3B7B09B4-2E2A-4C6B-9C0E-1B0E6B0D6A02")!
 
     /// Video format advertised to consumers. Uses the same resolution
     /// and codec as what the iPhone is currently streaming.
     var formatDescription: CMVideoFormatDescription?
 
-    private var decompressSession: VTDecompressionSession?
+    /// The CMIO stream object registered with the device.
+    private(set) var stream: CMIOExtensionStream!
+
     private let decoder = StreamDecoder()
-    private var lastEmitted: Date = .distantPast
-    private let minimumInterval: TimeInterval = 1.0 / 30.0
+    private var isStreaming = false
 
     override init() {
         super.init()
+        stream = CMIOExtensionStream(
+            localizedName: "iBridge Camera",
+            streamID: Self.streamID,
+            direction: .source,
+            clockType: .hostTime,
+            source: self
+        )
     }
 
-    deinit {
-        if let decompressSession {
-            VTDecompressionSessionInvalidate(decompressSession)
-        }
+    // MARK: - Wired up by the host
+
+    /// Called by `iBridgeReceiver` whenever a fresh H.264 NAL arrives
+    /// from the iPhone. We feed it through our own VTDecompressionSession
+    /// and push the resulting frame to connected clients.
+    func receive(nalUnit: Data, kind: IBNalFrame.Kind) {
+        decoder.feed(nalUnit: nalUnit, kind: kind)
+        guard isStreaming,
+              let pixelBuffer = decoder.dequeuePixelBuffer(),
+              let sample = decoder.makeSampleBuffer(from: pixelBuffer) else { return }
+        stream.send(
+            sample,
+            discontinuity: [],
+            hostTimeInNanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        )
     }
 
-    // MARK: - CMIOExtensionStreamSource
+    /// Fallback format advertised until the first SPS/PPS arrives from
+    /// the iPhone: 1080p BGRA, matching the capture pipeline.
+    private static func defaultFormatDescription() -> CMVideoFormatDescription {
+        var description: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreate(
+            allocator: kCFAllocatorDefault,
+            codecType: kCVPixelFormatType_32BGRA,
+            width: 1920,
+            height: 1080,
+            extensions: nil,
+            formatDescriptionOut: &description
+        )
+        return description!
+    }
+}
 
-    var streamFormatDescriptions: [CMIOExtensionStreamFormat] {
-        guard let formatDescription else { return [] }
+// MARK: - CMIOExtensionStreamSource
+
+extension CameraExtensionStream: CMIOExtensionStreamSource {
+
+    var formats: [CMIOExtensionStreamFormat] {
+        let formatDescription = formatDescription ?? Self.defaultFormatDescription()
         let format = CMIOExtensionStreamFormat(
             formatDescription: formatDescription,
             maxFrameDuration: CMTime(value: 1, timescale: 30),
@@ -44,40 +83,32 @@ final class CameraExtensionStream: NSObject, CMIOExtensionStream {
         return [format]
     }
 
-    /// Called by the system on its own dispatch queue when it wants
-    /// the next frame. We do not block: return the most recent
-    /// decoded pixel buffer if available, else `nil` and try again.
-    func consumeSampleBuffer(
-        fromConnection connectionID: CMIOExtensionStreamConnectionID,
-        callback: @escaping (CMSampleBuffer?, CMIOExtensionStreamDisconnectReason, NSError?) -> Void
-    ) {
-        // Throttle to ~30 fps regardless of how often the system polls.
-        let now = Date()
-        if now.timeIntervalSince(lastEmitted) < minimumInterval {
-            // System will call again; just return the previous buffer.
-            if let cached = decoder.lastBuffer {
-                callback(cached, .noDisconnectReason, nil)
-                return
-            }
-        }
-
-        guard let pixelBuffer = decoder.dequeuePixelBuffer() else {
-            callback(nil, .noDisconnectReason, nil)
-            return
-        }
-
-        let sample = decoder.makeSampleBuffer(from: pixelBuffer)
-        lastEmitted = now
-        callback(sample, .noDisconnectReason, nil)
+    var availableProperties: Set<CMIOExtensionProperty> {
+        [.streamActiveFormatIndex]
     }
 
-    // MARK: - Wired up by the host
+    func streamProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionStreamProperties {
+        let streamProperties = CMIOExtensionStreamProperties(dictionary: [:])
+        if properties.contains(.streamActiveFormatIndex) {
+            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: 0)), forProperty: .streamActiveFormatIndex)
+        }
+        return streamProperties
+    }
 
-    /// Called by `iBridgeReceiver` whenever a fresh H.264 NAL arrives
-    /// from the iPhone. We feed it through our own VTDecompressionSession
-    /// and queue the resulting `CVPixelBuffer`.
-    func receive(nalUnit: Data, kind: IBNalFrame.Kind) {
-        decoder.feed(nalUnit: nalUnit, kind: kind)
+    func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {
+    }
+
+    func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
+        // V0.1: anyone running the extension may use the camera.
+        true
+    }
+
+    func startStream() throws {
+        isStreaming = true
+    }
+
+    func stopStream() throws {
+        isStreaming = false
     }
 }
 
@@ -87,7 +118,7 @@ final class CameraExtensionStream: NSObject, CMIOExtensionStream {
 /// recent decoded `CVPixelBuffer`s. Camera extensions are sample-pull
 /// based: the system asks for the next frame whenever it needs one, and
 /// we always hand back the freshest available pixel buffer.
-final class StreamDecoder {
+final class StreamDecoder: @unchecked Sendable {
 
     var lastBuffer: CMSampleBuffer?
 
@@ -108,8 +139,6 @@ final class StreamDecoder {
             tryMakeSession()
         case .video:
             decode(nalUnit: nalUnit)
-        case .metadata:
-            break
         }
     }
 
@@ -198,7 +227,7 @@ final class StreamDecoder {
                 blockBuffer,
                 atOffset: 0,
                 dataLength: nalUnit.count,
-                destination: UnsafeMutableRawPointer(mutating: raw.baseAddress)
+                destination: UnsafeMutableRawPointer(mutating: raw.baseAddress!)
             )
         }
 

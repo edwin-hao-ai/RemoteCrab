@@ -13,6 +13,12 @@ import iBridgeCore
 /// host can share the same buffer.
 public final class iBridgeAudioFactory: NSObject, AUAudioUnitFactory {
 
+    /// NSExtensionRequestHandling requirement. AudioUnit extensions do
+    /// not use extension contexts; instantiation goes through
+    /// `createAudioUnit(with:)`.
+    public func beginRequest(with context: NSExtensionContext) {
+    }
+
     public func createAudioUnit(with componentDescription: AudioComponentDescription) throws -> AUAudioUnit {
         // The real unit lives in the Mac app target — we just hand it
         // back here. The host process uses the same instance whether the

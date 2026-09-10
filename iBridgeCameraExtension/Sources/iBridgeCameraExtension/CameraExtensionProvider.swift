@@ -1,7 +1,11 @@
+import CoreMedia
 import CoreMediaIO
 import Foundation
 import IOKit
+import OSLog
 import iBridgeCore
+
+private let logger = Logger(subsystem: "com.ibridge", category: "CameraExtension")
 
 /// The Camera Extension's top-level provider object.
 ///
@@ -9,35 +13,29 @@ import iBridgeCore
 /// app (Zoom, Teams, Photo Booth, OBS, …) starts consuming the camera.
 /// We expose a single device backed by a single stream that forwards
 /// frames from the connected iPhone.
-final class CameraExtensionProvider: NSObject, CMIOExtensionProvider {
+final class CameraExtensionProvider: NSObject {
 
     /// Registered by the host (iBridgeReceiver) when a new iPhone is
     /// accepted on the network. The provider hands incoming NAL frames
     /// to the `stream` via this sink.
     weak var frameSink: iBridgeFrameSink?
 
-    private let device: CameraExtensionDevice
+    private let deviceSource: CameraExtensionDevice
+
+    /// The live CMIO provider object handed to
+    /// `CMIOExtensionProvider.startService(provider:)`.
+    private(set) var provider: CMIOExtensionProvider!
 
     override init() {
-        self.device = CameraExtensionDevice()
+        self.deviceSource = CameraExtensionDevice()
         super.init()
+        provider = CMIOExtensionProvider(source: self, clientQueue: nil)
+        do {
+            try provider.addDevice(deviceSource.device)
+        } catch {
+            logger.error("failed to add device: \(error.localizedDescription)")
+        }
     }
-
-    func connect(to client: CMIOExtensionClient) throws {
-        // No-op: connections are short-lived and we don't keep per-client
-        // state beyond what `device` already tracks.
-        try device.connect(to: client)
-    }
-
-    func disconnect(from client: CMIOExtensionClient) {
-        device.disconnect(from: client)
-    }
-
-    // MARK: - CMIOExtensionProviderSource
-
-    var devices: [CMIOExtensionDevice] { [device] }
-
-    var providerName: String { "iBridge Camera" }
 }
 
 /// Protocol used by `CameraExtensionStream` to receive raw H.264 NAL
@@ -48,6 +46,30 @@ protocol iBridgeFrameSink: AnyObject {
     func consumeNextPixelBuffer() -> Unmanaged<CMSampleBuffer>?
 }
 
-extension CameraExtensionProvider: CMIOExtensionProviderSource {}
-extension CameraExtensionDevice: CMIOExtensionDeviceSource {}
-extension CameraExtensionStream: CMIOExtensionStreamSource {}
+// MARK: - CMIOExtensionProviderSource
+
+extension CameraExtensionProvider: CMIOExtensionProviderSource {
+
+    func connect(to client: CMIOExtensionClient) throws {
+        // Connections are short-lived and we don't keep per-client
+        // state beyond what the device already tracks.
+    }
+
+    func disconnect(from client: CMIOExtensionClient) {
+    }
+
+    var availableProperties: Set<CMIOExtensionProperty> {
+        [.providerName]
+    }
+
+    func providerProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionProviderProperties {
+        let providerProperties = CMIOExtensionProviderProperties(dictionary: [:])
+        if properties.contains(.providerName) {
+            providerProperties.setPropertyState(CMIOExtensionPropertyState(value: "iBridge Camera" as NSString), forProperty: .providerName)
+        }
+        return providerProperties
+    }
+
+    func setProviderProperties(_ providerProperties: CMIOExtensionProviderProperties) throws {
+    }
+}
