@@ -5,26 +5,32 @@ struct ContentView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @State private var showConnectionSheet = false
     @State private var showSettings = false
-    @State private var mode: Mode = .camera
 
-    enum Mode: String, CaseIterable, Hashable {
-        case camera = "Camera"
-        case touch  = "Trackpad"
-        case type   = "Keyboard"
-    }
+    // PiP drag state: committed offset + in-flight gesture translation.
+    @State private var pipOffset: CGSize = .zero
+    @GestureState private var pipTranslation: CGSize = .zero
+
+    private let pipSize = CGSize(width: 120, height: 160)
+    private let pipTopPad: CGFloat = 76
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { geo in
+            ZStack {
+                Color.black.ignoresSafeArea()
 
-            modeSurface
+                surface
 
-            VStack {
-                topBar
-                Spacer()
-                bottomBar
+                VStack {
+                    topBar
+                    Spacer()
+                    FeatureDock(features: engine.features)
+                }
+                .padding(IBSpace.l.pt)
+
+                if showsPiP {
+                    pip(in: geo.size)
+                }
             }
-            .padding(IBSpace.l.pt)
         }
         .sheet(isPresented: $showConnectionSheet) {
             ConnectionSheet(engine: engine)
@@ -46,13 +52,12 @@ struct ContentView: View {
             //      unable to tell which app the prompt belongs to,
             //      and on iPhone-with-Dynamic-Island the modal can
             //      visually overlap our UI in confusing ways.
-            //   3. The user explicitly tapping the big red button makes
-            //      the cause-and-effect obvious: tap → permission
-            //      prompt → streaming starts.
+            //   3. The user explicitly tapping the stream button in the
+            //      connection sheet makes the cause-and-effect obvious:
+            //      tap → permission prompt → streaming starts.
             //
             // The env var is only used to bypass onboarding so the
-            // user lands directly on the camera mode with a big START
-            // button visible.
+            // user lands directly on the home screen.
             if ProcessInfo.processInfo.environment["IBRIDGE_AUTO_START"] == "1" {
                 UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
                 // No auto-toggle — user must tap to start.
@@ -63,16 +68,49 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Surfaces
+
     @ViewBuilder
-    private var modeSurface: some View {
-        switch mode {
-        case .camera:
-            CameraPreview(session: engine.captureSession)
-                .ignoresSafeArea()
-        case .touch:
+    private var surface: some View {
+        switch engine.features.activeSurface {
+        case .cameraPreview:
+            if engine.features.cameraOn {
+                CameraPreview(session: engine.captureSession)
+                    .ignoresSafeArea()
+            } else {
+                cameraOffPlaceholder
+            }
+        case .trackpad:
             TouchpadScreen()
-        case .type:
+        case .keyboard:
             KeyboardScreen()
+        }
+    }
+
+    private var cameraOffPlaceholder: some View {
+        VStack(spacing: IBSpace.l.pt) {
+            Image(systemName: "video.slash")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.white.opacity(0.5))
+            Text("Camera is off")
+                .font(IBFont.eyebrowMono)
+                .ibEyebrowTracking()
+                .foregroundStyle(.white.opacity(0.7))
+            Button {
+                engine.features.set(feature: .camera, enabled: true)
+            } label: {
+                Text("Turn on")
+                    .font(IBFont.eyebrowMono)
+                    .ibEyebrowTracking()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .background {
+                        Capsule().fill(Color.accentColor)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Turn camera on")
         }
     }
 
@@ -82,7 +120,26 @@ struct ContentView: View {
         HStack(spacing: 12) {
             IBStatusPill(status: pillStatus)
             Spacer()
-            modeSelector
+
+            if engine.features.activeSurface == .cameraPreview {
+                Button {
+                    withAnimation(IBAnimation.snappy) {
+                        engine.features.activeSurface = .trackpad
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(IBSpace.s.pt + 2)
+                        .background {
+                            IBMaterial.bar(in: Circle())
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Done")
+                .accessibilityHint("Returns to the trackpad")
+            }
+
             Button {
                 showConnectionSheet = true
             } label: {
@@ -115,87 +172,66 @@ struct ContentView: View {
         }
     }
 
-    private var modeSelector: some View {
-        HStack(spacing: 2) {
-            ForEach(Mode.allCases, id: \.self) { m in
-                Button {
-                    withAnimation(IBAnimation.snappy) { mode = m }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: symbolName(for: m))
-                            .font(.system(size: 11, weight: .medium))
-                        Text(m.rawValue)
-                            .font(IBFont.eyebrowMono)
-                            .ibEyebrowTracking()
+    // MARK: - PiP camera preview
+
+    private var showsPiP: Bool {
+        engine.features.cameraOn && engine.features.activeSurface != .cameraPreview
+    }
+
+    private func pip(in size: CGSize) -> some View {
+        let liveOffset = clampedPiPOffset(
+            CGSize(
+                width: pipOffset.width + pipTranslation.width,
+                height: pipOffset.height + pipTranslation.height
+            ),
+            in: size
+        )
+        return CameraPreview(session: engine.captureSession)
+            .frame(width: pipSize.width, height: pipSize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+            .padding(.top, pipTopPad)
+            .padding(.trailing, IBSpace.l.pt)
+            .offset(liveOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .gesture(pipDrag(in: size))
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    withAnimation(IBAnimation.snappy) {
+                        engine.features.activeSurface = .cameraPreview
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .foregroundStyle(mode == m ? .white : .white.opacity(0.6))
-                    .background {
-                        if mode == m {
-                            Capsule()
-                                .fill(Color.accentColor)
-                        } else {
-                            Capsule()
-                                .fill(.white.opacity(0.08))
-                                .overlay(Capsule().strokeBorder(.white.opacity(0.10)))
-                        }
-                    }
                 }
-                .buttonStyle(.plain)
-            }
-        }
+            )
+            .accessibilityLabel("Camera preview")
+            .accessibilityHint("Tap to show the camera full screen, drag to move")
     }
 
-    private func symbolName(for mode: Mode) -> String {
-        switch mode {
-        case .camera: return "camera.fill"
-        case .touch:  return "hand.point.up.left.fill"
-        case .type:   return "keyboard"
-        }
+    private func pipDrag(in size: CGSize) -> some Gesture {
+        DragGesture()
+            .updating($pipTranslation) { value, state, _ in
+                state = value.translation
+            }
+            .onEnded { value in
+                let proposed = CGSize(
+                    width: pipOffset.width + value.translation.width,
+                    height: pipOffset.height + value.translation.height
+                )
+                pipOffset = clampedPiPOffset(proposed, in: size)
+            }
     }
 
-    // MARK: - Bottom bar
-
-    private var bottomBar: some View {
-        HStack {
-            Spacer()
-            VStack(spacing: IBSpace.s.pt) {
-                Text(mode.rawValue.uppercased())
-                    .font(IBFont.eyebrowMono)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .ibEyebrowTracking()
-                IBPrimaryButton(style: engine.isStreaming ? .stop : .stream) {
-                    Task { await engine.toggleStreaming() }
-                }
-                .accessibilityLabel(engine.isStreaming ? "Stop streaming" : "Start streaming")
-                .accessibilityHint("Turns the iPhone camera feed on or off")
-                if engine.isStreaming {
-                    micToggle
-                        .accessibilityLabel(engine.features.micOn ? "Microphone is on. Tap to turn off." : "Microphone is off. Tap to turn on.")
-                }
-            }
-            Spacer()
-        }
-    }
-
-    private var micToggle: some View {
-        Button {
-            engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: engine.features.micOn ? "mic.fill" : "mic.slash")
-                Text(engine.features.micOn ? "Mic on" : "Mic off")
-            }
-            .font(IBFont.monoMedium)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .background {
-                IBMaterial.bar(in: Capsule())
-            }
-        }
-        .buttonStyle(.plain)
+    private func clampedPiPOffset(_ offset: CGSize, in size: CGSize) -> CGSize {
+        let margin = IBSpace.l.pt
+        let minX = -(size.width - pipSize.width - 2 * margin)
+        let maxY = size.height - pipSize.height - pipTopPad - margin
+        return CGSize(
+            width: min(max(offset.width, minX), 0),
+            height: min(max(offset.height, 0), maxY)
+        )
     }
 
     private var pillStatus: IBStatusPill.Status {
