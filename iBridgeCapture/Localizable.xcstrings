@@ -1,429 +1,1026 @@
 {
-  "info": {
-    "author": "xcode",
-    "version": 1
-  },
+  "sourceLanguage": "en",
   "strings": {
     "iBridge": {
       "comment": "App name",
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "iBridge" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iBridge" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge"
+          }
+        }
       }
     },
     "Mac receiver": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mac receiver" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Mac 接收端" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac receiver"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 接收端"
+          }
+        }
       }
     },
     "iBridge Capture": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "iBridge Capture" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iBridge Capture" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge Capture"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge Capture"
+          }
+        }
       }
     },
     "Looking for an iPhone on your WiFi…": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Looking for an iPhone on your WiFi…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在 WiFi 上搜索 iPhone…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for an iPhone on your WiFi…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 WiFi 上搜索 iPhone…"
+          }
+        }
       }
     },
     "Connecting to %@…": {
       "comment": "Status pill text while connecting (with iPhone name interpolated)",
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connecting to %@…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在连接 %@…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接 %@…"
+          }
+        }
       }
     },
     "Streaming from %@": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Streaming from %@" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在接收 %@ 的画面" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming from %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在接收 %@ 的画面"
+          }
+        }
       }
     },
     "Error: %@": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Error: %@" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "错误：%@" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "错误：%@"
+          }
+        }
       }
     },
     "Continue": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Continue" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "继续" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续"
+          }
+        }
       }
     },
     "Skip": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Skip" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "跳过" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过"
+          }
+        }
       }
     },
     "Get Started": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Get Started" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开始使用" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Get Started"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始使用"
+          }
+        }
       }
     },
     "Allow Permissions & Connect": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Allow Permissions & Connect" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "允许权限并连接" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Permissions & Connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许权限并连接"
+          }
+        }
       }
     },
     "We need a few permissions": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "We need a few permissions" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要您授予以下权限" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We need a few permissions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要您授予以下权限"
+          }
+        }
       }
     },
     "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iBridge 需要使用您的相机、麦克风和本地网络。我们只会将数据发送到您的 Mac —— 数据绝不会离开您的 WiFi。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge 需要使用您的相机、麦克风和本地网络。我们只会将数据发送到您的 Mac —— 数据绝不会离开您的 WiFi。"
+          }
+        }
       }
     },
     "Connect to your Mac": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connect to your Mac" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接您的 Mac" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to your Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接您的 Mac"
+          }
+        }
       }
     },
     "Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载并在 Mac 上打开 iBridge Receiver，然后点击“允许权限并连接”。两台设备会自动找到彼此。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载并在 Mac 上打开 iBridge Receiver，然后点击“允许权限并连接”。两台设备会自动找到彼此。"
+          }
+        }
       }
     },
     "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi.": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "将您的 iPhone 变成 Mac 的摄像头、麦克风、触控板和键盘 —— 通过 WiFi 连接。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将您的 iPhone 变成 Mac 的摄像头、麦克风、触控板和键盘 —— 通过 WiFi 连接。"
+          }
+        }
       }
     },
     "Camera": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Camera" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "相机" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机"
+          }
+        }
       }
     },
     "Trackpad": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Trackpad" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trackpad"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控板"
+          }
+        }
       }
     },
     "Keyboard": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keyboard" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "键盘" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "键盘"
+          }
+        }
       }
     },
     "CAMERA": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CAMERA" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "相机" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CAMERA"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机"
+          }
+        }
       }
     },
     "TRACKPAD": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "TRACKPAD" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TRACKPAD"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控板"
+          }
+        }
       }
     },
     "KEYBOARD": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "KEYBOARD" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "键盘" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KEYBOARD"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "键盘"
+          }
+        }
       }
     },
     "Start streaming": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Start streaming" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "开始推流" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始推流"
+          }
+        }
       }
     },
     "Stop streaming": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Stop streaming" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "停止推流" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止推流"
+          }
+        }
       }
     },
     "Mic on": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mic on" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风开" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mic on"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风开"
+          }
+        }
       }
     },
     "Mic off": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Mic off" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风关" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mic off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风关"
+          }
+        }
       }
     },
     "Settings": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Settings" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "设置" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        }
       }
     },
     "Connection info": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connection info" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接信息" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection info"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接信息"
+          }
+        }
       }
     },
     "Connection": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connection" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "连接" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
       }
     },
     "Stream": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Stream" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推流" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推流"
+          }
+        }
       }
     },
     "Input": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Input" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "输入" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入"
+          }
+        }
       }
     },
     "About": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "About" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关于" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于"
+          }
+        }
       }
     },
     "Version": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Version" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "版本" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本"
+          }
+        }
       }
     },
     "Build": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Build" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "构建版本" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "构建版本"
+          }
+        }
       }
     },
     "Built for": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Built for" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "适配于" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built for"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适配于"
+          }
+        }
       }
     },
     "Trackpad sensitivity %d": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Trackpad sensitivity %d" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板灵敏度 %d" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trackpad sensitivity %d"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控板灵敏度 %d"
+          }
+        }
       }
     },
     "Keep screen on while streaming": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keep screen on while streaming" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推流时保持屏幕常亮" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep screen on while streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推流时保持屏幕常亮"
+          }
+        }
       }
     },
     "Privacy Policy": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Privacy Policy" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "隐私政策" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策"
+          }
+        }
       }
     },
     "Privacy Policy (opens in Safari)": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Privacy Policy (opens in Safari)" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "隐私政策（在 Safari 中打开）" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy (opens in Safari)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策（在 Safari 中打开）"
+          }
+        }
       }
     },
     "Idle": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "空闲" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        }
       }
     },
     "Connected": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connected" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已连接" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        }
       }
     },
     "Disconnected": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Disconnected" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已断开" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已断开"
+          }
+        }
       }
     },
     "Reconnecting": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重新连接中" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接中"
+          }
+        }
       }
     },
     "Connecting": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Connecting" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在连接" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接"
+          }
+        }
       }
     },
     "Streaming": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Streaming" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "推流中" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推流中"
+          }
+        }
       }
     },
     "Disconnected — you can enable this later in Settings": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Disconnected — you can enable this later in Settings" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已拒绝 — 你可以稍后在设置中开启" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected — you can enable this later in Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝 — 你可以稍后在设置中开启"
+          }
+        }
       }
     },
     "Granted": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Granted" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已授权" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授权"
+          }
+        }
       }
     },
     "Allow": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Allow" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "允许" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        }
       }
     },
     "Not now": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Not now" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "暂不允许" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂不允许"
+          }
+        }
       }
     },
     "Accessibility Permission": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Accessibility Permission" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "辅助功能权限" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility Permission"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助功能权限"
+          }
+        }
       }
     },
     "Accessibility permission required": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Accessibility permission required" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要辅助功能权限" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility permission required"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要辅助功能权限"
+          }
+        }
       }
     },
     "Accessibility granted": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Accessibility granted" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已授权辅助功能" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility granted"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已授权辅助功能"
+          }
+        }
       }
     },
     "Open System Settings": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open System Settings" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开系统设置" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开系统设置"
+          }
+        }
       }
     },
     "Re-check": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Re-check" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重新检查" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-check"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新检查"
+          }
+        }
       }
     },
     "iBridge is running": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "iBridge is running" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "iBridge 正在运行" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge is running"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge 正在运行"
+          }
+        }
       }
     },
     "Open the control panel from the menu bar icon.": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open the control panel from the menu bar icon." } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "从菜单栏图标打开控制面板。" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the control panel from the menu bar icon."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从菜单栏图标打开控制面板。"
+          }
+        }
       }
     },
     "Open Preview Window": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open Preview Window" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开预览窗口" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Preview Window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开预览窗口"
+          }
+        }
       }
     },
     "Open Control Panel": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Open Control Panel" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开控制面板" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Control Panel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开控制面板"
+          }
+        }
       }
     },
     "Preferences…": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Preferences…" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "偏好设置…" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferences…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偏好设置…"
+          }
+        }
       }
     },
     "Quit iBridge": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Quit iBridge" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "退出 iBridge" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit iBridge"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出 iBridge"
+          }
+        }
       }
     }
   },
