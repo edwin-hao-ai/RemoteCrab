@@ -803,3 +803,303 @@ git commit -m "Docs: camera extension wired, Photo Booth verification steps"
 - **Spec 覆盖**：签名（T1）、embed（T1）、iBridgeCore 依赖 bug（T1）、`.metadata` 编译错误（T1）、协议迁移（T2）、extension listener（T3）、死协议删除（T3）、host 接线 + fallback（T2 Step 3 的 invalidation handler + T4）、isAvailable 驱动（T3）、E2E 文档（T5）——全覆盖
 - **类型一致性**：`IBridgeFrameSink.feed(nalUnit:kind:)` 在 T2 定义、T3 实现、T4 调用一致；`IBNalFrame.Kind` raw value (1/2/3) 与 spec 一致；`machServiceName` 与 bundle id 一致
 - **Placeholder 扫描**：无 TBD/TODO；每个代码 step 都是完整代码
+
+---
+
+## 增补（2026-09-11）：Task 5 运行时验证失败后的架构修正
+
+Task 1-4 完成时我们以为 camera extension 是 app-extension。**运行时验证证明错了**：
+CMIO camera extension 是 **system extension**（Apple 官方文档 +
+ldenoue/cameraextension 已上架样本 + theoffcuts 三部曲，三方一致）。
+根因证据：`.superpowers/sdd/cmio-debug-evidence.md`（executor 必读其中的
+§2 参考要求和 §3 对照表）。
+
+**已确认的环境事实：**
+- team `5XNDF727Y6`（Beijing VGO Co;Ltd）是**付费 team**：钥匙串里有
+  "Developer ID Application: Beijing VGO Co;Ltd (5XNDF727Y6)" 和
+  "iPhone Distribution: Beijing VGO Co;Ltd (5XNDF727Y6)"。System Extension
+  capability 预期可用（若 provisioning 失败，属于 BLOCKED，上报 controller）。
+- `pluginkit` 对 CMIO sysex 不可见是**正常的**——验证工具是
+  `systemextensionsctl list`。
+- Task 1-4 写的 XPC 协议 / listener / bridge / NAL 管线全部复用，只是打包和
+  激活方式变了。
+- Apple 文档要点："Only apps that reside in the /Applications directory can
+  activate an extension"；host 需要 System Extension + App Groups 两个
+  capability；macOS 15+ 用户需在 系统设置 → 通用 → 登录项与扩展 → 相机扩展
+  里手动打开开关。
+
+### Task 6: 重打包为 system extension（产品类型 + plist + entitlements）
+
+**Files:**
+- Modify: `project-mac.yml`（camera ext target 改 system-extension + embed 目的地；host 加 entitlements/plist 键）
+- Modify: `iBridgeCameraExtension/Info.plist`（NSExtension 块 → CMIOExtension 块）
+- Modify: `iBridgeReceiver/iBridgeReceiver.entitlements`（加 system-extension.install）
+- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift`（mach service 名改 team 前缀）
+- 可能 Modify: `iBridgeCameraExtension/CameraExtension.entitlements`
+
+**Interfaces:**
+- Consumes: Task 1-5 全部产出
+- Produces: `iBridgeCameraExtension.systemextension` 嵌在
+  `iBridgeReceiver.app/Contents/Library/SystemExtensions/`；真签构建通过；
+  XPC mach service 新名字（Task 7 的激活代码依赖）
+
+**背景：** xcodegen 对 system extension 的支持：`type: system-extension`
+（productType `com.apple.product-type.system-extension`）。embed 目的地
+需要 `Contents/Library/SystemExtensions`（Xcode 里 dstSubfolderSpec=16 的
+"Embed System Extensions" phase）。**xcodegen 的 `embed: true` 默认进
+PlugIns**——若 xcodegen 不支持 systemExtensions 目的地，在 yml 里给 host 加
+一个 `postCompiles`/`copyFiles` 脚本 phase 手动拷贝 + codesign，或者直接接受
+xcodegen 生成的 phase 后用 `buildSettings` 修正。executor 先查 xcodegen 文档
+（https://github.com/yonsm/XcodeGen 的 dependency embed 选项），选能work的
+最小方案并在报告里说明。
+
+- [ ] **Step 1: 改 camera ext target 为 system-extension**
+
+`project-mac.yml` 的 `iBridgeCameraExtension` target：
+- `type: app-extension` → `type: system-extension`
+- `info.properties` 里删掉整个 `NSExtension` dict（system extension 不用它）
+- 保留 bundle id `com.ibridge.iBridgeReceiver.Camera`、entitlements、签名设置
+
+audio ext target (`iBridgeAudioExtension`) **保持 app-extension 不动**
+（AUv3 是 app extension，不受本次修正影响）。
+
+- [ ] **Step 2: 改 extension Info.plist 为 CMIO sysex 形状**
+
+`iBridgeCameraExtension/Info.plist`：删除 `NSExtension` 块，加入（对照
+ldenoue 样本）：
+
+```xml
+<key>CMIOExtension</key>
+<dict>
+    <key>CMIOExtensionMachServiceName</key>
+    <string>5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera</string>
+</dict>
+<key>NSSystemExtensionUsageDescription</key>
+<string>iBridge uses your iPhone as a camera for this Mac.</string>
+```
+
+注意 `CMIOExtensionMachServiceName` 是 **team ID 前缀** + 名字（样本：
+`388X9C8CWR.com.appblit.samplecamera`）。这个 mach service 是 CMIO 子系统
+和 extension 通信用的，**和我们自己的 host→extension XPC 通道是两回事**。
+
+- [ ] **Step 3: 我们自己的 XPC mach service 改 team 前缀**
+
+`iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift` 里：
+
+```swift
+public static let machServiceName = "5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames"
+```
+
+理由：system extension 的 sandbox 只能注册 team-ID 前缀的 mach service；
+host（sandboxed app）也只能 lookup team 前缀的 mach service。加 `.frames`
+后缀避免和 CMIOExtensionMachServiceName 撞名。
+
+**连带改动**：host 的 `iBridgeReceiver.entitlements` 若 sandbox 阻止
+mach-lookup，需要加（先不加，构建后运行时若 lookup 失败再加）：
+
+```xml
+<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+<array>
+    <string>5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames</string>
+</array>
+```
+
+- [ ] **Step 4: host 加 System Extension capability + usage description**
+
+`iBridgeReceiver/iBridgeReceiver.entitlements` 加：
+
+```xml
+<key>com.apple.developer.system-extension.install</key>
+<true/>
+```
+
+`project-mac.yml` host 的 `info.properties` 加：
+
+```yaml
+        NSSystemExtensionUsageDescription: iBridge installs a camera extension so other apps can use your iPhone as a webcam.
+```
+
+同时给 host 和 extension 都加 App Groups capability（Apple 文档要求）：
+entitlements 两边各加：
+
+```xml
+<key>com.apple.security.application-groups</key>
+<array>
+    <string>5XNDF727Y6.com.ibridge</string>
+</array>
+```
+
+（App Group id = team ID + 自定义后缀，和 mach service 同理。）
+
+- [ ] **Step 5: xcodegen + 真签构建，验证 .systemextension 落位**
+
+Run:
+```bash
+cd /Users/edwinhao/iBridge
+xcodegen generate --spec project-mac.yml
+git checkout -- iBridgeReceiver/Info.plist 2>/dev/null  # 若 CFBundleLocalizations 被 xcodegen 删掉
+xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+    -configuration Debug -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+    build 2>&1 | tail -5
+ls ~/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app/Contents/Library/SystemExtensions/
+```
+
+Expected: `** BUILD SUCCEEDED **` + `iBridgeCameraExtension.systemextension`
+出现在 SystemExtensions 目录。
+
+**若 provisioning 失败**（System Extension capability 加不上 App ID）：
+这是 BLOCKED，把完整错误写进报告，不要绕过。
+
+- [ ] **Step 6: 跑全套测试 + commit**
+
+Run: `./scripts/test.sh 2>&1 | tail -5` → `All checks passed.`
+
+```bash
+git add project-mac.yml iBridgeCameraExtension/Info.plist \
+    iBridgeCameraExtension/CameraExtension.entitlements \
+    iBridgeReceiver/iBridgeReceiver.entitlements \
+    iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift \
+    iBridgeCameraExtension/  # 若 xcodegen 重新生成了 extension 的 Info.plist
+git commit -m "Repackage camera extension as system extension (CMIO)"
+```
+
+### Task 7: host 激活代码 + /Applications 部署 + 注册验证
+
+**Files:**
+- Create: `iBridgeReceiver/SystemExtensionManager.swift`
+- Modify: `iBridgeReceiver/iBridgeReceiverApp.swift`（启动时请求激活）
+- Modify: `E2E_TESTING.md`、`AGENTS.md`、`HANDOFF.md`（状态更新）
+
+**Interfaces:**
+- Consumes: Task 6 的 `.systemextension` bundle + entitlement
+- Produces: `SystemExtensionManager`（`activate()` / delegate 回调 os_log）；
+  `systemextensionsctl list` 出现 `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`
+
+**背景：** Apple 文档 + ldenoue 样本都要求：host 在 `/Applications` 里运行，
+调用 `OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier:queue:)`
++ `OSSystemExtensionManager.shared.submitRequest(_:)`，实现
+`OSSystemExtensionRequestDelegate`（`requestNeedsUserApproval` /
+`request(_:didFinishWithResult:)` / `request(_:didFailWithError:)`）。
+macOS 15/26 上用户还要在 系统设置 → 通用 → 登录项与扩展 → 相机扩展 里
+打开开关（这步是用户手动操作，executor 提示用户即可）。
+
+- [ ] **Step 1: 创建 `iBridgeReceiver/SystemExtensionManager.swift`**
+
+完整内容：
+
+```swift
+import Foundation
+import OSLog
+import SystemExtensions
+
+/// Submits and tracks the activation request for the embedded CMIO
+/// camera extension. The host must run from /Applications for
+/// activation to succeed; the user approves in System Settings →
+/// General → Login Items & Extensions → Camera Extensions.
+final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
+
+    private let log = Logger(subsystem: "com.ibridge", category: "sysex")
+    private static let extensionIdentifier = "com.ibridge.iBridgeReceiver.Camera"
+
+    func activate() {
+        let request = OSSystemExtensionRequest.activationRequest(
+            forExtensionWithIdentifier: Self.extensionIdentifier,
+            queue: .main
+        )
+        request.delegate = self
+        OSSystemExtensionManager.shared.submitRequest(request)
+        log.info("submitted activation request for \(Self.extensionIdentifier, privacy: .public)")
+    }
+
+    // MARK: - OSSystemExtensionRequestDelegate
+
+    func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
+        log.info("activation needs user approval in System Settings")
+    }
+
+    func request(_ request: OSSystemExtensionRequest,
+                 actionForReplacingExtension existing: OSSystemExtensionProperties,
+                 withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+        log.info("replacing extension \(existing.bundleShortVersion, privacy: .public) with \(ext.bundleShortVersion, privacy: .public)")
+        return .replace
+    }
+
+    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
+        log.info("activation finished: \(String(describing: result), privacy: .public)")
+    }
+
+    func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
+        log.error("activation failed: \(error.localizedDescription, privacy: .public)")
+    }
+}
+```
+
+- [ ] **Step 2: 启动时触发激活**
+
+`iBridgeReceiver/iBridgeReceiverApp.swift`：在 `init()` 里（AXIsProcessTrusted
+调用之后）实例化并激活。注意该文件有**用户未提交的改动**（init 里加了
+Accessibility prompt）——保留那些改动，只追加：
+
+```swift
+        SystemExtensionManager().activate()
+```
+
+注意：manager 是 delegate 持有方，request.delegate 是 weak——把 manager
+存成 app 级属性（在 `iBridgeReceiverApp` struct 加
+`private let sysexManager = SystemExtensionManager()`，init 里
+`sysexManager.activate()`），防止提前释放。
+
+- [ ] **Step 3: 构建 + 拷到 /Applications + 启动**
+
+Run:
+```bash
+cd /Users/edwinhao/iBridge
+xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+    -configuration Debug -allowProvisioningUpdates build 2>&1 | tail -3
+pkill -f "iBridgeReceiver.app" 2>/dev/null; sleep 1
+cp -R ~/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app /Applications/
+open -a /Applications/iBridgeReceiver.app
+sleep 5
+systemextensionsctl list 2>&1 | grep -i -A2 ibridge
+log show --last 3m --predicate 'subsystem == "com.ibridge"' 2>/dev/null | grep -i sysex | tail -10
+```
+
+Expected:
+- `systemextensionsctl list` 出现 `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`
+  （状态可能是 `[activated waiting for user]` 或 `[activated enabled]`）
+- 若报 "needs user approval"：提示用户去 系统设置 → 通用 → 登录项与扩展 →
+  相机扩展 打开 iBridge 开关，然后重跑 `systemextensionsctl list`
+- 若 `log show --last` 在本机报错（已知问题），用
+  `log stream --predicate 'subsystem == "com.ibridge"' --timeout 10s` 替代
+
+**若 activation 报 "must be in /Applications"**：确认 cp 目标路径、确认
+启动的是 /Applications 里的副本（`ps aux | grep iBridgeReceiver`）。
+
+- [ ] **Step 4: 验证相机枚举**
+
+Run:
+```bash
+ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i -A6 "video devices"
+```
+
+Expected: 列表里出现 `iBridge Camera`。（此时没视频流是正常的——iPhone
+不在线；能枚举到就证明 CMIO 注册链路通了。）
+
+- [ ] **Step 5: 更新文档 + commit**
+
+`E2E_TESTING.md` 的 Camera Extension 一节改写为实际流程（/Applications +
+激活 + 系统设置开关 + `systemextensionsctl list` 验证 + ffmpeg 枚举）。
+`AGENTS.md`：Camera Extension 行 Notes 改为
+"system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle"。
+`HANDOFF.md` §4.1 保持两个 `[x]`，补一行：
+`- [ ] 系统设置里批准 iBridge camera extension（用户手动，一次性）`。
+
+```bash
+git add iBridgeReceiver/SystemExtensionManager.swift iBridgeReceiver/iBridgeReceiverApp.swift \
+    E2E_TESTING.md AGENTS.md HANDOFF.md
+git commit -m "Activate camera sysex on launch; verify registration + docs"
+```
+
+⚠️ `iBridgeReceiverApp.swift` 有用户的未提交改动——commit 前
+`git diff iBridgeReceiver/iBridgeReceiverApp.swift` 确认只多了 sysex 相关行，
+用户的 Accessibility prompt 改动一并提交是**可以的**（它属于同一功能面）。
