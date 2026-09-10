@@ -91,7 +91,6 @@ public enum IBLocale {
         public enum Resolution: String, CaseIterable, Identifiable {
             case p720  = "720p"
             case p1080 = "1080p"
-            case p1440 = "1440p"
             case p2160 = "4K"
             public var id: String { rawValue }
             public var localizedLabel: String { rawValue }

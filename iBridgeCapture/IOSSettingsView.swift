@@ -117,13 +117,9 @@ struct IOSSettingsView: View {
             Toggle("Keep screen on while streaming", isOn: $keepScreenOn)
                 .accessibilityHint("Prevents the iPhone from auto-locking during a streaming session")
                 .onChange(of: keepScreenOn) { _, new in
-                    UIApplication.shared.isIdleTimerDisabled = new
-                }
-                .onAppear {
-                    UIApplication.shared.isIdleTimerDisabled = keepScreenOn
-                }
-                .onDisappear {
-                    UIApplication.shared.isIdleTimerDisabled = false
+                    if engine.isStreaming {
+                        UIApplication.shared.isIdleTimerDisabled = new
+                    }
                 }
         } header: {
             Text("Input")

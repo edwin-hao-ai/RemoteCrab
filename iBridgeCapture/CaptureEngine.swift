@@ -71,6 +71,12 @@ final class CaptureEngine: ObservableObject {
                     self?.handleEncodedFrame(frame)
                 }
             }
+            let savedResolution = UserDefaults.standard.string(forKey: "ibridge.ios.resolution") ?? "1080p"
+            let savedFps = UserDefaults.standard.integer(forKey: "ibridge.ios.frameRate")
+            let fps = savedFps == 0 ? 30 : savedFps
+            if savedResolution != "1080p" || fps != 30 {
+                await applyVideoConfig(resolution: savedResolution, fps: fps)
+            }
         } catch {
             Self.log.error("capture start failed: \(error, privacy: .public)")
             connectionState = .failed
@@ -89,12 +95,14 @@ final class CaptureEngine: ObservableObject {
     /// V0.2 — receive touch events from the SwiftUI trackpad view
     /// and forward them over the wire.
     func sendTouch(_ event: TouchEvent) {
+        guard features.trackpadOn else { return }
         broadcaster?.send(event)
     }
 
     /// V0.2 — receive key events from the SwiftUI keyboard view and
     /// forward them over the wire.
     func sendKey(_ event: KeyEvent) {
+        guard features.keyboardOn else { return }
         broadcaster?.send(event)
     }
 
@@ -104,6 +112,8 @@ final class CaptureEngine: ObservableObject {
         do {
             try startListener()
             isStreaming = true
+            UIApplication.shared.isIdleTimerDisabled =
+                UserDefaults.standard.bool(forKey: "ibridge.ios.keepScreenOn")
         } catch {
             Self.log.error("listener start failed: \(error, privacy: .public)")
             connectionState = .failed
@@ -118,6 +128,7 @@ final class CaptureEngine: ObservableObject {
         isStreaming = false
         connectionState = .idle
         parser.reset()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
 
     // MARK: - Video reconfiguration
@@ -166,7 +177,7 @@ final class CaptureEngine: ObservableObject {
 
     /// ~0.1 bpp real-time talk-band heuristic, clamped to [1, 12] Mbps.
     private func bitrateFor(width: Int, height: Int, fps: Int) -> Int {
-        let raw = Int(Double(width * height * fps) * 0.1 / 8)
+        let raw = Int(Double(width * height * fps) * 0.1)
         return min(max(raw, 1_000_000), 12_000_000)
     }
 
@@ -374,6 +385,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func handleEncodedFrame(_ frame: IBNalFrame) {
+        guard features.cameraOn else { return }
         guard let connection, connection.state == .ready else { return }
         let encoded = IBWire.encode(frame: frame)
         connection.send(content: encoded, completion: .contentProcessed { _ in })
