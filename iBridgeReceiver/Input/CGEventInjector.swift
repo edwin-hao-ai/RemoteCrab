@@ -17,10 +17,10 @@ public final class CGEventInjector: InputInjector {
         switch touch.phase {
         case .down:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .leftMouseDown, at: lastCursor)
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .up:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .leftMouseUp, at: lastCursor)
+            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .move:
             let dx = Double(touch.dx) * Double(screenSize.width)
             let dy = Double(touch.dy) * Double(screenSize.height)
@@ -32,7 +32,7 @@ public final class CGEventInjector: InputInjector {
             }
         case .dragStart:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .leftMouseDown, at: lastCursor)
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
             isDragging = true
         case .scroll:
             postScroll(dx: touch.dx, dy: touch.dy, commandHeld: false)
@@ -42,14 +42,14 @@ public final class CGEventInjector: InputInjector {
             postScroll(dx: 0, dy: touch.dx, commandHeld: true)
         case .rightDown:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .rightMouseDown, at: lastCursor)
+            post(type: .rightMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .rightUp:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .rightMouseUp, at: lastCursor)
+            post(type: .rightMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .click:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .leftMouseDown, at: lastCursor)
-            post(type: .leftMouseUp, at: lastCursor)
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .threeFingerTap:
             moveCursor(to: CGPoint(x: absX, y: absY))
             postOther(button: 2, down: true, at: lastCursor)   // middle click
@@ -58,8 +58,8 @@ public final class CGEventInjector: InputInjector {
             postMissionControl(dx: touch.dx, dy: touch.dy)
         case .forceClick:
             moveCursor(to: CGPoint(x: absX, y: absY))
-            post(type: .rightMouseDown, at: lastCursor)
-            post(type: .rightMouseUp, at: lastCursor)
+            post(type: .rightMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .rightMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         }
         if touch.phase == .up { isDragging = false }
         lastPhase = touch.phase
@@ -69,11 +69,11 @@ public final class CGEventInjector: InputInjector {
         switch key.action {
         case .down:
             if let code = key.keycode {
-                postKey(code: code, down: true)
+                postKey(code: code, down: true, flags: eventFlags(for: key.modifiers))
             }
         case .up:
             if let code = key.keycode {
-                postKey(code: code, down: false)
+                postKey(code: code, down: false, flags: eventFlags(for: key.modifiers))
             }
         case .text:
             if let text = key.text {
@@ -94,10 +94,22 @@ public final class CGEventInjector: InputInjector {
         move?.post(tap: .cghidEventTap)
     }
 
-    private func post(type: CGEventType, at point: CGPoint) {
+    private func post(type: CGEventType, at point: CGPoint, flags: CGEventFlags = []) {
         let event = CGEvent(mouseEventSource: nil, mouseType: type,
                             mouseCursorPosition: point, mouseButton: .left)
+        event?.flags = flags
         event?.post(tap: .cghidEventTap)
+    }
+
+    /// TouchEvent/KeyEvent modifier bitmask (shift=1, control=2,
+    /// option=4, command=8) → CGEventFlags.
+    private func eventFlags(for mask: UInt8) -> CGEventFlags {
+        var flags: CGEventFlags = []
+        if mask & 1 != 0 { flags.insert(.maskShift) }
+        if mask & 2 != 0 { flags.insert(.maskControl) }
+        if mask & 4 != 0 { flags.insert(.maskAlternate) }
+        if mask & 8 != 0 { flags.insert(.maskCommand) }
+        return flags
     }
 
     private func postScroll(dx: Float, dy: Float, commandHeld: Bool) {
@@ -142,8 +154,9 @@ public final class CGEventInjector: InputInjector {
         up?.post(tap: .cghidEventTap)
     }
 
-    private func postKey(code: UInt16, down: Bool) {
+    private func postKey(code: UInt16, down: Bool, flags: CGEventFlags = []) {
         let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+        event?.flags = flags
         event?.post(tap: .cghidEventTap)
     }
 

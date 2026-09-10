@@ -66,8 +66,9 @@ public struct TouchEvent: Codable, Sendable, Equatable {
 ///
 /// Two modes of operation:
 ///
-/// 1. `.down` / `.up` events carry a USB HID `keycode` so the Mac
-///    can post a faithful "real key press" via `CGEventPost`.
+/// 1. `.down` / `.up` events carry a macOS CGKeyCode (virtual
+///    keycode) so the Mac can post a faithful "real key press"
+///    via `CGEventPost`.
 /// 2. `.text` events carry a UTF-8 string already translated by the
 ///    iOS IME (predictive text, autocorrect, etc). The Mac posts
 ///    the string via `CGEventCreateKeyboardEvent` with no keycode.
@@ -80,7 +81,7 @@ public struct KeyEvent: Codable, Sendable, Equatable {
     }
 
     public let action: Action
-    public let keycode: UInt16?     // USB HID usage ID, present for .down/.up
+    public let keycode: UInt16?     // macOS CGKeyCode (virtual keycode), present for .down/.up
     public let text: String?        // present for .text
     public let modifiers: UInt8
     public let timestampMicros: UInt64
