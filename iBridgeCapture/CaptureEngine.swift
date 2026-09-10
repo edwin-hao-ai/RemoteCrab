@@ -302,8 +302,9 @@ final class CaptureEngine: ObservableObject {
                 broadcaster = b
                 // Tell the Mac the full feature state right away.
                 b.send(features.snapshot())
-                // Start mic only if the feature is on.
-                syncMicrophone(features.micOn)
+                // Start mic only if the feature is on; the voice
+                // recognizer owns the audio input while held.
+                syncMicrophone(features.micOn && !features.voiceOn)
             }
         case .failed(let error):
             Self.log.error("connection failed: \(error, privacy: .public)")
@@ -355,7 +356,7 @@ final class CaptureEngine: ObservableObject {
 
     private func handleFeaturesChanged(_ snapshot: FeatureStateSnapshot) {
         broadcaster?.send(snapshot)
-        syncMicrophone(snapshot.micOn)
+        syncMicrophone(snapshot.micOn && !snapshot.voiceOn)
     }
 
     private func syncMicrophone(_ enabled: Bool) {
