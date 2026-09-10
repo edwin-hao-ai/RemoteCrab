@@ -201,7 +201,7 @@ buffering. The parser refuses frames larger than 64 MiB
 | Menu bar icon | `MenuBarIcon.swift` | Canvas-drawn "monitor buddy" line version; antenna tip = status light |
 | Control panel window | `ControlPanelView.swift` | Live preview + stats + feature badges |
 | Preview window | `PreviewWindow.swift` | Minimalist live video display |
-| Camera Extension skeleton | `iBridgeCameraExtension/` | CMIOExtension (Provider / Device / Stream), not yet wired |
+| Camera Extension skeleton | `iBridgeCameraExtension/` | wired via XPC (NAL over XPC, extension self-decodes) |
 
 ---
 
@@ -287,7 +287,6 @@ For new event types:
 |---|---|---|
 | **Real iPhone + Mac end-to-end test** | Code is correct in theory but never run on real hardware | 1 day |
 | **Apple Developer Team ID + code signing** | Can't sign without it | 1 hour |
-| **Camera Extension host wiring** | XPC bridge is a stub, Zoom won't see "iBridge Camera" yet | 2-3 days |
 | **Virtual microphone (CoreAudio AU)** | Currently Mac just plays the mic, doesn't expose as a virtual input device | 2-3 days |
 | **Real Opus encoding** | Currently raw PCM, fine on WiFi but ~96 kbps per direction | 1 day (opustools SPM) |
 | **App Store metadata screenshots** | We have mockups in `screenshots/`, need real device captures for upload | 1 day |
@@ -328,7 +327,7 @@ via rsvg-convert and downscales with PIL, because we want
 pixel-perfect control over the output and `ImageRenderer`
 doesn't render Liquid Glass correctly in headless mode.
 
-### Why we ship an XPC stub for the Camera Extension
+### How the Camera Extension XPC bridge works
 A real `CMIOExtension` is **the** hardest part of this project. It
 needs:
 - A separate `app-extension` target compiled into the host app
@@ -336,15 +335,19 @@ needs:
 - Code signing that survives the extension's separate sandbox
 - Apple's specific video-buffer-delivery callbacks
 
-The stub is `CameraExtensionBridge.swift` (host side) +
-`iBridgeCameraExtension/` (extension side). To finish, you need to:
-1. Set up the `NSXPCConnection` in `CameraExtensionBridge`
-2. Define an `NSXPCInterface` for the bridge protocol
-3. Handle the request/reply pattern in both processes
-4. Test with Zoom / FaceTime / Photo Booth selecting "iBridge Camera"
+The bridge is wired end to end:
+1. Host: `ReceiverSession` forwards H.264 NAL units to
+   `CameraExtensionBridge`, which pushes them over XPC
+2. XPC: Mach service `com.ibridge.iBridgeReceiver.Camera`; the
+   extension-side `NSXPCListener` lives in `XPCFrameListener.swift`
+3. Extension: `ExtensionFrameSink` receives each NAL and feeds
+   `CameraExtensionStream` / `StreamDecoder` (VideoToolbox), which
+   delivers decoded frames via CMIO `stream.send`
+4. Entry point: `main.swift` calls
+   `CMIOExtensionProvider.startService(provider:)`
 
-The skeleton code in `iBridgeCameraExtension/Sources/.../` shows
-exactly how the receiver-side format description is set up.
+Signing with team `5XNDF727Y6` is required — without it the system
+refuses to load the extension.
 
 ### Why we kept raw PCM instead of Opus in V0.2
 Adding Opus meant adding a 3rd-party dependency (libopus) and 4-6
@@ -392,4 +395,4 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-09 by Claude (autonomous session 6)_
+_Last updated: 2026-09-10 by Claude (autonomous session 7)_

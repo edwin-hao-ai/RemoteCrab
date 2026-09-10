@@ -138,8 +138,8 @@ xcodebuild -project iBridgeCapture.xcodeproj -scheme iBridgeCapture \
 ## 4. 还没做的（V0.3 - V1.0）
 
 ### 4.1 待做功能
-- [ ] Camera Extension 真正装到 Mac（需 code signing）
-- [ ] Camera Extension 完整 XPC bridge
+- [x] Camera Extension 真正装到 Mac（需 code signing）
+- [x] Camera Extension 完整 XPC bridge
 - [ ] 虚拟麦克风（AUv3 extension）— 装到 iBridgeReceiver
 - [ ] Simulator e2e 增强（自动 Bonjour 验证）
 - [ ] 完整真机 e2e 流程

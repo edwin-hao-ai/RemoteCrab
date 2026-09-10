@@ -94,3 +94,13 @@ cd /Users/edwinhao/iBridge
 `./scripts/check-e2e-readiness.sh` 验证 e2e 准备。
 
 如果 e2e 跑通，所有 26 个单元 + 集成测试 + 2 端 build + 真机 e2e 都过了，发布就绪。
+
+## Camera Extension（V0.3）
+
+1. 真签构建（team 5XNDF727Y6，xcodegen 后 xcodebuild -allowProvisioningUpdates）
+2. 启动 iBridgeReceiver —— 系统自动注册 embedded extension
+3. iPhone 启动 iBridgeCapture 并连接
+4. Photo Booth / Zoom → 摄像头选 "iBridge Camera" → 应看到实时画面
+5. 退出 iBridgeReceiver → "iBridge Camera" 不可用，不崩溃
+排查：`log stream --predicate 'subsystem == "com.ibridge"'`，
+`pluginkit -m -i com.apple.cmioextension-provider | grep -i ibridge`
