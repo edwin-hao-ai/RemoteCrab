@@ -1,41 +1,12 @@
 import Foundation
 import iBridgeCore
 
-/// Protocol between the host process (`iBridgeReceiver`) and the
-/// `iBridgeCameraExtension` (system extension). The host acts as the
-/// "service" that exposes frame feeds to extensions; the extension
-/// connects via `NSXPCConnection` and pulls decoded frames.
+/// The macOS-side bridge between `ReceiverSession` and the system
+/// camera extension. The `IBridgeFrameSink` / `IBridgeFrameSource`
+/// XPC protocols live in iBridgeCore (`IBCameraXPC.swift`) so both
+/// processes share one definition.
 ///
-/// Two protocol directions:
-///  - `IBridgeFrameSink` — extension implements, host calls. Pushes
-///    decoded NAL units into the system camera's video pipeline.
-///  - `IBridgeFrameSource` — host implements, extension calls.
-///    Extension requests stream format / latency updates from the host.
-@objc public protocol IBridgeFrameSink {
-    /// Push one decoded NAL unit into the extension's pipeline.
-    /// `kind`: 1 = video, 2 = SPS, 3 = PPS (see IBNalFrame.Kind raw values)
-    func feed(nalUnit data: Data, kind: Int)
-
-    /// Notify the extension that the stream format changed. The
-    /// extension should rebuild its format description.
-    func setFormat(width: Int, height: Int, fps: Int)
-
-    /// Tell the extension to release any buffered frames and stop
-    /// emitting. Called on disconnect.
-    func stop()
-}
-
-@objc public protocol IBridgeFrameSource {
-    /// Extension asks for the current stream's canonical config.
-    /// Returns nil if no stream is active yet.
-    func currentFormat() -> [String: Int]?
-
-    /// Extension asks the host for the iPhone device name. The
-    /// extension uses this to label the camera in the macOS UI.
-    func deviceName() -> String?
-}
-
-/// The macOS-side bridge. Owns either:
+/// Owns either:
 ///   • a real `NSXPCConnection` to `iBridgeCameraExtension.appex`
 ///     (production path with code signing), or
 ///   • a direct in-process sink (simulator + dev path).
@@ -121,48 +92,32 @@ public final class CameraExtensionBridge {
     // MARK: - XPC wiring
 
     private func connectXPC(serviceName: String) async throws {
-        // The extension registers its NSXPCListener under the given
-        // Mach service name. We connect and validate the interface
-        // before declaring success — if any of these steps fail, we
-        // fall back to in-process mode.
         let connection = NSXPCConnection(serviceName: serviceName)
         connection.remoteObjectInterface = NSXPCInterface(with: IBridgeFrameSink.self)
         connection.exportedInterface = NSXPCInterface(with: IBridgeFrameSource.self)
         connection.exportedObject = HostSourceProvider { [weak self] in
-            let w = self?.lastWidth ?? 0
-            return (width: w, height: self?.lastHeight ?? 0, fps: self?.lastFPS ?? 0)
+            (width: self?.lastWidth ?? 0,
+             height: self?.lastHeight ?? 0,
+             fps: self?.lastFPS ?? 0)
         }
         connection.invalidationHandler = { [weak self] in
             self?.mode = .inProcess
         }
+        connection.interruptionHandler = { [weak self] in
+            self?.mode = .inProcess
+        }
         connection.resume()
 
-        // Wait for the remote proxy to resolve, then return it.
-        // NSXPCConnection.remoteObjectProxy is delivered on the main
-        // thread, so we read it via a nonisolated closure that the
-        // compiler knows crosses an actor boundary correctly.
-        let proxy: IBridgeFrameSink = try await withCheckedThrowingContinuation { cont in
-            nonisolated(unsafe) let box = UncheckedBox(connection)
-            DispatchQueue.main.async {
-                let remote = box.value.remoteObjectProxy as? IBridgeFrameSink
-                if let remote {
-                    cont.resume(returning: remote)
-                } else {
-                    cont.resume(throwing: CameraExtensionError.badProxy)
-                }
-            }
+        guard let proxy = connection.remoteObjectProxyWithErrorHandler({ [weak self] _ in
+            self?.mode = .inProcess
+        }) as? IBridgeFrameSink else {
+            connection.invalidate()
+            throw CameraExtensionError.badProxy
         }
         self.connection = connection
         self.sink = proxy
         proxy.setFormat(width: lastWidth, height: lastHeight, fps: lastFPS)
     }
-}
-
-/// Helper: bypass Sendable checks on objects that are safe to
-/// pass across boundaries (NSXPCConnection, NSError, etc.).
-private struct UncheckedBox<T>: @unchecked Sendable {
-    let value: T
-    init(_ value: T) { self.value = value }
 }
 
 // MARK: - Host side of the XPC channel
@@ -188,18 +143,6 @@ final class HostSourceProvider: NSObject, IBridgeFrameSource, @unchecked Sendabl
     func deviceName() -> String? {
         // Future: look up the connected iPhone's name.
         nil
-    }
-}
-
-// MARK: - Helpers
-
-private extension NSXPCConnection {
-    /// Newer SDK exposes `remoteObjectProxy` as a closure-based
-    /// observer. This shim lets us `await` the first non-nil
-    /// proxy and throws if the extension doesn't vend one.
-    var remoteObjectProxyFuture: IBridgeFrameSink? {
-        get { nil }   // unused, kept for clarity
-        set { _ = newValue }
     }
 }
 
