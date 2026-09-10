@@ -146,32 +146,11 @@ struct TouchpadScreen: View {
                 .foregroundStyle(.white.opacity(0.5))
                 .ibEyebrowTracking()
             IBModifierBar(activeModifiers: $modifiers)
-                .onChange(of: modifiers) { _, new in
-                    for m in IBModifierBar.Modifier.allCases {
-                        if new.contains(m) {
-                            engine.sendTouch(TouchEvent(
-                                phase: .down,
-                                modifiers: modifierBitmask(for: m)
-                            ))
-                        }
-                    }
-                }
         }
     }
 }
 
 // MARK: - Touch capture
-
-/// Map our String-keyed modifier enum to the bitmask expected by
-/// `TouchEvent.modifiers`.
-private func modifierBitmask(for m: IBModifierBar.Modifier) -> UInt8 {
-    switch m {
-    case .control: return 1 << 1
-    case .option:  return 1 << 2
-    case .command: return 1 << 3
-    case .shift:   return 1 << 0
-    }
-}
 
 private struct TouchpadCaptureSurface: UIViewRepresentable {
     @Binding var modifiers: Set<IBModifierBar.Modifier>

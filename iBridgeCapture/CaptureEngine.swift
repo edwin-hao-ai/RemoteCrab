@@ -32,7 +32,7 @@ final class CaptureEngine: ObservableObject {
 
     // MARK: - Private state
 
-    private let encoder = H264Encoder()
+    private var encoder = H264Encoder()
     private var listener: NWListener?
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.ibridge.encoder")
@@ -118,6 +118,56 @@ final class CaptureEngine: ObservableObject {
         isStreaming = false
         connectionState = .idle
         parser.reset()
+    }
+
+    // MARK: - Video reconfiguration
+
+    /// Reconfigure capture + encode for a new resolution / frame rate.
+    /// Safe to call while streaming; the Mac re-reads dimensions from
+    /// the metadata frame we re-send.
+    func applyVideoConfig(resolution: String, fps: Int) async {
+        let (preset, width, height): (AVCaptureSession.Preset, Int, Int) = {
+            switch resolution {
+            case "720p": return (.hd1280x720, 1280, 720)
+            case "4K":   return (.hd4K3840x2160, 3840, 2160)
+            default:     return (.hd1920x1080, 1920, 1080)
+            }
+        }()
+        captureSession.beginConfiguration()
+        captureSession.sessionPreset = preset
+        captureSession.commitConfiguration()
+
+        let newEncoder = H264Encoder(width: Int32(width), height: Int32(height),
+                                     fps: fps, bitrate: bitrateFor(width: width, height: height, fps: fps))
+        do {
+            try await newEncoder.start { [weak self] frame in
+                Task { @MainActor in self?.handleEncodedFrame(frame) }
+            }
+            encoder = newEncoder
+            // Re-point the video output's delegate at the new encoder.
+            captureSession.beginConfiguration()
+            for output in captureSession.outputs {
+                if let video = output as? AVCaptureVideoDataOutput {
+                    video.setSampleBufferDelegate(newEncoder, queue: queue)
+                }
+            }
+            captureSession.commitConfiguration()
+
+            metadata = IBStreamMetadata(deviceName: UIDevice.current.name,
+                                        width: width, height: height,
+                                        fps: fps, bitrateBps: bitrateFor(width: width, height: height, fps: fps))
+            if let connection, connection.state == .ready {
+                sendMetadata(on: connection)
+            }
+        } catch {
+            Self.log.error("applyVideoConfig failed: \(error, privacy: .public)")
+        }
+    }
+
+    /// ~0.1 bpp real-time talk-band heuristic, clamped to [1, 12] Mbps.
+    private func bitrateFor(width: Int, height: Int, fps: Int) -> Int {
+        let raw = Int(Double(width * height * fps) * 0.1 / 8)
+        return min(max(raw, 1_000_000), 12_000_000)
     }
 
     // MARK: - Setup

@@ -49,7 +49,7 @@ struct KeyboardScreen: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .ibEyebrowTracking()
             Spacer()
-            Text("⌨ typing on Mac")
+            Text("typing on Mac")
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.white.opacity(0.45))
                 .ibEyebrowTracking()

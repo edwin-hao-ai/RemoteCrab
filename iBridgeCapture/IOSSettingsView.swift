@@ -11,7 +11,6 @@ struct IOSSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("ibridge.ios.resolution")    private var resolution: String = "1080p"
     @AppStorage("ibridge.ios.frameRate")    private var frameRate: Int = 30
-    @AppStorage("ibridge.ios.micEnabled")   private var micEnabled: Bool = false
     @AppStorage("ibridge.ios.trackpadSens")  private var trackpadSens: Int = 3
     @AppStorage("ibridge.ios.keepScreenOn") private var keepScreenOn: Bool = true
 
@@ -79,6 +78,9 @@ struct IOSSettingsView: View {
                 }
             }
             .accessibilityLabel(IBLocale.Settings.video)
+            .onChange(of: resolution) { _, new in
+                Task { await engine.applyVideoConfig(resolution: new, fps: frameRate) }
+            }
 
             Picker(IBLocale.Settings.streaming, selection: $frameRate) {
                 ForEach(IBLocale.Settings.FrameRate.allCases) { fps in
@@ -86,6 +88,9 @@ struct IOSSettingsView: View {
                 }
             }
             .accessibilityLabel("Frame rate")
+            .onChange(of: frameRate) { _, new in
+                Task { await engine.applyVideoConfig(resolution: resolution, fps: new) }
+            }
         } header: {
             Text("Stream")
         } footer: {
@@ -95,12 +100,12 @@ struct IOSSettingsView: View {
 
     private var inputSection: some View {
         Section {
-            Toggle(IBLocale.Mic.on, isOn: $micEnabled)
+            Toggle(IBLocale.Mic.on, isOn: Binding(
+                get: { engine.features.micOn },
+                set: { engine.features.set(feature: .microphone, enabled: $0) }
+            ))
                 .accessibilityLabel(IBLocale.Mic.on)
                 .accessibilityHint("Stream the iPhone microphone to your Mac")
-                .onChange(of: micEnabled) { _, new in
-                    engine.features.set(feature: .microphone, enabled: new)
-                }
 
             Picker(IBLocale.Mode.trackpad, selection: $trackpadSens) {
                 ForEach(1...5, id: \.self) { i in
@@ -111,6 +116,15 @@ struct IOSSettingsView: View {
 
             Toggle("Keep screen on while streaming", isOn: $keepScreenOn)
                 .accessibilityHint("Prevents the iPhone from auto-locking during a streaming session")
+                .onChange(of: keepScreenOn) { _, new in
+                    UIApplication.shared.isIdleTimerDisabled = new
+                }
+                .onAppear {
+                    UIApplication.shared.isIdleTimerDisabled = keepScreenOn
+                }
+                .onDisappear {
+                    UIApplication.shared.isIdleTimerDisabled = false
+                }
         } header: {
             Text("Input")
         } footer: {
