@@ -8,6 +8,11 @@ struct iBridgeReceiverApp: App {
     @AppStorage("ibridge.didFirstLaunch") private var didFirstLaunch: Bool = false
     @StateObject private var session = ReceiverSession()
 
+    /// Kept alive for the whole app lifetime: OSSystemExtensionRequest's
+    /// delegate is weak, so a local manager would deallocate before the
+    /// activation callbacks fire.
+    private let sysexManager = SystemExtensionManager()
+
     /// The single shared audio unit instance. Used by:
     ///   • `AudioReceiver` (which feeds it iPhone mic samples)
     ///   • `iBridgeAUInstanceProvider` (which the system extension
@@ -25,6 +30,12 @@ struct iBridgeReceiverApp: App {
             "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
         ]
         _ = AXIsProcessTrustedWithOptions(opts)
+
+        // Register the embedded CMIO camera extension with macOS.
+        // Requires running from /Applications; the user may need to
+        // approve in System Settings → General → Login Items &
+        // Extensions → Camera Extensions.
+        sysexManager.activate()
     }
 
     var body: some Scene {

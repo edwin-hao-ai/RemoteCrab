@@ -97,10 +97,38 @@ cd /Users/edwinhao/iBridge
 
 ## Camera Extension（V0.3）
 
-1. 真签构建（team 5XNDF727Y6，xcodegen 后 xcodebuild -allowProvisioningUpdates）
-2. 启动 iBridgeReceiver —— 系统自动注册 embedded extension
-3. iPhone 启动 iBridgeCapture 并连接
-4. Photo Booth / Zoom → 摄像头选 "iBridge Camera" → 应看到实时画面
-5. 退出 iBridgeReceiver → "iBridge Camera" 不可用，不崩溃
-排查：`log stream --predicate 'subsystem == "com.ibridge"'`，
-`pluginkit -m -i com.apple.cmioextension-provider | grep -i ibridge`
+实际流程（2026-09-11 验证）：
+
+1. 真签构建（team 5XNDF727Y6，xcodegen 后
+   `xcodebuild -scheme iBridgeReceiver -configuration Debug -allowProvisioningUpdates clean build`；
+   必须 clean —— 增量 build 出过 adhoc 签名产物，sysextd 会拒绝）
+2. **打包修正（当前仓库代码的已知缺口，修复前每次部署都要做）**：
+   - 把嵌入的 `Contents/Library/SystemExtensions/iBridgeCameraExtension.systemextension`
+     重命名为 `com.ibridge.iBridgeReceiver.Camera.systemextension`
+     （sysextd 要求 .systemextension 文件名去后缀 == extension bundle id）
+   - 把该 bundle 的 `Contents/Info.plist` 的 `CFBundlePackageType`
+     从 `XPC!` 改成 `SYSX`（CMIO 系统扩展的类别判定靠它）
+   - 重签 extension + host（同一 Apple Development 证书 + 原 entitlements，
+     `--generate-entitlement-der --timestamp=none`），
+     `codesign --verify --deep --strict` 通过
+   - 仓库侧的正解（未做，Task 6 遗留）：project-mac.yml 里
+     `CFBundlePackageType: "SYSX"` + `PRODUCT_NAME: com.ibridge.iBridgeReceiver.Camera`
+3. `cp -R` 到 `/Applications/iBridgeReceiver.app`，`open -a` 启动
+   （host 必须在 /Applications 里运行）
+4. 启动时 `SystemExtensionManager` 自动提交
+   `OSSystemExtensionRequest.activationRequest` —— 首次会到
+   `[activated waiting for user]` 状态
+5. **用户手动（一次性）**：系统设置 → 通用 → 登录项与扩展 → 相机扩展 →
+   打开 iBridge 开关
+6. 验证：`systemextensionsctl list` 应出现
+   `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`（cmio 类别，
+   批准前 `[activated waiting for user]`，批准后 `[activated enabled]`）；
+   `ffmpeg -f avfoundation -list_devices true -i ""` 的 video devices 里
+   出现 `iBridge Camera`（批准并加载后才枚举得到）
+7. iPhone 启动 iBridgeCapture 并连接
+8. Photo Booth / Zoom → 摄像头选 "iBridge Camera" → 应看到实时画面
+9. 退出 iBridgeReceiver → "iBridge Camera" 不可用，不崩溃
+
+排查：`log stream --info --predicate 'subsystem == "com.ibridge" OR process == "sysextd"'`
+（`log show --last` 在本机损坏：`cannot use --last when archive metadata is missing`；
+注意 info 级日志必须加 `--info`）

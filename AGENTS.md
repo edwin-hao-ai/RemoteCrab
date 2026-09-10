@@ -90,6 +90,7 @@ iBridge/
 │   ├── ControlPanelView.swift    # floating control panel
 │   ├── PreviewWindow.swift       # live preview window
 │   ├── CameraExtensionBridge.swift  # stub: host→extension XPC bridge
+│   ├── SystemExtensionManager.swift # OSSystemExtensionRequest activation for the CMIO sysex
 │   ├── Input/CGEventInjector.swift   # real CGEventPost injector
 │   ├── Input/InputInjector.swift    # protocol + RecordingInputInjector
 │   ├── iBridgeReceiver.entitlements
@@ -201,7 +202,7 @@ buffering. The parser refuses frames larger than 64 MiB
 | Menu bar icon | `MenuBarIcon.swift` | Canvas-drawn "monitor buddy" line version; antenna tip = status light |
 | Control panel window | `ControlPanelView.swift` | Live preview + stats + feature badges |
 | Preview window | `PreviewWindow.swift` | Minimalist live video display |
-| Camera Extension skeleton | `iBridgeCameraExtension/` | wired via XPC (NAL over XPC, extension self-decodes) |
+| Camera Extension skeleton | `iBridgeCameraExtension/` | system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle |
 
 ---
 
