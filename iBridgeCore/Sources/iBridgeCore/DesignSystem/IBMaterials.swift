@@ -12,14 +12,21 @@ public enum IBMaterial {
     /// floating control bars, the menu-bar dropdown, settings panels.
     ///
     /// On iOS 26+: real `.glassEffect()` with refraction and reflection.
-    /// Below: `.regularMaterial` for close approximation.
+    /// On older systems: graceful fallback to `.regularMaterial` via
+    /// `legacyGlass` so the app still runs on iOS 17 / 18 devices.
     @ViewBuilder
     public static func glass<S: Shape>(
         in shape: S,
         tint: Color,
         interactive: Bool
     ) -> some View {
-        GlassSurface(shape: shape, tint: tint, interactive: interactive)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            GlassSurface(shape: shape, tint: tint, interactive: interactive)
+        } else {
+            // Fallback for iOS 17 / 18. The wrapper has the same
+            // shape so callers don't need to know the platform.
+            LegacyGlassSurface(shape: shape, tint: tint, interactive: interactive)
+        }
     }
 
     /// Convenience: glass with default settings.
@@ -29,13 +36,18 @@ public enum IBMaterial {
     }
 
     /// Toolbar / chip variant — slightly more opaque than glass.
+    /// Falls back to `.regularMaterial` on systems below iOS 26.
     @ViewBuilder
     public static func bar<S: Shape>(in shape: S) -> some View {
-        BarMaterial(shape: shape)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            BarMaterial(shape: shape)
+        } else {
+            LegacyBarSurface(shape: shape)
+        }
     }
 }
 
-// MARK: - Liquid Glass surface
+// MARK: - Liquid Glass surface (iOS 26+)
 
 @available(iOS 26.0, macOS 26.0, *)
 private struct GlassSurface<S: Shape>: View {
@@ -104,5 +116,39 @@ extension View {
             tint: tint,
             interactive: interactive
         ))
+    }
+}
+
+// MARK: - Legacy fallback surfaces (iOS 17 / 18)
+
+/// Drop-in replacement for `GlassSurface` that uses `.regularMaterial`
+/// instead of the iOS 26 `glassEffect` API.
+struct LegacyGlassSurface<S: Shape>: View {
+    let shape: S
+    let tint: Color
+    let interactive: Bool
+
+    var body: some View {
+        shape
+            .fill(.regularMaterial)
+            .overlay {
+                shape
+                    .stroke(IBColor.borderRegular, lineWidth: 0.5)
+            }
+            .overlay {
+                shape
+                    .fill(tint.opacity(0.10))
+            }
+            .opacity(interactive ? 1.0 : 0.85)
+    }
+}
+
+/// Drop-in replacement for `BarMaterial` that uses `.regularMaterial`.
+struct LegacyBarSurface<S: Shape>: View {
+    let shape: S
+
+    var body: some View {
+        shape
+            .fill(.regularMaterial)
     }
 }

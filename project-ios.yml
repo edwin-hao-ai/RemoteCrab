@@ -2,7 +2,7 @@ name: iBridgeCapture
 options:
   bundleIdPrefix: com.ibridge
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "17.0"
   developmentLanguage: en
   groupSortPosition: top
   generateEmptyDirectories: true
@@ -24,7 +24,7 @@ targets:
   iBridgeCapture:
     type: application
     platform: iOS
-    deploymentTarget: "26.0"
+    deploymentTarget: "17.0"
     sources:
       - path: iBridgeCapture
         excludes:

@@ -39,6 +39,22 @@ struct ContentView: View {
         .onChange(of: micEnabled) { _, new in
             engine.setMicrophoneEnabled(new)
         }
+        .onAppear {
+            // E2E test mode: when IBRIDGE_AUTO_START=1 is set, skip
+            // onboarding and auto-start streaming. This makes real-
+            // device e2e testing as simple as:
+            //   xcrun simctl launch booted com.ibridge.iBridgeCapture \
+            //     --setenv IBRIDGE_AUTO_START=1
+            //   # or on a real device:
+            //   # Settings → Developer → URL Schemes launch with env
+            if ProcessInfo.processInfo.environment["IBRIDGE_AUTO_START"] == "1" {
+                UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
+                Task {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    await engine.toggleStreaming()
+                }
+            }
+        }
     }
 
     @ViewBuilder

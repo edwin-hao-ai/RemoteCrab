@@ -36,7 +36,11 @@ struct RootView: View {
         .onAppear {
             // If the user previously completed onboarding, skip straight
             // to the main UI. Otherwise, show the onboarding hero.
-            if didOnboard {
+            // Auto-start: when IBRIDGE_AUTO_START=1 is set in the env
+            // (e.g. via xcrun simctl launch --setenv or Xcode scheme),
+            // skip onboarding + permissions and go straight to main.
+            if didOnboard ||
+                ProcessInfo.processInfo.environment["IBRIDGE_AUTO_START"] == "1" {
                 stage = .main
             } else {
                 stage = .onboarding

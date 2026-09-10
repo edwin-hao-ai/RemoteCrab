@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "iBridgeCore",
     platforms: [
-        .iOS(.v26),
+        .iOS(.v17),
         .macOS(.v26)
     ],
     products: [

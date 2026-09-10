@@ -1,19 +1,30 @@
-iBridge simulator e2e demo
+iBridge simulator e2e
 ═══════════════════════════
 
-Simulator:  0EA997E8-16AE-4C20-9974-33628087E7E8
-Bundle:     /Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphonesimulator/iBridgeCapture.app
+This run executed:
+  • Built iBridgeCapture.app for iPhone 17 Pro simulator
+    (iOS 17+ deployment target, Liquid Glass fallback path)
+  • Granted camera + microphone permissions
+  • Launched with IBRIDGE_AUTO_START=1 to skip onboarding and
+    auto-start streaming
 
-Screenshot: /Users/edwinhao/iBridge/screenshots/e2e-demo/01_sim_launched.png
+Screenshots:
+  /Users/edwinhao/iBridge/screenshots/e2e-demo/01_sim_autostart.png
+  /Users/edwinhao/iBridge/screenshots/e2e-demo/02_sim_after_tap.png
 
-This proves the iOS side launches and renders its UI on the simulator.
+To complete the full e2e (live frames on the Mac):
+  1. In Xcode, open iBridgeReceiver.xcodeproj and Run on "My Mac".
+  2. Watch the Mac menu bar for the iBridge icon. Click → Open
+     Control Panel / Open Preview Window.
+  3. The simulator's iBridgeCapture will start streaming to the
+     Mac over Bonjour.
+  4. The Mac should show "CONNECTED" in the status pill with
+     a green dot.
 
-To complete the full e2e (real iPhone → real Mac streaming):
-  1. Open iBridgeReceiver.xcodeproj in Xcode and Run on My Mac.
-  2. Both devices on same WiFi — Bonjour discovers.
-  3. Tap the big button on iPhone to start streaming.
-  4. Live preview appears on Mac within ~1s.
+For real iPhone 14 (iOS 18) testing:
+  1. In Xcode, open iBridgeCapture.xcodeproj.
+  2. Set scheme to your iPhone.
+  3. ⌘R — Xcode will install on the device.
+  4. Grant camera/mic/local-network permissions.
+  5. Tap the big red button to start streaming.
 
-For a self-contained, no-hardware validation of the receive pipeline:
-    swiftc -parse-as-library -o /tmp/e2e scripts/e2e_receiver_demo.swift
-    /tmp/e2e /tmp/ibridge-e2e 30
