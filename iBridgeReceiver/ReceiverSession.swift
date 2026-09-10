@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 import SwiftUI
 import VideoToolbox
 import iBridgeCore
@@ -26,6 +27,14 @@ final class ReceiverSession: ObservableObject {
     /// The most recent decoded frame as a `CGImage` ready for display.
     @Published private(set) var latestFrame: CGImage?
 
+    /// Latest feature-state snapshot from the iPhone. nil until the
+    /// first `featureState` frame arrives (older iOS builds never
+    /// send one — the UI must treat nil as "remote control unavailable").
+    @Published private(set) var featureState: FeatureStateSnapshot?
+
+    private var pingTimer: Timer?
+    private static let log = Logger(subsystem: "com.ibridge", category: "receiver")
+
     let browser = BonjourBrowser()
     let decoder = H264Decoder()
     let parser = IBWire.Parser()
@@ -45,7 +54,6 @@ final class ReceiverSession: ObservableObject {
     let audioPlayer = AudioPlayer()
 
     private var connection: NWConnection?
-    private var connectionStartedAt: Date?
 
     init() {
         decoder.onDecoded = { [weak self] image in
@@ -66,6 +74,17 @@ final class ReceiverSession: ObservableObject {
             Task { @MainActor in
                 self?.handleDiscovered(phones)
             }
+        }
+    }
+
+    /// Mac → iPhone: toggle a feature remotely. No-op when disconnected.
+    func setFeature(_ feature: IBFeature, _ enabled: Bool) {
+        guard let connection, connection.state == .ready else { return }
+        do {
+            let data = try IBWire.encode(featureControl: FeatureControl(feature: feature, enabled: enabled))
+            connection.send(content: data, completion: .contentProcessed { _ in })
+        } catch {
+            Self.log.error("featureControl encode failed: \(error, privacy: .public)")
         }
     }
 
@@ -100,19 +119,40 @@ final class ReceiverSession: ObservableObject {
     private func handleConnectionState(_ newState: NWConnection.State) {
         switch newState {
         case .ready:
-            connectionStartedAt = Date()
             if let name = currentPhoneName() {
                 state = .streaming(name: name, latencyMs: 0)
             }
+            if let connection {
+                startPingLoop(on: connection)
+            }
         case .failed(let error):
+            stopPingLoop()
             state = .error("\(error)")
             connection = nil
         case .cancelled:
+            stopPingLoop()
             state = .searching
             connection = nil
         default:
             break
         }
+    }
+
+    private func startPingLoop(on connection: NWConnection) {
+        stopPingLoop()
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self, weak connection] _ in
+            guard let connection, connection.state == .ready else { return }
+            let micros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
+            connection.send(content: IBWire.encodePing(sentMicros: micros),
+                            completion: .contentProcessed { _ in })
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pingTimer = timer
+    }
+
+    private func stopPingLoop() {
+        pingTimer?.invalidate()
+        pingTimer = nil
     }
 
     private func currentPhoneName() -> String? {
@@ -169,15 +209,25 @@ final class ReceiverSession: ObservableObject {
                 if let packet = try? IBWire.decodeAudio(frame) {
                     audioPlayer.consume(packet)
                 }
-            case .featureControl, .featureState, .ping:
-                // Mac → iPhone control / state frames; consumed by later tasks.
+            case .featureControl:
+                // Mac → iPhone direction only; ignore if we ever receive one.
                 break
+            case .featureState:
+                if let snap = try? IBWire.decodeFeatureState(frame) {
+                    featureState = snap
+                }
+            case .ping:
+                guard frame.payload.count == 8 else {
+                    Self.log.warning("ping frame with malformed payload (\(frame.payload.count) bytes), skipping")
+                    continue
+                }
+                let sentMicros = IBWire.decodePing(frame)
+                let nowMicros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
+                let rttMs = Int((nowMicros &- sentMicros) / 1_000)
+                if case .streaming(let name, _) = state {
+                    state = .streaming(name: name, latencyMs: rttMs)
+                }
             }
-        }
-
-        if case .streaming(let name, _) = state, let startedAt = connectionStartedAt {
-            let ms = Int(Date().timeIntervalSince(startedAt) * 1000)
-            state = .streaming(name: name, latencyMs: ms)
         }
     }
 
@@ -196,7 +246,7 @@ final class ReceiverSession: ObservableObject {
                 cameraBridge.feed(nalUnit: pps, kind: Int(IBNalFrame.Kind.pps.rawValue))
             }
         } catch {
-            print("[iBridge] metadata decode failed: \(error)")
+            Self.log.error("metadata decode failed: \(error, privacy: .public)")
         }
     }
 }
