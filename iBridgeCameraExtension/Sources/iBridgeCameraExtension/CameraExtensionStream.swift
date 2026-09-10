@@ -121,12 +121,10 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
 // MARK: - Per-stream decoder
 
 /// Wraps VideoToolbox decoding + a small ring buffer of the most
-/// recent decoded `CVPixelBuffer`s. Camera extensions are sample-pull
-/// based: the system asks for the next frame whenever it needs one, and
-/// we always hand back the freshest available pixel buffer.
+/// recent decoded `CVPixelBuffer`s. Decoded frames are pushed to
+/// connected clients via `CMIOExtensionStream.send` as soon as
+/// VideoToolbox delivers them.
 final class StreamDecoder: @unchecked Sendable {
-
-    var lastBuffer: CMSampleBuffer?
 
     private var session: VTDecompressionSession?
     private var format: CMVideoFormatDescription?
@@ -160,7 +158,6 @@ final class StreamDecoder: @unchecked Sendable {
     func reset() {
         lock.lock()
         pixelBuffers.removeAll()
-        lastBuffer = nil
         lock.unlock()
     }
 
@@ -171,11 +168,19 @@ final class StreamDecoder: @unchecked Sendable {
             presentationTimeStamp: CMTime(value: CMTimeValue(Date().timeIntervalSince1970 * 1000), timescale: 1000),
             decodeTimeStamp: .invalid
         )
-        guard let format else { return nil }
+        // The sample's format description must describe the *decoded*
+        // pixels (32BGRA), not the encoded avc1 stream — otherwise
+        // clients like Photo Booth render black/garbled video.
+        var decodedFormat: CMVideoFormatDescription?
+        guard CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescriptionOut: &decodedFormat
+        ) == noErr, let decodedFormat else { return nil }
         let status = CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault,
             imageBuffer: pixelBuffer,
-            formatDescription: format,
+            formatDescription: decodedFormat,
             sampleTiming: &timing,
             sampleBufferOut: &sample
         )
@@ -208,11 +213,14 @@ final class StreamDecoder: @unchecked Sendable {
         self.format = newFormat
 
         var newSession: VTDecompressionSession?
+        let imageBufferAttributes: CFDictionary = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ] as CFDictionary
         VTDecompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             formatDescription: newFormat,
             decoderSpecification: nil,
-            imageBufferAttributes: nil,
+            imageBufferAttributes: imageBufferAttributes,
             outputCallback: nil,
             decompressionSessionOut: &newSession
         )
@@ -264,18 +272,6 @@ final class StreamDecoder: @unchecked Sendable {
         )
 
         guard let sample else { return }
-
-        let pixelBufferAttributes: [String: Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as CFDictionary
-        ]
-        var pool: CVPixelBufferPool?
-        CVPixelBufferPoolCreate(
-            kCFAllocatorDefault,
-            nil,
-            pixelBufferAttributes as CFDictionary,
-            &pool
-        )
 
         VTDecompressionSessionDecodeFrame(
             session,
