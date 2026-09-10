@@ -11,7 +11,8 @@ settings:
   base:
     SWIFT_VERSION: "6.2"
     DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
     MACOSX_DEPLOYMENT_TARGET: "26.0"
@@ -37,7 +38,7 @@ targets:
       path: iBridgeReceiver/Info.plist
       properties:
         CFBundleDisplayName: iBridge
-        CFBundleShortVersionString: "0.1"
+        CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
@@ -52,9 +53,15 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: iBridgeReceiver/iBridgeReceiver.entitlements
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
 
-  # Camera Extension target — present as a stub. The full project setup
-  # for system extensions requires additional steps documented in RUN.md.
+  # Camera Extension target — exposes iBridge as a virtual webcam
+  # via CoreMediaIO (CMIO). When wired into the host via
+  # "Embed App Extensions", other Mac apps can pick "iBridge Camera"
+  # as their video input.
   iBridgeCameraExtension:
     type: app-extension
     platform: macOS
@@ -65,7 +72,7 @@ targets:
       path: iBridgeCameraExtension/Info.plist
       properties:
         CFBundleDisplayName: iBridge Camera
-        CFBundleShortVersionString: "0.1"
+        CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.cmioextension-provider
@@ -75,3 +82,35 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
         INFOPLIST_FILE: iBridgeCameraExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: iBridgeCameraExtension/CameraExtension.entitlements
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+
+  # Audio Unit extension target — exposes iBridge as a virtual mic
+  # via CoreAudio. When wired into the host, other Mac apps can pick
+  # "iBridge Microphone" as their audio input.
+  iBridgeAudioExtension:
+    type: app-extension
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: iBridgeAudioExtension/Sources
+    info:
+      path: iBridgeAudioExtension/Info.plist
+      properties:
+        CFBundleDisplayName: iBridge Microphone
+        CFBundleShortVersionString: "0.2"
+        CFBundleVersion: "1"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.audiounit
+          NSExtensionPrincipalClass: iBridgeAudioFactory
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Audio
+        INFOPLIST_FILE: iBridgeAudioExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: iBridgeAudioExtension/AudioExtension.entitlements
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""

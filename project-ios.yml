@@ -10,10 +10,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.2"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: DDG3CJL762
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_TREAT_WARNINGS_AS_ERRORS: NO
+    CODE_SIGN_IDENTITY: "Apple Development"
 
 packages:
   iBridgeCore:
@@ -36,7 +37,7 @@ targets:
       path: iBridgeCapture/Info.plist
       properties:
         CFBundleDisplayName: iBridge
-        CFBundleShortVersionString: "0.1"
+        CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         LSRequiresIPhoneOS: true
         UILaunchScreen:
@@ -66,4 +67,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: DDG3CJL762

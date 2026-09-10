@@ -7,6 +7,16 @@ struct iBridgeReceiverApp: App {
     @AppStorage("ibridge.didFirstLaunch") private var didFirstLaunch: Bool = false
     @StateObject private var session = ReceiverSession()
 
+    /// The single shared audio unit instance. Used by:
+    ///   • `AudioReceiver` (which feeds it iPhone mic samples)
+    ///   • `iBridgeAUInstanceProvider` (which the system extension
+    ///     uses to vend the same instance into its own AUv3 instance)
+    @State private var audioUnit: iBridgeAudioUnit? = {
+        let unit = iBridgeAudioUnit()
+        iBridgeAUInstanceProvider.makeInstance = unit
+        return unit
+    }()
+
     var body: some Scene {
         // First-launch / minimal "running" view.
         Window("iBridge", id: "root") {

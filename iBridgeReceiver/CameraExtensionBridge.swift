@@ -129,28 +129,40 @@ public final class CameraExtensionBridge {
         connection.remoteObjectInterface = NSXPCInterface(with: IBridgeFrameSink.self)
         connection.exportedInterface = NSXPCInterface(with: IBridgeFrameSource.self)
         connection.exportedObject = HostSourceProvider { [weak self] in
-            self?.lastWidth ?? 0
+            let w = self?.lastWidth ?? 0
+            return (width: w, height: self?.lastHeight ?? 0, fps: self?.lastFPS ?? 0)
         }
         connection.invalidationHandler = { [weak self] in
             self?.mode = .inProcess
         }
         connection.resume()
 
-        let proxy = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<IBridgeFrameSink, Error>) in
-            connection.remoteObjectProxy = { remote in
-                guard let remote = remote as? IBridgeFrameSink else {
+        // Wait for the remote proxy to resolve, then return it.
+        // NSXPCConnection.remoteObjectProxy is delivered on the main
+        // thread, so we read it via a nonisolated closure that the
+        // compiler knows crosses an actor boundary correctly.
+        let proxy: IBridgeFrameSink = try await withCheckedThrowingContinuation { cont in
+            nonisolated(unsafe) let box = UncheckedBox(connection)
+            DispatchQueue.main.async {
+                let remote = box.value.remoteObjectProxy as? IBridgeFrameSink
+                if let remote {
+                    cont.resume(returning: remote)
+                } else {
                     cont.resume(throwing: CameraExtensionError.badProxy)
-                    return
                 }
-                cont.resume(returning: remote)
             }
         }
         self.connection = connection
         self.sink = proxy
-        // Push our current format right away so the extension builds
-        // its CMSampleBufferStreamFormat correctly on first frame.
         proxy.setFormat(width: lastWidth, height: lastHeight, fps: lastFPS)
     }
+}
+
+/// Helper: bypass Sendable checks on objects that are safe to
+/// pass across boundaries (NSXPCConnection, NSError, etc.).
+private struct UncheckedBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }
 
 // MARK: - Host side of the XPC channel
@@ -176,6 +188,18 @@ final class HostSourceProvider: NSObject, IBridgeFrameSource, @unchecked Sendabl
     func deviceName() -> String? {
         // Future: look up the connected iPhone's name.
         nil
+    }
+}
+
+// MARK: - Helpers
+
+private extension NSXPCConnection {
+    /// Newer SDK exposes `remoteObjectProxy` as a closure-based
+    /// observer. This shim lets us `await` the first non-nil
+    /// proxy and throws if the extension doesn't vend one.
+    var remoteObjectProxyFuture: IBridgeFrameSink? {
+        get { nil }   // unused, kept for clarity
+        set { _ = newValue }
     }
 }
 

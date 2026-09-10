@@ -1,148 +1,34 @@
 import AVFoundation
 import AudioToolbox
-import CoreAudio
 import Foundation
 import iBridgeCore
 
-/// iBridge AudioUnit extension — exposes iBridge as a virtual
-/// microphone that other apps can select as their audio input.
-///
-/// **V0.2 status:** complete skeleton, compile-ready, but the actual
-/// `.appex` bundle needs proper code signing + an `NSExtension` entry
-/// to load. In the meantime, we ship an `in-process` fallback that
-/// routes the iPhone mic stream through `AVAudioEngine` to the Mac
-/// speakers — gives the same end-user experience for development.
-///
-/// Architecture when properly signed:
-///   1. `iBridgeAudioExtension.appex` lives in
-///      `iBridgeReceiver.app/Contents/PlugIns/`
-///   2. Inside the extension: an `AUAudioUnit` subclass that exposes
-///      a single bus (the input bus = the microphone feed).
-///   3. The host instantiates the extension via
-///      `AUAudioUnit.instantiate(with:componentDescription:options:)`.
-///   4. We connect the extension's render callback to a queue that
-///      the host fills with `AudioPacket`s coming from the iPhone.
-///   5. Other apps that pick "iBridge Microphone" as their input get
-///      the live iPhone mic stream.
-public final class iBridgeAudioUnit: AUAudioUnit, @unchecked Sendable {
-
-    // MARK: - Bus configuration
-
-    /// The single output bus the extension exposes.
-    public let outputBus = AUAudioUnitBus()
-
-    /// Bus format: 48 kHz, mono, Float32.
-    public static let processingFormat: AVAudioFormat = {
-        guard let f = AVAudioFormat(
-            standardFormatWithSampleRate: 48_000,
-            channels: 1
-        ) else { fatalError("AVAudioFormat(48000, 1) failed") }
-        return f
-    }()
-
-    // MARK: - State
-
-    private let ringBuffer: iBridgeRingBuffer
-    private var isRunning = false
-
-    public override init() {
-        // 1 second of 48 kHz mono Float32 = 192 KB. Plenty for the
-        // WiFi transport; the ring buffer smooths minor jitter.
-        let capacity = 48_000 * MemoryLayout<Float>.size
-        self.ringBuffer = iBridgeRingBuffer(capacity: capacity)
-
-        super.init()
-
-        // Configure the output bus with the canonical format.
-        outputBus.format = Self.processingFormat
-        self.outputBusses = [outputBus]
-
-        // Configure the input scope (we are an output of the host but
-        // provide an input bus where the host pushes samples into us).
-        let inputBus = AUAudioUnitBus()
-        inputBus.format = Self.processingFormat
-        self.inputBusses = [inputBus]
-    }
-
-    // MARK: - Render block
-
-    /// Called by CoreAudio to pull samples from the AU's render
-    /// queue. The host thread pushes decoded PCM samples into
-    /// `ringBuffer`; this method drains them into the output buffer.
-    public var renderBlock: AUInternalRenderBlock {
-        return { [weak self] actionFlags, timestamp, frameCount, outputBusNumber, outputData, _, pullInputBlock in
-            guard let self = self else {
-                return kAudioUnitErr_Uninitialized
-            }
-            let outBuffers = UnsafeMutableAudioBufferListPointer(outputData)
-            guard let out = outBuffers[0].mData?.assumingMemoryBound(to: Float.self) else {
-                return kAudioUnitErr_InvalidPropertyValue
-            }
-
-            let framesRead = self.ringBuffer.read(into: out, max: Int(frameCount))
-            // Zero any unwritten samples (underrun = silence).
-            if framesRead < Int(frameCount) {
-                for i in framesRead..<Int(frameCount) {
-                    out[i] = 0
-                }
-            }
-            return noErr
-        }
-    }
-
-    // MARK: - Lifecycle
-
-    public override func allocateRenderResources() throws {
-        try super.allocateRenderResources()
-        isRunning = true
-        ringBuffer.flush()
-    }
-
-    public override func deallocateRenderResources() {
-        super.deallocateRenderResources()
-        isRunning = false
-    }
-
-    // MARK: - Host-facing API
-
-    /// Push a batch of Float32 PCM samples (mono, 48 kHz) into the
-    /// render queue. Called by the host (iBridgeReceiver) every time
-    /// an `AudioPacket` arrives from the iPhone.
-    public func enqueue(samples: UnsafePointer<Float>, count: Int) {
-        ringBuffer.write(from: samples, count: count)
-    }
-}
-
-// MARK: - Real-time safe lock-free ring buffer
-//
-// Simple SPSC (single-producer single-consumer) ring buffer for Float32
-// samples. Audio render thread is the consumer; the host's audio
-// packet handler is the producer. We use atomic head/tail indices on
-// a memory-order relaxed level; the worst case is one frame of
-// overrun which is inaudible.
-
-final class iBridgeRingBuffer: @unchecked Sendable {
+/// Real-time safe SPSC (single-producer single-consumer) ring buffer
+/// for Float32 PCM samples. The producer is the Mac host
+/// (`AudioReceiver` in iBridgeReceiver target); the consumer is the
+/// audio render thread in the iBridge virtual microphone.
+public final class iBridgeRingBuffer: @unchecked Sendable {
     private var storage: UnsafeMutableBufferPointer<Float>
     private let capacity: Int
     private let head = AtomicCounter()  // producer writes here
     private let tail = AtomicCounter()  // consumer reads here
 
-    init(capacity: Int) {
-        let bytes = UnsafeMutablePointer<Float>.allocate(capacity: capacity / MemoryLayout<Float>.size)
-        self.storage = UnsafeMutableBufferPointer(start: bytes, count: capacity / MemoryLayout<Float>.size)
-        self.capacity = capacity / MemoryLayout<Float>.size
+    public init(capacityBytes: Int) {
+        let count = capacityBytes / MemoryLayout<Float>.size
+        let bytes = UnsafeMutablePointer<Float>.allocate(capacity: count)
+        self.storage = UnsafeMutableBufferPointer(start: bytes, count: count)
+        self.capacity = count
     }
 
-    deinit {
-        storage.baseAddress?.deallocate()
-    }
+    deinit { storage.baseAddress?.deallocate() }
 
-    func write(from src: UnsafePointer<Float>, count: Int) {
-        let n = min(count, capacity)
+    public var depth: Int { head.value - tail.value }
+
+    public func write(from src: UnsafePointer<Float>, count: Int) {
         let headVal = head.value
         let tailVal = tail.value
         let available = capacity - (headVal - tailVal)
-        let toWrite = min(n, available)
+        let toWrite = min(count, available)
         guard toWrite > 0 else { return }
         let start = headVal % capacity
         if start + toWrite <= capacity {
@@ -158,7 +44,7 @@ final class iBridgeRingBuffer: @unchecked Sendable {
         head.set(headVal + toWrite)
     }
 
-    func read(into dst: UnsafeMutablePointer<Float>, max: Int) -> Int {
+    public func read(into dst: UnsafeMutablePointer<Float>, max: Int) -> Int {
         let headVal = head.value
         let tailVal = tail.value
         let available = headVal - tailVal
@@ -177,25 +63,66 @@ final class iBridgeRingBuffer: @unchecked Sendable {
         return toRead
     }
 
-    func flush() {
+    public func flush() {
         head.set(0)
         tail.set(0)
     }
 }
 
-/// Minimal hand-rolled atomic counter (avoids depending on os.lock
-/// or Dispatch's deprecated atomics). Used for the ring buffer's
-/// head/tail indices; relaxed ordering is sufficient for an SPSC queue.
-final class AtomicCounter: @unchecked Sendable {
+/// Minimal atomic counter used by the SPSC ring buffer.
+public final class AtomicCounter: @unchecked Sendable {
     private var _value: Int = 0
     private let lock = NSLock()
-
-    var value: Int {
+    public init() {}
+    public var value: Int {
         lock.lock(); defer { lock.unlock() }
         return _value
     }
-
-    func set(_ newValue: Int) {
+    public func set(_ newValue: Int) {
         lock.lock(); _value = newValue; lock.unlock()
     }
+}
+
+/// iBridge's virtual microphone — wraps the ring buffer with a small
+/// public API the host process can use to enqueue Float32 PCM samples
+/// from each decoded iPhone-mic `AudioPacket`.
+///
+/// In V0.2 we use this directly via `iBridgeAUInstanceProvider` for
+/// the in-process path (simulator + dev). When the
+/// `iBridgeAudioExtension.appex` is properly code-signed + installed,
+/// the extension instantiates an AUv3 class that calls into the same
+/// `enqueue` API, sharing the same buffer and therefore the same audio.
+public final class iBridgeAudioUnit: @unchecked Sendable {
+
+    /// Canonical bus format: 48 kHz mono Float32.
+    public static let processingFormat: AVAudioFormat = {
+        guard let f = AVAudioFormat(
+            standardFormatWithSampleRate: 48_000,
+            channels: 1
+        ) else { fatalError("AVAudioFormat(48000, 1) failed") }
+        return f
+    }()
+
+    private let ringBuffer: iBridgeRingBuffer
+
+    public init() {
+        // 1 second of 48 kHz mono Float32 = 192 KB. Smooths minor
+        // WiFi jitter between the host's enqueue and the render call.
+        self.ringBuffer = iBridgeRingBuffer(capacityBytes: 48_000 * MemoryLayout<Float>.size)
+    }
+
+    /// Push a batch of Float32 samples into the render queue.
+    public func enqueue(samples: UnsafePointer<Float>, count: Int) {
+        ringBuffer.write(from: samples, count: count)
+    }
+
+    /// Drain the queue into the output buffer. Returns the number of
+    /// frames actually written. The `AURenderBlock` in the extension
+    /// calls this for every render cycle.
+    public func read(into dst: UnsafeMutablePointer<Float>, max: Int) -> Int {
+        ringBuffer.read(into: dst, max: max)
+    }
+
+    /// Currently-buffered frame count. Useful for diagnostics / UI.
+    public var queuedFrames: Int { ringBuffer.depth }
 }

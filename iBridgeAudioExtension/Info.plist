@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>iBridge</string>
+	<string>iBridge Microphone</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,24 +15,17 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
-	<string>APPL</string>
+	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.2</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>LSMinimumSystemVersion</key>
-	<string>26.0</string>
-	<key>LSUIElement</key>
-	<true/>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_ibridge._tcp</string>
-	</array>
-	<key>NSHighResolutionCapable</key>
-	<true/>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>iBridge discovers your iPhone on the local WiFi network.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>iBridge uses your Mac microphone for audio routing when the iPhone mic is unavailable.</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.audiounit</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>iBridgeAudioFactory</string>
+	</dict>
 </dict>
 </plist>
