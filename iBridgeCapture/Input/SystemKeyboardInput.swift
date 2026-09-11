@@ -24,6 +24,9 @@ final class SystemKeyboardTextField: UITextField, UITextFieldDelegate {
         backgroundColor = .clear
         textColor = .clear
         tintColor = .clear
+        // Purely a conduit for summoning the system keyboard — it must
+        // never appear as a focusable element to VoiceOver.
+        isAccessibilityElement = false
         delegate = self
         addTarget(self, action: #selector(editingChanged(_:)), for: .editingChanged)
     }

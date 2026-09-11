@@ -22,10 +22,10 @@ struct PermissionFlow: View {
 
         var title: String {
             switch self {
-            case .camera:        return "Camera Access"
-            case .microphone:    return "Microphone Access"
-            case .speech:        return "Speech Recognition"
-            case .localNetwork:  return "Local Network Access"
+            case .camera:        return IBLocale.Permission.camera
+            case .microphone:    return IBLocale.Permission.microphone
+            case .speech:        return IBLocale.Permission.speech
+            case .localNetwork:  return IBLocale.Permission.localNetwork
             }
         }
 
@@ -40,14 +40,10 @@ struct PermissionFlow: View {
 
         var reason: String {
             switch self {
-            case .camera:
-                return "iBridge turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
-            case .microphone:
-                return "iBridge can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
-            case .speech:
-                return "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature."
-            case .localNetwork:
-                return "iBridge uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
+            case .camera:        return IBLocale.Permission.cameraReason
+            case .microphone:    return IBLocale.Permission.microphoneReason
+            case .speech:        return IBLocale.Permission.speechReason
+            case .localNetwork:  return IBLocale.Permission.localNetworkReason
             }
         }
     }
@@ -255,13 +251,13 @@ private struct PermissionCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if result == .granted {
-                Text("Granted")
+                Text(IBLocale.Permission.granted)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.green)
                     .ibEyebrowTracking()
                     .padding(.top, 8)
             } else if result == .denied {
-                Text("Denied — you can enable this later in Settings")
+                Text(IBLocale.Permission.denied)
                     .font(IBFont.caption)
                     .foregroundStyle(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
@@ -281,7 +277,7 @@ private struct PermissionCard: View {
                     Button(action: onAllow) {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.shield")
-                            Text("Allow")
+                            Text(IBLocale.Permission.allow)
                         }
                         .font(IBFont.bodyMedium.weight(.semibold))
                         .foregroundStyle(.white)
@@ -291,9 +287,13 @@ private struct PermissionCard: View {
                     }
                     .buttonStyle(.plain)
 
-                    Button("Not now", action: onSkip)
+                    Button(IBLocale.Permission.notNow, action: onSkip)
                         .font(IBFont.bodySmall)
                         .foregroundStyle(.white.opacity(0.5))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .padding(.horizontal, 28)
                 .padding(.bottom, 20)

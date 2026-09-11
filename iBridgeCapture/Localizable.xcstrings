@@ -1022,6 +1022,210 @@
           }
         }
       }
+    },
+    "Done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "READY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "READY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就绪"
+          }
+        }
+      }
+    },
+    "LIVE": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LIVE"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直播中"
+          }
+        }
+      }
+    },
+    "RECONNECTING": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RECONNECTING"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接中"
+          }
+        }
+      }
+    },
+    "OFFLINE": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OFFLINE"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
+          }
+        }
+      }
+    },
+    "Connection to Mac lost. Reconnecting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection to Mac lost. Reconnecting…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与 Mac 的连接已断开。正在重新连接…"
+          }
+        }
+      }
+    },
+    "Speech Recognition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech Recognition"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音识别"
+          }
+        }
+      }
+    },
+    "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住语音按钮即可向 Mac 听写文字。识别在你的 iPhone 上完成——此功能的音频不会离开你的设备。"
+          }
+        }
+      }
+    },
+    "Drag to move the cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag to move the cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖动即可移动光标"
+          }
+        }
+      }
+    },
+    "Double-tap and hold to drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double-tap and hold to drag"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双击并按住以拖拽"
+          }
+        }
+      }
+    },
+    "Two fingers to scroll or right-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two fingers to scroll or right-click"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双指滚动或右键点按"
+          }
+        }
+      }
+    },
+    "Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控板手势：拖动移动光标，双击按住拖拽，双指滚动或右键点按"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

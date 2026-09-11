@@ -71,9 +71,13 @@ struct OnboardingFlow: View {
     private var actionRow: some View {
         if page < 2 {
             HStack {
-                Button("Skip") { hasSeenOnboarding = true }
+                Button(IBLocale.Onboarding.skip) { hasSeenOnboarding = true }
                     .font(IBFont.bodyMedium)
                     .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
             Spacer()
             Button {
                 advance()
@@ -98,7 +102,7 @@ struct OnboardingFlow: View {
                 hasSeenOnboarding = true
             } label: {
                 HStack(spacing: 6) {
-                    Text("Allow Permissions & Connect")
+                    Text(IBLocale.Onboarding.allowAndConnect)
                         .font(IBFont.bodyMedium.weight(.semibold))
                     Image(systemName: "arrow.right")
                         .font(.system(size: 14, weight: .semibold))
@@ -171,7 +175,7 @@ struct OnboardingPage: View {
         case .permissions:
             return "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
         case .pairMac:
-            return "Download and open iBridge Receiver on your Mac, then tap Continue. They'll find each other automatically."
+            return IBLocale.Onboarding.pairBody
         }
     }
 

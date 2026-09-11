@@ -22,6 +22,16 @@ final class VoiceRecognizer {
     /// Empty results never fire.
     var onFinal: ((String) -> Void)?
 
+    /// Fired when a live session ends on its own — the recognizer
+    /// finalized at the ~1 min system cap, or a mid-session error tore
+    /// the session down — instead of via a user-initiated stop().
+    /// The dock uses this to reset its held/glowing state.
+    var onInterrupted: (() -> Void)?
+
+    /// Set when a mid-session error kills the recognition session;
+    /// the voice card flashes it briefly, then `clearError()` resets.
+    private(set) var lastError: String?
+
     private var recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
@@ -101,6 +111,7 @@ final class VoiceRecognizer {
         self.request = request
         partialText = ""
         finalText = ""
+        lastError = nil
         finalDelivered = false
         stopRequested = false
         sessionGeneration += 1
@@ -172,6 +183,7 @@ final class VoiceRecognizer {
                     isRunning = false
                     audioEngine.stop()
                     audioEngine.inputNode.removeTap(onBus: 0)
+                    onInterrupted?()
                 }
                 deliverFinal()
                 return
@@ -184,10 +196,13 @@ final class VoiceRecognizer {
             } else if isRunning {
                 // Session died mid-dictation; tear down without
                 // firing onFinal — the user hasn't released yet.
+                // Surface the error so the dock can un-stick itself.
                 isRunning = false
+                lastError = error.localizedDescription
                 audioEngine.stop()
                 audioEngine.inputNode.removeTap(onBus: 0)
                 cleanup()
+                onInterrupted?()
             }
         }
     }
@@ -219,6 +234,11 @@ final class VoiceRecognizer {
         recognizer = nil
         stopRequested = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Clears the surfaced mid-session error after the UI has shown it.
+    func clearError() {
+        lastError = nil
     }
 
     /// TCC answers on a private XPC queue, so this must be

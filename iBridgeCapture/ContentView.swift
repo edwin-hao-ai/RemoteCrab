@@ -10,6 +10,9 @@ struct ContentView: View {
     /// Brief "Sent" confirmation shown on the voice card after the
     /// finalized text has been dispatched to the Mac.
     @State private var voiceSentFlash = false
+    /// Brief error flash on the voice card when the recognition session
+    /// dies mid-dictation (driven by `voice.lastError`).
+    @State private var voiceErrorFlash = false
 
     // PiP drag state: committed offset + in-flight gesture translation.
     @State private var pipOffset: CGSize = .zero
@@ -36,11 +39,11 @@ struct ContentView: View {
                     pip(in: geo.size)
                 }
 
-                if voice.isRunning || voiceSentFlash {
+                if voice.isRunning || voiceSentFlash || voiceErrorFlash {
                     voiceCard
                 }
             }
-            .animation(IBAnimation.snappy, value: voice.isRunning || voiceSentFlash)
+            .animation(IBAnimation.snappy, value: voice.isRunning || voiceSentFlash || voiceErrorFlash)
         }
         .sheet(isPresented: $showConnectionSheet) {
             ConnectionSheet(engine: engine)
@@ -83,6 +86,18 @@ struct ContentView: View {
             if ProcessInfo.processInfo.environment["IBRIDGE_AUTO_START"] == "1" {
                 UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
                 // No auto-toggle — user must tap to start.
+            }
+        }
+        .onChange(of: voice.lastError) { _, newError in
+            // Mid-session failure: flash the error on the voice card
+            // briefly, then dismiss. (The dock resets its own held
+            // state via `voice.onInterrupted`.)
+            guard newError != nil else { return }
+            voiceErrorFlash = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                voiceErrorFlash = false
+                voice.clearError()
             }
         }
         .task {
@@ -133,9 +148,11 @@ struct ContentView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 10)
+                    .frame(minHeight: 44)
                     .background {
                         Capsule().fill(Color.accentColor)
                     }
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Turn camera on")
@@ -163,8 +180,10 @@ struct ContentView: View {
                             IBMaterial.bar(in: Circle())
                         }
                 }
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
                 .buttonStyle(.plain)
-                .accessibilityLabel("Done")
+                .accessibilityLabel(IBLocale.Settings.done)
                 .accessibilityHint("Returns to the trackpad")
             }
 
@@ -179,6 +198,8 @@ struct ContentView: View {
                         IBMaterial.bar(in: Circle())
                     }
             }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
             .buttonStyle(.plain)
             .accessibilityLabel("Connection info")
             .accessibilityHint("Shows the Mac you're connected to, resolution, and bitrate")
@@ -194,6 +215,8 @@ struct ContentView: View {
                         IBMaterial.bar(in: Circle())
                     }
             }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
             .buttonStyle(.plain)
             .accessibilityLabel("Settings")
             .accessibilityHint("Video resolution, frame rate, microphone, and trackpad settings")
@@ -208,13 +231,17 @@ struct ContentView: View {
     /// after the final text is dispatched.
     private var voiceCard: some View {
         HStack(spacing: IBSpace.m.pt - 2) {
-            Image(systemName: voiceSentFlash ? "checkmark" : "waveform")
+            Image(systemName: voiceErrorFlash
+                  ? "exclamationmark.triangle"
+                  : (voiceSentFlash ? "checkmark" : "waveform"))
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(voiceSentFlash ? IBColor.success : .red)
+                .foregroundStyle(voiceErrorFlash ? IBColor.error : (voiceSentFlash ? IBColor.success : .red))
                 .symbolEffect(.pulse, isActive: voice.isRunning)
-            Text(voiceSentFlash
-                 ? "Sent"
-                 : (voice.partialText.isEmpty ? "Listening…" : voice.partialText))
+            Text(voiceErrorFlash
+                 ? (voice.lastError ?? "Voice input stopped")
+                 : (voiceSentFlash
+                    ? "Sent"
+                    : (voice.partialText.isEmpty ? "Listening…" : voice.partialText)))
                 .font(.system(size: 15))
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -230,9 +257,11 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(voiceSentFlash
-                            ? "Dictation sent"
-                            : "Voice input. \(voice.partialText.isEmpty ? "Listening" : voice.partialText)")
+        .accessibilityLabel(voiceErrorFlash
+                            ? "Voice input error. \(voice.lastError ?? "")"
+                            : (voiceSentFlash
+                               ? "Dictation sent"
+                               : "Voice input. \(voice.partialText.isEmpty ? "Listening" : voice.partialText)"))
     }
 
     // MARK: - PiP camera preview
@@ -299,12 +328,15 @@ struct ContentView: View {
 
     private var pillStatus: IBStatusPill.Status {
         switch engine.connectionState {
-        case .idle, .starting:
+        case .idle:
+            return .idle
+        case .starting:
             return .reconnecting
         case .connected:
-            return .connected(latencyMs: engine.lastLatencyMs ?? 0)
+            // nil until the first ping round-trip — no fake "0ms".
+            return .connected(latencyMs: engine.lastLatencyMs)
         case .failed:
-            return .disconnected(reason: "Error")
+            return .disconnected(reason: IBLocale.Error.connectionLost)
         }
     }
 }
@@ -355,10 +387,10 @@ private struct ConnectionSheet: View {
 
     private var connectionLabel: String {
         switch engine.connectionState {
-        case .idle:      return "Idle"
-        case .starting:  return "Starting…"
-        case .connected: return "Connected"
-        case .failed:    return "Failed"
+        case .idle:      return IBLocale.Status.ready
+        case .starting:  return IBLocale.Status.connecting
+        case .connected: return IBLocale.Status.live
+        case .failed:    return IBLocale.Status.offline
         }
     }
 

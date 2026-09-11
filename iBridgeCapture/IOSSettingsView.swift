@@ -29,7 +29,7 @@ struct IOSSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(IBLocale.Onboarding.nextBtn) { dismiss() }
+                    Button(IBLocale.Settings.done) { dismiss() }
                 }
             }
         }
@@ -61,7 +61,7 @@ struct IOSSettingsView: View {
         case .connected: return IBLocale.Status.live
         case .starting: return IBLocale.Status.connecting
         case .failed: return IBLocale.Status.offline
-        case .idle: return "Idle"
+        case .idle: return IBLocale.Status.ready
         }
     }
 
@@ -103,11 +103,11 @@ struct IOSSettingsView: View {
 
     private var inputSection: some View {
         Section {
-            Toggle(IBLocale.Mic.on, isOn: Binding(
+            Toggle(engine.features.micOn ? IBLocale.Mic.on : IBLocale.Mic.off, isOn: Binding(
                 get: { engine.features.micOn },
                 set: { engine.features.set(feature: .microphone, enabled: $0) }
             ))
-                .accessibilityLabel(IBLocale.Mic.on)
+                .accessibilityLabel(engine.features.micOn ? IBLocale.Mic.on : IBLocale.Mic.off)
                 .accessibilityHint("Stream the iPhone microphone to your Mac")
 
             Picker(IBLocale.Mode.trackpad, selection: $trackpadSens) {
@@ -149,7 +149,7 @@ struct IOSSettingsView: View {
             HStack {
                 Text(IBLocale.Settings.versionLabel)
                 Spacer()
-                Text("0.2 (1)")
+                Text(Self.versionString)
                     .font(IBFont.monoMedium)
                     .foregroundStyle(.secondary)
             }
@@ -157,7 +157,7 @@ struct IOSSettingsView: View {
             HStack {
                 Text(IBLocale.Settings.builtFor)
                 Spacer()
-                Text("iOS 26+")
+                Text(Self.builtForString)
                     .font(IBFont.monoMedium)
                     .foregroundStyle(.secondary)
             }
@@ -172,11 +172,18 @@ struct IOSSettingsView: View {
             Text(IBLocale.Settings.copyrightLabel)
         }
     }
-}
 
-// MARK: - Convenience used by iOS Info.plist
+    // MARK: - Build info (read from the bundle, never hardcoded)
 
-enum SettingsBuildInfo {
-    static let shortVersion = "0.2"
-    static let buildNumber = 1
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
+    }
+
+    private static var builtForString: String {
+        let min = Bundle.main.infoDictionary?["MinimumOSVersion"] as? String ?? "26.0"
+        return "iOS \(min)+"
+    }
 }

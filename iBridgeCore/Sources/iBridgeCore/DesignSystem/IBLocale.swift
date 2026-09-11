@@ -23,6 +23,8 @@ public enum IBLocale {
         public static let live = "LIVE"
         public static let offline = "OFFLINE"
         public static let reconnecting = "RECONNECTING"
+        /// Calm pre-stream state on the iPhone (nothing started, nothing wrong).
+        public static let ready = "READY"
 
         public static func latency(_ ms: Int) -> String { "\(ms) ms" }
 
@@ -40,6 +42,9 @@ public enum IBLocale {
 
         public static let localNetwork = "Local Network Access"
         public static let localNetworkReason = "iBridge uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
+
+        public static let speech = "Speech Recognition"
+        public static let speechReason = "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature."
 
         public static let accessibility = "Accessibility Permission"
         public static let accessibilityReason = "We need Accessibility to drive your Mac's cursor and keyboard from your iPhone."
@@ -83,6 +88,7 @@ public enum IBLocale {
 
     public enum Settings {
         public static let title = "Settings"
+        public static let done = "Done"
         public static let general = "General"
         public static let streaming = "Streaming"
         public static let video = "Video"
@@ -160,6 +166,14 @@ public enum IBLocale {
         public static let tapDescription = "Left click"
         public static let twoFinger = "Two fingers"
         public static let twoFingerDescription = "Scroll / right click"
+    }
+
+    /// First-run coach marks on the full-screen trackpad surface.
+    public enum Coach {
+        public static let dragMove = "Drag to move the cursor"
+        public static let doubleTapHoldDrag = "Double-tap and hold to drag"
+        public static let twoFingerScrollRightClick = "Two fingers to scroll or right-click"
+        public static let accessibilitySummary = "Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click"
     }
 
     public enum Preview {

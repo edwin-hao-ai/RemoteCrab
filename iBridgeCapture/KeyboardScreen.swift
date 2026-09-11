@@ -164,37 +164,48 @@ struct KeyboardScreen: View {
     // MARK: - Shortcut bar
 
     private var shortcutBar: some View {
-        HStack(spacing: 6) {
-            shortcutKey("esc", keycode: 53)
-            shortcutKey("tab", keycode: 48)
-            modifierKey(.control)
-            modifierKey(.option)
-            modifierKey(.command)
-            modifierKey(.shift)
-            shortcutKey("←", keycode: 123)
-            shortcutKey("→", keycode: 124)
+        // Horizontally scrollable: 8 keys × 44pt + spacing exceeds a
+        // 375pt screen, so scrolling keeps every key ≥44pt wide.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                shortcutKey(text: "esc", accessibility: "Escape key", keycode: 53)
+                shortcutKey(text: "tab", accessibility: "Tab key", keycode: 48)
+                modifierKey(.control)
+                modifierKey(.option)
+                modifierKey(.command)
+                modifierKey(.shift)
+                shortcutKey(symbol: "arrow.left", accessibility: "Left arrow key", keycode: 123)
+                shortcutKey(symbol: "arrow.right", accessibility: "Right arrow key", keycode: 124)
+            }
         }
     }
 
-    private func shortcutKey(_ label: String, keycode: UInt16) -> some View {
+    private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16) -> some View {
         Button {
             sendKeyTap(keycode)
         } label: {
-            Text(label)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.white.opacity(0.75))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-                .background {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(0.08))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                        }
+            Group {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 15, weight: .medium))
+                } else {
+                    Text(text ?? "")
+                        .font(.system(size: 15, weight: .medium))
                 }
+            }
+            .foregroundStyle(.white.opacity(0.75))
+            .frame(width: 44, height: 44)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                    }
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShortcutKeyStyle())
+        .accessibilityLabel(accessibility)
     }
 
     private func modifierKey(_ modifier: IBModifierBar.Modifier) -> some View {
@@ -206,8 +217,7 @@ struct KeyboardScreen: View {
             Text(modifier.rawValue)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(locked ? .white : .white.opacity(0.65))
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
+                .frame(width: 44, height: 44)
                 .background {
                     if locked {
                         RoundedRectangle(cornerRadius: 10)
@@ -223,7 +233,18 @@ struct KeyboardScreen: View {
                     }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ShortcutKeyStyle())
+        .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
+        .accessibilityValue(locked ? "On" : "Off")
+    }
+
+    private func modifierAccessibilityLabel(for modifier: IBModifierBar.Modifier) -> String {
+        switch modifier {
+        case .control: return "Control key"
+        case .option:  return "Option key"
+        case .command: return "Command key"
+        case .shift:   return "Shift key"
+        }
     }
 
     // MARK: - Event plumbing
@@ -267,5 +288,16 @@ struct KeyboardScreen: View {
         withAnimation {
             keyboardHeight = max(0, visible - safeAreaBottom)
         }
+    }
+}
+
+/// Pressed-state feedback for the shortcut bar — scales the key down
+/// while the finger is on it (same idiom as `IBKeyboardKey`).
+private struct ShortcutKeyStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+            .animation(IBAnimation.snappy, value: configuration.isPressed)
     }
 }

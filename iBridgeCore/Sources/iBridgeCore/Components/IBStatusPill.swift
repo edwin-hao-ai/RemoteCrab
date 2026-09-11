@@ -7,22 +7,27 @@ import SwiftUI
 public struct IBStatusPill: View {
 
     public enum Status {
-        case connected(latencyMs: Int)
+        /// Latency is nil until the first ping round-trip completes.
+        case connected(latencyMs: Int?)
         case reconnecting
         case disconnected(reason: String)
+        /// Calm pre-stream state — nothing has been started yet, so
+        /// nothing is wrong. Gray, non-pulsing.
+        case idle
 
         var label: String {
             switch self {
-            case .connected:                return "CONNECTED"
-            case .reconnecting:             return "RECONNECTING"
-            case .disconnected:             return "OFFLINE"
+            case .connected:                return IBLocale.Status.live
+            case .reconnecting:             return IBLocale.Status.reconnecting
+            case .disconnected:             return IBLocale.Status.offline
+            case .idle:                     return IBLocale.Status.ready
             }
         }
 
         var ms: String? {
             switch self {
-            case .connected(let ms):        return "\(ms)ms"
-            case .reconnecting:             return nil
+            case .connected(let ms):        return ms.map { "\($0)ms" }
+            case .reconnecting, .idle:      return nil
             case .disconnected(let reason): return reason
             }
         }
@@ -32,13 +37,14 @@ public struct IBStatusPill: View {
             case .connected:                return IBColor.success
             case .reconnecting:             return IBColor.warning
             case .disconnected:             return IBColor.error
+            case .idle:                     return IBColor.textTertiary
             }
         }
 
         var isPulsing: Bool {
             switch self {
             case .connected, .reconnecting: return true
-            case .disconnected:             return false
+            case .disconnected, .idle:      return false
             }
         }
     }
@@ -50,10 +56,17 @@ public struct IBStatusPill: View {
     }
 
     private var accessibilityLabel: String {
-        if let ms = status.ms {
-            return "Connection \(status.label), latency \(ms) milliseconds"
+        switch status {
+        case .connected(let ms):
+            if let ms {
+                return "Connection \(status.label), latency \(ms) milliseconds"
+            }
+            return "Connection \(status.label)"
+        case .disconnected(let reason):
+            return "Connection \(status.label). \(reason)"
+        case .reconnecting, .idle:
+            return "Connection \(status.label)"
         }
-        return "Connection \(status.label)"
     }
 
     @SwiftUI.State private var pulseScale: CGFloat = 1.0
@@ -102,6 +115,8 @@ public struct IBStatusPill: View {
 #Preview {
     VStack(spacing: 20) {
         IBStatusPill(status: .connected(latencyMs: 24))
+        IBStatusPill(status: .connected(latencyMs: nil))
+        IBStatusPill(status: .idle)
         IBStatusPill(status: .reconnecting)
         IBStatusPill(status: .disconnected(reason: "No WiFi"))
     }

@@ -107,6 +107,11 @@ struct TouchpadScreen: View {
             }
             .padding(.horizontal, 24)
         }
+        // The whole screen is the trackpad: one-finger drags start at
+        // the very bottom edge and must not fight the Home indicator,
+        // so the system overlays stay hidden (which also defers edge
+        // gestures) while this surface is up.
+        .persistentSystemOverlays(.hidden)
         .onAppear {
             maybeShowCoach()
         }
@@ -186,9 +191,9 @@ struct TouchpadScreen: View {
     /// trackpad surface; fades out after 3.5 s or on any touch.
     private var coachMarks: some View {
         VStack(spacing: 10) {
-            coachLine(symbol: "hand.draw", text: "拖动 = 移动光标")
-            coachLine(symbol: "hand.tap", text: "双击按住 = 拖拽")
-            coachLine(symbol: "arrow.up.and.down", text: "双指 = 滚动 · 右键")
+            coachLine(symbol: "hand.draw", text: IBLocale.Coach.dragMove)
+            coachLine(symbol: "hand.tap", text: IBLocale.Coach.doubleTapHoldDrag)
+            coachLine(symbol: "arrow.up.and.down", text: IBLocale.Coach.twoFingerScrollRightClick)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -200,7 +205,7 @@ struct TouchpadScreen: View {
         // Touches fall through to the surface below, which dismisses.
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click")
+        .accessibilityLabel(IBLocale.Coach.accessibilitySummary)
     }
 
     private func coachLine(symbol: String, text: String) -> some View {

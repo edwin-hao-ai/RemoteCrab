@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import iBridgeCore
 
 /// Bottom floating dock — the iOS home screen's single control surface.
@@ -48,6 +49,14 @@ struct FeatureDock: View {
         .background {
             IBMaterial.bar(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         }
+        .onAppear {
+            // Recognition session ended on its own (system cap or
+            // mid-session error) — un-stick the held/glowing state.
+            voice.onInterrupted = {
+                voiceHeld = false
+                features.set(feature: .voice, enabled: false)
+            }
+        }
     }
 
     // MARK: - Buttons
@@ -59,24 +68,26 @@ struct FeatureDock: View {
         action: @escaping () -> Void
     ) -> some View {
         Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(IBAnimation.snappy) { action() }
         } label: {
             buttonBody(icon: icon, isActive: isOn)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DockPressStyle())
         .accessibilityLabel(label)
     }
 
     private func surfaceButton(icon: String, surface: Surface, label: String) -> some View {
         let isActive = features.activeSurface == surface
         return Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             withAnimation(IBAnimation.snappy) {
                 features.activeSurface = surface
             }
         } label: {
             buttonBody(icon: icon, isActive: isActive)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DockPressStyle())
         .accessibilityLabel(label)
         .accessibilityHint("Shows the \(label.lowercased()) surface")
     }
@@ -115,6 +126,7 @@ struct FeatureDock: View {
     private func startVoice() {
         guard !voiceHeld else { return }
         voiceHeld = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         features.set(feature: .voice, enabled: true)
         Task { @MainActor in
             let started = await voice.start()
@@ -133,7 +145,9 @@ struct FeatureDock: View {
     }
 
     private func stopVoice() {
+        guard voiceHeld else { return }
         voiceHeld = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         features.set(feature: .voice, enabled: false)
         voice.stop()
     }
@@ -157,5 +171,15 @@ struct FeatureDock: View {
                         .overlay(Circle().strokeBorder(.white.opacity(0.10)))
                 }
             }
+    }
+}
+
+/// Pressed-state feedback for the dock's tap buttons — scales the
+/// button down while the finger is on it.
+private struct DockPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1.0)
+            .animation(IBAnimation.snappy, value: configuration.isPressed)
     }
 }
