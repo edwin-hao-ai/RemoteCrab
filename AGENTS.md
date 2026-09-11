@@ -312,7 +312,7 @@ For new event types:
 ### ❌ Still needed for V1.0 release (real production)
 | Item | Why | Estimate |
 |---|---|---|
-| **Real iPhone + Mac end-to-end test** | V0.3 gestures/voice verified in code only — pinch sign, air-mouse gain, forceClick threshold, IME, voice latency all need hardware | 1 day |
+| **Real iPhone + Mac end-to-end test** | ⏳ In progress (2026-09-11): app runs on device, Bonjour+TCP connect, 4 device-only bugs fixed; full checklist pending — see "Real-device lessons" below | 1 day |
 | **Camera extension user activation** | Sysex installed; user must enable the camera toggle in System Settings, then verify in Photo Booth/Zoom | 30 min |
 | **Virtual microphone (CoreAudio AU)** | Currently Mac just plays the mic, doesn't expose as a virtual input device | 2-3 days |
 | **Real Opus encoding** | Currently raw PCM, fine on WiFi but ~96 kbps per direction | 1 day (opustools SPM) |
@@ -374,6 +374,44 @@ The bridge is wired end to end:
 
 Signing with team `5XNDF727Y6` is required — without it the system
 refuses to load the extension.
+
+### Real-device lessons (2026-09-11, iPhone 14 / iOS 26.6.2)
+
+Hard-won knowledge from the first real-hardware run. All four bugs
+below were invisible to the simulator and to `./scripts/test.sh`:
+
+1. **Swift `Data` slices keep the parent's indices.** `data[4..<n]`
+   has `startIndex == 4`, so `slice[0]` traps (SIGTRAP) on the very
+   first frame. This killed the app at launch. Always subscript
+   slices by `slice.startIndex` or index into the parent directly.
+2. **TCC permission callbacks fire on a background XPC queue.**
+   A `withCheckedContinuation` wrapping `SFSpeechRecognizer.requestAuthorization`
+   inside a `@MainActor` type traps in `swift_task_checkIsolated`.
+   Mark the wrapper `nonisolated`. (`AVCaptureDevice.requestAccess`
+   calls back on main, which is why only speech crashed.)
+3. **MenuBarExtra labels must be SF Symbols.** A custom `Canvas`
+   label renders as a solid blob; hardcoded `.white` art is invisible
+   in light menu bars. `Image(systemName:)` gets template rendering
+   for free. `MenuBarIcon.swift` was deleted for this reason.
+4. **`./scripts/test.sh` used to clobber signed builds.** Its
+   `CODE_SIGNING_ALLOWED=NO` builds wrote into the same DerivedData
+   that deploy scripts copy from — deploying right after gating
+   shipped an app with zero entitlements (sysex activation then
+   fails with "Missing entitlement"). Gate builds now use
+   `.build/ci-derived-data`. If you touch signing, verify the deployed
+   app: `codesign -d --entitlements :- /Applications/iBridgeReceiver.app`.
+
+Runbook for real-device testing:
+- `./scripts/install-to-iphone.sh` builds + installs + launches
+  (its `devicectl privacy grant` step is broken on current toolchains
+  — grant permissions on the phone instead)
+- Crash reports: `idevicecrashreport -e -k /tmp/dir` (libimobiledevice),
+  then parse the `.ips` JSON (`faultingThread` + `usedImages`)
+- During tests: iPhone 设置 → 自动锁定 → 永不, keep the app
+  foreground — **iOS suspends the Bonjour listener on lock/background,
+  which is the #1 suspect for "Connection reset by peer" every ~1-2 min**
+- Mac side live logs: `log stream --predicate 'subsystem == "com.ibridge"' --info`
+  (pipe through `grep --line-buffered` or you'll see nothing)
 
 ### Why we kept raw PCM instead of Opus in V0.2
 Adding Opus meant adding a 3rd-party dependency (libopus) and 4-6
