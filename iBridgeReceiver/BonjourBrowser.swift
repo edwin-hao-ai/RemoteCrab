@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 import iBridgeCore
 
 /// Wraps `NWBrowser` to discover iPhones advertising the iBridge
@@ -7,29 +8,36 @@ import iBridgeCore
 /// results through `onChange`.
 final class BonjourBrowser: @unchecked Sendable {
 
+    private static let log = Logger(subsystem: "com.ibridge", category: "browser")
+
     private var browser: NWBrowser?
     private let queue = DispatchQueue(label: "com.ibridge.browser")
 
     func start(serviceType: String, onChange: @escaping @MainActor @Sendable ([DiscoveredPhone]) -> Void) {
+        if browser != nil { return }
         let descriptor = NWBrowser.Descriptor.bonjour(type: serviceType, domain: nil)
         browser = NWBrowser(for: descriptor, using: .tcp)
 
         browser?.stateUpdateHandler = { state in
             switch state {
             case .ready:
-                print("[iBridge] browser ready for \(serviceType)")
+                Self.log.info("browser ready for \(serviceType, privacy: .public)")
             case .failed(let error):
-                print("[iBridge] browser failed: \(error)")
+                Self.log.error("browser failed: \(error, privacy: .public)")
+            case .waiting(let error):
+                Self.log.info("browser waiting: \(error, privacy: .public)")
             default:
                 break
             }
         }
 
         browser?.browseResultsChangedHandler = { [weak self] results, _ in
+            Self.log.info("browse results changed: \(results.count, privacy: .public) result(s)")
             self?.collectPhones(from: results, onChange: onChange)
         }
 
         browser?.start(queue: queue)
+        Self.log.info("browser started for \(serviceType, privacy: .public)")
     }
 
     func stop() {
@@ -70,7 +78,8 @@ final class BonjourBrowser: @unchecked Sendable {
                 id: "\(name):\(portNumber ?? 0)",
                 name: name,
                 endpoint: hostString ?? endpointDesc,
-                port: portNumber ?? 0
+                port: portNumber ?? 0,
+                serviceEndpoint: result.endpoint
             ))
         }
 

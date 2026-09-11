@@ -87,6 +87,12 @@ struct ContentView: View {
         }
         .task {
             await engine.startIfNeeded()
+            // E2E test mode: IBRIDGE_AUTOSTREAM=1 starts streaming
+            // (Bonjour publish + listener) without a manual tap.
+            // Only usable once Local Network permission is granted.
+            if ProcessInfo.processInfo.environment["IBRIDGE_AUTOSTREAM"] == "1" {
+                await engine.startStreaming()
+            }
         }
     }
 

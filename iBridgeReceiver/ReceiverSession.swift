@@ -65,6 +65,7 @@ final class ReceiverSession: ObservableObject {
             try? await cameraBridge.start(sink: NullFrameSink())
         }
         audioPlayer.start()
+        start()
     }
 
     // MARK: - Discovery
@@ -90,6 +91,7 @@ final class ReceiverSession: ObservableObject {
 
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
+        Self.log.info("discovered \(phones.count, privacy: .public) phone(s); connection==nil: \(self.connection == nil, privacy: .public)")
         if connection == nil, let phone = phones.first {
             connect(to: phone)
         }
@@ -100,12 +102,18 @@ final class ReceiverSession: ObservableObject {
         connection = nil
 
         state = .connecting(name: phone.name)
+        Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
 
-        let conn = NWConnection(
-            host: NWEndpoint.Host(phone.endpoint),
-            port: NWEndpoint.Port(rawValue: phone.port) ?? .any,
-            using: NWParameters.tcp
-        )
+        let conn: NWConnection
+        if let serviceEndpoint = phone.serviceEndpoint {
+            conn = NWConnection(to: serviceEndpoint, using: .tcp)
+        } else {
+            conn = NWConnection(
+                host: NWEndpoint.Host(phone.endpoint),
+                port: NWEndpoint.Port(rawValue: phone.port) ?? .any,
+                using: NWParameters.tcp
+            )
+        }
         conn.stateUpdateHandler = { [weak self] newState in
             Task { @MainActor in
                 guard let self, self.connection === conn else { return }
@@ -118,6 +126,7 @@ final class ReceiverSession: ObservableObject {
     }
 
     private func handleConnectionState(_ newState: NWConnection.State) {
+        Self.log.info("connection state: \(String(describing: newState), privacy: .public)")
         switch newState {
         case .ready:
             if let name = currentPhoneName() {
@@ -261,6 +270,10 @@ struct DiscoveredPhone: Identifiable, Equatable {
     let name: String
     let endpoint: String
     let port: UInt16
+    /// The raw Bonjour service endpoint. Connecting to this directly lets
+    /// Network.framework resolve SRV/A records itself; the string fields
+    /// above are for display and the pre-Bonjour fallback path only.
+    let serviceEndpoint: NWEndpoint?
 
     static func == (lhs: DiscoveredPhone, rhs: DiscoveredPhone) -> Bool {
         lhs.id == rhs.id

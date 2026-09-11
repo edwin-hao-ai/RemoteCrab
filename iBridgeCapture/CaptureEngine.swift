@@ -57,6 +57,7 @@ final class CaptureEngine: ObservableObject {
     func startIfNeeded() async {
         guard !didConfigure else { return }
         didConfigure = true
+        FileHandle.standardError.write("[e2e] startIfNeeded begin\n".data(using: .utf8)!)
 
         features.onChange = { [weak self] snapshot in
             self?.handleFeaturesChanged(snapshot)
@@ -115,15 +116,19 @@ final class CaptureEngine: ObservableObject {
     }
 
     func startStreaming() async {
+        FileHandle.standardError.write("[e2e] startStreaming called, isStreaming=\(isStreaming)\n".data(using: .utf8)!)
         guard !isStreaming else { return }
         connectionState = .starting
         do {
             try startListener()
+            FileHandle.standardError.write("[e2e] listener started OK\n".data(using: .utf8)!)
             isStreaming = true
             UIApplication.shared.isIdleTimerDisabled =
                 UserDefaults.standard.bool(forKey: "ibridge.ios.keepScreenOn")
+                || ProcessInfo.processInfo.environment["IBRIDGE_AUTOSTREAM"] == "1"
         } catch {
             Self.log.error("listener start failed: \(error, privacy: .public)")
+            FileHandle.standardError.write("[e2e] listener start FAILED: \(error)\n".data(using: .utf8)!)
             connectionState = .failed
         }
     }
@@ -266,9 +271,11 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func handleListenerState(_ state: NWListener.State) {
+        FileHandle.standardError.write("[e2e] listener state: \(state)\n".data(using: .utf8)!)
         switch state {
         case .ready:
             Self.log.info("listener ready")
+            FileHandle.standardError.write("[e2e] listener port: \(String(describing: self.listener?.port))\n".data(using: .utf8)!)
         case .failed(let error):
             Self.log.error("listener failed: \(error, privacy: .public)")
             connectionState = .failed

@@ -64,19 +64,23 @@ echo ""
 echo "→ Installing on iPhone..."
 xcrun devicectl device install app --device "$PHONE_UDID" "$APP" 2>&1 | tail -3
 
-# 4. Grant permissions
+# 4. Permissions
+# Note: Xcode 26's devicectl no longer has `device privacy grant`.
+# Camera/mic/local-network grants persist on the device from the first
+# interactive run; if this is a fresh device, launch once without
+# --auto-start and grant the prompts manually.
 echo ""
-echo "→ Granting camera + microphone permissions..."
-xcrun devicectl device privacy grant --device "$PHONE_UDID" camera       com.ibridge.iBridgeCapture 2>&1 | tail -1
-xcrun devicectl device privacy grant --device "$PHONE_UDID" microphone   com.ibridge.iBridgeCapture 2>&1 | tail -1
+echo "→ Permissions: assumed already granted (devicectl no longer"
+echo "   supports `privacy grant`; grant manually on first run)."
 
 # 5. Launch
 echo ""
 echo "→ Launching on iPhone..."
 if [[ $AUTO_START == 1 ]]; then
-    echo "   (with IBRIDGE_AUTO_START=1)"
+    echo "   (with IBRIDGE_AUTO_START=1 + IBRIDGE_AUTOSTREAM=1)"
     xcrun devicectl device process launch --device "$PHONE_UDID" --terminate-existing \
-        --env IBRIDGE_AUTO_START=1 com.ibridge.iBridgeCapture 2>&1 | tail -1
+        --environment-variables '{"IBRIDGE_AUTO_START":"1","IBRIDGE_AUTOSTREAM":"1"}' \
+        com.ibridge.iBridgeCapture 2>&1 | tail -1
 else
     xcrun devicectl device process launch --device "$PHONE_UDID" --terminate-existing \
         com.ibridge.iBridgeCapture 2>&1 | tail -1
