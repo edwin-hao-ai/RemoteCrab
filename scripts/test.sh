@@ -26,13 +26,18 @@ fi
 pass() { echo -e "${GREEN}✓ $1${RESET}"; }
 fail() { echo -e "${RED}✗ $1${RESET}"; exit 1; }
 
-# 1. iBridgeCore package — 26 unit + integration + e2e tests
+# CI builds use their own DerivedData so an unsigned gate build never
+# clobbers the signed product that install/deploy scripts copy from
+# the default DerivedData.
+CI_DERIVED_DATA="$ROOT/.build/ci-derived-data"
+
+# 1. iBridgeCore package — 49 unit + integration + e2e tests
 #    covering: wire protocol, Bonjour discovery, event pipeline,
-#    audio packet round-trip.
+#    feature store, trackpad math, text diffing.
 echo ""
 echo "── iBridgeCore package tests ──"
 if swift test --package-path iBridgeCore 2>&1 | tail -10; then
-  pass "iBridgeCore tests (26 e2e + unit)"
+  pass "iBridgeCore tests (49 e2e + unit)"
 else
   fail "iBridgeCore tests"
 fi
@@ -45,6 +50,7 @@ if xcodebuild \
     -scheme iBridgeCapture \
     -destination 'generic/platform=iOS Simulator' \
     -configuration Debug \
+    -derivedDataPath "$CI_DERIVED_DATA/ios" \
     build CODE_SIGNING_ALLOWED=NO \
     2>&1 | tail -3; then
   pass "iBridgeCapture builds"
@@ -59,6 +65,7 @@ if xcodebuild \
     -project iBridgeReceiver.xcodeproj \
     -scheme iBridgeReceiver \
     -configuration Debug \
+    -derivedDataPath "$CI_DERIVED_DATA/mac" \
     build CODE_SIGNING_ALLOWED=NO \
     2>&1 | tail -3; then
   pass "iBridgeReceiver builds"
