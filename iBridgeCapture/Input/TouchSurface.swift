@@ -508,6 +508,15 @@ extension TouchSurfaceUIView: UIGestureRecognizerDelegate {
 /// SwiftUI embedding of `TouchSurfaceUIView`. The host owns the
 /// modifier-bar state, the sensitivity setting, and the cursor
 /// preview; this view only reports gestures.
+///
+/// Contract: `airMouseActive` / `wheelArmed` take effect through
+/// `didSet` side effects on the UIView (starting/stopping motion
+/// updates, re-arming recognizers). Those setters are only driven
+/// from `updateUIView` → `apply`, so the host must route every labs
+/// state change through this representable's vars and let SwiftUI
+/// re-update the view. A host that caches the UIView and pokes it
+/// directly — or stops re-rendering — would silently leave stale
+/// labs state behind.
 struct TouchSurface: UIViewRepresentable {
 
     var modifierMask: UInt8 = 0

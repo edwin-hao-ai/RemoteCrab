@@ -38,7 +38,7 @@ struct MenuBarMenu: View {
         .frame(width: 320)
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
         }
     }
 
@@ -61,7 +61,9 @@ struct MenuBarMenu: View {
     }
 
     private var statusPill: some View {
-        IBStatusPill(status: session.state.statusPillStatus)
+        // The popover follows the system appearance, so the pill text
+        // must adapt (the default white is for dark canvases).
+        IBStatusPill(status: session.state.statusPillStatus, foreground: .primary)
     }
 
     private var deviceRow: some View {

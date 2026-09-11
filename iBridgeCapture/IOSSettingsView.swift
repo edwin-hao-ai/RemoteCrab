@@ -52,7 +52,7 @@ struct IOSSettingsView: View {
         } header: {
             Text("Connection")
         } footer: {
-            Text("iBridge streams over your local WiFi using Bonjour. No data ever leaves your network.")
+            Text(IBLocale.Settings.connectionFooter)
         }
     }
 
@@ -97,7 +97,7 @@ struct IOSSettingsView: View {
         } header: {
             Text("Stream")
         } footer: {
-            Text("Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance.")
+            Text(IBLocale.Settings.streamFooter)
         }
     }
 
@@ -127,20 +127,20 @@ struct IOSSettingsView: View {
         } header: {
             Text("Input")
         } footer: {
-            Text("Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3.")
+            Text(IBLocale.Settings.inputFooter)
         }
     }
 
     private var labsSection: some View {
         Section {
-            Toggle("Air mouse", isOn: $labAirMouse)
+            Toggle(IBLocale.Labs.airMouse, isOn: $labAirMouse)
                 .accessibilityHint("Hold the floating button on the trackpad and tilt your iPhone to move the cursor")
-            Toggle("Wheel scrolling", isOn: $labWheelScroll)
+            Toggle(IBLocale.Labs.wheelScroll, isOn: $labWheelScroll)
                 .accessibilityHint("Hold the edge button on the trackpad and draw circles to scroll")
         } header: {
-            Text("Labs")
+            Text(IBLocale.Labs.title)
         } footer: {
-            Text("Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll.")
+            Text(IBLocale.Labs.footer)
         }
     }
 

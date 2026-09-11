@@ -4,6 +4,12 @@ import SwiftUI
 ///
 /// Always visible while the app is running. Animates between
 /// connected / reconnecting / disconnected states with a pulsing dot.
+///
+/// The text foreground defaults to white because most surfaces sit on
+/// a dark canvas (iOS app, Mac preview / control / test windows).
+/// Surfaces that follow the system appearance — the Mac menu-bar
+/// popover — must pass `.primary` so the label stays readable in
+/// light mode; the status dot carries the color either way.
 public struct IBStatusPill: View {
 
     public enum Status {
@@ -59,9 +65,11 @@ public struct IBStatusPill: View {
     }
 
     let status: Status
+    let foreground: Color
 
-    public init(status: Status) {
+    public init(status: Status, foreground: Color = .white) {
         self.status = status
+        self.foreground = foreground
     }
 
     private var accessibilityLabel: String {
@@ -96,13 +104,13 @@ public struct IBStatusPill: View {
 
             Text(status.label)
                 .font(IBFont.eyebrowMono)
-                .foregroundStyle(.white)
+                .foregroundStyle(foreground)
                 .ibEyebrowTracking()
 
             if let ms = status.ms {
                 Text(ms)
                     .font(IBFont.monoSmall)
-                    .foregroundStyle(.white.opacity(0.75))
+                    .foregroundStyle(foreground.opacity(0.75))
             }
         }
         .padding(.horizontal, IBSpace.m.pt)

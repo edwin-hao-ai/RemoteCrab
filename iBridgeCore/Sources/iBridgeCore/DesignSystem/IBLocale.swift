@@ -15,6 +15,7 @@ public enum IBLocale {
         public static let name = "iBridge"
         public static let tagline = "Mac receiver"
         public static let captureName = "iBridge Capture"
+        public static let receiverName = "iBridge Receiver"
     }
 
     public enum Status {
@@ -73,6 +74,8 @@ public enum IBLocale {
         public static let skip = "Skip"
         public static let nextBtn = "Continue"
         public static let allowAndConnect = "Allow Permissions & Connect"
+        /// Pair-page illustration: both devices must share a network.
+        public static let sameWiFi = "Same WiFi"
     }
 
     public enum Mode {
@@ -87,6 +90,29 @@ public enum IBLocale {
     public enum Mic {
         public static let on = "Mic on"
         public static let off = "Mic off"
+    }
+
+    /// iOS connection sheet (Bonjour readout + stream toggle).
+    public enum Connection {
+        public static let bonjourService = "Bonjour Service"
+        public static let streamSection = "Stream"
+        public static let startStreaming = "Start streaming"
+        public static let stopStreaming = "Stop streaming"
+        public static let starting = "Starting…"
+    }
+
+    /// Hold-to-talk voice card states.
+    public enum Voice {
+        public static let listening = "Listening…"
+        public static let sent = "Sent"
+    }
+
+    /// Settings → Labs (experimental gestures, default off).
+    public enum Labs {
+        public static let title = "Labs"
+        public static let airMouse = "Air mouse"
+        public static let wheelScroll = "Wheel scrolling"
+        public static let footer = "Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll."
     }
 
     /// Camera-preview placeholder (eyebrow style — rendered in caps
@@ -151,6 +177,11 @@ public enum IBLocale {
 
         public static let resetAccessibility = "Re-request Accessibility permission"
         public static let openAtLogin = "Open at Login"
+
+        /// iOS settings section footers.
+        public static let connectionFooter = "iBridge streams over your local WiFi using Bonjour. No data ever leaves your network."
+        public static let streamFooter = "Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance."
+        public static let inputFooter = "Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3."
 
         public static let cameraExtension = "Camera Extension"
         public static let activate = "Activate"

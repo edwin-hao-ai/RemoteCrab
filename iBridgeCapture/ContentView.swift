@@ -252,8 +252,8 @@ struct ContentView: View {
             Text(voiceErrorFlash
                  ? (voice.lastError ?? "Voice input stopped")
                  : (voiceSentFlash
-                    ? "Sent"
-                    : (voice.partialText.isEmpty ? "Listening…" : voice.partialText)))
+                    ? IBLocale.Voice.sent
+                    : (voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)))
                 .font(IBFont.bodyMedium)
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -366,7 +366,7 @@ private struct ConnectionSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Bonjour Service") {
+                Section(IBLocale.Connection.bonjourService) {
                     LabeledContent("Type") { monoValue(IBServiceType.tcp) }
                     LabeledContent("Domain") { monoValue(IBServiceType.domain) }
                     LabeledContent("Status") {
@@ -374,7 +374,7 @@ private struct ConnectionSheet: View {
                             .foregroundStyle(connectionColor)
                     }
                 }
-                Section("Stream") {
+                Section(IBLocale.Connection.streamSection) {
                     LabeledContent("Resolution") {
                         monoValue("\(engine.metadata.width)×\(engine.metadata.height)")
                     }
@@ -406,8 +406,8 @@ private struct ConnectionSheet: View {
                                 Image(systemName: engine.isStreaming ? "stop.circle" : "play.circle")
                             }
                             Text(engine.isStreaming
-                                 ? "Stop Streaming"
-                                 : (toggling ? "Starting…" : "Start Streaming"))
+                                 ? IBLocale.Connection.stopStreaming
+                                 : (toggling ? IBLocale.Connection.starting : IBLocale.Connection.startStreaming))
                         }
                     }
                     .disabled(toggling)

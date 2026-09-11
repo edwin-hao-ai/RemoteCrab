@@ -154,18 +154,18 @@ struct OnboardingPage: View {
 
     private var title: String {
         switch kind {
-        case .hero:        return "iBridge"
-        case .permissions: return "We need a few permissions"
-        case .pairMac:     return "Connect to your Mac"
+        case .hero:        return IBLocale.Onboarding.heroTitle
+        case .permissions: return IBLocale.Onboarding.permissionsTitle
+        case .pairMac:     return IBLocale.Onboarding.pairTitle
         }
     }
 
     private var subtitle: String {
         switch kind {
         case .hero:
-            return "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi."
+            return IBLocale.Onboarding.heroBody
         case .permissions:
-            return "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
+            return IBLocale.Onboarding.permissionsBody
         case .pairMac:
             return IBLocale.Onboarding.pairBody
         }
@@ -321,7 +321,7 @@ private struct PairMacIllustration: View {
             Text(label)
                 .font(IBFont.titleMedium)
                 .foregroundStyle(.white)
-            Text(side == .left ? "iBridge Capture" : "iBridge Receiver")
+            Text(side == .left ? IBLocale.App.captureName : IBLocale.App.receiverName)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.6))
         }
@@ -329,7 +329,7 @@ private struct PairMacIllustration: View {
 
     private var wifiBridge: some View {
         VStack(spacing: 14) {
-            Text("Same WiFi")
+            Text(IBLocale.Onboarding.sameWiFi)
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.white.opacity(0.5))
                 .ibEyebrowTracking()

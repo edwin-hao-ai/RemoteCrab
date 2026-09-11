@@ -96,8 +96,8 @@ struct FeatureDock: View {
         buttonBody(
             icon: "waveform",
             isActive: voiceHeld,
-            activeFill: Color.red.opacity(0.25),
-            activeIcon: .red
+            activeFill: IBColor.recording.opacity(0.25),
+            activeIcon: IBColor.recording
         )
         .scaleEffect(voiceHeld ? 1.1 : 1.0)
         .animation(IBAnimation.snappy, value: voiceHeld)

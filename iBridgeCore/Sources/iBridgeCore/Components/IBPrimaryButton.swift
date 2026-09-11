@@ -1,7 +1,11 @@
 import SwiftUI
 
-/// The big circular STOP/STREAM button on the camera capture screen.
-/// Animated recording dot, glass background, accessible hit target.
+/// Big circular record-style button with an animated pulsing dot —
+/// the design system's primary capture action. Not currently wired
+/// to a production screen: streaming is toggled from the iOS
+/// connection sheet (a List row, where a 72pt circular button would
+/// be out of place). Exercised by `IBDesignSystemShowcase` and the
+/// screenshot tooling.
 public struct IBPrimaryButton: View {
 
     public enum Style {
@@ -81,8 +85,8 @@ public struct IBPrimaryButton: View {
 
     private var defaultLabel: String {
         switch style {
-        case .stream: return "Start streaming"
-        case .stop:   return "Stop streaming"
+        case .stream: return IBLocale.Connection.startStreaming
+        case .stop:   return IBLocale.Connection.stopStreaming
         case .accent: return "Action"
         }
     }

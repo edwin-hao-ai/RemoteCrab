@@ -1226,6 +1226,227 @@
           }
         }
       }
+    },
+    "Bonjour Service": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bonjour Service"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bonjour 服务"
+          }
+        }
+      }
+    },
+    "Starting…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动…"
+          }
+        }
+      }
+    },
+    "Listening…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在聆听…"
+          }
+        }
+      }
+    },
+    "Sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送"
+          }
+        }
+      }
+    },
+    "Labs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验室"
+          }
+        }
+      }
+    },
+    "Air mouse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Air mouse"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空中鼠标"
+          }
+        }
+      }
+    },
+    "Wheel scrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheel scrolling"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画圈滚动"
+          }
+        }
+      }
+    },
+    "Same WiFi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Same WiFi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一 WiFi"
+          }
+        }
+      }
+    },
+    "iBridge Receiver": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge Receiver"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge Receiver"
+          }
+        }
+      }
+    },
+    "iBridge streams over your local WiFi using Bonjour. No data ever leaves your network.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge streams over your local WiFi using Bonjour. No data ever leaves your network."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iBridge 通过 Bonjour 在您的本地 WiFi 上传输，数据不会离开您的网络。"
+          }
+        }
+      }
+    },
+    "Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更高的分辨率和帧率会占用更多 WiFi 带宽，推荐使用 1080p / 30 fps。"
+          }
+        }
+      }
+    },
+    "Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "触控板灵敏度：1 最慢，5 最快，默认为 3。"
+          }
+        }
+      }
+    },
+    "Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验性手势。空中鼠标：按住触控板上的悬浮按钮并倾斜 iPhone 来移动光标。画圈滚动：按住边缘按钮并画圈来滚动。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
