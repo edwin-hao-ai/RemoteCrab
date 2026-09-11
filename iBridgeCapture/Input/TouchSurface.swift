@@ -138,9 +138,12 @@ final class TouchSurfaceUIView: UIView {
                 Self.log.debug("dragStart (double-tap-hold)")
                 emit(phase: .dragStart, at: location)
                 if clickHaptics { heavyImpact.impactOccurred() }
-            } else {
-                emit(phase: .down, at: location)
             }
+            // Plain touch-down emits nothing: on the Mac a .down posts a
+            // real leftMouseDown, so every casual slide used to arrive as
+            // click-hold-drag-release (stealing focus, starting text
+            // selections). Pointer motion is hover-only; clicks come from
+            // the tap recognizer, drags from double-tap-hold.
         case .changed:
             guard let last = lastDragLocation,
                   bounds.width > 0, bounds.height > 0 else { return }
@@ -154,10 +157,10 @@ final class TouchSurfaceUIView: UIView {
             lastDragLocation = nil
             if dragArmed {
                 dragArmed = false
+                emit(phase: .up, at: location)   // release the drag
                 if clickHaptics { lightImpact.impactOccurred() }
             }
             onTouch?(normalize(location), false)
-            emit(phase: .up, at: location)
         default:
             break
         }
@@ -417,7 +420,7 @@ final class TouchSurfaceUIView: UIView {
             return
         }
         momentumVelocity = step.newVelocity
-        emitScroll(deltaPoints: step.delta)
+        emitScroll(deltaPoints: step.delta, momentum: true)
     }
 
     // MARK: - Haptics
@@ -451,13 +454,14 @@ final class TouchSurfaceUIView: UIView {
 
     // MARK: - Emit
 
-    private func emitScroll(deltaPoints: CGPoint) {
+    private func emitScroll(deltaPoints: CGPoint, momentum: Bool = false) {
         guard bounds.width > 0, bounds.height > 0 else { return }
         emit(
             phase: .scroll,
             at: nil,
             dx: Float(deltaPoints.x) / Float(bounds.width),
-            dy: Float(deltaPoints.y) / Float(bounds.height)
+            dy: Float(deltaPoints.y) / Float(bounds.height),
+            momentum: momentum
         )
         tickScrollHaptics(deltaPoints: deltaPoints)
     }
@@ -467,6 +471,7 @@ final class TouchSurfaceUIView: UIView {
         at location: CGPoint?,
         dx: Float = 0,
         dy: Float = 0,
+        momentum: Bool = false,
         timestampOffsetMicros: UInt64 = 0
     ) {
         let ts = UInt64(Date().timeIntervalSince1970 * 1_000_000) &+ timestampOffsetMicros
@@ -481,6 +486,7 @@ final class TouchSurfaceUIView: UIView {
             x: x, y: y,
             dx: dx, dy: dy,
             modifiers: modifierMask,
+            momentum: momentum ? true : nil,
             timestampMicros: ts
         ))
     }

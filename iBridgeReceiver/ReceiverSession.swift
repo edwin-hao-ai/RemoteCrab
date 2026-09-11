@@ -3,6 +3,7 @@ import Network
 import os
 import SwiftUI
 import VideoToolbox
+import ApplicationServices
 import iBridgeCore
 
 /// The Mac-side counterpart to iOS `CaptureEngine`. Browses for the
@@ -26,6 +27,7 @@ final class ReceiverSession: ObservableObject {
 
     /// The most recent decoded frame as a `CGImage` ready for display.
     @Published private(set) var latestFrame: CGImage?
+    private var videoFrameCount = 0
 
     /// Latest feature-state snapshot from the iPhone. nil until the
     /// first `featureState` frame arrives (older iOS builds never
@@ -90,6 +92,7 @@ final class ReceiverSession: ObservableObject {
             }
         }
         audioPlayer.start()
+        Self.log.info("accessibility trusted: \(AXIsProcessTrusted(), privacy: .public)")
         start()
     }
 
@@ -265,6 +268,10 @@ final class ReceiverSession: ObservableObject {
                 decoder.feedPPS(frame.payload)
                 cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.pps.rawValue))
             case .video:
+                videoFrameCount += 1
+                if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
+                    Self.log.info("video frames received: \(self.videoFrameCount)")
+                }
                 decoder.feedVideo(frame.payload)
                 cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.video.rawValue))
             case .touch:

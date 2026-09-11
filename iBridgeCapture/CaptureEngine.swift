@@ -144,6 +144,23 @@ final class CaptureEngine: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
+    /// Called on every return to the foreground (scenePhase == .active).
+    /// iOS suspends the Bonjour listener while the app is backgrounded,
+    /// so a previously-streaming app comes back with a dead
+    /// advertisement and usually a reset TCP link while `isStreaming`
+    /// still reads true. Recreate the listener to force the service to
+    /// re-register; the Mac side auto-reconnects once we're visible.
+    func handleDidBecomeActive() {
+        guard isStreaming else { return }
+        let linkAlive = connection?.state == .ready
+        Self.log.info("foreground: isStreaming=true linkAlive=\(linkAlive, privacy: .public)")
+        guard !linkAlive else { return }
+        Task {
+            stopStreaming()
+            await startStreaming()
+        }
+    }
+
     // MARK: - Video reconfiguration
 
     /// Reconfigure capture + encode for a new resolution / frame rate.
@@ -313,6 +330,23 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    /// E2E self-test: right after connect, emit a scripted touch-move
+    /// burst plus one text event so the Mac side can prove CGEventPost
+    /// injection really moves the cursor and types. Only runs when the
+    /// app is launched with IBRIDGE_E2E_INPUT=1.
+    private func runE2EInputSequence() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self else { return }
+            for _ in 0..<10 {
+                self.sendTouch(TouchEvent(phase: .move, dx: 0.02, dy: 0.02))
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            self.sendKey(KeyEvent(action: .text, text: "iBridge-e2e-OK"))
+            FileHandle.standardError.write("[e2e] input sequence sent\n".data(using: .utf8)!)
+        }
+    }
+
     private func handleConnectionState(_ state: NWConnection.State) {
         switch state {
         case .ready:
@@ -327,6 +361,9 @@ final class CaptureEngine: ObservableObject {
                 // Start mic only if the feature is on; the voice
                 // recognizer owns the audio input while held.
                 syncMicrophone(features.micOn && !features.voiceOn)
+                if ProcessInfo.processInfo.environment["IBRIDGE_E2E_INPUT"] == "1" {
+                    runE2EInputSequence()
+                }
             }
         case .failed(let error):
             Self.log.error("connection failed: \(error, privacy: .public)")

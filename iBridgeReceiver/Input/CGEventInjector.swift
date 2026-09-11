@@ -35,11 +35,13 @@ public final class CGEventInjector: InputInjector {
             post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
             isDragging = true
         case .scroll:
-            postScroll(dx: touch.dx, dy: touch.dy, commandHeld: false)
+            postScroll(dx: touch.dx, dy: touch.dy, commandHeld: false,
+                       momentum: touch.momentum ?? false, screenHeight: screenSize.height)
         case .pinch:
             // No public API posts magnification gestures; ⌘+scroll is
             // the standard zoom shortcut honoured by most apps.
-            postScroll(dx: 0, dy: touch.dx, commandHeld: true)
+            postScroll(dx: 0, dy: touch.dx, commandHeld: true,
+                       momentum: false, screenHeight: screenSize.height)
         case .rightDown:
             moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
@@ -112,17 +114,102 @@ public final class CGEventInjector: InputInjector {
         return flags
     }
 
-    private func postScroll(dx: Float, dy: Float, commandHeld: Bool) {
+    /// Scroll state for phase tracking: macOS gives native-feel
+    /// scrolling (rubber band, per-pixel precision) only to events
+    /// flagged continuous + carrying a scroll phase. We infer phases
+    /// from the event stream: first event after a quiet gap = began,
+    /// steady stream = changed, and a trailing timer posts ended.
+    private var scrollActive = false
+    private var momentumActive = false
+    private var scrollEndWork: DispatchWorkItem?
+
+    /// `dx`/`dy` are normalized finger deltas (fraction of the iPhone
+    /// surface). Gain maps one full phone-height swipe to roughly one
+    /// Mac screen of travel — the old fixed ×50 made a full swipe
+    /// scroll ~50 px total, which read as "dead".
+    private func postScroll(dx: Float, dy: Float, commandHeld: Bool,
+                            momentum: Bool, screenHeight: CGFloat) {
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0, wheel2: 0, wheel3: 0
+        ) else { return }
+
+        let gain = Double(screenHeight) * 1.2
+        let pixelDY = Double(-dy) * gain
+        let pixelDX = Double(-dx) * gain
+
+        // Pixel deltas as doubles — the Int32 initializer truncates
+        // sub-pixel deltas to 0, which made gentle scrolls feel dead.
+        event.setDoubleValueField(.scrollWheelEventDeltaAxis1, value: pixelDY)
+        event.setDoubleValueField(.scrollWheelEventDeltaAxis2, value: pixelDX)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: pixelDY)
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: pixelDX)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: pixelDY)
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: pixelDX)
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        if momentum {
+            // iOS-side glide after finger lift → native momentum phases.
+            event.setIntegerValueField(
+                .scrollWheelEventMomentumPhase,
+                value: momentumActive ? MomentumPhase.continued.rawValue : MomentumPhase.began.rawValue
+            )
+        } else {
+            event.setIntegerValueField(
+                .scrollWheelEventScrollPhase,
+                value: scrollActive ? ScrollPhase.changed.rawValue : ScrollPhase.began.rawValue
+            )
+        }
+        if commandHeld { event.flags = .maskCommand }
+        event.post(tap: .cghidEventTap)
+
+        if momentum { momentumActive = true } else { scrollActive = true }
+        scrollEndWork?.cancel()
+        let end = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.momentumActive {
+                self.postMomentumPhase(.ended)
+                self.momentumActive = false
+            }
+            if self.scrollActive {
+                self.postScrollPhase(.ended)
+                self.scrollActive = false
+            }
+        }
+        scrollEndWork = end
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: end)
+    }
+
+    private enum ScrollPhase: Int64 {
+        case began = 1, changed = 2, ended = 4
+    }
+
+    private enum MomentumPhase: Int64 {
+        case began = 1, continued = 2, ended = 3
+    }
+
+    private func makeScrollEvent() -> CGEvent? {
         let event = CGEvent(
             scrollWheelEvent2Source: nil,
             units: .pixel,
-            wheelCount: 1,
-            wheel1: Int32(-dy * 50),
-            wheel2: Int32(-dx * 50),
-            wheel3: 0
+            wheelCount: 2,
+            wheel1: 0, wheel2: 0, wheel3: 0
         )
-        if commandHeld { event?.flags = .maskCommand }
-        event?.post(tap: .cghidEventTap)
+        event?.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        return event
+    }
+
+    private func postScrollPhase(_ phase: ScrollPhase) {
+        guard let event = makeScrollEvent() else { return }
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase.rawValue)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func postMomentumPhase(_ phase: MomentumPhase) {
+        guard let event = makeScrollEvent() else { return }
+        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: phase.rawValue)
+        event.post(tap: .cghidEventTap)
     }
 
     private func postOther(button: Int, down: Bool, at point: CGPoint) {

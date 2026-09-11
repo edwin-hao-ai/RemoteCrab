@@ -36,6 +36,12 @@ public struct TouchEvent: Codable, Sendable, Equatable {
     public let dx: Float          // delta for move / scroll
     public let dy: Float
     public let modifiers: UInt8
+    /// True when this .scroll event comes from the iOS-side momentum
+    /// glide (finger already lifted). The Mac maps these onto
+    /// kCGScrollWheelEventMomentumPhase so the system applies native
+    /// inertia/rubber-banding instead of treating it as finger input.
+    /// Optional for wire compatibility with older senders.
+    public let momentum: Bool?
     public let timestampMicros: UInt64
 
     public init(
@@ -45,6 +51,7 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         dx: Float = 0,
         dy: Float = 0,
         modifiers: UInt8 = 0,
+        momentum: Bool? = nil,
         timestampMicros: UInt64 = 0
     ) {
         self.phase = phase
@@ -53,6 +60,7 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         self.dx = dx
         self.dy = dy
         self.modifiers = modifiers
+        self.momentum = momentum
         self.timestampMicros = timestampMicros
     }
 
