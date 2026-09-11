@@ -310,6 +310,18 @@ For new event types:
 - App Store Connect release scripts (`scripts/ios-*.py`, `scripts/release-ios.sh`)
 - Privacy policy (`PRIVACY.md`)
 - Camera Extension packaged as CMIO **system extension** + XPC wired + activation flow (status: waiting for user toggle in System Settings)
+- **UI audit + polish pass (2026-09-11)** — full iOS+Mac sweep, 4 commits:
+  - Mac blockers fixed: real `CGEventInjector` wired (was a recording mock —
+    trackpad/keyboard never moved the cursor), menu-bar rows actually open
+    windows (⌘P / ⌘⇧P / ⌘T + `NSApp.activate`), disconnect clears
+    metadata/frame/latency, sysex activates once (not every launch) with a
+    Preferences status section, FirstLaunch re-checks on window focus
+  - iOS: `IBStatusPill` gains `.idle`/`.searching`/`.connecting` (no more
+    fake RECONNECTING / 0ms), all touch targets ≥ 44pt, trackpad defers
+    system edge gestures, coach marks localized (en + zh-Hans)
+  - Consistency: `IBGradient.canvasDark` + `IBGradient.brand` tokens replace
+    8 hand-written gradients; one status pill everywhere; technical readouts
+    in SF Mono; `IBLocale` grew Connection/Voice/Labs/Coach sections
 
 ### ❌ Still needed for V1.0 release (real production)
 | Item | Why | Estimate |
@@ -461,4 +473,4 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-11 by Kimi (V0.3: bidirectional protocol, feature dock, trackpad engine, K3 keyboard, voice, labs — 49 tests green)_
+_Last updated: 2026-09-11 by Kimi (V0.3 + UI audit/polish pass — Mac injection & window wiring fixed, design-token consolidation, 49 tests green)_
