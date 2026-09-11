@@ -92,6 +92,7 @@ iBridge/
 │   ├── BonjourBrowser.swift      # NWBrowser wrapper
 │   ├── ControlPanelView.swift    # floating control panel
 │   ├── PreviewWindow.swift       # live preview window
+│   ├── TestWindowView.swift      # connection self-check: 4 quadrants (camera/keyboard/trackpad/mic)
 │   ├── CameraExtensionBridge.swift  # host→extension XPC bridge
 │   ├── SystemExtensionManager.swift # OSSystemExtensionRequest activation for the CMIO sysex
 │   ├── Input/CGEventInjector.swift   # real CGEventPost injector
@@ -208,7 +209,7 @@ buffering. The parser refuses frames larger than 64 MiB
 
 | Feature | File | Notes |
 |---|---|---|
-| Bonjour browse + connect | `ReceiverSession.swift`, `BonjourBrowser.swift` | Auto-connects to first iPhone found |
+| Bonjour browse + connect | `ReceiverSession.swift`, `BonjourBrowser.swift` | Browsing starts at launch (in `ReceiverSession.init`); connects via the raw Bonjour service endpoint (`NWConnection(to:)`), auto-connects to first iPhone found |
 | H.264 decode | `H264Decoder.swift` | Hardware decode via VideoToolbox |
 | Audio playback | `AudioPlayer.swift` | AVAudioSourceNode pulls PCM |
 | Touchpad / keyboard injection | `Input/CGEventInjector.swift` | `CGEventPost` for both |
@@ -216,8 +217,9 @@ buffering. The parser refuses frames larger than 64 MiB
 | First-launch flow | `FirstLaunchView.swift` | Accessibility permission onboarding |
 | Menu bar popover | `MenuBarMenu.swift`, `iBridgeReceiverApp.swift` | `MenuBarExtra(.window)` with `.regularMaterial`; feature toggles are real (send `featureControl` to iPhone) |
 | Menu bar icon | `iBridgeReceiverApp.swift` | SF Symbol `iphone.gen3.radiowaves.left.and.right` (system template; status lives in the popover) |
-| Control panel window | `ControlPanelView.swift` | Live preview + stats + feature badges |
+| Control panel window | `ControlPanelView.swift` | Live preview + stats + feature badges; latency sparkline uses real ping RTT history |
 | Preview window | `PreviewWindow.swift` | Minimalist live video display |
+| Connection test window | `TestWindowView.swift` | 4-quadrant live self-check (camera / keyboard echo / trackpad pad / mic RMS); data from `ReceiverSession` event mirrors (`typedText`/`lastKey`/`touchVisual`/`micLevel`/`latencyHistory`) written in `handleInbound` before injection |
 | Camera Extension skeleton | `iBridgeCameraExtension/` | system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle |
 
 ---
