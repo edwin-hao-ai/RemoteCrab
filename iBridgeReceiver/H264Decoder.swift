@@ -4,11 +4,14 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 import iBridgeCore
+import os
 
 /// Hardware H.264 decoder using VideoToolbox. Receives raw Annex-B
 /// NAL units (without start codes) from the wire protocol and emits
 /// decoded `CGImage`s through `onDecoded`.
 final class H264Decoder: @unchecked Sendable {
+
+    private static let log = Logger(subsystem: "com.ibridge", category: "H264Decoder")
 
     var onDecoded: (@Sendable (CGImage) -> Void)?
 
@@ -75,7 +78,7 @@ final class H264Decoder: @unchecked Sendable {
         }
 
         guard status == noErr, let format = formatDescription else {
-            print("[iBridge] format desc create failed: \(status)")
+            Self.log.error("format desc create failed: \(status)")
             return
         }
         self.formatDescription = format
@@ -95,7 +98,7 @@ final class H264Decoder: @unchecked Sendable {
             decompressionSessionOut: &newSession
         )
         guard decoderStatus == noErr, let newSession else {
-            print("[iBridge] decoder session create failed: \(decoderStatus)")
+            Self.log.error("decoder session create failed: \(decoderStatus)")
             return
         }
 
@@ -114,12 +117,17 @@ final class H264Decoder: @unchecked Sendable {
     private func decode(data: Data) {
         guard let session, let formatDescription else { return }
 
-        // Convert Annex-B NAL → AVCC (length-prefixed) NAL units.
-        // For V0.1, the iOS encoder emits length-prefixed units; we forward
-        // them as-is to the decoder, so just wrap the single NAL into a
-        // CMBlockBuffer.
+        // The wire carries a raw NAL unit (the iOS encoder strips the
+        // AVCC length prefix), but the format description declares
+        // nalUnitHeaderLength = 4 — so re-wrap the NAL with its 4-byte
+        // big-endian length before handing it to VideoToolbox.
+        let totalLength = data.count + 4
+        var avcc = Data(capacity: totalLength)
+        var nalLength = UInt32(data.count).bigEndian
+        withUnsafeBytes(of: &nalLength) { avcc.append(contentsOf: $0) }
+        avcc.append(data)
+
         var blockBuffer: CMBlockBuffer?
-        let totalLength = data.count
 
         let allocStatus = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
@@ -134,7 +142,7 @@ final class H264Decoder: @unchecked Sendable {
         )
         guard allocStatus == kCMBlockBufferNoErr, let blockBuffer else { return }
 
-        let copyStatus = data.withUnsafeBytes { rawBuffer -> OSStatus in
+        let copyStatus = avcc.withUnsafeBytes { rawBuffer -> OSStatus in
             guard let baseAddress = rawBuffer.baseAddress else { return -1 }
             return CMBlockBufferCopyDataBytes(
                 blockBuffer,
@@ -177,7 +185,7 @@ final class H264Decoder: @unchecked Sendable {
         }
 
         if decodeStatus != noErr {
-            // Drop frame; receiver just continues to next one.
+            Self.log.error("decode frame failed: \(decodeStatus) (nal \(data.count, privacy: .public) bytes)")
         }
     }
 
