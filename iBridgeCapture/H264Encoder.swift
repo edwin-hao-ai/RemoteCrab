@@ -163,6 +163,13 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let micros = UInt64(CMTimeGetSeconds(pts) * 1_000_000)
 
+        // VideoToolbox in AVCC mode keeps SPS/PPS in the format
+        // description, never in the bitstream — the receiver's decoder
+        // can't start without them, so pull them out and emit once.
+        if lastSPS == nil || lastPPS == nil {
+            emitParameterSets(from: sampleBuffer, micros: micros)
+        }
+
         var offset = 0
         while offset + 4 <= totalLength {
             let length = UInt32(data[offset]) << 24 |
@@ -189,11 +196,52 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
             } else if nalUnitType == 8 {
                 lastPPS = Data(nalSlice)
                 onFrame?(IBNalFrame(kind: .pps, data: Data(nalSlice), timestampMicros: micros))
-            } else {
+            } else if nalUnitType == 1 || nalUnitType == 5 {
                 onFrame?(IBNalFrame(kind: .video, data: Data(nalSlice), timestampMicros: micros))
             }
+            // SEI (6), AUD (9) and friends are skipped: the receiver feeds
+            // each wire frame straight into a VTDecompressionSession, and
+            // non-VCL-only samples come back as kVTVideoDecoderBadDataErr.
 
             offset = nalEnd
+        }
+    }
+
+    /// Extract SPS/PPS from the compressed sample buffer's format
+    /// description and emit them as wire frames. Called only until both
+    /// have been seen; `lastSPS`/`lastPPS` cache them for keyframe
+    /// re-sends via the in-stream walk above.
+    private func emitParameterSets(from sampleBuffer: CMSampleBuffer, micros: UInt64) {
+        guard let format = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
+        var paramCount = 0
+        guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            format, parameterSetIndex: 0,
+            parameterSetPointerOut: nil, parameterSetSizeOut: nil,
+            parameterSetCountOut: &paramCount, nalUnitHeaderLengthOut: nil
+        ) == noErr else { return }
+
+        for index in 0..<paramCount {
+            var pointer: UnsafePointer<UInt8>?
+            var size = 0
+            guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                format, parameterSetIndex: index,
+                parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
+                parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil
+            ) == noErr, let pointer, size > 0 else { continue }
+            let data = Data(bytes: pointer, count: size)
+            switch data[data.startIndex] & 0x1F {
+            case 7:
+                lastSPS = data
+                onFrame?(IBNalFrame(kind: .sps, data: data, timestampMicros: micros))
+            case 8:
+                lastPPS = data
+                onFrame?(IBNalFrame(kind: .pps, data: data, timestampMicros: micros))
+            default:
+                break
+            }
+        }
+        if lastSPS != nil && lastPPS != nil {
+            Self.log.info("SPS/PPS extracted from format description")
         }
     }
 }

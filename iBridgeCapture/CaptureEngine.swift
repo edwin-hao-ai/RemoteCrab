@@ -303,7 +303,14 @@ final class CaptureEngine: ObservableObject {
         // its H.264 decoder.
         sendMetadata(on: connection)
 
-        // Forward encoded frames to this connection from now on.
+        // Re-send cached SPS/PPS — the encoder emits them once at
+        // startup (usually before any Mac connects), so a late-joining
+        // receiver would otherwise wait for the next parameter change.
+        for param in [lastSPSFrame, lastPPSFrame] {
+            guard let param else { continue }
+            connection.send(content: IBWire.encode(frame: param),
+                            completion: .contentProcessed { _ in })
+        }
     }
 
     private func handleConnectionState(_ state: NWConnection.State) {
@@ -403,8 +410,15 @@ final class CaptureEngine: ObservableObject {
     private var e2eFrameCount = 0
     private var e2eFrameBytes = 0
     private var e2eDropCount = 0
+    private var lastSPSFrame: IBNalFrame?
+    private var lastPPSFrame: IBNalFrame?
 
     private func handleEncodedFrame(_ frame: IBNalFrame) {
+        switch frame.kind {
+        case .sps: lastSPSFrame = frame
+        case .pps: lastPPSFrame = frame
+        default: break
+        }
         guard features.cameraOn else { return }
         guard let connection, connection.state == .ready else { return }
         let encoded = IBWire.encode(frame: frame)

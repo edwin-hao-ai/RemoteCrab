@@ -56,29 +56,36 @@ final class H264Decoder: @unchecked Sendable {
     private func tryCreateSession() {
         guard let sps, let pps else { return }
 
-        // Build a temporary block buffer containing SPS + PPS NAL units
-        // (length-prefixed) for CMVideoFormatDescription creation.
-        var naluPointers: [UnsafePointer<UInt8>] = [
-            sps.withUnsafeBytes { $0.baseAddress!.assumingMemoryBound(to: UInt8.self) },
-            pps.withUnsafeBytes { $0.baseAddress!.assumingMemoryBound(to: UInt8.self) }
-        ]
-        var naluSizes: [Int] = [sps.count, pps.count]
-
-        let status = naluPointers.withUnsafeMutableBufferPointer { pointers in
-            naluSizes.withUnsafeMutableBufferPointer { sizes in
-                CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                    allocator: kCFAllocatorDefault,
-                    parameterSetCount: 2,
-                    parameterSetPointers: pointers.baseAddress!,
-                    parameterSetSizes: sizes.baseAddress!,
-                    nalUnitHeaderLength: 4,
-                    formatDescriptionOut: &formatDescription
-                )
+        // Pointers must stay valid for the duration of the create call —
+        // keep everything nested inside the withUnsafeBytes scopes (an
+        // escaped pointer to small inline Data storage is use-after-free).
+        let status = sps.withUnsafeBytes { spsBuf -> OSStatus in
+            pps.withUnsafeBytes { ppsBuf -> OSStatus in
+                guard let spsBase = spsBuf.baseAddress, let ppsBase = ppsBuf.baseAddress else {
+                    return -1
+                }
+                var naluPointers: [UnsafePointer<UInt8>] = [
+                    spsBase.assumingMemoryBound(to: UInt8.self),
+                    ppsBase.assumingMemoryBound(to: UInt8.self)
+                ]
+                var naluSizes: [Int] = [sps.count, pps.count]
+                return naluPointers.withUnsafeMutableBufferPointer { pointers in
+                    naluSizes.withUnsafeMutableBufferPointer { sizes in
+                        CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                            allocator: kCFAllocatorDefault,
+                            parameterSetCount: 2,
+                            parameterSetPointers: pointers.baseAddress!,
+                            parameterSetSizes: sizes.baseAddress!,
+                            nalUnitHeaderLength: 4,
+                            formatDescriptionOut: &formatDescription
+                        )
+                    }
+                }
             }
         }
 
         guard status == noErr, let format = formatDescription else {
-            Self.log.error("format desc create failed: \(status)")
+            Self.log.error("format desc create failed: \(status) (sps \(sps.count, privacy: .public)pps \(self.pps?.count ?? 0, privacy: .public))")
             return
         }
         self.formatDescription = format
@@ -110,6 +117,7 @@ final class H264Decoder: @unchecked Sendable {
             VTDecompressionSessionInvalidate(old)
         }
         session = newSession
+        Self.log.info("decoder session created")
     }
 
     // MARK: - Decode
@@ -127,31 +135,38 @@ final class H264Decoder: @unchecked Sendable {
         withUnsafeBytes(of: &nalLength) { avcc.append(contentsOf: $0) }
         avcc.append(data)
 
-        var blockBuffer: CMBlockBuffer?
+        // Own the memory ourselves and hand it over with a custom block
+        // source that frees it when the block buffer dies — creating with
+        // a nil memory block leaves the buffer unallocated and every
+        // copy fails with kCMBlockBufferUnallocatedBlockErr.
+        guard let mem = malloc(totalLength) else { return }
+        avcc.withUnsafeBytes { rawBuffer in
+            if let base = rawBuffer.baseAddress {
+                memcpy(mem, base, totalLength)
+            }
+        }
+        var blockSource = CMBlockBufferCustomBlockSource()
+        blockSource.version = kCMBlockBufferCustomBlockSourceVersion
+        blockSource.refCon = nil
+        blockSource.FreeBlock = { _, doomedBlock, _ in free(doomedBlock) }
 
+        var blockBuffer: CMBlockBuffer?
         let allocStatus = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
-            memoryBlock: nil,
+            memoryBlock: mem,
             blockLength: totalLength,
-            blockAllocator: nil,
-            customBlockSource: nil,
+            blockAllocator: kCFAllocatorNull,
+            customBlockSource: &blockSource,
             offsetToData: 0,
             dataLength: totalLength,
             flags: 0,
             blockBufferOut: &blockBuffer
         )
-        guard allocStatus == kCMBlockBufferNoErr, let blockBuffer else { return }
-
-        let copyStatus = avcc.withUnsafeBytes { rawBuffer -> OSStatus in
-            guard let baseAddress = rawBuffer.baseAddress else { return -1 }
-            return CMBlockBufferCopyDataBytes(
-                blockBuffer,
-                atOffset: 0,
-                dataLength: totalLength,
-                destination: UnsafeMutableRawPointer(mutating: baseAddress)
-            )
+        guard allocStatus == kCMBlockBufferNoErr, let blockBuffer else {
+            free(mem)
+            Self.log.error("block buffer alloc failed: \(allocStatus)")
+            return
         }
-        guard copyStatus == kCMBlockBufferNoErr else { return }
 
         var sampleBuffer: CMSampleBuffer?
         var sampleSize = totalLength
@@ -171,7 +186,10 @@ final class H264Decoder: @unchecked Sendable {
             sampleSizeArray: &sampleSize,
             sampleBufferOut: &sampleBuffer
         )
-        guard sampleStatus == noErr, let sampleBuffer else { return }
+        guard sampleStatus == noErr, let sampleBuffer else {
+            Self.log.error("sample buffer create failed: \(sampleStatus)")
+            return
+        }
 
         // Decode and emit.
         let decodeStatus = VTDecompressionSessionDecodeFrame(
@@ -180,7 +198,13 @@ final class H264Decoder: @unchecked Sendable {
             flags: [._EnableAsynchronousDecompression],
             infoFlagsOut: nil
         ) { [weak self] status, _, imageBuffer, _, _, _ in
-            guard status == noErr, let imageBuffer else { return }
+            guard status == noErr, let imageBuffer else {
+                if status != noErr {
+                    let head = data.prefix(8).map { String(format: "%02x", $0) }.joined()
+                    Self.log.error("decode callback error: \(status) nalType=\(data.first.map { $0 & 0x1F } ?? 0, privacy: .public) len=\(data.count, privacy: .public) head=\(head, privacy: .public)")
+                }
+                return
+            }
             self?.emit(imageBuffer: imageBuffer)
         }
 
@@ -189,7 +213,13 @@ final class H264Decoder: @unchecked Sendable {
         }
     }
 
+    private var emittedAny = false
+
     private func emit(imageBuffer: CVImageBuffer) {
+        if !emittedAny {
+            emittedAny = true
+            Self.log.info("first frame decoded OK")
+        }
         let ciImage = CIImage(cvPixelBuffer: imageBuffer)
         let context = CIContext(options: nil)
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
