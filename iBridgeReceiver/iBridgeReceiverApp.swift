@@ -84,9 +84,11 @@ struct iBridgeReceiverApp: App {
                 .environmentObject(session)
                 .frame(width: 320)
         } label: {
-            MenuBarIcon()
-                .environmentObject(session)
-                .frame(width: 22, height: 18)
+            // SF Symbol renders as a proper menu bar template image
+            // (visible in light + dark). A custom Canvas label renders
+            // as a solid blob — do not bring it back here.
+            Image(systemName: "iphone.gen3.radiowaves.left.and.right")
+                .onAppear { session.start() }
         }
         .menuBarExtraStyle(.window)
     }
