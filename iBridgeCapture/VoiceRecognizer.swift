@@ -221,7 +221,10 @@ final class VoiceRecognizer {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private static func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
+    /// TCC answers on a private XPC queue, so this must be
+    /// nonisolated — a @MainActor closure would trap in
+    /// swift_task_checkIsolated when the reply arrives.
+    private nonisolated static func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {
         await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
