@@ -400,11 +400,24 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    private var e2eFrameCount = 0
+    private var e2eFrameBytes = 0
+    private var e2eDropCount = 0
+
     private func handleEncodedFrame(_ frame: IBNalFrame) {
         guard features.cameraOn else { return }
         guard let connection, connection.state == .ready else { return }
         let encoded = IBWire.encode(frame: frame)
         connection.send(content: encoded, completion: .contentProcessed { _ in })
+        if ProcessInfo.processInfo.environment["IBRIDGE_AUTOSTREAM"] == "1" {
+            e2eFrameCount += 1
+            e2eFrameBytes += encoded.count
+            if e2eFrameCount % 60 == 0 {
+                FileHandle.standardError.write(
+                    "[e2e] video frames sent: \(e2eFrameCount), bytes: \(e2eFrameBytes)\n"
+                        .data(using: .utf8)!)
+            }
+        }
     }
 }
 
