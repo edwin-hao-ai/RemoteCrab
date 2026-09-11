@@ -52,6 +52,9 @@ public enum IBLocale {
         public static let allow = "Allow"
         public static let notNow = "Not now"
         public static let granted = "Granted"
+        /// Local-network probe: the system keeps the dialog up past our
+        /// timeout, so we can't claim a result — neutral phrasing.
+        public static let checkComplete = "Check complete — if iOS shows a prompt, tap Allow"
         public static let denied = "Denied — you can enable this later in Settings"
         public static let openSystemSettings = "Open System Settings"
         public static let recheck = "Re-check"
@@ -84,6 +87,13 @@ public enum IBLocale {
     public enum Mic {
         public static let on = "Mic on"
         public static let off = "Mic off"
+    }
+
+    /// Camera-preview placeholder (eyebrow style — rendered in caps
+    /// with `ibEyebrowTracking()`).
+    public enum Capture {
+        public static let cameraOff = "CAMERA IS OFF"
+        public static let turnCameraOn = "TURN ON"
     }
 
     public enum Settings {

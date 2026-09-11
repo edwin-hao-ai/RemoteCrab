@@ -34,10 +34,10 @@ struct OnboardingFlow: View {
                 .ignoresSafeArea(.container, edges: .top)
 
                 PageIndicator(count: 3, current: page)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, IBSpace.m.pt)
 
                 actionRow
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, IBSpace.xl.pt)
                     .padding(.bottom, 28)
             }
         }
@@ -45,16 +45,8 @@ struct OnboardingFlow: View {
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.04, green: 0.06, blue: 0.18),
-                Color(red: 0.10, green: 0.05, blue: 0.22),
-                Color(red: 0.20, green: 0.06, blue: 0.32)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        IBGradient.canvasDark
+            .ignoresSafeArea()
     }
 
     private func advance() {
@@ -143,7 +135,7 @@ struct OnboardingPage: View {
             hero
                 .frame(maxHeight: .infinity)
 
-            VStack(spacing: 12) {
+            VStack(spacing: IBSpace.m.pt) {
                 Text(title)
                     .font(IBFont.displayMedium)
                     .foregroundStyle(.white)
@@ -153,7 +145,7 @@ struct OnboardingPage: View {
                     .font(IBFont.bodyMedium)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, IBSpace.xxl.pt)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.bottom, 40)
@@ -263,7 +255,7 @@ private struct PermissionsIllustration: View {
                            title: "Local Network",
                            description: "Discover & connect to your Mac")
         }
-        .padding(.horizontal, 32)
+        .padding(.horizontal, IBSpace.xxl.pt)
         .frame(height: 320)
     }
 
@@ -288,13 +280,11 @@ private struct PermissionsIllustration: View {
             Spacer()
             Image(systemName: "lock.shield")
                 .font(.system(size: 14))
-                .foregroundStyle(.green)
+                .foregroundStyle(.white.opacity(0.6))
         }
         .padding(14)
         .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.05))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.10), lineWidth: 1))
+            IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
     }
 }
@@ -376,7 +366,7 @@ private struct PageIndicator: View {
                 Capsule()
                     .fill(i == current ? Color.white : Color.white.opacity(0.25))
                     .frame(width: i == current ? 20 : 6, height: 6)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: current)
+                    .animation(IBAnimation.snappy, value: current)
             }
         }
     }

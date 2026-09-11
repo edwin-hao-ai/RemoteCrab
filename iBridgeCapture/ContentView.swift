@@ -45,6 +45,15 @@ struct ContentView: View {
             }
             .animation(IBAnimation.snappy, value: voice.isRunning || voiceSentFlash || voiceErrorFlash)
         }
+        // The trackpad surface hides system overlays itself. The only
+        // other immersive surface is the full-screen camera preview —
+        // everywhere else the status bar stays visible (time/battery
+        // matter during hours-long trackpad sessions).
+        .persistentSystemOverlays(
+            engine.features.activeSurface == .cameraPreview && engine.features.cameraOn
+                ? .hidden
+                : .automatic
+        )
         .sheet(isPresented: $showConnectionSheet) {
             ConnectionSheet(engine: engine)
                 .presentationDetents([.medium])
@@ -118,8 +127,11 @@ struct ContentView: View {
         switch engine.features.activeSurface {
         case .cameraPreview:
             if engine.features.cameraOn {
+                // Purely visual — VoiceOver users control the camera
+                // from the dock toggle and the status pill.
                 CameraPreview(session: engine.captureSession)
                     .ignoresSafeArea()
+                    .accessibilityHidden(true)
             } else {
                 cameraOffPlaceholder
             }
@@ -135,14 +147,14 @@ struct ContentView: View {
             Image(systemName: "video.slash")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.white.opacity(0.5))
-            Text("Camera is off")
+            Text(IBLocale.Capture.cameraOff)
                 .font(IBFont.eyebrowMono)
                 .ibEyebrowTracking()
                 .foregroundStyle(.white.opacity(0.7))
             Button {
                 engine.features.set(feature: .camera, enabled: true)
             } label: {
-                Text("Turn on")
+                Text(IBLocale.Capture.turnCameraOn)
                     .font(IBFont.eyebrowMono)
                     .ibEyebrowTracking()
                     .foregroundStyle(.white)
@@ -235,14 +247,14 @@ struct ContentView: View {
                   ? "exclamationmark.triangle"
                   : (voiceSentFlash ? "checkmark" : "waveform"))
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(voiceErrorFlash ? IBColor.error : (voiceSentFlash ? IBColor.success : .red))
+                .foregroundStyle(voiceErrorFlash ? IBColor.error : (voiceSentFlash ? IBColor.success : IBColor.recording))
                 .symbolEffect(.pulse, isActive: voice.isRunning)
             Text(voiceErrorFlash
                  ? (voice.lastError ?? "Voice input stopped")
                  : (voiceSentFlash
                     ? "Sent"
                     : (voice.partialText.isEmpty ? "Listening…" : voice.partialText)))
-                .font(.system(size: 15))
+                .font(IBFont.bodyMedium)
                 .foregroundStyle(.white)
                 .lineLimit(2)
         }
@@ -280,9 +292,9 @@ struct ContentView: View {
         )
         return CameraPreview(session: engine.captureSession)
             .frame(width: pipSize.width, height: pipSize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous)
                     .strokeBorder(.white.opacity(0.10), lineWidth: 0.5)
             }
             .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
@@ -346,34 +358,59 @@ struct ContentView: View {
 private struct ConnectionSheet: View {
     @ObservedObject var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
+    /// True while `toggleStreaming()` is in flight — the listener +
+    /// Bonjour publish resolve asynchronously, so the button shows an
+    /// inline spinner instead of the sheet vanishing with no feedback.
+    @State private var toggling = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section("Bonjour Service") {
-                    LabeledContent("Type", value: IBServiceType.tcp)
-                    LabeledContent("Domain", value: IBServiceType.domain)
+                    LabeledContent("Type") { monoValue(IBServiceType.tcp) }
+                    LabeledContent("Domain") { monoValue(IBServiceType.domain) }
                     LabeledContent("Status") {
                         Text(connectionLabel)
                             .foregroundStyle(connectionColor)
                     }
                 }
                 Section("Stream") {
-                    LabeledContent("Resolution",
-                                   value: "\(engine.metadata.width)×\(engine.metadata.height)")
-                    LabeledContent("FPS", value: "\(engine.metadata.fps)")
-                    LabeledContent("Bitrate",
-                                   value: "\(engine.metadata.bitrateBps / 1_000_000) Mbps")
-                    LabeledContent("Codec", value: engine.metadata.codec.uppercased())
+                    LabeledContent("Resolution") {
+                        monoValue("\(engine.metadata.width)×\(engine.metadata.height)")
+                    }
+                    LabeledContent("FPS") {
+                        monoValue(IBLocale.Preview.frameRate(engine.metadata.fps))
+                    }
+                    LabeledContent("Bitrate") {
+                        monoValue(IBLocale.Preview.bitrate(engine.metadata.bitrateBps / 1_000_000))
+                    }
+                    LabeledContent("Codec") {
+                        monoValue(engine.metadata.codec.uppercased())
+                    }
                 }
                 Section {
-                    Button(engine.isStreaming ? "Stop Streaming" : "Start Streaming",
-                           systemImage: engine.isStreaming ? "stop.circle" : "play.circle") {
+                    Button {
+                        guard !toggling else { return }
                         Task {
+                            toggling = true
                             await engine.toggleStreaming()
+                            toggling = false
                             dismiss()
                         }
+                    } label: {
+                        HStack(spacing: IBSpace.s.pt) {
+                            if toggling {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: engine.isStreaming ? "stop.circle" : "play.circle")
+                            }
+                            Text(engine.isStreaming
+                                 ? "Stop Streaming"
+                                 : (toggling ? "Starting…" : "Start Streaming"))
+                        }
                     }
+                    .disabled(toggling)
                 }
             }
             .navigationTitle("iBridge")
@@ -383,6 +420,12 @@ private struct ConnectionSheet: View {
                 }
             }
         }
+    }
+
+    /// Every technical readout is SF Mono (IBTypography).
+    private func monoValue(_ value: String) -> some View {
+        Text(value)
+            .font(IBFont.monoMedium)
     }
 
     private var connectionLabel: String {

@@ -67,9 +67,9 @@ struct IOSSettingsView: View {
 
     private var connectionColor: Color {
         switch engine.connectionState {
-        case .connected: return .green
-        case .failed: return .red
-        default: return .gray
+        case .connected: return IBColor.success
+        case .failed: return IBColor.error
+        default: return IBColor.textTertiary
         }
     }
 

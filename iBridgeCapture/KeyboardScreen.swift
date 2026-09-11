@@ -32,17 +32,11 @@ struct KeyboardScreen: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.05, blue: 0.12),
-                    Color(red: 0.15, green: 0.06, blue: 0.20)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            IBGradient.canvasDark
+                .ignoresSafeArea()
 
             GeometryReader { geo in
-                VStack(spacing: 12) {
+                VStack(spacing: IBSpace.m.pt) {
                     header
                     previewCard
                     miniTrackpad
@@ -55,8 +49,8 @@ struct KeyboardScreen: View {
                     .frame(width: 1, height: 1)
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 12)
+                .padding(.horizontal, IBSpace.s.pt)
+                .padding(.bottom, IBSpace.m.pt)
                 .padding(.bottom, keyboardHeight)
                 .onReceive(
                     NotificationCenter.default.publisher(
@@ -89,13 +83,13 @@ struct KeyboardScreen: View {
             Image(systemName: "keyboard")
                 .foregroundStyle(.white.opacity(0.7))
             Spacer()
-            Text("typing on Mac")
+            Text("TYPING ON MAC")
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.white.opacity(0.45))
                 .ibEyebrowTracking()
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
+        .padding(.horizontal, IBSpace.s.pt)
+        .padding(.top, IBSpace.s.pt)
     }
 
     // MARK: - Preview
@@ -111,7 +105,7 @@ struct KeyboardScreen: View {
                     .ibEyebrowTracking()
                 Spacer()
                 Text("\(committedText.count) chars")
-                    .font(IBFont.monoSmall)
+                    .font(IBFont.monoMedium)
                     .foregroundStyle(.white.opacity(0.4))
             }
             Text(committedText.isEmpty ? "Start typing…" : committedText)
@@ -123,12 +117,7 @@ struct KeyboardScreen: View {
         }
         .padding(14)
         .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.07))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                }
+            IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
     }
 
@@ -142,22 +131,24 @@ struct KeyboardScreen: View {
         )
         .frame(height: 96)
         .background {
-            RoundedRectangle(cornerRadius: 14)
-                .fill(.white.opacity(0.05))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(
-                            .white.opacity(0.25),
-                            style: StrokeStyle(lineWidth: 1, dash: [5, 4])
-                        )
-                }
+            IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay {
-            Text("mini trackpad")
-                .font(IBFont.monoSmall)
+            // Dashed edge = "this is a touch surface" affordance.
+            RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous)
+                .strokeBorder(
+                    .white.opacity(0.25),
+                    style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
+        .overlay {
+            Text("MINI TRACKPAD")
+                .font(IBFont.caption)
+                .ibEyebrowTracking()
                 .foregroundStyle(.white.opacity(0.2))
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 
@@ -285,8 +276,28 @@ struct KeyboardScreen: View {
         // The end frame is in screen coordinates; while hiding it sits
         // fully below the screen, so the visible overlap drops to 0.
         let visible = max(0, scene.screen.bounds.maxY - endFrame.minY)
-        withAnimation {
+        // Track the keyboard's own duration/curve so the layout slides
+        // in lockstep with it instead of snapping on a default spring.
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curveRaw = note.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
+        let curve = Self.timingCurve(for: curveRaw)
+        withAnimation(.timingCurve(curve.0, curve.1, curve.2, curve.3, duration: duration)) {
             keyboardHeight = max(0, visible - safeAreaBottom)
+        }
+    }
+
+    /// Map a `UIView.AnimationCurve` (from the keyboard notification)
+    /// to SwiftUI cubic Bézier control points. The undocumented system
+    /// curve 7 — what the keyboard actually reports — approximates to
+    /// (0.32, 0.72, 0, 1).
+    private static func timingCurve(for rawValue: UInt?) -> (Double, Double, Double, Double) {
+        switch rawValue.flatMap({ UIView.AnimationCurve(rawValue: Int($0)) }) {
+        case .easeIn:    return (0.42, 0.0, 1.0, 1.0)
+        case .easeOut:   return (0.0, 0.0, 0.58, 1.0)
+        case .linear:    return (0.0, 0.0, 1.0, 1.0)
+        default:
+            if rawValue == 7 { return (0.32, 0.72, 0.0, 1.0) }
+            return (0.42, 0.0, 0.58, 1.0) // .easeInOut
         }
     }
 }

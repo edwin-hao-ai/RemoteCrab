@@ -52,6 +52,9 @@ struct PermissionFlow: View {
         case granted
         case denied
         case restricted
+        /// The probe finished without a definitive answer (iOS may
+        /// still be showing the system prompt) — no claim either way.
+        case inconclusive
     }
 
     var body: some View {
@@ -72,22 +75,15 @@ struct PermissionFlow: View {
                 ))
                 Spacer()
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, IBSpace.xl.pt)
         }
         .animation(IBAnimation.standard, value: stage)
         .preferredColorScheme(.dark)
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.04, green: 0.06, blue: 0.18),
-                Color(red: 0.20, green: 0.06, blue: 0.32)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        IBGradient.canvasDark
+            .ignoresSafeArea()
     }
 
     // MARK: - Permission requests
@@ -202,7 +198,9 @@ struct PermissionFlow: View {
             }
             browser.start(queue: .global())
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                resolve(.granted)
+                // The system prompt may still be on screen — the probe
+                // timed out without a verdict, so report inconclusive.
+                resolve(.inconclusive)
             }
         }
     }
@@ -223,7 +221,7 @@ private struct PermissionCard: View {
         VStack(spacing: 20) {
             ZStack {
                 Circle()
-                    .fill(result == .granted ? Color.green.opacity(0.2) : Color.accentColor.opacity(0.18))
+                    .fill(result == .granted ? IBColor.success.opacity(0.2) : Color.accentColor.opacity(0.18))
                     .frame(width: 96, height: 96)
                     .overlay {
                         Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1)
@@ -231,7 +229,7 @@ private struct PermissionCard: View {
                 if result == .granted {
                     Image(systemName: "checkmark")
                         .font(.system(size: 36, weight: .light))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(IBColor.success)
                 } else {
                     Image(systemName: stage.symbol)
                         .font(.system(size: 36, weight: .light))
@@ -253,25 +251,23 @@ private struct PermissionCard: View {
             if result == .granted {
                 Text(IBLocale.Permission.granted)
                     .font(IBFont.eyebrowMono)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(IBColor.success)
                     .ibEyebrowTracking()
-                    .padding(.top, 8)
             } else if result == .denied {
                 Text(IBLocale.Permission.denied)
                     .font(IBFont.caption)
                     .foregroundStyle(.white.opacity(0.6))
                     .multilineTextAlignment(.center)
-                    .padding(.top, 8)
+            } else if result == .inconclusive {
+                Text(IBLocale.Permission.checkComplete)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
             }
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 20)
-                .fill(.white.opacity(0.05))
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.10), lineWidth: 1))
-        }
-        .overlay(alignment: .bottom) {
+
+            // In the normal flow (not a floating overlay) so long reason
+            // text at large Dynamic Type pushes the buttons down instead
+            // of sliding underneath them.
             if result == nil {
                 VStack(spacing: 10) {
                     Button(action: onAllow) {
@@ -295,9 +291,12 @@ private struct PermissionCard: View {
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 28)
-                .padding(.bottom, 20)
             }
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity)
+        .background {
+            IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.xxl.pt, style: .continuous))
         }
     }
 }

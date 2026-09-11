@@ -9,7 +9,9 @@ struct iBridgeCaptureApp: App {
             RootView()
                 .environmentObject(engine)
                 .preferredColorScheme(.dark)
-                .statusBarHidden()
+            // No app-wide status-bar hide: the trackpad and full-screen
+            // camera surfaces hide system overlays themselves; elsewhere
+            // time/battery stay visible during long sessions.
         }
     }
 }

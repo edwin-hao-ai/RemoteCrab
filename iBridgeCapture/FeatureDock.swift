@@ -44,10 +44,10 @@ struct FeatureDock: View {
                 label: "Keyboard"
             )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, IBSpace.l.pt)
+        .padding(.vertical, IBSpace.s.pt)
         .background {
-            IBMaterial.bar(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.xxl.pt, style: .continuous))
         }
         .onAppear {
             // Recognition session ended on its own (system cap or

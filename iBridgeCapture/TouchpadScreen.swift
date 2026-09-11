@@ -48,14 +48,8 @@ struct TouchpadScreen: View {
         ZStack {
             // Subtle background — dark with a hint of color, so the
             // user knows the surface is alive.
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.05, blue: 0.10),
-                    Color(red: 0.10, green: 0.05, blue: 0.16)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            IBGradient.canvasDark
+                .ignoresSafeArea()
 
             // The actual touch capture surface, covering everything.
             TouchSurface(
@@ -100,12 +94,12 @@ struct TouchpadScreen: View {
                             }
                         }
                     }
-                    .padding(.bottom, 12)
+                    .padding(.bottom, IBSpace.m.pt)
                 }
                 IBModifierBar(activeModifiers: $modifiers)
                     .padding(.bottom, dockClearance)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, IBSpace.xl.pt)
         }
         // The whole screen is the trackpad: one-finger drags start at
         // the very bottom edge and must not fight the Home indicator,
@@ -137,8 +131,8 @@ struct TouchpadScreen: View {
                         y: cursor.y * geo.size.height
                     )
                     .scaleEffect(isPressed ? 0.85 : 1.0)
-                    .animation(.spring(response: 0.18, dampingFraction: 0.7), value: cursor)
-                    .animation(.spring(response: 0.12, dampingFraction: 0.6), value: isPressed)
+                    .animation(IBAnimation.snappy, value: cursor)
+                    .animation(IBAnimation.snappy, value: isPressed)
                     .opacity(isPressed ? 1.0 : 0.85)
 
                 // Subtle vertical scan line while pressed, hinting
@@ -170,8 +164,7 @@ struct TouchpadScreen: View {
             .foregroundStyle(active ? Color.accentColor : .white.opacity(0.8))
             .frame(width: 48, height: 48)
             .background {
-                Circle()
-                    .fill(.black.opacity(0.4))
+                IBMaterial.bar(in: Circle())
                     .overlay(Circle().strokeBorder(.white.opacity(active ? 0.5 : 0.12)))
             }
             .contentShape(Circle())
@@ -198,9 +191,9 @@ struct TouchpadScreen: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .background {
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.black.opacity(0.4))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.08)))
+            IBMaterial.glass(
+                in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous)
+            )
         }
         // Touches fall through to the surface below, which dismisses.
         .allowsHitTesting(false)
@@ -225,14 +218,14 @@ struct TouchpadScreen: View {
         guard coachShownCount < 3 else { return }
         coachShownCount += 1
         Self.log.debug("coach marks shown (\(self.coachShownCount)/3)")
-        withAnimation(.easeIn(duration: 0.4)) {
+        withAnimation(IBAnimation.gentle) {
             showCoach = true
         }
         coachGeneration += 1
         let generation = coachGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
             guard generation == coachGeneration, showCoach else { return }
-            withAnimation(.easeOut(duration: 0.5)) {
+            withAnimation(IBAnimation.gentle) {
                 showCoach = false
             }
         }
@@ -241,7 +234,7 @@ struct TouchpadScreen: View {
     private func dismissCoach() {
         guard showCoach else { return }
         coachGeneration += 1
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(IBAnimation.snappy) {
             showCoach = false
         }
     }
