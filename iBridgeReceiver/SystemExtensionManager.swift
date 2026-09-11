@@ -6,7 +6,22 @@ import SystemExtensions
 /// camera extension. The host must run from /Applications for
 /// activation to succeed; the user approves in System Settings →
 /// General → Login Items & Extensions → Camera Extensions.
-final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
+///
+/// `activationState` is observable so Preferences can show an honest
+/// status (not installed / waiting for approval / active) instead of
+/// the request silently disappearing into a log line. Delegate
+/// callbacks arrive on the main queue (see `activate()`); the state is
+/// only ever mutated there.
+final class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionRequestDelegate, @unchecked Sendable {
+
+    enum ActivationState: Equatable {
+        case notInstalled
+        case awaitingApproval
+        case active
+        case failed(String)
+    }
+
+    @Published private(set) var activationState: ActivationState = .notInstalled
 
     private let log = Logger(subsystem: "com.ibridge", category: "sysex")
     private static let extensionIdentifier = "com.ibridge.iBridgeReceiver.Camera"
@@ -25,6 +40,9 @@ final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
         log.info("activation needs user approval in System Settings")
+        DispatchQueue.main.async {
+            self.activationState = .awaitingApproval
+        }
     }
 
     func request(_ request: OSSystemExtensionRequest,
@@ -36,9 +54,17 @@ final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
 
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         log.info("activation finished: \(String(describing: result), privacy: .public)")
+        let completed = (result == .completed)
+        DispatchQueue.main.async {
+            if completed { self.activationState = .active }
+        }
     }
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         log.error("activation failed: \(error.localizedDescription, privacy: .public)")
+        let message = error.localizedDescription
+        DispatchQueue.main.async {
+            self.activationState = .failed(message)
+        }
     }
 }

@@ -59,15 +59,20 @@ final class ReceiverSession: ObservableObject {
         mode: .xpc(machServiceName: IBridgeCameraXPC.machServiceName)
     )
 
-    /// Where `TouchEvent` / `KeyEvent` get posted. Defaults to a no-op
-    /// mock; the host wires up a real `CGEventInjector` (or a recording
-    /// one in tests).
-    var inputInjector: InputInjector = RecordingInputInjector()
+    /// Where `TouchEvent` / `KeyEvent` get posted. Defaults to the real
+    /// `CGEventInjector` so iPhone gestures drive the Mac cursor; tests
+    /// swap in a `RecordingInputInjector`. UI mirroring for the test
+    /// window happens in `handleInbound` before injection, so it works
+    /// regardless of which injector is installed.
+    var inputInjector: InputInjector = CGEventInjector()
 
     /// Where `AudioPacket` get played through Mac speakers.
     let audioPlayer = AudioPlayer()
 
     private var connection: NWConnection?
+    /// Display name of the phone we're connected to (from Bonjour),
+    /// kept so the UI never shows a raw IP:port endpoint string.
+    private var connectedPhoneName: String?
 
     init() {
         decoder.onDecoded = { [weak self] image in
@@ -143,6 +148,7 @@ final class ReceiverSession: ObservableObject {
         startReceiving(on: conn)
         conn.start(queue: .global())
         connection = conn
+        connectedPhoneName = phone.name
     }
 
     private func handleConnectionState(_ newState: NWConnection.State) {
@@ -158,17 +164,11 @@ final class ReceiverSession: ObservableObject {
         case .failed(let error):
             stopPingLoop()
             state = .error("\(error)")
-            featureState = nil
-            connection = nil
-            cameraBridge.streamStopped()
-            clearTestMirrors()
+            clearConnectionState()
         case .cancelled:
             stopPingLoop()
             state = .searching
-            featureState = nil
-            connection = nil
-            cameraBridge.streamStopped()
-            clearTestMirrors()
+            clearConnectionState()
         default:
             break
         }
@@ -192,12 +192,21 @@ final class ReceiverSession: ObservableObject {
     }
 
     private func currentPhoneName() -> String? {
-        connection?.endpoint.debugDescription
+        connectedPhoneName
     }
 
-    /// Wipe the connection-test mirrors when the link goes away so the
-    /// test window never shows stale evidence of a dead connection.
-    private func clearTestMirrors() {
+    /// Wipe every piece of per-connection state when the link goes
+    /// away: the feature snapshot, the test-window mirrors, and the
+    /// stream state (metadata / last frame / latency) so no window
+    /// keeps showing stale evidence of a dead connection.
+    private func clearConnectionState() {
+        featureState = nil
+        connection = nil
+        connectedPhoneName = nil
+        metadata = nil
+        latestFrame = nil
+        latencyHistory = []
+        cameraBridge.streamStopped()
         typedText = ""
         lastKey = nil
         touchVisual = nil

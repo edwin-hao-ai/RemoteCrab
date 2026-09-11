@@ -9,10 +9,9 @@ import iBridgeCore
 /// Tailscale, Raycast, CleanMyMac).
 ///
 /// Design principles applied:
-/// - **`.regularMaterial` background** for the NSVisualEffectView-like
-///   frosted glass effect (Apple's MenuBarExtra `.window` style
-///   provides this for free).
-/// - **8pt corner radius**, 0.5pt hairline border, drop shadow.
+/// - **Frosted-glass background + window corner radius** come free
+///   from `MenuBarExtra(.window)` — we only add a 0.5pt hairline
+///   border, not a second material layer.
 /// - **Sectioned layout**: header → live preview → toggles → actions
 ///   → footer. Real macOS menus are heavily sectioned.
 /// - **Native macOS toggles**, not custom switches.
@@ -37,8 +36,6 @@ struct MenuBarMenu: View {
             footer
         }
         .frame(width: 320)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(.white.opacity(0.08), lineWidth: 0.5)
@@ -85,7 +82,7 @@ struct MenuBarMenu: View {
                 .foregroundStyle(.primary)
             Spacer()
             if case .streaming(_, let ms) = session.state {
-                Text("\(ms) ms")
+                Text(IBLocale.Status.latency(ms))
                     .font(IBFont.monoSmall)
                     .foregroundStyle(statusColor)
             } else {
@@ -119,23 +116,25 @@ struct MenuBarMenu: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     }
-                    VStack {
-                        HStack {
+                    if session.latestFrame != nil {
+                        VStack {
+                            HStack {
+                                Spacer()
+                                HStack(spacing: 3) {
+                                    Circle().fill(IBColor.recording).frame(width: 4, height: 4)
+                                    Text("LIVE")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 2)
+                                .background {
+                                    Capsule().fill(.black.opacity(0.6))
+                                }
+                                .padding(6)
+                            }
                             Spacer()
-                            HStack(spacing: 3) {
-                                Circle().fill(IBColor.recording).frame(width: 4, height: 4)
-                                Text("LIVE")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background {
-                                Capsule().fill(.black.opacity(0.6))
-                            }
-                            .padding(6)
                         }
-                        Spacer()
                     }
                 }
                 .frame(width: 80, height: 54)
@@ -166,7 +165,7 @@ struct MenuBarMenu: View {
                         Image(systemName: "waveform")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
-                        Text("\(md.bitrateBps / 1_000_000) Mbps")
+                        Text(IBFormat.bitrate(bps: md.bitrateBps))
                             .font(IBFont.monoSmall)
                             .foregroundStyle(.primary)
                     }
@@ -194,27 +193,32 @@ struct MenuBarMenu: View {
     // MARK: - Toggles
 
     private var togglesSection: some View {
-        VStack(spacing: 0) {
+        let connected = session.featureState != nil
+        return VStack(spacing: 0) {
             sectionHeader("FEATURES")
             ToggleRow(icon: "camera.fill",
                       title: "Camera",
-                      subtitle: "Live iPhone feed",
-                      isOn: featureBinding(.camera, \.cameraOn))
+                      subtitle: connected ? "Live iPhone feed" : IBLocale.Status.connectIPhoneFirst,
+                      isOn: featureBinding(.camera, \.cameraOn),
+                      isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "mic.fill",
                       title: "Microphone",
-                      subtitle: "Stream iPhone mic",
-                      isOn: featureBinding(.microphone, \.micOn))
+                      subtitle: connected ? "Stream iPhone mic" : IBLocale.Status.connectIPhoneFirst,
+                      isOn: featureBinding(.microphone, \.micOn),
+                      isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
                       title: "Trackpad",
-                      subtitle: "Control Mac cursor",
-                      isOn: featureBinding(.trackpad, \.trackpadOn))
+                      subtitle: connected ? "Control Mac cursor" : IBLocale.Status.connectIPhoneFirst,
+                      isOn: featureBinding(.trackpad, \.trackpadOn),
+                      isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "keyboard",
                       title: "Keyboard",
-                      subtitle: "Type on the Mac",
-                      isOn: featureBinding(.keyboard, \.keyboardOn))
+                      subtitle: connected ? "Type on the Mac" : IBLocale.Status.connectIPhoneFirst,
+                      isOn: featureBinding(.keyboard, \.keyboardOn),
+                      isEnabled: connected)
         }
         .padding(.vertical, 4)
     }
@@ -227,21 +231,27 @@ struct MenuBarMenu: View {
             ActionRow(icon: "rectangle.on.rectangle",
                       title: "Open Control Panel",
                       shortcut: "⌘P",
-                      action: { openWindow(id: "controls") },
+                      help: "Show the floating control panel",
+                      action: { openWindowActivating(id: "controls") },
                       keys: KeyboardShortcut("p"))
             ActionRow(icon: "macwindow",
                       title: "Open Preview Window",
                       shortcut: "⌘⇧P",
-                      action: { openWindow(id: "preview") },
+                      help: "Show the live camera preview window",
+                      action: { openWindowActivating(id: "preview") },
                       keys: KeyboardShortcut("p", modifiers: [.command, .shift]))
             ActionRow(icon: "checklist",
                       title: "Connection Test",
                       shortcut: "⌘T",
-                      action: { openWindow(id: "test") },
+                      help: "Verify camera, keyboard, trackpad and mic live",
+                      action: { openWindowActivating(id: "test") },
                       keys: KeyboardShortcut("t"))
             ActionRow(icon: "gear",
                       title: "Preferences…",
-                      shortcut: "⌘,")
+                      shortcut: "⌘,",
+                      help: "Open iBridge settings",
+                      action: { openPreferences() },
+                      keys: KeyboardShortcut(","))
         }
         .padding(.vertical, 4)
     }
@@ -250,7 +260,7 @@ struct MenuBarMenu: View {
 
     private var footer: some View {
         HStack {
-            Text("iBridge v0.2 · Apple Native + Liquid Glass")
+            Text("iBridge v\(appVersion)")
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.secondary)
                 .ibEyebrowTracking()
@@ -260,7 +270,25 @@ struct MenuBarMenu: View {
         .padding(.vertical, 8)
     }
 
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
+    }
+
     // MARK: - Helpers
+
+    /// Opens a window scene and brings the (LSUIElement) app forward so
+    /// the window doesn't land behind whatever app is currently active.
+    private func openWindowActivating(id: String) {
+        openWindow(id: id)
+        NSApp.activate()
+    }
+
+    /// The Settings scene has no `openWindow(id:)`; it opens through
+    /// the responder chain instead.
+    private func openPreferences() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        NSApp.activate()
+    }
 
     private func sectionHeader(_ text: String) -> some View {
         Text(text)
@@ -275,8 +303,8 @@ struct MenuBarMenu: View {
 
     /// Live binding to the iPhone's feature state. Reads come from the
     /// latest `featureState` snapshot; writes send a `featureControl`
-    /// frame. Until the first snapshot arrives the toggle shows off
-    /// and writes are dropped by `ReceiverSession` when disconnected.
+    /// frame. Until the first snapshot arrives the toggle is disabled
+    /// (writes would be silently dropped by `ReceiverSession`).
     private func featureBinding(
         _ feature: IBFeature,
         _ keyPath: KeyPath<FeatureStateSnapshot, Bool>
@@ -308,10 +336,10 @@ struct MenuBarMenu: View {
 
     private var statusColor: Color {
         switch session.state {
-        case .searching:        return .orange
-        case .connecting:       return .orange
-        case .streaming:        return .green
-        case .error:            return .red
+        case .searching:        return IBColor.warning
+        case .connecting:       return IBColor.warning
+        case .streaming:        return IBColor.success
+        case .error:            return IBColor.error
         }
     }
 }
@@ -323,6 +351,7 @@ private struct ToggleRow: View {
     let title: String
     let subtitle: String
     @Binding var isOn: Bool
+    var isEnabled: Bool = true
 
     var body: some View {
         HStack(spacing: 10) {
@@ -336,7 +365,7 @@ private struct ToggleRow: View {
                     .font(IBFont.bodySmall)
                     .foregroundStyle(.primary)
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
@@ -344,6 +373,7 @@ private struct ToggleRow: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .labelsHidden()
+                .disabled(!isEnabled)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)
@@ -356,39 +386,39 @@ private struct ActionRow: View {
     let icon: String
     let title: String
     let shortcut: String
-    var action: (() -> Void)? = nil
+    let help: String
+    let action: () -> Void
     var keys: KeyboardShortcut? = nil
 
+    @State private var isHovering = false
+
     var body: some View {
-        Group {
-            if let action {
-                Button(action: action) {
-                    rowContent
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(keys)
-            } else {
-                rowContent
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 18, alignment: .center)
+                    .foregroundStyle(.primary)
+                Text(title)
+                    .font(IBFont.bodySmall)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text(shortcut)
+                    .font(IBFont.monoSmall)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+                    .padding(.horizontal, 6)
             }
         }
-    }
-
-    private var rowContent: some View {
-        HStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 18, alignment: .center)
-                .foregroundStyle(.primary)
-            Text(title)
-                .font(IBFont.bodySmall)
-                .foregroundStyle(.primary)
-            Spacer()
-            Text(shortcut)
-                .font(IBFont.monoSmall)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 5)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .keyboardShortcut(keys)
+        .help(help)
+        .onHover { isHovering = $0 }
     }
 }

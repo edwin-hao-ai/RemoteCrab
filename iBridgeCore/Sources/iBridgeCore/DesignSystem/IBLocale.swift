@@ -25,6 +25,10 @@ public enum IBLocale {
         public static let reconnecting = "RECONNECTING"
 
         public static func latency(_ ms: Int) -> String { "\(ms) ms" }
+
+        /// Subtitle shown on disabled feature toggles when no iPhone
+        /// is connected (writes would be silently dropped).
+        public static let connectIPhoneFirst = "Connect an iPhone first"
     }
 
     public enum Permission {
@@ -131,6 +135,13 @@ public enum IBLocale {
 
         public static let resetAccessibility = "Re-request Accessibility permission"
         public static let openAtLogin = "Open at Login"
+
+        public static let cameraExtension = "Camera Extension"
+        public static let activate = "Activate"
+        public static let sysexNotInstalled = "Not installed"
+        public static let sysexAwaitingApproval = "Waiting for approval in System Settings"
+        public static let sysexActive = "Active"
+        public static let sysexFailed = "Activation failed"
     }
 
     public enum ModifierKey: String, CaseIterable, Identifiable {
@@ -168,6 +179,9 @@ public enum IBLocale {
         public static let noMacFound = "No Mac found on the WiFi network. Make sure iBridge Receiver is running."
         public static let bonjourFailed = "Bonjour discovery failed. Check that both devices are on the same WiFi."
         public static let connectionLost = "Connection to Mac lost. Reconnecting…"
+        /// Mac-side counterpart of `connectionLost` (the peer that went
+        /// away from the receiver's perspective is the iPhone).
+        public static let iPhoneConnectionLost = "Connection to your iPhone was lost. Waiting for it to reconnect…"
         public static let streamingFailed = "Streaming failed. Tap to retry."
     }
 }

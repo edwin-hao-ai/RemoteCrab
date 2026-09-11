@@ -10,7 +10,8 @@ struct iBridgeReceiverApp: App {
 
     /// Kept alive for the whole app lifetime: OSSystemExtensionRequest's
     /// delegate is weak, so a local manager would deallocate before the
-    /// activation callbacks fire.
+    /// activation callbacks fire. Also published into the environment so
+    /// Preferences can show the camera extension's activation state.
     private let sysexManager = SystemExtensionManager()
 
     /// The single shared audio unit instance. Used by:
@@ -24,18 +25,26 @@ struct iBridgeReceiverApp: App {
     }()
 
     init() {
-        // Trigger the system permission dialog for Accessibility so
-        // iBridgeReceiver shows up in the user's Accessibility list.
-        let opts: NSDictionary = [
-            "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
-        ]
-        _ = AXIsProcessTrustedWithOptions(opts)
+        // Prompt for Accessibility only as part of the first-launch
+        // flow (so the app appears in the user's Accessibility list).
+        // On later launches FirstLaunchView / Preferences check with
+        // AXIsProcessTrusted() without re-prompting.
+        if !UserDefaults.standard.bool(forKey: "ibridge.didFirstLaunch") {
+            let opts: NSDictionary = [
+                "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
+            ]
+            _ = AXIsProcessTrustedWithOptions(opts)
+        }
 
-        // Register the embedded CMIO camera extension with macOS.
+        // Auto-activate the embedded CMIO camera extension once; after
+        // that the user controls it from Preferences → Camera Extension.
         // Requires running from /Applications; the user may need to
         // approve in System Settings → General → Login Items &
         // Extensions → Camera Extensions.
-        sysexManager.activate()
+        if !UserDefaults.standard.bool(forKey: "ibridge.sysexAutoActivated") {
+            UserDefaults.standard.set(true, forKey: "ibridge.sysexAutoActivated")
+            sysexManager.activate()
+        }
     }
 
     var body: some Scene {
@@ -61,16 +70,19 @@ struct iBridgeReceiverApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 800, height: 600)
+        .keyboardShortcut(KeyboardShortcut("p", modifiers: [.command, .shift]))
 
-        // Floating control panel.
+        // Floating control panel. The 380×620 size is the single source
+        // of truth — ControlPanelView fills whatever it is given.
         Window("iBridge Control Panel", id: "controls") {
             ControlPanelView()
                 .environmentObject(session)
-                .frame(width: 380, height: 580)
+                .frame(width: 380, height: 620)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.bottomTrailing)
         .windowStyle(.hiddenTitleBar)
+        .keyboardShortcut(KeyboardShortcut("p"))
 
         // Connection test window — four-quadrant live verification
         // of camera / keyboard / trackpad / mic channels.
@@ -81,11 +93,13 @@ struct iBridgeReceiverApp: App {
         .windowResizability(.contentMinSize)
         .defaultSize(width: 560, height: 640)
         .defaultPosition(.center)
+        .keyboardShortcut(KeyboardShortcut("t"))
 
         // Standard macOS Settings scene (⌘,) — General / Streaming / About
         Settings {
             PreferencesView()
                 .environmentObject(session)
+                .environmentObject(sysexManager)
         }
 
         // Menu bar popover.
@@ -97,8 +111,9 @@ struct iBridgeReceiverApp: App {
             // SF Symbol renders as a proper menu bar template image
             // (visible in light + dark). A custom Canvas label renders
             // as a solid blob — do not bring it back here.
+            // No session.start() here — ReceiverSession.init already
+            // starts Bonjour browsing, and start() is idempotent.
             Image(systemName: "iphone.gen3.radiowaves.left.and.right")
-                .onAppear { session.start() }
         }
         .menuBarExtraStyle(.window)
     }

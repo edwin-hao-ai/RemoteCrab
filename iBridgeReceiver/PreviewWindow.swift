@@ -2,11 +2,11 @@ import SwiftUI
 import iBridgeCore
 
 /// The main preview window — shows the most recently decoded H.264
-/// frame from the iPhone. Uses `ImageRenderer` to display CGImage
-/// efficiently without re-encoding on every frame.
+/// frame from the iPhone. The decoder republishes each frame as a
+/// `CGImage` on `ReceiverSession.latestFrame`, so display is a plain
+/// SwiftUI `Image` with no re-encoding.
 struct PreviewWindow: View {
     @EnvironmentObject private var session: ReceiverSession
-    @State private var renderer: ImageRenderer<AnyView>?
 
     var body: some View {
         ZStack {
@@ -20,7 +20,10 @@ struct PreviewWindow: View {
                 placeholder
             }
 
-            if !session.discovered.isEmpty {
+            // Only while actually streaming — after a disconnect the
+            // session clears `metadata`, so this bar (and its stats)
+            // disappears instead of showing stale numbers.
+            if session.metadata != nil {
                 VStack {
                     Spacer()
                     statusBar
@@ -53,11 +56,11 @@ struct PreviewWindow: View {
                 if let md = session.metadata {
                     Label(md.resolutionLabel, systemImage: "rectangle")
                     Label("\(md.fps) fps", systemImage: "speedometer")
-                    Label("\(md.bitrateBps / 1_000_000) Mbps", systemImage: "waveform")
+                    Label(IBFormat.bitrate(bps: md.bitrateBps), systemImage: "waveform")
                 }
                 if case .streaming(_, let ms) = session.state {
                     Spacer()
-                    Label("\(ms)ms", systemImage: "bolt.horizontal.fill")
+                    Label(IBLocale.Status.latency(ms), systemImage: "bolt.horizontal.fill")
                         .foregroundStyle(IBColor.success)
                 }
             }
@@ -69,12 +72,15 @@ struct PreviewWindow: View {
 }
 
 extension ReceiverSession.State {
+    /// User-facing text for the preview placeholder. Raw `NWError`
+    /// descriptions are logged in `ReceiverSession` but never shown
+    /// here — the user gets a friendly string instead.
     var message: String {
         switch self {
         case .searching:                return "Looking for an iPhone on your WiFi…"
         case .connecting(let name):     return "Connecting to \(name)…"
         case .streaming(let name, _):   return "Streaming from \(name)"
-        case .error(let msg):           return "Error: \(msg)"
+        case .error:                    return IBLocale.Error.iPhoneConnectionLost
         }
     }
 }

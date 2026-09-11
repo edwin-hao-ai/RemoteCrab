@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import iBridgeCore
 
@@ -8,9 +9,12 @@ import iBridgeCore
 /// Layout (top to bottom):
 ///   • Header: app identity + connection status pill
 ///   • Hero row: live preview thumbnail + stream stats card
-///   • Latency sparkline (last 30 frames)
+///   • Latency sparkline (last 30 ping round-trips)
 ///   • Device + session metadata
 ///   • Quick action buttons
+///
+/// The window size is single-sourced in `iBridgeReceiverApp`'s
+/// `Window("iBridge Control Panel")` scene — this view just fills it.
 struct ControlPanelView: View {
     @EnvironmentObject private var session: ReceiverSession
     @Environment(\.openWindow) private var openWindow
@@ -39,8 +43,6 @@ struct ControlPanelView: View {
             }
             .padding(16)
         }
-        .frame(width: 380, height: 620)
-        .onAppear { session.start() }
     }
 
     // MARK: - Header
@@ -118,11 +120,11 @@ struct ControlPanelView: View {
                     value: session.metadata.map { "\($0.fps) fps" } ?? "—",
                     sf: "speedometer")
             statRow("Bitrate",
-                    value: session.metadata.map { "\($0.bitrateBps / 1_000_000) Mbps" } ?? "—",
+                    value: session.metadata.map { IBFormat.bitrate(bps: $0.bitrateBps) } ?? "—",
                     sf: "waveform")
             statRow("Codec",
-                    value: (session.metadata?.codec ?? "h264").uppercased(),
-                    sf: "lock.shield")
+                    value: session.metadata.map { $0.codec.uppercased() } ?? "—",
+                    sf: "film")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
@@ -154,6 +156,11 @@ struct ControlPanelView: View {
 
     // MARK: - Latency sparkline
 
+    private var isStreaming: Bool {
+        if case .streaming = session.state { return true }
+        return false
+    }
+
     private var latencyCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -162,15 +169,18 @@ struct ControlPanelView: View {
                     .foregroundStyle(.white.opacity(0.55))
                     .ibEyebrowTracking()
                 Spacer()
-                Text("\(currentLatency) ms")
+                Text(isStreaming ? IBLocale.Status.latency(currentLatency) : "—")
                     .font(IBFont.monoMedium)
                     .foregroundStyle(latencyColor)
                     .ibNumericSpring(value: currentLatency)
             }
             // Inline mini-sparkline. Pure SwiftUI Path so we don't need
-            // an extra dependency on Charts.
-            Sparkline(samples: latencySamples, color: latencyColor)
-                .frame(height: 32)
+            // an extra dependency on Charts. Hidden until real ping
+            // RTT samples exist — never show simulated data.
+            if isStreaming && !session.latencyHistory.isEmpty {
+                Sparkline(samples: latencySamples, color: latencyColor)
+                    .frame(height: 32)
+            }
         }
         .padding(10)
         .background {
@@ -189,25 +199,18 @@ struct ControlPanelView: View {
     }
 
     private var latencyColor: Color {
+        guard isStreaming else { return .white.opacity(0.4) }
         switch currentLatency {
-        case 0:        return .white.opacity(0.4)
         case 1...50:   return IBColor.success
         case 51...150: return IBColor.warning
         default:       return IBColor.error
         }
     }
 
-    /// Real RTT samples from the ping loop. Falls back to a synthetic
-    /// sine curve before the first pong arrives so the sparkline
-    /// never renders empty.
+    /// Real RTT samples from the ping loop only — no synthetic
+    /// fallback; an empty history hides the sparkline entirely.
     private var latencySamples: [Double] {
-        let real = session.latencyHistory
-        guard real.isEmpty else { return real.map(Double.init) }
-        let baseline = max(currentLatency, 24)
-        return (0..<30).map { i in
-            let phase = Double(i) * 0.42
-            return Double(baseline) + sin(phase) * 6.0
-        }
+        session.latencyHistory.map(Double.init)
     }
 
     // MARK: - Device + session
@@ -236,7 +239,7 @@ struct ControlPanelView: View {
                 badge("TPAD", active: session.featureState?.trackpadOn ?? false)
                 badge("KEY", active: session.featureState?.keyboardOn ?? false)
                 Spacer()
-                Text("V0.2")
+                Text("V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2")")
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.4))
                     .ibEyebrowTracking()
@@ -276,7 +279,8 @@ struct ControlPanelView: View {
     private var actionRow: some View {
         HStack(spacing: 8) {
             Button {
-                NSApp.sendAction(#selector(NSWindow.toggleFullScreen(_:)), to: nil, from: nil)
+                openWindow(id: "preview")
+                NSApp.activate()
             } label: {
                 Label("Preview", systemImage: "rectangle.on.rectangle")
                     .font(IBFont.bodyMedium)
@@ -289,9 +293,11 @@ struct ControlPanelView: View {
                     }
             }
             .buttonStyle(.plain)
+            .help("Open the live preview window")
 
             Button {
                 openWindow(id: "test")
+                NSApp.activate()
             } label: {
                 Image(systemName: "checklist")
                     .font(.system(size: 13, weight: .semibold))
@@ -310,7 +316,10 @@ struct ControlPanelView: View {
             .help("Connection Test")
 
             Menu {
-                Button("Open Preview Window") { openWindow(id: "preview") }
+                Button("Open Preview Window") {
+                    openWindow(id: "preview")
+                    NSApp.activate()
+                }
                 Divider()
                 Button("Quit iBridge") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")

@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import SwiftUI
@@ -11,12 +12,17 @@ import iBridgeCore
 /// take effect immediately (without requiring a restart).
 struct PreferencesView: View {
     @EnvironmentObject private var session: ReceiverSession
+    @EnvironmentObject private var sysexManager: SystemExtensionManager
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("ibridge.resolution")     private var resolution: String = "1080p"
     @AppStorage("ibridge.frameRate")       private var frameRate: Int = 30
     @AppStorage("ibridge.audioQuality")    private var audioQuality: String = "Standard (48 kHz)"
     @AppStorage("ibridge.cameraPosition")  private var cameraPosition: String = "Back"
     @AppStorage("ibridge.launchAtLogin")   private var launchAtLogin: Bool = false
     @AppStorage("ibridge.autoReconnect")   private var autoReconnect: Bool = true
+    @AppStorage("ibridge.didFirstLaunch")  private var didFirstLaunch: Bool = false
+
+    @State private var hasAccessibility: Bool = AXIsProcessTrusted()
 
     var body: some View {
         TabView {
@@ -29,7 +35,8 @@ struct PreferencesView: View {
             aboutTab
                 .tabItem { Label(IBLocale.Settings.about, systemImage: "info.circle") }
         }
-        .frame(width: 540, height: 420)
+        .frame(width: 480, height: 380)
+        .onAppear { hasAccessibility = AXIsProcessTrusted() }
     }
 
     // MARK: - General
@@ -42,7 +49,7 @@ struct PreferencesView: View {
                         Text(pos.localizedLabel).tag(pos.rawValue)
                     }
                 }
-                .accessibilityLabel(IBLocale.Settings.video)
+                .accessibilityLabel("Camera position")
                 .accessibilityHint("Which iPhone camera to use as the live feed")
 
                 Toggle(IBLocale.Settings.openAtLogin, isOn: $launchAtLogin)
@@ -51,6 +58,64 @@ struct PreferencesView: View {
                 Toggle("Auto-reconnect on connection loss", isOn: $autoReconnect)
             } header: {
                 Text(IBLocale.Settings.general)
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: hasAccessibility
+                          ? "checkmark.shield.fill"
+                          : "exclamationmark.shield.fill")
+                        .foregroundStyle(hasAccessibility ? IBColor.success : IBColor.warning)
+                    Text(hasAccessibility
+                         ? IBLocale.Permission.accessibilityGranted
+                         : IBLocale.Permission.accessibilityRequired)
+                        .font(IBFont.bodySmall)
+                    Spacer()
+                    Button(IBLocale.Permission.openSystemSettings) {
+                        openAccessibilitySettings()
+                    }
+                    .controlSize(.small)
+                }
+
+                Button(IBLocale.Settings.resetAccessibility) {
+                    // Reset the flag so the root window shows the
+                    // first-launch flow (which re-prompts) again.
+                    didFirstLaunch = false
+                    openWindow(id: "root")
+                    NSApp.activate()
+                }
+                .controlSize(.small)
+            } header: {
+                Text(IBLocale.Settings.accessibility)
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: sysexStatusIcon)
+                        .foregroundStyle(sysexStatusColor)
+                    Text(sysexStatusLabel)
+                        .font(IBFont.bodySmall)
+                    Spacer()
+                    if case .awaitingApproval = sysexManager.activationState {
+                        Button(IBLocale.Permission.openSystemSettings) {
+                            openExtensionSettings()
+                        }
+                        .controlSize(.small)
+                    }
+                    Button(IBLocale.Settings.activate) {
+                        sysexManager.activate()
+                    }
+                    .controlSize(.small)
+                }
+                if case .failed(let message) = sysexManager.activationState {
+                    Text("\(IBLocale.Settings.sysexFailed): \(message)")
+                        .font(IBFont.caption)
+                        .foregroundStyle(IBColor.error)
+                }
+            } header: {
+                Text(IBLocale.Settings.cameraExtension)
+            } footer: {
+                Text("Lets other apps use your iPhone as a webcam. Runs from /Applications only.")
             }
         }
         .formStyle(.grouped)
@@ -115,9 +180,11 @@ struct PreferencesView: View {
                 }
 
                 GroupBox {
-                    row("Version", value: "0.2")
-                    row("Build",   value: "1")
-                    row("Made for", value: "macOS 26+")
+                    row(IBLocale.Settings.versionLabel,
+                        value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+                    row(IBLocale.Settings.buildLabel,
+                        value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
+                    row(IBLocale.Settings.builtFor, value: "macOS 26+")
                 }
                 .frame(maxWidth: 320)
                 .accessibilityElement(children: .combine)
@@ -144,6 +211,52 @@ struct PreferencesView: View {
             Text(value)
                 .font(IBFont.monoMedium)
                 .foregroundStyle(.primary)
+        }
+    }
+
+    // MARK: - Helpers
+
+    private var sysexStatusLabel: String {
+        switch sysexManager.activationState {
+        case .notInstalled:     return IBLocale.Settings.sysexNotInstalled
+        case .awaitingApproval: return IBLocale.Settings.sysexAwaitingApproval
+        case .active:           return IBLocale.Settings.sysexActive
+        case .failed:           return IBLocale.Settings.sysexFailed
+        }
+    }
+
+    private var sysexStatusIcon: String {
+        switch sysexManager.activationState {
+        case .notInstalled:     return "circle"
+        case .awaitingApproval: return "clock.badge.exclamationmark"
+        case .active:           return "checkmark.circle.fill"
+        case .failed:           return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var sysexStatusColor: Color {
+        switch sysexManager.activationState {
+        case .notInstalled:     return .secondary
+        case .awaitingApproval: return IBColor.warning
+        case .active:           return IBColor.success
+        case .failed:           return IBColor.error
+        }
+    }
+
+    private func openAccessibilitySettings() {
+        if let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        } else if let url = URL(string: "x-apple.systempreferences:") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func openExtensionSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") {
+            NSWorkspace.shared.open(url)
         }
     }
 }

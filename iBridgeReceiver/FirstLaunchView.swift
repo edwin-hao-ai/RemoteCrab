@@ -14,7 +14,8 @@ import iBridgeCore
 ///   • Shown once on first launch
 ///   • "Get Started" requests Accessibility permission
 ///   • Once granted, transitions to the normal UI
-///   • "Show again" is always available from the menu bar → Preferences
+///   • "Re-request Accessibility permission" in Preferences resets the
+///     flag and shows this flow again
 struct FirstLaunchView: View {
     @Binding var didComplete: Bool
     @State private var hasAccessibility: Bool = false
@@ -105,6 +106,12 @@ struct FirstLaunchView: View {
         }
         .frame(width: 460, height: 600)
         .onAppear { hasAccessibility = AXIsProcessTrusted() }
+        // The user grants the permission in System Settings and comes
+        // back — refresh as soon as our window becomes key again so the
+        // status flips without needing the manual "Re-check" button.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            hasAccessibility = AXIsProcessTrusted()
+        }
     }
 
     // MARK: - Action row
