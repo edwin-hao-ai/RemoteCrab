@@ -72,6 +72,16 @@ struct iBridgeReceiverApp: App {
         .defaultPosition(.bottomTrailing)
         .windowStyle(.hiddenTitleBar)
 
+        // Connection test window — four-quadrant live verification
+        // of camera / keyboard / trackpad / mic channels.
+        Window("Connection Test", id: "test") {
+            TestWindowView()
+                .environmentObject(session)
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 560, height: 640)
+        .defaultPosition(.center)
+
         // Standard macOS Settings scene (⌘,) — General / Streaming / About
         Settings {
             PreferencesView()

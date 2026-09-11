@@ -13,6 +13,7 @@ import iBridgeCore
 ///   • Quick action buttons
 struct ControlPanelView: View {
     @EnvironmentObject private var session: ReceiverSession
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ZStack {
@@ -196,10 +197,12 @@ struct ControlPanelView: View {
         }
     }
 
-    /// Simulated latency samples — replaced with a real ring buffer
-    /// when the connection pipeline lands. For now the curve stays
-    /// visually consistent.
+    /// Real RTT samples from the ping loop. Falls back to a synthetic
+    /// sine curve before the first pong arrives so the sparkline
+    /// never renders empty.
     private var latencySamples: [Double] {
+        let real = session.latencyHistory
+        guard real.isEmpty else { return real.map(Double.init) }
         let baseline = max(currentLatency, 24)
         return (0..<30).map { i in
             let phase = Double(i) * 0.42
@@ -287,8 +290,27 @@ struct ControlPanelView: View {
             }
             .buttonStyle(.plain)
 
+            Button {
+                openWindow(id: "test")
+            } label: {
+                Image(systemName: "checklist")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(.white.opacity(0.1))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                            }
+                    }
+            }
+            .buttonStyle(.plain)
+            .help("Connection Test")
+
             Menu {
-                Button("OpenPreviewWindow") { /* ... */ }
+                Button("Open Preview Window") { openWindow(id: "preview") }
                 Divider()
                 Button("Quit iBridge") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")

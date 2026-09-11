@@ -32,6 +32,20 @@ final class ReceiverSession: ObservableObject {
     /// send one — the UI must treat nil as "remote control unavailable").
     @Published private(set) var featureState: FeatureStateSnapshot?
 
+    // MARK: - Connection test mirrors (read-only for the UI)
+
+    /// Rolling tail of everything typed from the iPhone keyboard,
+    /// truncated to the most recent 200 characters.
+    @Published private(set) var typedText: String = ""
+    /// The most recent `.down` / `.text` key event.
+    @Published private(set) var lastKey: KeyEvent?
+    /// The most recent touch event, mirrored for the test-board view.
+    @Published private(set) var touchVisual: TouchVisual?
+    /// Live microphone RMS level (0..1), ~10 Hz from `AudioPlayer`.
+    @Published private(set) var micLevel: Float = 0
+    /// The 30 most recent ping round-trip times, oldest first.
+    @Published private(set) var latencyHistory: [Int] = []
+
     private var pingTimer: Timer?
     private static let log = Logger(subsystem: "com.ibridge", category: "receiver")
 
@@ -63,6 +77,12 @@ final class ReceiverSession: ObservableObject {
         }
         Task { [cameraBridge] in
             try? await cameraBridge.start(sink: NullFrameSink())
+        }
+        audioPlayer.onLevel = { [weak self] level in
+            // onLevel fires on the audio player's private queue.
+            Task { @MainActor in
+                self?.micLevel = level
+            }
         }
         audioPlayer.start()
         start()
@@ -141,12 +161,14 @@ final class ReceiverSession: ObservableObject {
             featureState = nil
             connection = nil
             cameraBridge.streamStopped()
+            clearTestMirrors()
         case .cancelled:
             stopPingLoop()
             state = .searching
             featureState = nil
             connection = nil
             cameraBridge.streamStopped()
+            clearTestMirrors()
         default:
             break
         }
@@ -171,6 +193,15 @@ final class ReceiverSession: ObservableObject {
 
     private func currentPhoneName() -> String? {
         connection?.endpoint.debugDescription
+    }
+
+    /// Wipe the connection-test mirrors when the link goes away so the
+    /// test window never shows stale evidence of a dead connection.
+    private func clearTestMirrors() {
+        typedText = ""
+        lastKey = nil
+        touchVisual = nil
+        micLevel = 0
     }
 
     // MARK: - Receive loop
@@ -213,10 +244,25 @@ final class ReceiverSession: ObservableObject {
                 cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.video.rawValue))
             case .touch:
                 if let event = try? IBWire.decodeTouch(frame) {
+                    touchVisual = TouchVisual(event: event)
                     inputInjector.inject(touch: event, screenSize: screenSize)
                 }
             case .key:
                 if let event = try? IBWire.decodeKey(frame) {
+                    switch event.action {
+                    case .text:
+                        if let text = event.text {
+                            typedText.append(text)
+                            if typedText.count > 200 {
+                                typedText = String(typedText.suffix(200))
+                            }
+                        }
+                        lastKey = event
+                    case .down:
+                        lastKey = event
+                    case .up:
+                        break
+                    }
                     inputInjector.inject(key: event)
                 }
             case .audio:
@@ -238,6 +284,10 @@ final class ReceiverSession: ObservableObject {
                 let sentMicros = IBWire.decodePing(frame)
                 let nowMicros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
                 let rttMs = Int((nowMicros &- sentMicros) / 1_000)
+                latencyHistory.append(rttMs)
+                if latencyHistory.count > 30 {
+                    latencyHistory.removeFirst(latencyHistory.count - 30)
+                }
                 if case .streaming(let name, _) = state {
                     state = .streaming(name: name, latencyMs: rttMs)
                 }
@@ -262,6 +312,30 @@ final class ReceiverSession: ObservableObject {
         } catch {
             Self.log.error("metadata decode failed: \(error, privacy: .public)")
         }
+    }
+}
+
+/// UI-friendly mirror of the most recent `TouchEvent`, consumed by
+/// the connection test window's trackpad board. Coordinates stay
+/// normalized 0..1 (no screen remapping).
+struct TouchVisual: Equatable, Sendable {
+    let phase: TouchEvent.Phase
+    let x: Float
+    let y: Float
+    let dx: Float
+    let dy: Float
+    let modifiers: UInt8
+    /// When the Mac received the event — drives the idle fade-out.
+    let receivedAt: Date
+
+    init(event: TouchEvent, receivedAt: Date = Date()) {
+        phase = event.phase
+        x = event.x
+        y = event.y
+        dx = event.dx
+        dy = event.dy
+        modifiers = event.modifiers
+        self.receivedAt = receivedAt
     }
 }
 

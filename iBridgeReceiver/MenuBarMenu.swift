@@ -22,6 +22,7 @@ import iBridgeCore
 /// - **SF Symbols hierarchical** for variable visual weight.
 struct MenuBarMenu: View {
     @EnvironmentObject private var session: ReceiverSession
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 0) {
@@ -225,10 +226,19 @@ struct MenuBarMenu: View {
             sectionHeader("ACTIONS")
             ActionRow(icon: "rectangle.on.rectangle",
                       title: "Open Control Panel",
-                      shortcut: "⌘P")
+                      shortcut: "⌘P") {
+                openWindow(id: "controls")
+            }
             ActionRow(icon: "macwindow",
                       title: "Open Preview Window",
-                      shortcut: "⌘⇧P")
+                      shortcut: "⌘⇧P") {
+                openWindow(id: "preview")
+            }
+            ActionRow(icon: "checklist",
+                      title: "Connection Test",
+                      shortcut: "⌘T") {
+                openWindow(id: "test")
+            }
             ActionRow(icon: "gear",
                       title: "Preferences…",
                       shortcut: "⌘,")
@@ -346,8 +356,22 @@ private struct ActionRow: View {
     let icon: String
     let title: String
     let shortcut: String
+    var action: (() -> Void)? = nil
 
     var body: some View {
+        Group {
+            if let action {
+                Button(action: action) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+        }
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 12, weight: .medium))

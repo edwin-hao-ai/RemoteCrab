@@ -18,6 +18,11 @@ final class AudioPlayer {
     private var targetSampleRate: Double = 48_000
     private var targetChannels: AVAudioChannelCount = 1
 
+    /// RMS level (0..1) of incoming mic audio, throttled to ~10 Hz.
+    /// Fires on `queue` — hop to the main actor before touching UI.
+    var onLevel: ((Float) -> Void)?
+    private var lastLevelSentMicros: UInt64 = 0
+
     func start() {
         guard !isStarted else { return }
         let outputFormat = engine.outputNode.outputFormat(forBus: 0)
@@ -68,8 +73,36 @@ final class AudioPlayer {
             if self.targetChannels == 1 && packet.channels > 1 {
                 self.targetChannels = AVAudioChannelCount(packet.channels)
             }
+            self.reportLevel(for: packet)
             self.pcmBuffer.append(packet.opusData)
         }
+    }
+
+    /// Compute the RMS of one 16-bit interleaved PCM packet and fire
+    /// `onLevel`, throttled to ~10 Hz by packet timestamp (wall clock
+    /// as fallback when the sender didn't stamp the packet).
+    private func reportLevel(for packet: AudioPacket) {
+        guard onLevel != nil else { return }
+        let nowMicros = packet.timestampMicros != 0
+            ? packet.timestampMicros
+            : UInt64(Date().timeIntervalSince1970 * 1_000_000)
+        guard nowMicros &- lastLevelSentMicros >= 100_000 else { return }
+        lastLevelSentMicros = nowMicros
+        onLevel?(Self.rmsLevel(packet.opusData))
+    }
+
+    private static func rmsLevel(_ data: Data) -> Float {
+        let sampleCount = data.count / 2
+        guard sampleCount > 0 else { return 0 }
+        var sumSquares: Double = 0
+        data.withUnsafeBytes { raw in
+            for sample in raw.bindMemory(to: Int16.self) {
+                let v = Double(sample)
+                sumSquares += v * v
+            }
+        }
+        let rms = sqrt(sumSquares / Double(sampleCount)) / 32768.0
+        return Float(min(rms, 1.0))
     }
 
     // MARK: - Source node pull
