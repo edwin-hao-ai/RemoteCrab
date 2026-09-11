@@ -15,16 +15,8 @@ struct TestWindowView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.06, green: 0.14, blue: 0.36),
-                    Color(red: 0.42, green: 0.10, blue: 0.50),
-                    Color(red: 0.20, green: 0.05, blue: 0.30)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            IBGradient.brand
+                .ignoresSafeArea()
 
             VStack(spacing: 12) {
                 header
@@ -58,16 +50,7 @@ struct TestWindowView: View {
                     .ibEyebrowTracking()
             }
             Spacer()
-            IBStatusPill(status: pillStatus)
-        }
-    }
-
-    private var pillStatus: IBStatusPill.Status {
-        switch session.state {
-        case .searching:            return .reconnecting
-        case .connecting:           return .reconnecting
-        case .streaming(_, let ms): return .connected(latencyMs: ms)
-        case .error:                return .disconnected(reason: "Offline")
+            IBStatusPill(status: session.state.statusPillStatus)
         }
     }
 
@@ -111,10 +94,10 @@ struct TestWindowView: View {
     private var cameraStats: String {
         let resolution = session.metadata?.resolutionLabel ?? "—"
         let fps = session.metadata.map { "\($0.fps)" } ?? "—"
-        let mbps = session.metadata.map { "\($0.bitrateBps / 1_000_000)" } ?? "—"
+        let bitrate = session.metadata.map { IBFormat.bitrate(bps: $0.bitrateBps) } ?? "—"
         var latency = "—"
         if case .streaming(_, let ms) = session.state { latency = "\(ms)" }
-        return "\(resolution) · \(fps) fps · \(mbps) Mbps · \(latency) ms"
+        return "\(resolution) · \(fps) fps · \(bitrate) · \(latency) ms"
     }
 
     // MARK: - Keyboard quadrant

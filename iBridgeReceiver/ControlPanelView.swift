@@ -22,16 +22,8 @@ struct ControlPanelView: View {
     var body: some View {
         ZStack {
             // Background gradient — also shows through Liquid Glass.
-            LinearGradient(
-                colors: [
-                    Color(red: 0.06, green: 0.14, blue: 0.36),
-                    Color(red: 0.42, green: 0.10, blue: 0.50),
-                    Color(red: 0.20, green: 0.05, blue: 0.30)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            IBGradient.brand
+                .ignoresSafeArea()
 
             VStack(spacing: 14) {
                 header
@@ -59,16 +51,7 @@ struct ControlPanelView: View {
                     .ibEyebrowTracking()
             }
             Spacer()
-            IBStatusPill(status: pillStatus)
-        }
-    }
-
-    private var pillStatus: IBStatusPill.Status {
-        switch session.state {
-        case .searching:        return .reconnecting
-        case .connecting:       return .reconnecting
-        case .streaming(_, let ms): return .connected(latencyMs: ms)
-        case .error:            return .disconnected(reason: "Offline")
+            IBStatusPill(status: session.state.statusPillStatus)
         }
     }
 

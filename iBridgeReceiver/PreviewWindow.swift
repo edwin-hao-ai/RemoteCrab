@@ -39,14 +39,12 @@ struct PreviewWindow: View {
             Image(systemName: "iphone.gen3.radiowaves.left.and.right")
                 .font(.system(size: 56))
                 .foregroundStyle(.white.opacity(0.3))
+            IBStatusPill(status: session.state.statusPillStatus)
             Text(session.state.message)
-                .font(IBFont.bodyMedium)
-                .foregroundStyle(.white.opacity(0.6))
-            if case .searching = session.state {
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white.opacity(0.6))
-            }
+                .font(IBFont.caption)
+                .foregroundStyle(.white.opacity(0.5))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
         }
     }
 

@@ -258,6 +258,7 @@ final class ReceiverSession: ObservableObject {
             case .metadata:
                 handleMetadata(frame.payload)
             case .sps:
+                Self.log.info("SPS received (\(frame.payload.count, privacy: .public) bytes)")
                 decoder.feedSPS(frame.payload)
                 cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.sps.rawValue))
             case .pps:
@@ -375,5 +376,19 @@ struct DiscoveredPhone: Identifiable, Equatable {
 
     static func == (lhs: DiscoveredPhone, rhs: DiscoveredPhone) -> Bool {
         lhs.id == rhs.id
+    }
+}
+
+extension ReceiverSession.State {
+    /// Single source of truth for rendering connection state as the
+    /// shared status pill, so the menu bar popover, control panel,
+    /// preview window and connection test all show the same thing.
+    var statusPillStatus: IBStatusPill.Status {
+        switch self {
+        case .searching:            return .searching
+        case .connecting:           return .connecting
+        case .streaming(_, let ms): return .connected(latencyMs: ms)
+        case .error:                return .disconnected(reason: "Connection lost")
+        }
     }
 }

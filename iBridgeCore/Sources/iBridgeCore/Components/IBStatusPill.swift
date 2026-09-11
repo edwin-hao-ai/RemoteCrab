@@ -14,6 +14,10 @@ public struct IBStatusPill: View {
         /// Calm pre-stream state — nothing has been started yet, so
         /// nothing is wrong. Gray, non-pulsing.
         case idle
+        /// Bonjour browse in progress, no peer picked yet.
+        case searching
+        /// A peer was found and the TCP handshake is in flight.
+        case connecting
 
         var label: String {
             switch self {
@@ -21,6 +25,8 @@ public struct IBStatusPill: View {
             case .reconnecting:             return IBLocale.Status.reconnecting
             case .disconnected:             return IBLocale.Status.offline
             case .idle:                     return IBLocale.Status.ready
+            case .searching:                return IBLocale.Status.looking
+            case .connecting:               return IBLocale.Status.connecting
             }
         }
 
@@ -28,6 +34,7 @@ public struct IBStatusPill: View {
             switch self {
             case .connected(let ms):        return ms.map { "\($0)ms" }
             case .reconnecting, .idle:      return nil
+            case .searching, .connecting:   return nil
             case .disconnected(let reason): return reason
             }
         }
@@ -38,12 +45,14 @@ public struct IBStatusPill: View {
             case .reconnecting:             return IBColor.warning
             case .disconnected:             return IBColor.error
             case .idle:                     return IBColor.textTertiary
+            case .searching, .connecting:   return IBColor.warning
             }
         }
 
         var isPulsing: Bool {
             switch self {
             case .connected, .reconnecting: return true
+            case .searching, .connecting:   return true
             case .disconnected, .idle:      return false
             }
         }
@@ -64,7 +73,7 @@ public struct IBStatusPill: View {
             return "Connection \(status.label)"
         case .disconnected(let reason):
             return "Connection \(status.label). \(reason)"
-        case .reconnecting, .idle:
+        case .reconnecting, .idle, .searching, .connecting:
             return "Connection \(status.label)"
         }
     }
@@ -117,6 +126,8 @@ public struct IBStatusPill: View {
         IBStatusPill(status: .connected(latencyMs: 24))
         IBStatusPill(status: .connected(latencyMs: nil))
         IBStatusPill(status: .idle)
+        IBStatusPill(status: .searching)
+        IBStatusPill(status: .connecting)
         IBStatusPill(status: .reconnecting)
         IBStatusPill(status: .disconnected(reason: "No WiFi"))
     }

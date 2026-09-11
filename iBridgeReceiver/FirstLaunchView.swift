@@ -25,7 +25,7 @@ struct FirstLaunchView: View {
         ZStack {
             background
             VStack(spacing: 0) {
-                Spacer().frame(height: 40)
+                Spacer().frame(height: IBSpace.xxxl.pt)
 
                 // Hero icon
                 ZStack {
@@ -40,7 +40,7 @@ struct FirstLaunchView: View {
                         .foregroundStyle(.white)
                 }
 
-                Spacer().frame(height: 32)
+                Spacer().frame(height: IBSpace.xxl.pt)
 
                 // Explanation card
                 VStack(alignment: .leading, spacing: 14) {
@@ -62,7 +62,7 @@ struct FirstLaunchView: View {
                 }
                 .padding(.horizontal, 24)
 
-                Spacer().frame(height: 28)
+                Spacer().frame(height: IBSpace.xl.pt)
 
                 // Status: Accessibility
                 HStack(spacing: 8) {
@@ -70,10 +70,10 @@ struct FirstLaunchView: View {
                           ? "checkmark.shield.fill"
                           : "exclamationmark.shield.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(hasAccessibility ? .green : .orange)
+                        .foregroundStyle(hasAccessibility ? IBColor.success : IBColor.warning)
                     Text(hasAccessibility
-                         ? "Accessibility granted"
-                         : "Accessibility permission required")
+                         ? IBLocale.Permission.accessibilityGranted
+                         : IBLocale.Permission.accessibilityRequired)
                         .font(IBFont.bodyMedium)
                         .foregroundStyle(.primary)
                     Spacer()
@@ -81,11 +81,20 @@ struct FirstLaunchView: View {
                         Button {
                             refresh()
                         } label: {
-                            Text(refreshing ? "Checking…" : "Re-check")
-                                .font(IBFont.bodySmall)
-                                .foregroundStyle(Color.accentColor)
+                            HStack(spacing: 6) {
+                                if refreshing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.6)
+                                        .frame(width: 10, height: 10)
+                                }
+                                Text(refreshing ? "Checking…" : IBLocale.Permission.recheck)
+                                    .font(IBFont.bodySmall)
+                                    .foregroundStyle(Color.accentColor)
+                            }
                         }
                         .buttonStyle(.plain)
+                        .disabled(refreshing)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -101,7 +110,7 @@ struct FirstLaunchView: View {
 
                 actionRow
                     .padding(.horizontal, 24)
-                    .padding(.bottom, 28)
+                    .padding(.bottom, IBSpace.xl.pt)
             }
         }
         .frame(width: 460, height: 600)
@@ -116,8 +125,11 @@ struct FirstLaunchView: View {
 
     // MARK: - Action row
 
+    /// Primary action full-width on top; the escape hatch ("Skip for
+    /// now") sits centered below it instead of being squeezed to the
+    /// trailing edge of an HStack.
     private var actionRow: some View {
-        HStack(spacing: 8) {
+        VStack(spacing: IBSpace.m.pt) {
             if hasAccessibility {
                 Button {
                     didComplete = true
@@ -140,7 +152,7 @@ struct FirstLaunchView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "lock.shield")
-                        Text("Open System Settings")
+                        Text(IBLocale.Permission.openSystemSettings)
                     }
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
@@ -153,7 +165,6 @@ struct FirstLaunchView: View {
                 Button("Skip for now") { didComplete = true }
                     .font(IBFont.bodySmall)
                     .foregroundStyle(.white.opacity(0.55))
-                    .padding(.top, 2)
             }
         }
     }
@@ -199,14 +210,7 @@ struct FirstLaunchView: View {
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [
-                Color(red: 0.05, green: 0.08, blue: 0.18),
-                Color(red: 0.16, green: 0.06, blue: 0.32)
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        IBGradient.brand
+            .ignoresSafeArea()
     }
 }

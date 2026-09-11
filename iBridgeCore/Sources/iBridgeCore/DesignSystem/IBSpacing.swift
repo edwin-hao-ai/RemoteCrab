@@ -15,6 +15,7 @@ public enum IBSpace {
     case l    // 16pt
     case xl   // 24pt
     case xxl  // 32pt
+    case xxxl // 40pt
     case huge // 48pt
 
     public var pt: CGFloat {
@@ -26,6 +27,7 @@ public enum IBSpace {
         case .l:    return 16
         case .xl:   return 24
         case .xxl:  return 32
+        case .xxxl: return 40
         case .huge: return 48
         }
     }

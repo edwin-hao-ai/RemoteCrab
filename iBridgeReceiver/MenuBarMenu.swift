@@ -61,15 +61,7 @@ struct MenuBarMenu: View {
     }
 
     private var statusPill: some View {
-        HStack(spacing: 4) {
-            Image(systemName: statusIcon)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(statusColor)
-            Text(statusLabel)
-                .font(IBFont.eyebrowMono)
-                .foregroundStyle(.primary)
-                .ibEyebrowTracking()
-        }
+        IBStatusPill(status: session.state.statusPillStatus)
     }
 
     private var deviceRow: some View {
@@ -85,8 +77,16 @@ struct MenuBarMenu: View {
                 Text(IBLocale.Status.latency(ms))
                     .font(IBFont.monoSmall)
                     .foregroundStyle(statusColor)
+                if let md = session.metadata {
+                    Text("·")
+                        .font(IBFont.monoSmall)
+                        .foregroundStyle(.secondary)
+                    Text(IBFormat.bitrate(bps: md.bitrateBps))
+                        .font(IBFont.monoSmall)
+                        .foregroundStyle(.secondary)
+                }
             } else {
-                Text("OFFLINE")
+                Text(IBLocale.Status.offline)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.secondary)
                     .ibEyebrowTracking()
@@ -177,9 +177,16 @@ struct MenuBarMenu: View {
         } else {
             // Offline state — show a single hint row
             HStack(spacing: 8) {
-                Image(systemName: "wifi.slash")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                if case .error = session.state {
+                    Image(systemName: "wifi.slash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                        .frame(width: 12, height: 12)
+                }
                 Text("Waiting for an iPhone…")
                     .font(IBFont.bodySmall)
                     .foregroundStyle(.secondary)
@@ -315,25 +322,9 @@ struct MenuBarMenu: View {
         )
     }
 
-    // Status derived from the live session state.
-    private var statusLabel: String {
-        switch session.state {
-        case .searching:        return "LOOKING"
-        case .connecting:       return "CONNECTING"
-        case .streaming:        return "LIVE"
-        case .error:            return "OFFLINE"
-        }
-    }
-
-    private var statusIcon: String {
-        switch session.state {
-        case .searching:        return "antenna.radiowaves.left.and.right"
-        case .connecting:       return "antenna.radiowaves.left.and.right"
-        case .streaming:        return "circle.fill"
-        case .error:            return "exclamationmark.triangle"
-        }
-    }
-
+    // Status derived from the live session state. The pill itself is
+    // `IBStatusPill` (see `ReceiverSession.State.statusPillStatus`);
+    // this color is only reused for the latency readout in deviceRow.
     private var statusColor: Color {
         switch session.state {
         case .searching:        return IBColor.warning

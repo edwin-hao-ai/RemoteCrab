@@ -102,20 +102,33 @@ struct iBridgeReceiverApp: App {
                 .environmentObject(sysexManager)
         }
 
-        // Menu bar popover.
+        // Menu bar popover. The 320pt width is single-sourced inside
+        // MenuBarMenu itself.
         MenuBarExtra {
             MenuBarMenu()
                 .environmentObject(session)
-                .frame(width: 320)
         } label: {
             // SF Symbol renders as a proper menu bar template image
             // (visible in light + dark). A custom Canvas label renders
             // as a solid blob — do not bring it back here.
             // No session.start() here — ReceiverSession.init already
             // starts Bonjour browsing, and start() is idempotent.
-            Image(systemName: "iphone.gen3.radiowaves.left.and.right")
+            Image(systemName: menuBarSymbol)
         }
         .menuBarExtraStyle(.window)
+    }
+
+    /// The menu bar icon mirrors the connection state so status is
+    /// glanceable without opening the popover: radiowaves while live,
+    /// an antenna while looking/connecting, a plain iPhone when the
+    /// connection dropped. Plain SF Symbols only — template rendering
+    /// keeps them legible in light and dark menu bars.
+    private var menuBarSymbol: String {
+        switch session.state {
+        case .streaming:            return "iphone.gen3.radiowaves.left.and.right"
+        case .searching, .connecting: return "antenna.radiowaves.left.and.right"
+        case .error:                return "iphone.gen3"
+        }
     }
 }
 
@@ -139,14 +152,7 @@ private struct MainWindowView: View {
         }
         .frame(width: 360, height: 220)
         .background {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.06, green: 0.10, blue: 0.22),
-                    Color(red: 0.20, green: 0.06, blue: 0.32)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            IBGradient.brand
         }
     }
 }
