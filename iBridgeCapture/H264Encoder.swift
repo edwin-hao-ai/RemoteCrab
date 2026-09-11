@@ -3,6 +3,7 @@ import CoreVideo
 import Foundation
 import VideoToolbox
 import iBridgeCore
+import os
 
 /// Hardware H.264 encoder using VideoToolbox. Conforms to
 /// `AVCaptureVideoDataOutputSampleBufferDelegate` so it can be plugged
@@ -12,6 +13,8 @@ import iBridgeCore
 /// the `onFrame` callback. SPS / PPS are emitted the first time they
 /// change — the receiver needs them to set up its decoder.
 final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+
+    private static let log = Logger(subsystem: "com.ibridge", category: "H264Encoder")
 
     // MARK: - Public
 
@@ -130,7 +133,7 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
         )
 
         if status != noErr {
-            print("[iBridge] VTCompressionSessionEncodeFrame failed: \(status)")
+            Self.log.error("VTCompressionSessionEncodeFrame failed: \(status)")
         }
     }
 
@@ -169,9 +172,16 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
             let nalStart = offset + 4
             let nalEnd = nalStart + Int(length)
             guard nalEnd <= totalLength else { break }
+            guard nalEnd > nalStart else {
+                // Zero-length NAL unit — skip the 4-byte prefix and move on.
+                offset = nalStart
+                continue
+            }
 
+            // Note: `data[nalStart..<nalEnd]` produces a slice whose
+            // startIndex is `nalStart`, not 0 — never subscript it with [0].
+            let nalUnitType = data[nalStart] & 0x1F
             let nalSlice = data[nalStart..<nalEnd]
-            let nalUnitType = nalSlice[0] & 0x1F
 
             if nalUnitType == 7 {
                 lastSPS = Data(nalSlice)
