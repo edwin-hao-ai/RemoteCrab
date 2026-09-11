@@ -226,19 +226,19 @@ struct MenuBarMenu: View {
             sectionHeader("ACTIONS")
             ActionRow(icon: "rectangle.on.rectangle",
                       title: "Open Control Panel",
-                      shortcut: "⌘P") {
-                openWindow(id: "controls")
-            }
+                      shortcut: "⌘P",
+                      action: { openWindow(id: "controls") },
+                      keys: KeyboardShortcut("p"))
             ActionRow(icon: "macwindow",
                       title: "Open Preview Window",
-                      shortcut: "⌘⇧P") {
-                openWindow(id: "preview")
-            }
+                      shortcut: "⌘⇧P",
+                      action: { openWindow(id: "preview") },
+                      keys: KeyboardShortcut("p", modifiers: [.command, .shift]))
             ActionRow(icon: "checklist",
                       title: "Connection Test",
-                      shortcut: "⌘T") {
-                openWindow(id: "test")
-            }
+                      shortcut: "⌘T",
+                      action: { openWindow(id: "test") },
+                      keys: KeyboardShortcut("t"))
             ActionRow(icon: "gear",
                       title: "Preferences…",
                       shortcut: "⌘,")
@@ -357,6 +357,7 @@ private struct ActionRow: View {
     let title: String
     let shortcut: String
     var action: (() -> Void)? = nil
+    var keys: KeyboardShortcut? = nil
 
     var body: some View {
         Group {
@@ -365,6 +366,7 @@ private struct ActionRow: View {
                     rowContent
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(keys)
             } else {
                 rowContent
             }
