@@ -165,10 +165,12 @@ final class ReceiverSession: ObservableObject {
             stopPingLoop()
             state = .error("\(error)")
             clearConnectionState()
+            scheduleReconnect()
         case .cancelled:
             stopPingLoop()
             state = .searching
             clearConnectionState()
+            scheduleReconnect()
         default:
             break
         }
@@ -189,6 +191,19 @@ final class ReceiverSession: ObservableObject {
     private func stopPingLoop() {
         pingTimer?.invalidate()
         pingTimer = nil
+    }
+
+    /// After a drop, retry the last discovered phone every few seconds.
+    /// The Bonjour browser keeps running, so `discovered` stays fresh;
+    /// if the phone disappears the connect fails and this re-arms.
+    private func scheduleReconnect() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.connection == nil else { return }
+            if let phone = self.discovered.first {
+                self.connect(to: phone)
+            }
+        }
     }
 
     private func currentPhoneName() -> String? {
