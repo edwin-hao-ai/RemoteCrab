@@ -96,6 +96,25 @@ struct ContentView: View {
                 UserDefaults.standard.set(true, forKey: "ibridge.didOnboard")
                 // No auto-toggle — user must tap to start.
             }
+
+            // E2E: exercise the voice pipeline headlessly. The tap
+            // block used to trap on the audio realtime thread (actor
+            // isolation) — a survived hold-and-release proves the fix.
+            // The voice flag round-trips to the Mac so the run is
+            // visible in the receiver log.
+            if ProcessInfo.processInfo.environment["IBRIDGE_E2E_VOICE"] == "1" {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(5))
+                    engine.features.set(feature: .voice, enabled: true)
+                    let started = await voice.start()
+                    if !started {
+                        engine.features.set(feature: .voice, enabled: false)
+                    }
+                    try? await Task.sleep(for: .seconds(5))
+                    voice.stop()
+                    engine.features.set(feature: .voice, enabled: false)
+                }
+            }
         }
         .onChange(of: voice.lastError) { _, newError in
             // Mid-session failure: flash the error on the voice card

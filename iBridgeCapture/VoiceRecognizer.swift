@@ -119,9 +119,16 @@ final class VoiceRecognizer {
         let inputNode = audioEngine.inputNode
         inputNode.removeTap(onBus: 0)
         let format = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
+        // The tap block runs on the audio realtime thread. Without an
+        // explicit @Sendable type it inherits @MainActor isolation from
+        // start() and traps in swift_task_checkIsolated on the first
+        // buffer. `request` isn't Sendable, so box it — appending from
+        // the tap callback is the documented Speech pattern.
+        let requestBox = UnsafeSendableBox(value: request)
+        let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
+            requestBox.value.append(buffer)
         }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
 
         self.task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
@@ -251,4 +258,11 @@ final class VoiceRecognizer {
             }
         }
     }
+}
+
+/// Lets a value cross into a `@Sendable` tap block when the type
+/// isn't Sendable but the usage pattern (single realtime thread,
+/// append-only) is safe by construction.
+private struct UnsafeSendableBox<T>: @unchecked Sendable {
+    let value: T
 }

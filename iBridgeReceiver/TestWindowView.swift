@@ -226,6 +226,29 @@ struct TestWindowView: View {
 
     @ViewBuilder
     private func trackpadContents(_ vis: TouchVisual, size: CGSize, now: Date) -> some View {
+        // Swipe trail: recent move/scroll/drag points, fading with age.
+        ForEach(Array(session.touchTrail.enumerated()), id: \.offset) { _, point in
+            let age = now.timeIntervalSince(point.receivedAt)
+            if isTrailPhase(point.phase), age < 1.2 {
+                Circle()
+                    .fill(Color.white.opacity(0.5 * (1 - age / 1.2)))
+                    .frame(width: 6, height: 6)
+                    .position(trailPosition(point, in: size))
+            }
+        }
+        // Press marks: taps / presses leave an expanding ring.
+        ForEach(Array(session.touchTrail.enumerated()), id: \.offset) { _, point in
+            let age = now.timeIntervalSince(point.receivedAt)
+            if isPressMarkPhase(point.phase), age < 1.4 {
+                let progress = age / 1.4
+                Circle()
+                    .strokeBorder(pressMarkColor(point.phase).opacity(0.8 * (1 - progress)),
+                                  lineWidth: 2)
+                    .frame(width: 14 + 26 * progress, height: 14 + 26 * progress)
+                    .position(trailPosition(point, in: size))
+            }
+        }
+
         let pressed = isPressPhase(vis.phase)
         let px = CGFloat(min(max(vis.x, 0), 1)) * size.width
         let py = CGFloat(min(max(vis.y, 0), 1)) * size.height
@@ -268,6 +291,35 @@ struct TestWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
+    /// Phases that form the motion trail (not discrete taps).
+    private func isTrailPhase(_ phase: TouchEvent.Phase) -> Bool {
+        switch phase {
+        case .move, .scroll, .dragStart, .pinch, .threeFingerSwipe: return true
+        default: return false
+        }
+    }
+
+    /// Phases that leave a persistent press mark.
+    private func isPressMarkPhase(_ phase: TouchEvent.Phase) -> Bool {
+        switch phase {
+        case .down, .up, .click, .rightDown, .rightUp, .threeFingerTap, .forceClick: return true
+        default: return false
+        }
+    }
+
+    private func pressMarkColor(_ phase: TouchEvent.Phase) -> Color {
+        switch phase {
+        case .rightDown, .rightUp, .forceClick: return IBColor.warning
+        case .threeFingerTap: return IBColor.success
+        default: return Color.accentColor
+        }
+    }
+
+    private func trailPosition(_ point: TouchVisual, in size: CGSize) -> CGPoint {
+        CGPoint(x: CGFloat(min(max(point.x, 0), 1)) * size.width,
+                y: CGFloat(min(max(point.y, 0), 1)) * size.height)
+    }
+
     private func isPressPhase(_ phase: TouchEvent.Phase) -> Bool {
         switch phase {
         case .down, .rightDown, .click:
@@ -305,13 +357,30 @@ struct TestWindowView: View {
                         .font(.system(size: 16))
                         .foregroundStyle(session.featureState?.micOn ?? false
                                          ? IBColor.success : .white.opacity(0.35))
+                    // Monitoring toggle: off by default because speaker
+                    // playback next to the live iPhone mic feeds back.
+                    Button {
+                        session.monitoringMuted.toggle()
+                    } label: {
+                        Image(systemName: session.monitoringMuted
+                              ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(session.monitoringMuted
+                                             ? .white.opacity(0.45) : IBColor.success)
+                    }
+                    .buttonStyle(.plain)
+                    .help(session.monitoringMuted
+                          ? "Speaker monitoring off — tap to hear the iPhone mic"
+                          : "Speaker monitoring on — tap to mute (avoids echo)")
                     Spacer()
                     Text(String(format: "%3.0f%%", session.micLevel * 100))
                         .font(IBFont.monoMedium)
                         .foregroundStyle(.white)
                 }
                 GeometryReader { geo in
-                    let fraction = CGFloat(min(max(session.micLevel, 0), 1))
+                    // sqrt() maps RMS onto a perceptual scale — speech
+                    // sits at 2-10% linear RMS and would look dead.
+                    let fraction = CGFloat(sqrt(min(max(session.micLevel, 0), 1)))
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 5)
                             .fill(.white.opacity(0.08))

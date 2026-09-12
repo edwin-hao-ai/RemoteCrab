@@ -44,8 +44,18 @@ final class ReceiverSession: ObservableObject {
     @Published private(set) var lastKey: KeyEvent?
     /// The most recent touch event, mirrored for the test-board view.
     @Published private(set) var touchVisual: TouchVisual?
+    /// Rolling trail of recent touch events (~1-2 s at pan speed) so
+    /// the test board can render swipe trails and press marks.
+    @Published private(set) var touchTrail: [TouchVisual] = []
     /// Live microphone RMS level (0..1), ~10 Hz from `AudioPlayer`.
     @Published private(set) var micLevel: Float = 0
+    /// Mac-speaker monitoring of the iPhone mic. Defaults off: playing
+    /// the mic back through speakers next to the live iPhone is an
+    /// acoustic feedback loop (the "echo" users hear). Level metering
+    /// keeps working while muted.
+    @Published var monitoringMuted = true {
+        didSet { audioPlayer.setMuted(monitoringMuted) }
+    }
     /// The 30 most recent ping round-trip times, oldest first.
     @Published private(set) var latencyHistory: [Int] = []
 
@@ -92,6 +102,7 @@ final class ReceiverSession: ObservableObject {
                 self?.micLevel = level
             }
         }
+        audioPlayer.setMuted(monitoringMuted)
         audioPlayer.start()
         Self.log.info("accessibility trusted: \(AXIsProcessTrusted(), privacy: .public)")
         start()
@@ -229,6 +240,7 @@ final class ReceiverSession: ObservableObject {
         typedText = ""
         lastKey = nil
         touchVisual = nil
+        touchTrail = []
         micLevel = 0
     }
 
@@ -277,7 +289,12 @@ final class ReceiverSession: ObservableObject {
                 cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.video.rawValue))
             case .touch:
                 if let event = try? IBWire.decodeTouch(frame) {
-                    touchVisual = TouchVisual(event: event)
+                    let vis = TouchVisual(event: event)
+                    touchVisual = vis
+                    touchTrail.append(vis)
+                    if touchTrail.count > 120 {
+                        touchTrail.removeFirst(touchTrail.count - 120)
+                    }
                     inputInjector.inject(touch: event, screenSize: screenSize)
                 }
             case .key:

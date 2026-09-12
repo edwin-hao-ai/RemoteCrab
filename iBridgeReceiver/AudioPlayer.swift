@@ -23,6 +23,17 @@ final class AudioPlayer {
     var onLevel: ((Float) -> Void)?
     private var lastLevelSentMicros: UInt64 = 0
 
+    /// When true, incoming audio is drained but the output is silence.
+    /// Monitoring through Mac speakers while the iPhone mic is live is
+    /// an acoustic feedback loop, so the UI offers this prominently.
+    /// Level metering is unaffected (it runs on ingest, not playback).
+    private var isMuted = false
+
+    /// Thread-safe mute control; safe to call from any queue.
+    func setMuted(_ muted: Bool) {
+        queue.async { [weak self] in self?.isMuted = muted }
+    }
+
     func start() {
         guard !isStarted else { return }
         let outputFormat = engine.outputNode.outputFormat(forBus: 0)
@@ -115,7 +126,7 @@ final class AudioPlayer {
         // Copy bytes out of our queue under the lock, then write them
         // into the caller's buffer outside the lock (so we don't hold
         // it across the memcpy).
-        let snapshot: Data = queue.sync { pcmBuffer }
+        let (snapshot, muted): (Data, Bool) = queue.sync { (pcmBuffer, isMuted) }
         var remaining = bytesNeeded
         var snapshotOffset = 0
         for buffer in abl {
@@ -124,11 +135,16 @@ final class AudioPlayer {
             guard take > 0 else { break }
             let availableInSnapshot = snapshot.count - snapshotOffset
             let toCopy = min(take, availableInSnapshot)
-            memcpy(mData,
-                   snapshot.withUnsafeBytes { $0.baseAddress!.advanced(by: snapshotOffset) },
-                   toCopy)
-            snapshotOffset += toCopy
-            remaining -= toCopy
+            if muted {
+                memset(mData, 0, take)
+                snapshotOffset += toCopy
+            } else {
+                memcpy(mData,
+                       snapshot.withUnsafeBytes { $0.baseAddress!.advanced(by: snapshotOffset) },
+                       toCopy)
+                snapshotOffset += toCopy
+            }
+            remaining -= take
             if toCopy < take {
                 // Underrun — fill the rest with silence.
                 memset(mData.advanced(by: toCopy), 0, take - toCopy)
