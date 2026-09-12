@@ -197,9 +197,10 @@ buffering. The parser refuses frames larger than 64 MiB
 | Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms PCM packets (V0.3 → Opus). **Real-hardware gotcha**: the input node delivers Float32 non-interleaved, so `int16ChannelData` is nil on device — buffers must be converted to mono Int16; also requires an active `AVAudioSession` (`.playAndRecord`) before `engine.start()` or the tap never fires |
 | **Feature dock home (V0.3)** | `ContentView.swift`, `FeatureDock.swift` | Camera/mic = stream toggles, trackpad/keyboard = surfaces; draggable PiP preview |
 | **Feature state store (V0.3)** | `iBridgeCore/State/FeatureStore.swift` | `@Observable`, single source of truth, synced to Mac via `featureState` |
-| **Trackpad gesture engine (V0.3)** | `Input/TouchSurface.swift` | Drag (double-tap-hold), momentum scroll, pinch, accel curve, haptics, force right-click, 3-finger gestures |
+| **Trackpad gesture engine (V0.3)** | `Input/TouchSurface.swift` | Drag (double-tap-hold), momentum scroll, pinch, accel curve, haptics, force right-click, 3-finger gestures. **Joystick-style relative positioning**: the Mac cursor never teleports — hover applies deltas, discrete events fire at the hover position; the on-screen dot springs back to center on lift and leaves a fading motion trail |
 | **K3 keyboard (V0.3)** | `KeyboardScreen.swift` | System IME (Chinese/dictation work), shortcut bar, lockable modifiers, 96pt mini trackpad |
-| **Hold-to-talk voice (V0.3)** | `VoiceRecognizer.swift`, `FeatureDock.swift` | On-device SFSpeechRecognizer (zh-Hans/en-US) → `KeyEvent(.text)`; mic stream yields while active |
+| **Hold-to-talk voice (V0.3)** | `VoiceRecognizer.swift`, `FeatureDock.swift` | On-device SFSpeechRecognizer (zh-Hans/en-US) → `KeyEvent(.text)`; mic stream yields while active. Wide PTT capsule floats above the dock (it's a momentary action, not a mode toggle) |
+| **Background mic (V0.3)** | `Info.plist` (`UIBackgroundModes: audio`) | Mic keeps streaming with the app backgrounded (screen shows the system mic indicator). Camera still hard-stops in background — platform restriction; capture-session interruption observers restart video on return |
 | **Labs (V0.3, default off)** | `IOSSettingsView.swift`, `Input/TouchSurface.swift` | Air mouse (gyro tilt) + wheel scrolling (draw circles) |
 | Onboarding | `OnboardingFlow.swift` | 3-page paged: Hero / Permissions / Pair Mac |
 | Permission flow | `PermissionFlow.swift` | Sequential camera / mic / speech / local-network requests |
@@ -328,7 +329,7 @@ For new event types:
 |---|---|---|
 | **Real iPhone + Mac end-to-end test** | ⏳ In progress (2026-09-11): app runs on device, Bonjour+TCP connect, 4 device-only bugs fixed; full checklist pending — see "Real-device lessons" below | 1 day |
 | **Camera extension user activation** | Sysex installed; user must enable the camera toggle in System Settings, then verify in Photo Booth/Zoom | 30 min |
-| **Virtual microphone (CoreAudio AU)** | Currently Mac just plays the mic, doesn't expose as a virtual input device | 2-3 days |
+| **Virtual microphone (CoreAudio HAL plugin)** | Mac only *plays* the mic through speakers (now muted by default — feedback loop). To appear in System Settings / Dictation as an input device we need an `AudioServerPlugin` (BlackHole-style) in `/Library/Audio/Plug-Ins/HAL`. The `iBridgeAudioExtension` AUv3 skeleton is a DAW-host plugin and will NOT show up as a system input — don't build on it for this | 2-3 days |
 | **Real Opus encoding** | Currently raw PCM, fine on WiFi but ~96 kbps per direction | 1 day (opustools SPM) |
 | **App Store metadata screenshots** | We have mockups in `screenshots/`, need real device captures for upload | 1 day |
 | **App Store review submission** | Upload via `release-ios.sh --all`, manual submit in browser | 1 hour |
@@ -422,6 +423,20 @@ below were invisible to the simulator and to `./scripts/test.sh`:
    drops every buffer. Convert to Int16 (mix to mono) yourself.
    Both bugs fail 100% silently: no error, no crash, just zero
    packets. Verify with the Mac-side `audio packets received` log.
+6. **Backgrounding kills video but not audio — by design of iOS, and
+   it does NOT auto-recover.** AVCaptureSession gets interrupted
+   (video device unavailable in background); the MicrophoneEncoder's
+   separate AVAudioEngine survives. Symptom: after a reconnect, audio
+   flows but the Mac shows "No video" forever. CaptureEngine observes
+   `.AVCaptureSessionWasInterrupted / InterruptionEnded / RuntimeError`
+   and restarts the session, and `handleDidBecomeActive` force-checks
+   `captureSession.isRunning`.
+7. **Actor-isolated tap closures trap on the audio realtime thread.**
+   Any `installTap` block formed inside a `@MainActor` type inherits
+   that isolation and SIGTRAPs in `swift_task_checkIsolated` on the
+   first buffer. Give the block an explicit `@Sendable` type and box
+   non-Sendable captures (`UnsafeSendableBox`). This is what made
+   hold-to-talk crash on tap.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
