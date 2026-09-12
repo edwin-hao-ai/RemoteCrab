@@ -194,7 +194,7 @@ buffering. The parser refuses frames larger than 64 MiB
 |---|---|---|
 | Camera capture + H.264 encode | `CaptureEngine.swift`, `H264Encoder.swift` | 1080p @ 30 fps, hardware encode via VideoToolbox |
 | Bonjour publish | `CaptureEngine.swift` | `_ibridge._tcp` service on `local.` |
-| Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms PCM packets (V0.3 → Opus) |
+| Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms PCM packets (V0.3 → Opus). **Real-hardware gotcha**: the input node delivers Float32 non-interleaved, so `int16ChannelData` is nil on device — buffers must be converted to mono Int16; also requires an active `AVAudioSession` (`.playAndRecord`) before `engine.start()` or the tap never fires |
 | **Feature dock home (V0.3)** | `ContentView.swift`, `FeatureDock.swift` | Camera/mic = stream toggles, trackpad/keyboard = surfaces; draggable PiP preview |
 | **Feature state store (V0.3)** | `iBridgeCore/State/FeatureStore.swift` | `@Observable`, single source of truth, synced to Mac via `featureState` |
 | **Trackpad gesture engine (V0.3)** | `Input/TouchSurface.swift` | Drag (double-tap-hold), momentum scroll, pinch, accel curve, haptics, force right-click, 3-finger gestures |
@@ -414,6 +414,24 @@ below were invisible to the simulator and to `./scripts/test.sh`:
    fails with "Missing entitlement"). Gate builds now use
    `.build/ci-derived-data`. If you touch signing, verify the deployed
    app: `codesign -d --entitlements :- /Applications/iBridgeReceiver.app`.
+5. **The mic path needs two non-obvious things on device.** (a) An
+   active `AVAudioSession` in a record-capable category before
+   `AVAudioEngine.start()`, or the input tap never fires. (b) The
+   input node delivers **Float32 non-interleaved**, so
+   `buffer.int16ChannelData` is nil — a `guard let int16` silently
+   drops every buffer. Convert to Int16 (mix to mono) yourself.
+   Both bugs fail 100% silently: no error, no crash, just zero
+   packets. Verify with the Mac-side `audio packets received` log.
+
+Headless e2e launch envs for the iOS app (via
+`devicectl device process launch --environment-variables`):
+- `IBRIDGE_AUTO_START=1` — skip onboarding, start streaming
+- `IBRIDGE_AUTOSTREAM=1` — keep screen on + e2e frame counters
+- `IBRIDGE_E2E_INPUT=1` — 3 s after connect, send a scripted
+  touch-move burst + the text `iBridge-e2e-OK` (goes to whatever
+  has Mac keyboard focus — point TextEdit at a scratch file first)
+- `IBRIDGE_E2E_MIC=1` — force the mic feature on without tapping
+  the phone screen
 
 Runbook for real-device testing:
 - `./scripts/install-to-iphone.sh` builds + installs + launches
