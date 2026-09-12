@@ -4,6 +4,13 @@ import Foundation
 import iBridgeCore
 
 /// Posts the events to the real Mac via `CGEventPost`.
+///
+/// Positioning is joystick-style relative: hover moves apply deltas
+/// to `lastCursor`, and discrete events (click / right-click / drag)
+/// fire at wherever the cursor already is. The absolute x/y in
+/// `TouchEvent` is deliberately NOT mapped to screen coordinates —
+/// teleporting on every tap made the cursor jump across the screen
+/// ("飘") whenever the finger lifted and landed somewhere new.
 public final class CGEventInjector: InputInjector {
 
     public private(set) var lastCursor: CGPoint = .zero
@@ -11,15 +18,10 @@ public final class CGEventInjector: InputInjector {
     public init() {}
 
     public func inject(touch: TouchEvent, screenSize: CGSize) {
-        let absX = Double(touch.x) * Double(screenSize.width)
-        let absY = Double(touch.y) * Double(screenSize.height)
-
         switch touch.phase {
         case .down:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .up:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .move:
             let dx = Double(touch.dx) * Double(screenSize.width)
@@ -31,7 +33,6 @@ public final class CGEventInjector: InputInjector {
                 post(type: .leftMouseDragged, at: lastCursor)
             }
         case .dragStart:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
             isDragging = true
         case .scroll:
@@ -43,23 +44,18 @@ public final class CGEventInjector: InputInjector {
             postScroll(dx: 0, dy: touch.dx, commandHeld: true,
                        momentum: false, screenHeight: screenSize.height)
         case .rightDown:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .rightUp:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .click:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
             post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .threeFingerTap:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             postOther(button: 2, down: true, at: lastCursor)   // middle click
             postOther(button: 2, down: false, at: lastCursor)
         case .threeFingerSwipe:
             postMissionControl(dx: touch.dx, dy: touch.dy)
         case .forceClick:
-            moveCursor(to: CGPoint(x: absX, y: absY))
             post(type: .rightMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
             post(type: .rightMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         }

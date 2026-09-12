@@ -105,6 +105,8 @@ public enum IBLocale {
     public enum Voice {
         public static let listening = "Listening…"
         public static let sent = "Sent"
+        public static let holdToTalk = "Hold to talk"
+        public static let releaseToSend = "Release to send"
     }
 
     /// Settings → Labs (experimental gestures, default off).

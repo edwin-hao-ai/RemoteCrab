@@ -19,6 +19,9 @@ struct TouchpadScreen: View {
     @State private var modifiers: Set<IBModifierBar.Modifier> = []
     @State private var cursor: CGPoint = CGPoint(x: 0.5, y: 0.5)
     @State private var isPressed = false
+    /// Recent touch positions for the motion trail behind the cursor,
+    /// newest last. Pruned by age at render time.
+    @State private var trail: [(point: CGPoint, at: Date)] = []
     @State private var showCoach = false
     /// Bumped each time the coach marks show/dismiss; the 3.5 s fade
     /// timer compares against it so a stale timer can't clip a newer
@@ -65,6 +68,18 @@ struct TouchpadScreen: View {
                 onTouch: { location, pressed in
                     cursor = location
                     isPressed = pressed
+                    if pressed {
+                        trail.append((location, Date()))
+                        if trail.count > 40 { trail.removeFirst(trail.count - 40) }
+                    } else {
+                        // Joystick convention: lifting the finger
+                        // recenters the resting dot, so every new
+                        // touch starts from a neutral anchor and the
+                        // surface never "runs out" mid-drag.
+                        withAnimation(.spring(duration: 0.35)) {
+                            cursor = CGPoint(x: 0.5, y: 0.5)
+                        }
+                    }
                     dismissCoach()
                 }
             )
@@ -113,37 +128,62 @@ struct TouchpadScreen: View {
 
     // MARK: - Cursor preview
 
-    /// Live cursor preview. Visible while a finger is on the screen,
-    /// fades out within 200 ms after lift.
+    /// Live cursor preview. While a finger is down the dot follows it
+    /// with a fading motion trail; on lift the dot springs back to
+    /// center (joystick convention) and rests there dimly.
     private var cursorPreview: some View {
         GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
-                Circle()
-                    .fill(Color.accentColor.opacity(0.95))
-                    .frame(width: 56, height: 56)
-                    .shadow(color: Color.accentColor.opacity(0.6), radius: 16)
-                    .overlay {
-                        Circle()
-                            .strokeBorder(Color.white.opacity(0.6), lineWidth: 1.5)
+            TimelineView(.periodic(from: .now, by: 0.05)) { context in
+                ZStack(alignment: .topLeading) {
+                    // Motion trail: recent touch points fading over
+                    // 0.6 s — gives drags a visible "wake".
+                    Canvas { ctx, size in
+                        let now = context.date
+                        for sample in trail {
+                            let age = now.timeIntervalSince(sample.at)
+                            guard age < 0.6 else { continue }
+                            let fade = 1 - age / 0.6
+                            let radius = 10 * fade + 3
+                            let rect = CGRect(
+                                x: sample.point.x * size.width - radius,
+                                y: sample.point.y * size.height - radius,
+                                width: radius * 2,
+                                height: radius * 2
+                            )
+                            ctx.fill(
+                                Path(ellipseIn: rect),
+                                with: .color(Color.accentColor.opacity(0.35 * fade))
+                            )
+                        }
                     }
-                    .position(
-                        x: cursor.x * geo.size.width,
-                        y: cursor.y * geo.size.height
-                    )
-                    .scaleEffect(isPressed ? 0.85 : 1.0)
-                    .animation(IBAnimation.snappy, value: cursor)
-                    .animation(IBAnimation.snappy, value: isPressed)
-                    .opacity(isPressed ? 1.0 : 0.85)
+                    .allowsHitTesting(false)
 
-                // Subtle vertical scan line while pressed, hinting
-                // "the whole screen is the touch surface".
-                if isPressed {
-                    Path { p in
-                        let x = cursor.x * geo.size.width
-                        p.move(to: CGPoint(x: x, y: 0))
-                        p.addLine(to: CGPoint(x: x, y: geo.size.height))
+                    Circle()
+                        .fill(Color.accentColor.opacity(isPressed ? 0.95 : 0.35))
+                        .frame(width: isPressed ? 56 : 28, height: isPressed ? 56 : 28)
+                        .shadow(color: Color.accentColor.opacity(isPressed ? 0.6 : 0), radius: 16)
+                        .overlay {
+                            Circle()
+                                .strokeBorder(Color.white.opacity(isPressed ? 0.6 : 0.25),
+                                              lineWidth: 1.5)
+                        }
+                        .position(
+                            x: cursor.x * geo.size.width,
+                            y: cursor.y * geo.size.height
+                        )
+                        .scaleEffect(isPressed ? 0.85 : 1.0)
+                        .animation(IBAnimation.snappy, value: isPressed)
+
+                    // Subtle vertical scan line while pressed, hinting
+                    // "the whole screen is the touch surface".
+                    if isPressed {
+                        Path { p in
+                            let x = cursor.x * geo.size.width
+                            p.move(to: CGPoint(x: x, y: 0))
+                            p.addLine(to: CGPoint(x: x, y: geo.size.height))
+                        }
+                        .stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
                     }
-                    .stroke(Color.white.opacity(0.08), style: StrokeStyle(lineWidth: 1, dash: [4, 6]))
                 }
             }
         }

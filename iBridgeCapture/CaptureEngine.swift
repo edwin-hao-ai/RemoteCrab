@@ -67,6 +67,7 @@ final class CaptureEngine: ObservableObject {
 
         do {
             try configureCaptureSession()
+            observeCaptureInterruptions()
             try await encoder.start { [weak self] frame in
                 Task { @MainActor in
                     self?.handleEncodedFrame(frame)
@@ -152,12 +153,51 @@ final class CaptureEngine: ObservableObject {
     /// re-register; the Mac side auto-reconnects once we're visible.
     func handleDidBecomeActive() {
         guard isStreaming else { return }
+        if !captureSession.isRunning {
+            // Backgrounding interrupts the capture session; audio
+            // (separate AVAudioEngine) survives but video stays dead
+            // until we explicitly restart.
+            Self.log.info("foreground: capture session not running — restarting")
+            queue.async { [captureSession] in captureSession.startRunning() }
+        }
         let linkAlive = connection?.state == .ready
         Self.log.info("foreground: isStreaming=true linkAlive=\(linkAlive, privacy: .public)")
         guard !linkAlive else { return }
         Task {
             stopStreaming()
             await startStreaming()
+        }
+    }
+
+    // MARK: - Capture session interruptions
+
+    /// Backgrounding interrupts the AVCaptureSession (video device
+    /// unavailable in background) and a media-services reset can kill
+    /// it outright. iOS does NOT guarantee automatic recovery — an
+    /// unhandled interruption is why video went silent after every
+    /// background round-trip while audio kept flowing.
+    private func observeCaptureInterruptions() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: .AVCaptureSessionInterruptionEnded,
+                           object: captureSession, queue: nil) { [weak self] _ in
+            Self.log.info("capture interruption ended — ensuring running")
+            self?.restartCaptureIfNeeded()
+        }
+        center.addObserver(forName: .AVCaptureSessionRuntimeError,
+                           object: captureSession, queue: nil) { [weak self] note in
+            Self.log.error("capture runtime error: \(note.userInfo ?? [:], privacy: .public)")
+            self?.restartCaptureIfNeeded()
+        }
+        center.addObserver(forName: .AVCaptureSessionWasInterrupted,
+                           object: captureSession, queue: nil) { _ in
+            Self.log.info("capture session interrupted")
+        }
+    }
+
+    private func restartCaptureIfNeeded() {
+        queue.async { [weak self] in
+            guard let self, !self.captureSession.isRunning else { return }
+            self.captureSession.startRunning()
         }
     }
 

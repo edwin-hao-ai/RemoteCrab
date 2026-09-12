@@ -5,49 +5,53 @@ import iBridgeCore
 /// Bottom floating dock — the iOS home screen's single control surface.
 ///
 /// Camera and microphone are background-stream toggles; trackpad and
-/// keyboard are foreground surfaces that occupy the screen; voice is a
-/// hold-to-talk button that drives the `VoiceRecognizer` speech session.
+/// keyboard are foreground surfaces that occupy the screen. Voice is
+/// NOT in the dock row: it's a wide push-to-talk capsule floating
+/// above the dock, visually independent because it's a transient
+/// action (hold-release) rather than a mode toggle.
 struct FeatureDock: View {
     let features: FeatureStore
     let voice: VoiceRecognizer
     @State private var voiceHeld = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            streamToggle(
-                icon: "video.fill",
-                isOn: features.cameraOn,
-                label: features.cameraOn ? "Camera on. Tap to turn off." : "Camera off. Tap to turn on."
-            ) {
-                features.set(feature: .camera, enabled: !features.cameraOn)
-            }
-
-            streamToggle(
-                icon: "mic.fill",
-                isOn: features.micOn,
-                label: features.micOn ? "Microphone on. Tap to turn off." : "Microphone off. Tap to turn on."
-            ) {
-                features.set(feature: .microphone, enabled: !features.micOn)
-            }
-
+        VStack(spacing: 10) {
             voiceButton
 
-            surfaceButton(
-                icon: "hand.point.up.left.fill",
-                surface: .trackpad,
-                label: "Trackpad"
-            )
+            HStack(spacing: 10) {
+                streamToggle(
+                    icon: "video.fill",
+                    isOn: features.cameraOn,
+                    label: features.cameraOn ? "Camera on. Tap to turn off." : "Camera off. Tap to turn on."
+                ) {
+                    features.set(feature: .camera, enabled: !features.cameraOn)
+                }
 
-            surfaceButton(
-                icon: "keyboard",
-                surface: .keyboard,
-                label: "Keyboard"
-            )
-        }
-        .padding(.horizontal, IBSpace.l.pt)
-        .padding(.vertical, IBSpace.s.pt)
-        .background {
-            IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.xxl.pt, style: .continuous))
+                streamToggle(
+                    icon: "mic.fill",
+                    isOn: features.micOn,
+                    label: features.micOn ? "Microphone on. Tap to turn off." : "Microphone off. Tap to turn on."
+                ) {
+                    features.set(feature: .microphone, enabled: !features.micOn)
+                }
+
+                surfaceButton(
+                    icon: "hand.point.up.left.fill",
+                    surface: .trackpad,
+                    label: "Trackpad"
+                )
+
+                surfaceButton(
+                    icon: "keyboard",
+                    surface: .keyboard,
+                    label: "Keyboard"
+                )
+            }
+            .padding(.horizontal, IBSpace.l.pt)
+            .padding(.vertical, IBSpace.s.pt)
+            .background {
+                IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.xxl.pt, style: .continuous))
+            }
         }
         .onAppear {
             // Recognition session ended on its own (system cap or
@@ -92,14 +96,33 @@ struct FeatureDock: View {
         .accessibilityHint("Shows the \(label.lowercased()) surface")
     }
 
+    /// Wide push-to-talk capsule floating above the dock. Kept
+    /// visually separate from the mode toggles: it's a momentary
+    /// action, so it gets its own glass pill, a label, and a red
+    /// "live" treatment while held.
     private var voiceButton: some View {
-        buttonBody(
-            icon: "waveform",
-            isActive: voiceHeld,
-            activeFill: IBColor.recording.opacity(0.25),
-            activeIcon: IBColor.recording
-        )
-        .scaleEffect(voiceHeld ? 1.1 : 1.0)
+        HStack(spacing: 8) {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold))
+                .symbolEffect(.variableColor.iterative, isActive: voiceHeld)
+            Text(voiceHeld ? IBLocale.Voice.releaseToSend : IBLocale.Voice.holdToTalk)
+                .font(IBFont.bodyMedium)
+        }
+        .foregroundStyle(voiceHeld ? .white : .white.opacity(0.75))
+        .frame(maxWidth: .infinity)
+        .frame(height: 44)
+        .background {
+            Capsule(style: .continuous)
+                .fill(voiceHeld ? IBColor.recording.opacity(0.85) : .white.opacity(0.10))
+                .overlay {
+                    Capsule(style: .continuous)
+                        .strokeBorder(voiceHeld ? Color.white.opacity(0.5) : Color.white.opacity(0.14),
+                                      lineWidth: voiceHeld ? 1.5 : 0.5)
+                }
+        }
+        .shadow(color: voiceHeld ? IBColor.recording.opacity(0.5) : .clear,
+                radius: voiceHeld ? 14 : 0)
+        .scaleEffect(voiceHeld ? 1.03 : 1.0)
         .animation(IBAnimation.snappy, value: voiceHeld)
         .gesture(
             DragGesture(minimumDistance: 0)
