@@ -358,6 +358,12 @@ final class CaptureEngine: ObservableObject {
                 broadcaster = b
                 // Tell the Mac the full feature state right away.
                 b.send(features.snapshot())
+                // E2E runs headless: let the launch environment force
+                // the mic on so the Mac-side level meter can be verified
+                // without anyone tapping the iPhone screen.
+                if ProcessInfo.processInfo.environment["IBRIDGE_E2E_MIC"] == "1", !features.micOn {
+                    features.set(feature: .microphone, enabled: true)
+                }
                 // Start mic only if the feature is on; the voice
                 // recognizer owns the audio input while held.
                 syncMicrophone(features.micOn && !features.voiceOn)

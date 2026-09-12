@@ -28,6 +28,7 @@ final class ReceiverSession: ObservableObject {
     /// The most recent decoded frame as a `CGImage` ready for display.
     @Published private(set) var latestFrame: CGImage?
     private var videoFrameCount = 0
+    private var audioPacketCount = 0
 
     /// Latest feature-state snapshot from the iPhone. nil until the
     /// first `featureState` frame arrives (older iOS builds never
@@ -299,6 +300,10 @@ final class ReceiverSession: ObservableObject {
                 }
             case .audio:
                 if let packet = try? IBWire.decodeAudio(frame) {
+                    audioPacketCount += 1
+                    if audioPacketCount == 1 || audioPacketCount % 100 == 0 {
+                        Self.log.info("audio packets received: \(self.audioPacketCount) (\(packet.opusData.count) B, \(packet.sampleRate) Hz x \(packet.channels) ch)")
+                    }
                     audioPlayer.consume(packet)
                 }
             case .featureControl:
@@ -306,6 +311,7 @@ final class ReceiverSession: ObservableObject {
                 break
             case .featureState:
                 if let snap = try? IBWire.decodeFeatureState(frame) {
+                    Self.log.info("featureState: camera=\(snap.cameraOn) mic=\(snap.micOn) voice=\(snap.voiceOn)")
                     featureState = snap
                 }
             case .ping:

@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import iBridgeCore
+import os
 
 /// Captures audio from the iPhone microphone and ships PCM frames over
 /// the wire. Each `AudioPacket` carries one ~20 ms frame.
@@ -12,6 +13,8 @@ import iBridgeCore
 /// arbitrary bytes.
 final class MicrophoneEncoder: @unchecked Sendable {
 
+    private static let log = Logger(subsystem: "com.ibridge", category: "MicrophoneEncoder")
+
     private let engine = AVAudioEngine()
     private var broadcaster: IBEventBroadcaster?
     private var isRunning = false
@@ -20,12 +23,25 @@ final class MicrophoneEncoder: @unchecked Sendable {
     func start(broadcaster: IBEventBroadcaster) {
         guard !isRunning else { return }
         self.broadcaster = broadcaster
+
+        // AVAudioEngine's input node only delivers real samples once the
+        // shared session is in a record-capable category and active —
+        // without this the tap sees silence (or the engine fails).
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+        } catch {
+            Self.log.error("audio session setup failed: \(error, privacy: .public)")
+            return
+        }
+
         isRunning = true
 
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         sampleRate = inputFormat.sampleRate
-        print("[iBridge] mic input format: \(inputFormat)")
+        Self.log.info("mic input format: \(inputFormat.sampleRate) Hz x \(inputFormat.channelCount) ch")
 
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
@@ -35,8 +51,9 @@ final class MicrophoneEncoder: @unchecked Sendable {
 
         do {
             try engine.start()
+            Self.log.info("mic engine started")
         } catch {
-            print("[iBridge] mic start failed: \(error)")
+            Self.log.error("mic start failed: \(error, privacy: .public)")
             stop()
         }
     }
@@ -53,17 +70,37 @@ final class MicrophoneEncoder: @unchecked Sendable {
     private var pcmAccumulator = Data()
     private let frameBytes = 960 * 2          // 20 ms @ 48 kHz mono 16-bit
     private var frameMicros: UInt64 = 0
+    private var packetCount = 0
 
     private func handlePCM(buffer: AVAudioPCMBuffer, broadcaster: IBEventBroadcaster) {
-        guard let int16 = buffer.int16ChannelData else { return }
-        let channelCount = Int(buffer.format.channelCount)
         let frameCount = Int(buffer.frameLength)
-        let frames = UnsafeBufferPointer(start: int16[0], count: frameCount * channelCount)
-        pcmAccumulator.append(contentsOf: UnsafeRawBufferPointer(frames))
+        guard frameCount > 0 else { return }
+
+        // The iPhone input node delivers Float32 non-interleaved, so
+        // `int16ChannelData` is nil on real hardware. Convert to mono
+        // Int16 (mixing channels down) in that case.
+        var outChannels = Int(buffer.format.channelCount)
+        if let int16 = buffer.int16ChannelData {
+            let frames = UnsafeBufferPointer(start: int16[0], count: frameCount * outChannels)
+            pcmAccumulator.append(contentsOf: UnsafeRawBufferPointer(frames))
+        } else if let floats = buffer.floatChannelData {
+            var mono = [Int16]()
+            mono.reserveCapacity(frameCount)
+            for i in 0..<frameCount {
+                var sum: Float = 0
+                for c in 0..<outChannels { sum += floats[c][i] }
+                let v = max(-1, min(1, sum / Float(outChannels)))
+                mono.append(Int16(v * 32767))
+            }
+            mono.withUnsafeBytes { pcmAccumulator.append(contentsOf: $0) }
+            outChannels = 1
+        } else {
+            return
+        }
 
         // Ship one packet per ~20 ms (or whatever we have once input
         // format doesn't match our assumed 48 kHz).
-        let targetFrameBytes = Int(Double(sampleRate) * 0.020) * 2
+        let targetFrameBytes = Int(Double(sampleRate) * 0.020) * 2 * outChannels
 
         while pcmAccumulator.count >= targetFrameBytes {
             let chunk = pcmAccumulator.prefix(targetFrameBytes)
@@ -72,11 +109,15 @@ final class MicrophoneEncoder: @unchecked Sendable {
             let packet = AudioPacket(
                 opusData: Data(chunk),         // field reused for raw PCM in V0.2
                 sampleRate: Int(sampleRate),
-                channels: channelCount,
+                channels: outChannels,
                 timestampMicros: frameMicros
             )
             broadcaster.send(packet)
-            frameMicros &+= UInt64(Double(targetFrameBytes / 2) / sampleRate * 1_000_000)
+            packetCount += 1
+            if packetCount % 100 == 1 {
+                Self.log.info("audio packets sent: \(self.packetCount)")
+            }
+            frameMicros &+= UInt64(Double(targetFrameBytes / 2 / outChannels) / sampleRate * 1_000_000)
         }
     }
 }
