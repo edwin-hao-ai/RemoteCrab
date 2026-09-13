@@ -32,13 +32,13 @@
 		<string>_ibridge._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>iBridge turns your iPhone into a WiFi camera for your Mac.</string>
+	<string>Familiar turns your iPhone into a WiFi camera for your Mac.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>iBridge discovers your Mac on the local WiFi network.</string>
+	<string>Familiar discovers your Mac on the local WiFi network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>iBridge streams your iPhone microphone to your Mac.</string>
+	<string>Familiar streams your iPhone microphone to your Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>iBridge recognizes your speech on-device to type into your Mac.</string>
+	<string>Familiar recognizes your speech on-device to type into your Mac.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

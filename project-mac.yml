@@ -56,11 +56,11 @@ targets:
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSHighResolutionCapable: true
-        NSLocalNetworkUsageDescription: iBridge discovers your iPhone on the local WiFi network.
+        NSLocalNetworkUsageDescription: Familiar discovers your iPhone on the local WiFi network.
         NSBonjourServices:
           - _ibridge._tcp
-        NSMicrophoneUsageDescription: iBridge uses your Mac microphone for audio routing when the iPhone mic is unavailable.
-        NSSystemExtensionUsageDescription: iBridge installs a camera extension so other apps can use your iPhone as a webcam.
+        NSMicrophoneUsageDescription: Familiar uses your Mac microphone for audio routing when the iPhone mic is unavailable.
+        NSSystemExtensionUsageDescription: Familiar installs a camera extension so other apps can use your iPhone as a webcam.
         # xcodegen rewrites Info.plist from these properties alone —
         # keep CFBundleLocalizations here or regeneration drops it.
         CFBundleLocalizations:
@@ -69,6 +69,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver
+        PRODUCT_NAME: Familiar
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_ENTITLEMENTS: iBridgeReceiver/iBridgeReceiver.entitlements
@@ -97,13 +98,13 @@ targets:
     info:
       path: iBridgeCameraExtension/Info.plist
       properties:
-        CFBundleDisplayName: iBridge Camera
+        CFBundleDisplayName: Familiar Camera
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         CFBundlePackageType: SYSX
         CMIOExtension:
           CMIOExtensionMachServiceName: 5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera
-        NSSystemExtensionUsageDescription: iBridge uses your iPhone as a camera for this Mac.
+        NSSystemExtensionUsageDescription: Familiar uses your iPhone as a camera for this Mac.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
@@ -131,7 +132,7 @@ targets:
     info:
       path: iBridgeMicDriver/Info.plist
       properties:
-        CFBundleDisplayName: iBridge Microphone
+        CFBundleDisplayName: Familiar Microphone
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         CFBundlePackageType: BNDL
@@ -165,7 +166,7 @@ targets:
     info:
       path: iBridgeAudioExtension/Info.plist
       properties:
-        CFBundleDisplayName: iBridge Microphone
+        CFBundleDisplayName: Familiar Microphone
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         NSExtension:

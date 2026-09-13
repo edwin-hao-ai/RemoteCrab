@@ -123,6 +123,11 @@ final class CaptureEngine: ObservableObject {
             connectionState = .failed
             didConfigure = false
         }
+
+        // Advertise + accept the Mac as soon as the app is ready — NOT
+        // tied to the camera. Trackpad, keyboard and voice work without
+        // ever turning the camera on; the camera is just another toggle.
+        await startStreaming()
     }
 
     func toggleStreaming() async {

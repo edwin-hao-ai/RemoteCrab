@@ -23,7 +23,7 @@ final class CameraExtensionDevice: NSObject {
         self.streamSource = CameraExtensionStream()
         super.init()
         device = CMIOExtensionDevice(
-            localizedName: "iBridge Camera",
+            localizedName: "Familiar Camera",
             deviceID: Self.deviceID,
             legacyDeviceID: "com.ibridge.camera",
             source: self

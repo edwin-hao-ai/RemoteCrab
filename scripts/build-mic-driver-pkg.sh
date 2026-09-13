@@ -17,9 +17,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED="${IBRIDGE_DERIVED:-$ROOT/.build/mic-derived}"
 TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
 VERSION="${IBRIDGE_MIC_VERSION:-0.2}"
-DRIVER_NAME="iBridgeMicrophone.driver"
+DRIVER_NAME="FamiliarMicrophone.driver"
 OUT_DIR="$ROOT/dist"
-OUT="$OUT_DIR/iBridgeMicrophone.pkg"
+OUT="$OUT_DIR/FamiliarMicrophone.pkg"
 
 echo "== building $DRIVER_NAME =="
 xcodebuild -project "$ROOT/iBridgeReceiver.xcodeproj" -scheme iBridgeMicrophone \

@@ -55,7 +55,7 @@ extension CameraExtensionProvider: CMIOExtensionProviderSource {
     func providerProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionProviderProperties {
         let providerProperties = CMIOExtensionProviderProperties(dictionary: [:])
         if properties.contains(.providerName) {
-            providerProperties.setPropertyState(CMIOExtensionPropertyState(value: "iBridge Camera" as NSString), forProperty: .providerName)
+            providerProperties.setPropertyState(CMIOExtensionPropertyState(value: "Familiar Camera" as NSString), forProperty: .providerName)
         }
         return providerProperties
     }

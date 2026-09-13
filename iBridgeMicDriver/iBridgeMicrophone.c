@@ -306,10 +306,10 @@ static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddres
     CFStringRef s;
     switch (addr->mSelector) {
         case kAudioObjectPropertyName:
-            s = objectID == kObjectID_Stream_Input ? CFSTR("iBridge Microphone Input") : CFSTR("iBridge Microphone");
+            s = objectID == kObjectID_Stream_Input ? CFSTR("Familiar Microphone Input") : CFSTR("Familiar Microphone");
             PUT(CFStringRef, s); return kAudioHardwareNoError;
         case kAudioObjectPropertyManufacturer:
-            s = CFSTR("iBridge");
+            s = CFSTR("Familiar");
             PUT(CFStringRef, s); return kAudioHardwareNoError;
         case kAudioPlugInPropertyBundleID:
             s = CFSTR("com.ibridge.iBridgeMicrophone");

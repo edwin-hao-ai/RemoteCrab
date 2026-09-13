@@ -1,19 +1,19 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "iBridge": {
+    "Familiar": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge"
+            "value": "Familiar"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge"
+            "value": "Familiar"
           }
         }
       }
@@ -35,36 +35,36 @@
         }
       }
     },
-    "iBridge Capture": {
+    "Familiar Capture": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge Capture"
+            "value": "Familiar Capture"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge Capture"
+            "value": "Familiar Capture"
           }
         }
       }
     },
-    "iBridge Receiver": {
+    "Familiar Receiver": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge Receiver"
+            "value": "Familiar Receiver"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge Receiver"
+            "value": "Familiar 接收端"
           }
         }
       }
@@ -205,19 +205,19 @@
         }
       }
     },
-    "iBridge turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded.": {
+    "Familiar turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
+            "value": "Familiar turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge 将你的 iPhone 摄像头变成 Mac 的高质量摄像头，实时使用，不录制、不上传。"
+            "value": "Familiar 将你的 iPhone 摄像头变成 Mac 的高质量摄像头，实时使用，不录制、不上传。"
           }
         }
       }
@@ -239,19 +239,19 @@
         }
       }
     },
-    "iBridge can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime.": {
+    "Familiar can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
+            "value": "Familiar can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge 可将 iPhone 麦克风串流到 Mac。此功能可选，随时可在相机页面关闭。"
+            "value": "Familiar 可将 iPhone 麦克风串流到 Mac。此功能可选，随时可在相机页面关闭。"
           }
         }
       }
@@ -273,19 +273,19 @@
         }
       }
     },
-    "iBridge uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other.": {
+    "Familiar uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
+            "value": "Familiar uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge 使用 Bonjour 在同一 WiFi 上查找你的 Mac。没有此权限，两台设备无法通信。"
+            "value": "Familiar 使用 Bonjour 在同一 WiFi 上查找你的 Mac。没有此权限，两台设备无法通信。"
           }
         }
       }
@@ -545,19 +545,19 @@
         }
       }
     },
-    "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.": {
+    "Familiar needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
+            "value": "Familiar needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge 需要使用摄像头、麦克风和本地网络。数据只会发送到你的 Mac，不会离开你的 WiFi。"
+            "value": "Familiar 需要使用摄像头、麦克风和本地网络。数据只会发送到你的 Mac，不会离开你的 WiFi。"
           }
         }
       }
@@ -579,19 +579,19 @@
         }
       }
     },
-    "Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.": {
+    "Download and open Familiar Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically."
+            "value": "Download and open Familiar Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你的 Mac 上下载并打开 iBridge Receiver，然后点按“允许权限并连接”。两台设备会自动找到彼此。"
+            "value": "在你的 Mac 上下载并打开 Familiar Receiver，然后点按“允许权限并连接”。两台设备会自动找到彼此。"
           }
         }
       }
@@ -1191,19 +1191,19 @@
         }
       }
     },
-    "Start iBridge Receiver automatically when you log in.": {
+    "Start Familiar Receiver automatically when you log in.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start iBridge Receiver automatically when you log in."
+            "value": "Start Familiar Receiver automatically when you log in."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录时自动启动 iBridge Receiver。"
+            "value": "登录时自动启动 Familiar Receiver。"
           }
         }
       }
@@ -1259,19 +1259,19 @@
         }
       }
     },
-    "© iBridge. Local-first, no cloud, no analytics.": {
+    "© Familiar. Local-first, no cloud, no analytics.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "© iBridge. Local-first, no cloud, no analytics."
+            "value": "© Familiar. Local-first, no cloud, no analytics."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "© iBridge。本地优先，无云端，无分析。"
+            "value": "© Familiar。本地优先，无云端，无分析。"
           }
         }
       }
@@ -1310,19 +1310,19 @@
         }
       }
     },
-    "Open iBridge at login": {
+    "Open Familiar at login": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open iBridge at login"
+            "value": "Open Familiar at login"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "登录时自动打开 iBridge"
+            "value": "登录时自动打开 Familiar"
           }
         }
       }
@@ -1446,19 +1446,19 @@
         }
       }
     },
-    "iBridge streams over your local WiFi using Bonjour. No data ever leaves your network.": {
+    "Familiar streams over your local WiFi using Bonjour. No data ever leaves your network.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge streams over your local WiFi using Bonjour. No data ever leaves your network."
+            "value": "Familiar streams over your local WiFi using Bonjour. No data ever leaves your network."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge 通过 Bonjour 在本地 WiFi 上传输，数据不会离开你的网络。"
+            "value": "Familiar 通过 Bonjour 在本地 WiFi 上传输，数据不会离开你的网络。"
           }
         }
       }
@@ -1701,19 +1701,19 @@
         }
       }
     },
-    "Video paused in the background — resumed now. Keep iBridge on screen while streaming.": {
+    "Video paused in the background — resumed now. Keep Familiar on screen while streaming.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video paused in the background — resumed now. Keep iBridge on screen while streaming."
+            "value": "Video paused in the background — resumed now. Keep Familiar on screen while streaming."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "视频在后台会暂停，现已恢复。推流时请让 iBridge 保持在前台。"
+            "value": "视频在后台会暂停，现已恢复。推流时请让 Familiar 保持在前台。"
           }
         }
       }
@@ -1769,19 +1769,19 @@
         }
       }
     },
-    "No Mac found on the WiFi network. Make sure iBridge Receiver is running.": {
+    "No Mac found on the WiFi network. Make sure Familiar Receiver is running.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Mac found on the WiFi network. Make sure iBridge Receiver is running."
+            "value": "No Mac found on the WiFi network. Make sure Familiar Receiver is running."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未在 WiFi 上找到 Mac。请确认 iBridge Receiver 正在运行。"
+            "value": "未在 WiFi 上找到 Mac。请确认 Familiar Receiver 正在运行。"
           }
         }
       }
@@ -2313,91 +2313,6 @@
         }
       }
     },
-    "Familiar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar"
-          }
-        }
-      }
-    },
-    "Familiar Receiver": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar Receiver"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar 接收端"
-          }
-        }
-      }
-    },
-    "Familiar turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar 将你的 iPhone 摄像头变成 Mac 的高质量摄像头，实时使用，不录制、不上传。"
-          }
-        }
-      }
-    },
-    "Familiar can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar 可将 iPhone 麦克风串流到 Mac。此功能可选，随时可在相机页面关闭。"
-          }
-        }
-      }
-    },
-    "Familiar uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Familiar 使用 Bonjour 在同一 WiFi 上查找你的 Mac。没有此权限，两台设备无法通信。"
-          }
-        }
-      }
-    },
     "Microphone Driver": {
       "extractionState": "manual",
       "localizations": {
@@ -2415,19 +2330,19 @@
         }
       }
     },
-    "iBridge Microphone is installed.": {
+    "Familiar Microphone is installed.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "iBridge Microphone is installed."
+            "value": "Familiar Microphone is installed."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "「iBridge Microphone」已安装。"
+            "value": "「Familiar Microphone」已安装。"
           }
         }
       }
@@ -2483,19 +2398,19 @@
         }
       }
     },
-    "Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “iBridge Microphone”. Needs one admin authorization; audio briefly restarts.": {
+    "Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “Familiar Microphone”. Needs one admin authorization; audio briefly restarts.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “iBridge Microphone”. Needs one admin authorization; audio briefly restarts."
+            "value": "Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “Familiar Microphone”. Needs one admin authorization; audio briefly restarts."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "安装一个小型系统音频驱动，让 Zoom、QuickTime、OBS、听写能选用「iBridge Microphone」。需要一次管理员授权，音频会短暂重启。"
+            "value": "安装一个小型系统音频驱动，让 Zoom、QuickTime、OBS、听写能选用「Familiar Microphone」。需要一次管理员授权，音频会短暂重启。"
           }
         }
       }
@@ -2517,19 +2432,19 @@
         }
       }
     },
-    "Shows sample camera content so you can explore iBridge without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.": {
+    "Shows sample camera content so you can explore Familiar without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows sample camera content so you can explore iBridge without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running."
+            "value": "Shows sample camera content so you can explore Familiar without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在未连接 Mac 时显示示例摄像头画面，方便你体验 iBridge。实时推流、触控板和键盘需要运行 Mac 接收端。"
+            "value": "在未连接 Mac 时显示示例摄像头画面，方便你体验 Familiar。实时推流、触控板和键盘需要运行 Mac 接收端。"
           }
         }
       }

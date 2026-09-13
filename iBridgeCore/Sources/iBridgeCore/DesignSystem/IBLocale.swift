@@ -1,10 +1,10 @@
 import Foundation
 
-/// Centralized user-facing strings for iBridge.
+/// Centralized user-facing strings for Familiar.
 ///
 /// Every UI string in both apps (iOS Capture + Mac Receiver) pulls from
 /// here. The English source text doubles as the lookup key and lives in
-/// `Sources/iBridgeCore/Resources/Localizable.xcstrings` (en source +
+/// `Sources/FamiliarCore/Resources/Localizable.xcstrings` (en source +
 /// zh-Hans translations), resolved against `Bundle.module` so both apps
 /// follow the system language. Add a language by adding a locale to that
 /// catalog — no Swift changes required.
@@ -79,9 +79,9 @@ public enum IBLocale {
         public static let heroTitle = IBL("Familiar")
         public static let heroBody = IBL("Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi.")
         public static let permissionsTitle = IBL("We need a few permissions")
-        public static let permissionsBody = IBL("iBridge needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.")
+        public static let permissionsBody = IBL("Familiar needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.")
         public static let pairTitle = IBL("Connect to your Mac")
-        public static let pairBody = IBL("Download and open iBridge Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.")
+        public static let pairBody = IBL("Download and open Familiar Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.")
         public static let getStarted = IBL("Get Started")
         public static let skip = IBL("Skip")
         public static let nextBtn = IBL("Continue")
@@ -186,20 +186,20 @@ public enum IBLocale {
         }
 
         public static func launchAtLogin(_ on: Bool) -> String {
-            on ? IBL("Open iBridge at login") : IBL("Don't open at login")
+            on ? IBL("Open Familiar at login") : IBL("Don't open at login")
         }
-        public static let launchAtLoginDescription = IBL("Start iBridge Receiver automatically when you log in.")
+        public static let launchAtLoginDescription = IBL("Start Familiar Receiver automatically when you log in.")
 
         public static let versionLabel = IBL("Version")
         public static let buildLabel = IBL("Build")
         public static let builtFor = IBL("Built for")
-        public static let copyrightLabel = IBL("© iBridge. Local-first, no cloud, no analytics.")
+        public static let copyrightLabel = IBL("© Familiar. Local-first, no cloud, no analytics.")
 
         public static let resetAccessibility = IBL("Re-request Accessibility permission")
         public static let openAtLogin = IBL("Open at Login")
 
         /// iOS settings section footers.
-        public static let connectionFooter = IBL("iBridge streams over your local WiFi using Bonjour. No data ever leaves your network.")
+        public static let connectionFooter = IBL("Familiar streams over your local WiFi using Bonjour. No data ever leaves your network.")
         public static let streamFooter = IBL("Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance.")
         public static let inputFooter = IBL("Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3.")
 
@@ -250,17 +250,17 @@ public enum IBLocale {
     /// Optional virtual-microphone HAL driver.
     public enum MicDriver {
         public static let title = IBL("Microphone Driver")
-        public static let installed = IBL("iBridge Microphone is installed.")
+        public static let installed = IBL("Familiar Microphone is installed.")
         public static let notInstalled = IBL("Not installed — apps can't use the iPhone mic as a system input yet.")
         public static let install = IBL("Install Microphone Driver…")
         public static let remove = IBL("Remove")
-        public static let footer = IBL("Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “iBridge Microphone”. Needs one admin authorization; audio briefly restarts.")
+        public static let footer = IBL("Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “Familiar Microphone”. Needs one admin authorization; audio briefly restarts.")
     }
 
     /// Offline demo mode (App Review can explore without a Mac).
     public enum Demo {
         public static let title = IBL("Demo Mode")
-        public static let footer = IBL("Shows sample camera content so you can explore iBridge without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.")
+        public static let footer = IBL("Shows sample camera content so you can explore Familiar without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.")
         public static let explainer = IBL("Demo Mode — sample content. No Mac connected.")
         public static let badge = IBL("DEMO")
     }
@@ -328,8 +328,8 @@ public enum IBLocale {
         public static let noMicPermission = IBL("Microphone permission denied. Enable in iOS Settings → Privacy → Microphone.")
         public static let noLocalNetwork = IBL("Local network permission denied. Enable in iOS Settings → Privacy → Local Network.")
         public static let searchingHint = IBL("Looking for your Mac on the same WiFi…")
-        public static let resumedAfterBackground = IBL("Video paused in the background — resumed now. Keep iBridge on screen while streaming.")
-        public static let noMacFound = IBL("No Mac found on the WiFi network. Make sure iBridge Receiver is running.")
+        public static let resumedAfterBackground = IBL("Video paused in the background — resumed now. Keep Familiar on screen while streaming.")
+        public static let noMacFound = IBL("No Mac found on the WiFi network. Make sure Familiar Receiver is running.")
         public static let bonjourFailed = IBL("Bonjour discovery failed. Check that both devices are on the same WiFi.")
         public static let connectionLost = IBL("Connection to Mac lost. Reconnecting…")
         /// Mac-side counterpart of `connectionLost` (the peer that went

@@ -61,10 +61,10 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        NSCameraUsageDescription: iBridge turns your iPhone into a WiFi camera for your Mac.
-        NSMicrophoneUsageDescription: iBridge streams your iPhone microphone to your Mac.
-        NSSpeechRecognitionUsageDescription: iBridge recognizes your speech on-device to type into your Mac.
-        NSLocalNetworkUsageDescription: iBridge discovers your Mac on the local WiFi network.
+        NSCameraUsageDescription: Familiar turns your iPhone into a WiFi camera for your Mac.
+        NSMicrophoneUsageDescription: Familiar streams your iPhone microphone to your Mac.
+        NSSpeechRecognitionUsageDescription: Familiar recognizes your speech on-device to type into your Mac.
+        NSLocalNetworkUsageDescription: Familiar discovers your Mac on the local WiFi network.
         NSBonjourServices:
           - _ibridge._tcp
     settings:

@@ -4,7 +4,7 @@
 #
 set -euo pipefail
 
-DEST="/Library/Audio/Plug-Ins/HAL/iBridgeMicrophone.driver"
+DEST="/Library/Audio/Plug-Ins/HAL/FamiliarMicrophone.driver"
 
 if [ ! -e "$DEST" ]; then
   echo "iBridge Microphone driver is not installed."

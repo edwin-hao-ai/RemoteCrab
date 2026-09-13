@@ -16,7 +16,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED="${IBRIDGE_DERIVED:-$ROOT/.build/mic-derived}"
 TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
-DRIVER_NAME="iBridgeMicrophone.driver"
+DRIVER_NAME="FamiliarMicrophone.driver"
 DEST="/Library/Audio/Plug-Ins/HAL/$DRIVER_NAME"
 
 echo "== [1/4] building $DRIVER_NAME (Release) =="
