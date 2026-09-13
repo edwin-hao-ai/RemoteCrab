@@ -30,7 +30,7 @@ struct PreviewWindow: View {
                 }
             }
         }
-        .navigationTitle("iBridge Preview")
+        .navigationTitle("Familiar Preview")
     }
 
     @ViewBuilder
@@ -73,12 +73,14 @@ extension ReceiverSession.State {
     /// User-facing text for the preview placeholder. Raw `NWError`
     /// descriptions are logged in `ReceiverSession` but never shown
     /// here — the user gets a friendly string instead.
-    var message: String {
+    var message: LocalizedStringKey {
         switch self {
         case .searching:                return "Looking for an iPhone on your WiFi…"
         case .connecting(let name):     return "Connecting to \(name)…"
+        case .handshaking(let name):    return "Connecting to \(name)…"
+        case .awaitingApproval:         return LocalizedStringKey(IBLocale.Error.awaitingApproval)
         case .streaming(let name, _):   return "Streaming from \(name)"
-        case .error:                    return IBLocale.Error.iPhoneConnectionLost
+        case .error(let reason):        return LocalizedStringKey(reason)
         }
     }
 }

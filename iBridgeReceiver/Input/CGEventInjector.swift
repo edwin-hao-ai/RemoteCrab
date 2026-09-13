@@ -256,4 +256,5 @@ public final class CGEventInjector: InputInjector {
             up?.post(tap: .cghidEventTap)
         }
     }
+
 }

@@ -75,7 +75,10 @@ struct FirstLaunchView: View {
                          ? IBLocale.Permission.accessibilityGranted
                          : IBLocale.Permission.accessibilityRequired)
                         .font(IBFont.bodyMedium)
-                        .foregroundStyle(.primary)
+                        // Always light: this card sits on the dark brand
+                        // gradient, so `.primary` renders black in light
+                        // appearance and becomes unreadable.
+                        .foregroundStyle(.white)
                     Spacer()
                     if !hasAccessibility {
                         Button {
@@ -171,7 +174,7 @@ struct FirstLaunchView: View {
 
     // MARK: - Helpers
 
-    private func row(symbol: String, title: String, detail: String) -> some View {
+    private func row(symbol: String, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .light))

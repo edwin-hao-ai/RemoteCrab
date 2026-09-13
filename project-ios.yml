@@ -36,10 +36,15 @@ targets:
     info:
       path: iBridgeCapture/Info.plist
       properties:
-        CFBundleDisplayName: iBridge
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "1"
+        CFBundleDisplayName: Familiar
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2026091321"
         LSRequiresIPhoneOS: true
+        # xcodegen rewrites Info.plist from these properties alone —
+        # keep CFBundleLocalizations here or regeneration drops it.
+        CFBundleLocalizations:
+          - en
+          - zh-Hans
         UILaunchScreen:
           UIColorName: ""
           UIImageName: ""

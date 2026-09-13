@@ -222,3 +222,134 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         self.timestampMicros = timestampMicros
     }
 }
+
+/// Mac → iPhone: identity handshake sent as the first frame on every
+/// connection (kind `0x0A`). The iPhone decides whether to serve this
+/// Mac based on `id` / `token` before it sends any stream data.
+public struct IBClientHello: Codable, Sendable, Equatable {
+    public let name: String
+    /// Stable per-Mac UUID, persisted across launches.
+    public let id: String
+    /// Pairing token issued by the iPhone on first approval. nil on the
+    /// very first connection (nothing to present yet).
+    public let token: String?
+    public let appVersion: String
+
+    public init(name: String, id: String, token: String? = nil, appVersion: String = "") {
+        self.name = name
+        self.id = id
+        self.token = token
+        self.appVersion = appVersion
+    }
+}
+
+/// iPhone → Mac: the ownership decision for a `clientHello`
+/// (kind `0x0B`).
+public enum IBSessionReplyResult: String, Codable, Sendable {
+    /// This Mac now owns the session.
+    case accepted
+    /// The iPhone is showing an approval prompt; wait (do not retry).
+    case pending
+    /// Another Mac already owns the session.
+    case busy
+    /// The request was explicitly denied.
+    case denied
+}
+
+public struct IBSessionReply: Codable, Sendable, Equatable {
+    public let result: IBSessionReplyResult
+    /// Present for `.busy` — the human name of the Mac that owns it.
+    public let ownerName: String?
+    /// Present for `.accepted` — the pairing token to persist.
+    public let token: String?
+
+    public init(result: IBSessionReplyResult, ownerName: String? = nil, token: String? = nil) {
+        self.result = result
+        self.ownerName = ownerName
+        self.token = token
+    }
+}
+
+/// One switchable Mac application, surfaced on the iPhone's app
+/// switcher. `id` is the bundle identifier, or `pid:<n>` for apps
+/// without one (rare on macOS, but possible for helpers).
+public struct IBAppInfo: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+    public let pid: Int32
+    public let isActive: Bool
+
+    public init(id: String, name: String, pid: Int32, isActive: Bool) {
+        self.id = id
+        self.name = name
+        self.pid = pid
+        self.isActive = isActive
+    }
+}
+
+/// Mac → iPhone: the current list of running regular apps (kind 0x0C).
+public struct IBAppList: Codable, Sendable, Equatable {
+    public let apps: [IBAppInfo]
+    public init(apps: [IBAppInfo]) { self.apps = apps }
+}
+
+/// iPhone → Mac: ask for a fresh app list (kind 0x0D).
+public struct IBAppListRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+/// iPhone → Mac: bring the identified app to the front (kind 0x0E).
+public struct IBActivateApp: Codable, Sendable, Equatable {
+    public let id: String
+    public init(id: String) { self.id = id }
+}
+
+// MARK: - File transfer (iPhone → Mac)
+
+/// iPhone → Mac: begin a file transfer (kind 0x0F). Followed by raw
+/// `fileChunk` frames and a `fileComplete`.
+public struct IBFileOffer: Codable, Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let size: Int64
+    public init(id: String = UUID().uuidString, name: String, size: Int64) {
+        self.id = id
+        self.name = name
+        self.size = size
+    }
+}
+
+/// iPhone → Mac: the transfer finished (kind 0x11).
+public struct IBFileComplete: Codable, Sendable, Equatable {
+    public let id: String
+    public init(id: String) { self.id = id }
+}
+
+public enum IBFileAckStatus: String, Codable, Sendable {
+    case progress
+    case saved
+    case error
+}
+
+/// Mac → iPhone: transfer feedback (kind 0x12).
+public struct IBFileAck: Codable, Sendable, Equatable {
+    public let id: String
+    public let status: IBFileAckStatus
+    public let receivedBytes: Int64
+    /// Absolute path on the Mac once saved.
+    public let path: String?
+    public init(id: String, status: IBFileAckStatus, receivedBytes: Int64, path: String? = nil) {
+        self.id = id
+        self.status = status
+        self.receivedBytes = receivedBytes
+        self.path = path
+    }
+}
+
+// MARK: - Clipboard
+
+/// Either direction: replace the peer's clipboard text (kind 0x13).
+public struct IBClipboard: Codable, Sendable, Equatable {
+    public let text: String
+    public init(text: String) { self.text = text }
+}

@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import CoreAudio
 import SwiftUI
 import iBridgeCore
 
@@ -23,6 +24,8 @@ struct PreferencesView: View {
     @AppStorage("ibridge.didFirstLaunch")  private var didFirstLaunch: Bool = false
 
     @State private var hasAccessibility: Bool = AXIsProcessTrusted()
+    @State private var micDriverInstalled = false
+    @State private var showMicPkgMissing = false
 
     var body: some View {
         TabView {
@@ -36,7 +39,52 @@ struct PreferencesView: View {
                 .tabItem { Label(IBLocale.Settings.about, systemImage: "info.circle") }
         }
         .frame(width: 480, height: 380)
-        .onAppear { hasAccessibility = AXIsProcessTrusted() }
+        .onAppear {
+            hasAccessibility = AXIsProcessTrusted()
+            refreshMicDriverState()
+        }
+        .alert(IBLocale.MicDriver.install, isPresented: $showMicPkgMissing) {
+            Button(IBLocale.Settings.done, role: .cancel) {}
+        } message: {
+            Text("The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.")
+        }
+    }
+
+    /// Is the HAL device present? (More reliable than checking the file
+    /// path, which the sandbox may hide.)
+    private func refreshMicDriverState() {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return }
+        let count = Int(size) / MemoryLayout<AudioObjectID>.size
+        var ids = [AudioObjectID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return }
+        micDriverInstalled = ids.contains { id in
+            var uidAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioDevicePropertyDeviceUID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var uid: CFString?
+            var uidSize = UInt32(MemoryLayout<CFString?>.size)
+            let status = withUnsafeMutablePointer(to: &uid) {
+                AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, $0)
+            }
+            return status == noErr && (uid as String?) == "com.ibridge.iBridgeMicrophone.device"
+        }
+    }
+
+    /// One-click install: open the signed pkg shipped inside the app.
+    private func installMicDriver() {
+        if let pkg = Bundle.main.url(forResource: "iBridgeMicrophone", withExtension: "pkg") {
+            NSWorkspace.shared.open(pkg)
+        } else {
+            showMicPkgMissing = true
+        }
     }
 
     // MARK: - General
@@ -49,8 +97,8 @@ struct PreferencesView: View {
                         Text(pos.localizedLabel).tag(pos.rawValue)
                     }
                 }
-                .accessibilityLabel("Camera position")
-                .accessibilityHint("Which iPhone camera to use as the live feed")
+                .accessibilityLabel(Text("Camera position"))
+                .accessibilityHint(Text("Which iPhone camera to use as the live feed"))
 
                 Toggle(IBLocale.Settings.openAtLogin, isOn: $launchAtLogin)
                     .accessibilityHint(IBLocale.Settings.launchAtLoginDescription)
@@ -58,6 +106,28 @@ struct PreferencesView: View {
                 Toggle("Auto-reconnect on connection loss", isOn: $autoReconnect)
             } header: {
                 Text(IBLocale.Settings.general)
+            }
+
+            Section {
+                HStack {
+                    Image(systemName: micDriverInstalled
+                          ? "checkmark.circle.fill"
+                          : "circle.dashed")
+                        .foregroundStyle(micDriverInstalled ? IBColor.success : IBColor.textTertiary)
+                    Text(micDriverInstalled ? IBLocale.MicDriver.installed : IBLocale.MicDriver.notInstalled)
+                        .font(IBFont.bodySmall)
+                    Spacer()
+                    if !micDriverInstalled {
+                        Button(IBLocale.MicDriver.install) { installMicDriver() }
+                            .controlSize(.small)
+                    }
+                }
+            } header: {
+                Text(IBLocale.MicDriver.title)
+            } footer: {
+                Text(IBLocale.MicDriver.footer)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -131,22 +201,22 @@ struct PreferencesView: View {
                         Text(r.localizedLabel).tag(r.rawValue)
                     }
                 }
-                .accessibilityLabel("Streaming resolution")
-                .accessibilityHint("Higher resolutions use more WiFi bandwidth")
+                .accessibilityLabel(Text("Streaming resolution"))
+                .accessibilityHint(Text("Higher resolutions use more WiFi bandwidth"))
 
                 Picker("Frame rate", selection: $frameRate) {
                     ForEach(IBLocale.Settings.FrameRate.allCases) { fps in
                         Text(fps.localizedLabel).tag(fps.rawValue)
                     }
                 }
-                .accessibilityLabel("Streaming frame rate")
+                .accessibilityLabel(Text("Streaming frame rate"))
 
                 Picker("Audio quality", selection: $audioQuality) {
                     ForEach(IBLocale.Settings.AudioQuality.allCases) { q in
                         Text(q.localizedLabel).tag(q.rawValue)
                     }
                 }
-                .accessibilityLabel("Microphone audio quality")
+                .accessibilityLabel(Text("Microphone audio quality"))
             } header: {
                 Text(IBLocale.Settings.streaming)
             } footer: {

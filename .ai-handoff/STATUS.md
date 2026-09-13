@@ -2,14 +2,22 @@
 
 > Shared across all active AI sessions. Update your entry when you start, make progress, or finish.
 
-## Session: Kimi (camera extension done; now e2e on real iPhone)
-- Branch: `main`
-- Status: **真机 e2e 链路已验证**（2026-09-11 11:31）
-  - iPhone 14 真机：listener ready (port 49598)，Bonjour 广播正常（走 USB en11/en13 接口，WiFi mDNS 不可见——iPhone WiFi 疑似无 IP，但 USB 路径可用）
-  - Mac receiver：browse → discover → connect → **connection ready** → 持续入站数据 ~12KB/s 数分钟无掉线
-  - 关键修复已 commit `be3e7d8`：receiver 启动即浏览（原来只在 ControlPanelView.onAppear）、Bonjour serviceEndpoint 直连（旧字符串解析 port 永远=0）
-- 注意：**/Applications/iBridgeReceiver.app 必须是包含 be3e7d8 的 build**——11:25 装过一次旧 build 导致零连接零日志。重装机前确认 `strings .../iBridgeReceiver | grep serviceEndpoint` 有输出
-- iOS e2e 用法：`devicectl device process launch --terminate-existing --environment-variables '{"IBRIDGE_AUTO_START":"1","IBRIDGE_AUTOSTREAM":"1"}' com.ibridge.iBridgeCapture`；`--console` 可抓 stderr 的 `[e2e]` 标记（ terminate 子命令参数不对会让 --console 报 EINVAL）
-- 注意：devicectl console 会话被杀会连带杀掉 app（iPhone app 会消失）
-- Will touch（连接自检窗口 goal）: **新增** `iBridgeReceiver/TestWindowView.swift`；**增量** `iBridgeReceiver/ReceiverSession.swift`（@Published 事件镜像）、`iBridgeReceiver/AudioPlayer.swift`（RMS 回调）、`iBridgeReceiver/iBridgeReceiverApp.swift`（注册 test 窗口）、`iBridgeReceiver/MenuBarMenu.swift`（ActionRow 接 openWindow）、`iBridgeReceiver/ControlPanelView.swift`（openWindow stub + 真 sparkline 数据）。Spec: `docs/superpowers/specs/2026-09-11-mac-connection-test-window-design.md`
-- **连接自检窗口已完成**（2026-09-11，未 commit）：上述文件全部改完，`./scripts/test.sh` 全绿（49 测试 + 双端 build）。注意：改过 project 后要 `xcodegen generate --spec project-mac.yml` 才会把新文件编入 target。真机验证路径：连上 iPhone 后菜单栏 → Connection Test，打字/滑动/说话看四象限。
+## Session: opencode (2026-09-12) — e2e verified, localization, multi-Mac pairing
+
+- Branch: `main`. Working tree has **uncommitted** changes (see `git status`).
+- Status: **完成**（除真实多 Mac 复测，卡在 iPhone unavailable）
+- Touched:
+  - `H264Decoder.swift`（env-gated 亮度探针 `IBRIDGE_DEBUG_FRAME_PROBE`）
+  - `ReceiverSession.swift`（握手/owner/退让 + touch/key 计数日志）
+  - `iBridgeCore/…/IBWire.swift`, `IBEvents.swift`（`clientHello`/`sessionReply`）
+  - `iBridgeCore/…/State/MacPairingStore.swift`（新，配对策略+存储）
+  - `iBridgeCore/…/DesignSystem/IBLocale.swift` + `Resources/Localizable.xcstrings`（新，多语言）
+  - `CaptureEngine.swift`（握手/owner/pending + AUTOPAIR）
+  - `ContentView.swift`, `IOSSettingsView.swift`（配对 UI）
+  - `FirstLaunchView.swift`（黑字修复 + row 本地化）
+  - Mac 各 view（`MenuBarMenu` / `TestWindowView` / `ControlPanelView` / `PreferencesView` / `PreviewWindow` / `iBridgeReceiverApp`）
+  - `project-ios.yml`（`CFBundleLocalizations` 恢复）
+  - `Localizable.xcstrings`（Mac/iOS 两个 app catalog 补条目）
+- Will touch: 无（收尾）
+- 真机验证：视频/音频/键盘鼠标注入全通；**"黑屏"根因是后置摄像头被挡**。
+- 未做：多 Mac `busy` 退让的真机复测（设备当时 unavailable），见 `HANDOFF.md`。

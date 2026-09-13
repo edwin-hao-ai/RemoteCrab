@@ -93,7 +93,9 @@ struct FeatureDock: View {
         }
         .buttonStyle(DockPressStyle())
         .accessibilityLabel(label)
-        .accessibilityHint("Shows the \(label.lowercased()) surface")
+        .accessibilityHint(String(
+            format: NSLocalizedString("Shows the %@ surface", comment: ""),
+            label.lowercased()))
     }
 
     /// Wide push-to-talk capsule floating above the dock. Kept

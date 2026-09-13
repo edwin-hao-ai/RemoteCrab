@@ -36,3 +36,14 @@ iBridgeCore/.build/
 iBridgeCore/Package.resolved
 # Superpowers brainstorming sessions
 .superpowers/
+# MDDock local metadata (do not commit)
+.mddock/*
+# …but keep the workspace manifest tracked
+!.mddock/mddock.md
+
+# App Store artifacts
+build/
+dist/
+# MDDock vault internals
+.mddock/
+*.zip

@@ -15,14 +15,17 @@ struct IOSSettingsView: View {
     @AppStorage("ibridge.ios.keepScreenOn") private var keepScreenOn: Bool = true
     @AppStorage("ibridge.ios.labAirMouse")   private var labAirMouse = false
     @AppStorage("ibridge.ios.labWheelScroll") private var labWheelScroll = false
+    @AppStorage("ibridge.ios.demoMode") private var demoMode = false
 
     var body: some View {
         NavigationStack {
             Form {
                 connectionSection
+                pairedMacsSection
                 videoSection
                 inputSection
                 labsSection
+                demoSection
                 aboutSection
             }
             .navigationTitle(IBLocale.Settings.title)
@@ -36,6 +39,16 @@ struct IOSSettingsView: View {
     }
 
     // MARK: - Sections
+
+    /// Offline demo content for exploring / App Review without a Mac.
+    private var demoSection: some View {
+        Section {
+            Toggle(IBLocale.Demo.title, isOn: $demoMode)
+        } footer: {
+            Text(IBLocale.Demo.footer)
+        }
+    }
+
 
     private var connectionSection: some View {
         Section {
@@ -53,6 +66,44 @@ struct IOSSettingsView: View {
             Text("Connection")
         } footer: {
             Text(IBLocale.Settings.connectionFooter)
+        }
+    }
+
+    /// The Mac currently owning the session + the persisted allow-list.
+    private var pairedMacsSection: some View {
+        Section {
+            if let connected = engine.connectedMacName {
+                HStack {
+                    Label(connected, systemImage: "laptopcomputer")
+                    Spacer()
+                    Button(IBLocale.Pairing.disconnect, role: .destructive) {
+                        engine.disconnectCurrentMac()
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            if engine.pairedMacs.isEmpty {
+                Text(IBLocale.Pairing.nonePaired)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(engine.pairedMacs) { mac in
+                    HStack {
+                        Image(systemName: "laptopcomputer")
+                            .foregroundStyle(.secondary)
+                        Text(mac.name)
+                        Spacer()
+                        Button(role: .destructive) {
+                            engine.forgetPairedMac(id: mac.id)
+                        } label: {
+                            Text(IBLocale.Pairing.forget)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        } header: {
+            Text(IBLocale.Pairing.pairedMacs)
         }
     }
 

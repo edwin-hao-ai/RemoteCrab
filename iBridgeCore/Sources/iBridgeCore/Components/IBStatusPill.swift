@@ -39,9 +39,13 @@ public struct IBStatusPill: View {
         var ms: String? {
             switch self {
             case .connected(let ms):        return ms.map { "\($0)ms" }
+            // No secondary text for the disconnected states — the label
+            // ("离线" / "OFFLINE") plus the red dot already say it, and
+            // rendering a long reason here is what produced the mixed
+            // "离线 Connection lost" pill.
             case .reconnecting, .idle:      return nil
             case .searching, .connecting:   return nil
-            case .disconnected(let reason): return reason
+            case .disconnected:             return nil
             }
         }
 
@@ -86,19 +90,14 @@ public struct IBStatusPill: View {
         }
     }
 
-    @SwiftUI.State private var pulseScale: CGFloat = 1.0
-
     public var body: some View {
         HStack(spacing: IBSpace.s.pt) {
             Circle()
                 .fill(status.dotColor)
                 .frame(width: 7, height: 7)
-                .overlay {
-                    Circle()
-                        .stroke(status.dotColor.opacity(0.4), lineWidth: 4)
-                        .scaleEffect(pulseScale)
-                        .opacity(status.isPulsing ? 0 : 1)
-                }
+                // Static dot. A `repeatForever` pulse here made the
+                // MenuBarExtra(.window) popover re-animate its window
+                // every frame (visible slide-in/out drift).
                 .shadow(color: status.dotColor.opacity(0.6), radius: 4, x: 0, y: 0)
                 .accessibilityHidden(true)
 
@@ -106,6 +105,12 @@ public struct IBStatusPill: View {
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(foreground)
                 .ibEyebrowTracking()
+                // Never wrap: a squeezed pill used to render each CJK
+                // glyph on its own line when the top bar got crowded.
+                // One line, scaling down slightly before truncating, so
+                // it can't push neighbouring controls off-screen.
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
             if let ms = status.ms {
                 Text(ms)
@@ -120,12 +125,6 @@ public struct IBStatusPill: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
-        .onAppear {
-            guard status.isPulsing else { return }
-            withAnimation(.easeOut(duration: 1.2).repeatForever(autoreverses: false)) {
-                pulseScale = 2.0
-            }
-        }
     }
 }
 

@@ -42,7 +42,7 @@ struct ControlPanelView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("iBridge")
+                Text("Familiar")
                     .font(IBFont.displayMedium)
                     .foregroundStyle(.white)
                 Text("Mac receiver")
@@ -121,7 +121,7 @@ struct ControlPanelView: View {
         }
     }
 
-    private func statRow(_ label: String, value: String, sf: String) -> some View {
+    private func statRow(_ label: LocalizedStringKey, value: String, sf: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: sf)
                 .font(.system(size: 9))
@@ -276,7 +276,7 @@ struct ControlPanelView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help("Open the live preview window")
+            .help(Text("Open the live preview window"))
 
             Button {
                 openWindow(id: "test")
@@ -296,7 +296,7 @@ struct ControlPanelView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help("Connection Test")
+            .help(Text("Connection Test"))
 
             Menu {
                 Button("Open Preview Window") {

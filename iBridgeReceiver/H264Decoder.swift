@@ -12,6 +12,8 @@ import os
 final class H264Decoder: @unchecked Sendable {
 
     private static let log = Logger(subsystem: "com.ibridge", category: "H264Decoder")
+    private static let frameProbeEnabled =
+        ProcessInfo.processInfo.environment["IBRIDGE_DEBUG_FRAME_PROBE"] == "1"
 
     var onDecoded: (@Sendable (CGImage) -> Void)?
 
@@ -214,6 +216,7 @@ final class H264Decoder: @unchecked Sendable {
     }
 
     private var emittedAny = false
+    private var emitCount = 0
 
     private func emit(imageBuffer: CVImageBuffer) {
         if !emittedAny {
@@ -223,6 +226,30 @@ final class H264Decoder: @unchecked Sendable {
         let ciImage = CIImage(cvPixelBuffer: imageBuffer)
         let context = CIContext(options: nil)
         guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+        // Optional scene-luminance probe (every 5 s) that separates a
+        // covered/dark camera from a decoder emitting black frames —
+        // that ambiguity cost a full debugging session once. Read
+        // straight from CoreGraphics: CI's PNG writer is blocked by the
+        // sandbox, and a failed CI render silently reads back as 0.
+        // Off unless IBRIDGE_DEBUG_FRAME_PROBE=1.
+        emitCount += 1
+        if Self.frameProbeEnabled, emitCount % 150 == 0 {
+            var px = [UInt8](repeating: 0, count: 16 * 16 * 4)
+            let cs = CGColorSpaceCreateDeviceRGB()
+            px.withUnsafeMutableBytes { buf in
+                if let ctx = CGContext(data: buf.baseAddress, width: 16, height: 16,
+                                       bitsPerComponent: 8, bytesPerRow: 16 * 4, space: cs,
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                    ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+                }
+            }
+            var mn = 255, mx = 0, sum = 0
+            for i in stride(from: 0, to: px.count, by: 4) {
+                let lum = (Int(px[i]) * 299 + Int(px[i + 1]) * 587 + Int(px[i + 2]) * 114) / 1000
+                mn = min(mn, lum); mx = max(mx, lum); sum += lum
+            }
+            Self.log.info("frame probe: min=\(mn) max=\(mx) avg=\(sum / (px.count / 4)) w=\(cgImage.width) h=\(cgImage.height)")
+        }
         onDecoded?(cgImage)
     }
 }

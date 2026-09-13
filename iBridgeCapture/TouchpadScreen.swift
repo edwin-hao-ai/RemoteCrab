@@ -32,9 +32,11 @@ struct TouchpadScreen: View {
 
     private static let log = Logger(subsystem: "com.ibridge", category: "trackpad")
 
-    /// Feature dock height (48 pt buttons + 16 pt vertical padding)
-    /// plus ContentView's outer padding — the modifier bar floats above it.
-    private let dockClearance: CGFloat = 88
+    /// Clearance so the modifier bar floats *above* the whole feature
+    /// dock, which is now 118 pt tall (44 pt PTT capsule + 10 pt gap +
+    /// 64 pt button row) plus ContentView's 16 pt padding = ~134 pt.
+    /// It used to be 88, which let the bar overlap the PTT capsule.
+    private let dockClearance: CGFloat = 148
 
     /// Modifier bitmask shared with TouchEvent: shift=1, control=2,
     /// option=4, command=8.
@@ -133,7 +135,12 @@ struct TouchpadScreen: View {
     /// center (joystick convention) and rests there dimly.
     private var cursorPreview: some View {
         GeometryReader { geo in
-            TimelineView(.periodic(from: .now, by: 0.05)) { context in
+            // Only tick while there's something to animate (finger down
+            // or a fading trail). A always-on 20 Hz timeline redrew the
+            // Canvas continuously and made the surface switch (and the
+            // camera PiP) feel janky.
+            TimelineView(.animation(minimumInterval: 0.05,
+                                    paused: trail.isEmpty && !isPressed)) { context in
                 ZStack(alignment: .topLeading) {
                     // Motion trail: recent touch points fading over
                     // 0.6 s — gives drags a visible "wake".

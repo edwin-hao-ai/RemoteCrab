@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Monochrome, transparent-background glyph of the iBridge
+       "monitor buddy" mark, for the macOS menu bar as a TEMPLATE image
+       (macOS tints it for light/dark automatically). -->
+  <g fill="none" stroke="#000000" stroke-width="66" stroke-linecap="round" stroke-linejoin="round">
+    <!-- monitor frame -->
+    <rect x="300" y="352" width="424" height="330" rx="86"/>
+    <!-- antenna -->
+    <line x1="512" y1="352" x2="512" y2="262"/>
+    <path d="M 568 206 A 68 68 0 0 1 626 268"/>
+    <path d="M 456 206 A 68 68 0 0 0 398 268"/>
+    <!-- stand -->
+    <path d="M 470 682 L 470 744 L 408 786"/>
+    <path d="M 554 682 L 554 744 L 616 786"/>
+    <line x1="408" y1="786" x2="616" y2="786"/>
+  </g>
+  <!-- antenna tip + eyes -->
+  <circle cx="512" cy="252" r="30" fill="#000000"/>
+  <circle cx="430" cy="502" r="34" fill="#000000"/>
+  <circle cx="594" cy="502" r="34" fill="#000000"/>
+</svg>

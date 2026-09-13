@@ -174,9 +174,72 @@ frames defined in `iBridgeCore/Networking/IBWire.swift`:
 | featureControl | `0x07` | **Mac** | UTF-8 JSON `IBFeatureControl` (remote feature toggles) |
 | featureState | `0x08` | iOS | UTF-8 JSON `FeatureStateSnapshot` (on connect + on change) |
 | ping | `0x09` | **Mac** | 8-byte timestamp; iPhone echoes verbatim → real RTT |
+| clientHello | `0x0A` | **Mac** | UTF-8 JSON `IBClientHello` `{name,id,token?,appVersion}` — first frame on connect |
+| sessionReply | `0x0B` | iOS | UTF-8 JSON `IBSessionReply` `{result,ownerName?,token?}`; `result ∈ accepted/pending/busy/denied` |
+| appList | `0x0C` | **Mac** | UTF-8 JSON `IBAppList` `{apps:[{id,name,pid,isActive}]}` (app switcher) |
+| appListRequest | `0x0D` | iOS | UTF-8 JSON `IBAppListRequest` (empty) — ask for a fresh list |
+| activateApp | `0x0E` | iOS | UTF-8 JSON `IBActivateApp` `{id}` — bring a Mac app to the front |
+| fileOffer | `0x0F` | iOS | UTF-8 JSON `IBFileOffer` `{id,name,size}` — begin a file transfer |
+| fileChunk | `0x10` | iOS | raw bytes (≤128 KiB) — next slice of the file |
+| fileComplete | `0x11` | iOS | UTF-8 JSON `IBFileComplete` `{id}` |
+| fileAck | `0x12` | **Mac** | UTF-8 JSON `IBFileAck` `{id,status,receivedBytes,path?}` |
+| clipboardSet | `0x13` | **both** | UTF-8 JSON `IBClipboard` `{text}` — replace the peer's clipboard |
+| textCommand | `0x14` | iOS | UTF-8 JSON `IBTextCommandMessage` `{command}` — rewrite the Mac's selection |
 
 The protocol is bidirectional since V0.3: Mac can toggle iPhone
-features and measure latency. `TouchEvent` also carries extended
+features and measure latency.
+
+### File transfer + recording (V0.4, 2026-09-13)
+
+- **Send to Mac** (AirDrop-like): iPhone top-bar paste icon → Photos/Files
+  picker → offer/chunks/complete over the wire → Mac writes to
+  `~/Downloads/iBridge/` and **reveals it in Finder**
+  (`NSWorkspace.activateFileViewerSelecting`). Menu bar also has a
+  "Show in Finder" row for the last received file.
+- **Record**: Mac menu bar → Record (⌘R) writes the live stream to
+  `~/Movies/iBridge/recording-<stamp>.mov` (H.264, decoded frames via
+  `AVAssetWriter`) + `recording-<stamp>.wav` (16-bit PCM). Stops and
+  reveals in Finder. (`StreamRecorder.swift`.)
+- **Sandbox gotcha**: a sandboxed app's `FileManager` redirects
+  `~/Downloads`/`~/Movies` into `~/Library/Containers/…`. Fixed by the
+  `com.apple.security.files.downloads.read-write` +
+  `com.apple.security.assets.movies.read-write` entitlements **and**
+  resolving the real home via `getpwuid` (`MacPaths` in
+  `StreamRecorder.swift`).
+- E2E flags: `IBRIDGE_E2E_SEND_FILE=1` (iPhone) and
+  `IBRIDGE_E2E_RECORD=1` (Mac receiver).
+- **Clipboard**: iPhone app-switcher toolbar → send iPhone clipboard to
+  the Mac; Mac menu bar → send Mac clipboard to the iPhone
+  (`clipboardSet` 0x13, either direction).
+- **Voice commands**: saying “open X” / “切换到 X” (or “switch to X”)
+  activates a running Mac app instead of typing the text
+  (`CaptureEngine.handleVoiceCommand`).
+- **Selection rewrite** (local, offline): “改写为全部大写” / “make this a
+  bullet list” transforms the Mac's current selection via
+  `TextTransform` (`IBTextCommand`: uppercase / lowercase / capitalize /
+  trimWhitespace / stripNewlines / bulletList). The Mac reads the
+  selection with synthetic **⌘C** and writes back with **⌘V**
+  (`ReceiverSession.copyFrontmostSelection` / `pasteToFrontmost`),
+  saving and restoring the user's clipboard.
+  **Why not the Accessibility API:** a *sandboxed* app can post key
+  events but cannot read another app's AX tree — `kAXSelectedTextAttribute`
+  silently returns nothing, which is why this uses the clipboard.
+
+### App switcher (V0.4, 2026-09-12)
+
+Born from WhisPrompt's window wheel and the Codex Micro macropad's
+"jump to the app that needs me" keys — on the iPhone, no extra hardware:
+
+- **Mac** publishes its running regular apps (bundle id / name / pid /
+  active) via `appList`, refreshed on launch/terminate/activate and on
+  `appListRequest` (`ReceiverSession.publishMacApps()`).
+- **iPhone** shows them in the top-bar app-switcher sheet
+  (`AppSwitcherView`); tapping sends `activateApp` → Mac
+  `NSRunningApplication.activate()`. Pinned apps sort first
+  (`ibridge.ios.pinnedApps`).
+- **Keyboard** also gains app-switching chords in the shortcut bar:
+  `⌘⇥`, `⌘\``, `⌃↑`, `⌃↓`, `⌘H`, `⌘Q`.
+- No screen-recording permission needed (names only, no thumbnails). `TouchEvent` also carries extended
 phases (`dragStart`, `pinch`, `threeFingerSwipe`, `threeFingerTap`,
 `forceClick`) and a modifier bitmask (shift=1, control=2, option=4,
 command=8) that `CGEventInjector` applies end-to-end.
@@ -223,11 +286,34 @@ buffering. The parser refuses frames larger than 64 MiB
 | Connection test window | `TestWindowView.swift` | 4-quadrant live self-check (camera / keyboard echo / trackpad pad / mic RMS); data from `ReceiverSession` event mirrors (`typedText`/`lastKey`/`touchVisual`/`micLevel`/`latencyHistory`) written in `handleInbound` before injection |
 | Camera Extension skeleton | `iBridgeCameraExtension/` | system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle |
 
+### Multi-Mac pairing (V0.4, 2026-09-12)
+
+One iPhone used to accept whichever Mac connected last (the old `accept`
+dropped the previous connection), so multiple Macs on one LAN fought over
+it. Now ownership is explicit:
+
+- **Wire**: the Mac's first frame is `clientHello` (0x0A); the iPhone
+  answers `sessionReply` (0x0B) before sending any stream data.
+- **Policy** (`iBridgeCore/State/MacPairingStore.swift`, pure + tested):
+  already-paired id **with matching token** → `accepted`; unknown Mac →
+  `pending`; a different Mac while someone owns the session → `busy`.
+- **Pairing**: first approval on the iPhone mints a `token`, persisted in
+  a UserDefaults allow-list (`MacPairingStore`) and echoed by the Mac in
+  every later `clientHello` (TOFU + token). iPhone UI: approval card +
+  Settings → Paired Macs (forget / disconnect).
+- **Mac behavior**: `handshaking` → `awaitingApproval` / `streaming`;
+  on `busy`/`denied` it stops the 3 s reconnect loop, shows why, and
+  offers manual Retry (+ one 30 s slow retry).
+- **Legacy fallback**: no `clientHello` within 3 s → admit first-come, so
+  an old Mac isn't bricked during the upgrade window.
+- **Test flag**: `IBRIDGE_E2E_AUTOPAIR=1` auto-approves pending Macs for
+  headless runs (mirrors `IBRIDGE_E2E_MIC` / `IBRIDGE_E2E_INPUT`).
+
 ---
 
 ## Tests
 
-49 tests in `iBridgeCore/Tests/`, all pass:
+74 tests in `iBridgeCore/Tests/`, all pass:
 
 ```
 iBridgeCore/Tests/iBridgeCoreTests/
@@ -236,12 +322,25 @@ iBridgeCore/Tests/iBridgeCoreTests/
 ├── FeatureStoreTests.swift             (4)  feature state set/apply/snapshot
 ├── TrackpadMathTests.swift             (6)  accel curve + momentum decay
 ├── TextDiffTests.swift                 (6)  IME text diffing → KeyEvent sequences
+├── PairingTests.swift                 (12)  clientHello/sessionReply round-trip, ownership policy, allow-list store
+├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
+├── AppSwitcherWireTests.swift          (3)  appList / appListRequest / activateApp round-trip
+├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
+├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
+├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
 ├── BonjourEndToEndTests.swift          (2)  Bonjour discover + TCP round-trip with bit-exact payload
 ├── EventPipelineEndToEndTests.swift    (6)  sender → TCP → parser → InputInjector
 ```
 
 `./scripts/test.sh` runs the package tests + `xcodebuild` for both
 app targets. Runs in < 30 seconds. **Always run before committing.**
+
+`./scripts/e2e-device.sh` is the **real-hardware** end-to-end test: it
+builds + deploys both apps, launches the iPhone headlessly with every
+`IBRIDGE_E2E_*` flag, and asserts the receiver-log markers (handshake,
+video, audio, touch, key, file transfer, clipboard, app switch,
+recording). Needs an unlocked, connected iPhone. 10/10 green as of
+2026-09-13.
 
 ---
 
@@ -404,10 +503,16 @@ below were invisible to the simulator and to `./scripts/test.sh`:
    inside a `@MainActor` type traps in `swift_task_checkIsolated`.
    Mark the wrapper `nonisolated`. (`AVCaptureDevice.requestAccess`
    calls back on main, which is why only speech crashed.)
-3. **MenuBarExtra labels must be SF Symbols.** A custom `Canvas`
-   label renders as a solid blob; hardcoded `.white` art is invisible
-   in light menu bars. `Image(systemName:)` gets template rendering
-   for free. `MenuBarIcon.swift` was deleted for this reason.
+3. **MenuBarExtra labels: SF Symbols, or a proper template IMAGE asset.**
+   A custom `Canvas` label renders as a solid blob; hardcoded `.white`
+   art is invisible in light menu bars. SF Symbols get template
+   rendering for free. For the app's own logo, ship a **monochrome
+   transparent-background image set** with
+   `"template-rendering-intent": "template"` (`MenuBarIcon.imageset`,
+   mastered from `assets/menu-bar-icon.svg` via `rsvg-convert`) and use
+   `Image("MenuBarIcon").renderingMode(.template)` — macOS then tints it
+   for light/dark. That's how the menu bar shows the monitor-buddy logo
+   instead of a phone glyph.
 4. **`./scripts/test.sh` used to clobber signed builds.** Its
    `CODE_SIGNING_ALLOWED=NO` builds wrote into the same DerivedData
    that deploy scripts copy from — deploying right after gating
@@ -437,9 +542,66 @@ below were invisible to the simulator and to `./scripts/test.sh`:
    first buffer. Give the block an explicit `@Sendable` type and box
    non-Sendable captures (`UnsafeSendableBox`). This is what made
    hold-to-talk crash on tap.
+8. **`Text(someString)` is verbatim — it never localizes.** SwiftUI only
+   runs the String Catalog lookup for `Text("literal")` /
+   `Text(LocalizedStringKey(x))`. A string routed through a `String`
+   property or a `func row(title: String)` helper displays as-is, so the
+   UI silently stays English. Type helper params as `LocalizedStringKey`;
+   for non-`Text` uses go through `String(localized:bundle:.module)`.
+   Also `.help("…")` / `.accessibilityLabel("…")` literals can resolve
+   verbatim — wrap in `Text("…")`.
+9. **The black video scare was a covered camera, not the decoder.**
+   `CaptureEngine` streams the `.back` camera; a phone face-down on a
+   desk is perfectly black. To tell "lens covered" from "decoder emits
+   black", run the receiver with `IBRIDGE_DEBUG_FRAME_PROBE=1` and read
+   the `frame probe: min/max/avg` line (true black → `max≈0`; a real
+   scene → `avg≈140`). The probe reads pixels via a `CGContext`: CI's
+   PNG writer is blocked by the sandbox and a failed CI render reads
+   back as 0, so CI is not trustworthy here.
+10. **Accessibility grant survives an in-place redeploy.** Overwriting
+    `/Applications/iBridgeReceiver.app` with `ditto` (same path, same
+    bundle id, same cert) keeps the TCC grant; a path/signature change
+    drops it. TCC is cached per process — **restart the app after
+    granting**, then confirm `accessibility trusted: true` in the log.
+11. **Tooling gotchas that cost an hour.** macOS has **no `timeout`**
+    (GNU-only; the failure is silent, which fakes "Bonjour isn't
+    advertising"); use `cmd & sleep 5; kill $!`. The iOS **Simulator's
+    Bonjour service is not visible to the host Mac's `NWBrowser`**, so
+    don't use a simulator to test discovery/pairing. `NWListener(using:
+    NWParameters.tcp)` (no explicit port) comes up; `on: .any` didn't.
+    For `simctl launch`, pass env vars with a `SIMCTL_CHILD_` prefix.
+
+12. **The iOS top bar is a floating overlay — surfaces must leave room.**
+    `ContentView` overlays a compact top bar (status icon + an overflow
+    `Menu`) plus a centered status alert card. `KeyboardScreen` pads its
+    top by 56pt so its header (正在 Mac 上输入) isn't covered. The
+    `FeatureDock` is ~134pt tall (44pt PTT capsule + 10 gap + 64 button
+    row + 16 ContentView padding), so `TouchpadScreen.dockClearance` is
+    **148** — at the old 88 the ⌃⌥⌘⇧ modifier bar sat on top of the
+    "按住说话" capsule. Keep these numbers in sync when the dock grows.
+    Long status text must never go in a cramped pill (it wrapped one CJK
+    glyph per line); it goes in the alert card.
+13. **Never surface a raw `NWError`/POSIX error.** `"\(error)"` shows
+    `POSIXErrorCode(rawValue: 54): Connection reset by peer` in the
+    popover. Log the error, set a human message
+    (`IBLocale.Error.iPhoneConnectionLost`). Also: `IBStatusPill`'s
+    `.disconnected` renders no secondary text now — showing the reason
+    produced the mixed "离线 Connection lost" pill.
+14. **`MenuBarExtra(.window)` re-sizes (and visibly animates) whenever
+    its content height changes.** A status row whose text wraps (the
+    offline hint `Text(session.state.message).fixedSize(vertical:)`)
+    changed height on every reconnect-loop state change, so the popover
+    kept sliding/re-sizing — read as a "looping sideways animation".
+    Keep popover rows a FIXED height and their text `lineLimit(1)`.
+15. **Don't run an always-on `TimelineView` for an idle animation.**
+    The trackpad's cursor preview ticked at 20 Hz forever, which made
+    surface switches (and the camera PiP) feel janky; it's now
+    `TimelineView(.animation(minimumInterval: 0.05, paused: trail.isEmpty && !isPressed))`.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
+- `IBRIDGE_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
+  surface so simulator screenshots can review each screen
 - `IBRIDGE_AUTO_START=1` — skip onboarding, start streaming
 - `IBRIDGE_AUTOSTREAM=1` — keep screen on + e2e frame counters
 - `IBRIDGE_E2E_INPUT=1` — 3 s after connect, send a scripted
@@ -447,6 +609,18 @@ Headless e2e launch envs for the iOS app (via
   has Mac keyboard focus — point TextEdit at a scratch file first)
 - `IBRIDGE_E2E_MIC=1` — force the mic feature on without tapping
   the phone screen
+- `IBRIDGE_E2E_AUTOPAIR=1` — auto-approve an unpaired Mac (skips the
+  iPhone pairing prompt) for headless multi-Mac runs
+- `IBRIDGE_E2E_SWITCH=<bundleid>` — request the Mac app list + activate
+  that app, so the switcher path is verifiable from the receiver log
+- `IBRIDGE_E2E_SEND_FILE=1` — generate a 1.5 MB file and send it to the
+  Mac (verifies receive + Finder reveal)
+- `IBRIDGE_E2E_RECORD=1` — Mac receiver records 6 s of the live stream
+- `IBRIDGE_E2E_CLIPBOARD=1` — push a known string to the Mac's clipboard
+  (verifies the clipboard path from the receiver log)
+- `IBRIDGE_E2E_TEXT_COMMAND=<command>` — Mac applies a text transform to
+  the current selection 10 s after the session is accepted (select text
+  in TextEdit first)
 
 Runbook for real-device testing:
 - `./scripts/install-to-iphone.sh` builds + installs + launches
@@ -506,4 +680,4 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-11 by Kimi (V0.3 + UI audit/polish pass — Mac injection & window wiring fixed, design-token consolidation, 49 tests green)_
+_Last updated: 2026-09-12 by opencode (real-device e2e verified end-to-end: video/audio/keyboard/mouse all confirmed on iPhone 14 — the old "black video" was a covered rear camera; zh-Hans system-language localization via an iBridgeCore String Catalog; multi-Mac pairing (`clientHello`/`sessionReply`, TOFU + token, busy/backoff); 62 tests green)_

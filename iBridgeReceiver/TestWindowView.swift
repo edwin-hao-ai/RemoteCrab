@@ -369,9 +369,9 @@ struct TestWindowView: View {
                                              ? .white.opacity(0.45) : IBColor.success)
                     }
                     .buttonStyle(.plain)
-                    .help(session.monitoringMuted
-                          ? "Speaker monitoring off — tap to hear the iPhone mic"
-                          : "Speaker monitoring on — tap to mute (avoids echo)")
+                    .help(Text(session.monitoringMuted
+                          ? LocalizedStringKey("Speaker monitoring off — tap to hear the iPhone mic")
+                          : LocalizedStringKey("Speaker monitoring on — tap to mute (avoids echo)")))
                     Spacer()
                     Text(String(format: "%3.0f%%", session.micLevel * 100))
                         .font(IBFont.monoMedium)
@@ -408,7 +408,7 @@ struct TestWindowView: View {
     // MARK: - Card chrome
 
     private func quadrantCard<Content: View>(
-        title: String,
+        title: LocalizedStringKey,
         icon: String,
         @ViewBuilder content: () -> Content
     ) -> some View {

@@ -1,344 +1,156 @@
-# iBridge 项目 — 完整上下文 (Handoff to next AI agent)
+# iBridge — 状态交接 (Handoff)
 
-## 0. 项目是什么
+> 给下一个接手的 AI/人。项目细节看 `AGENTS.md`（必读），本文件只放**当前状态**。
 
-iBridge — 把 iPhone/iPad 变成 Mac 的外设：摄像头、麦克风、触控板、键盘，通过本地 WiFi 走 Bonjour + TCP。
+_Last updated: 2026-09-12 by opencode_
 
-## 1. 已完成（V0.2）
+## 项目
 
-### 1.1 iOS app (`iBridgeCapture/`)
-- `RootView.swift` + `OnboardingFlow.swift`（3 页 paged onboarding）+ `PermissionFlow.swift`（权限请求）
-- `ContentView.swift`（Camera / Trackpad / Keyboard 三个模式切换器）
-- `CaptureEngine.swift` — AVCaptureSession + VideoToolbox H.264 硬编 + NWListener Bonjour 发布
-- `H264Encoder.swift` — VideoToolbox 硬编码
-- `MicrophoneEncoder.swift` — AVAudioEngine → 20ms PCM packets
-- `TouchpadScreen.swift` — UIView 触控捕获，UIPanGestureRecognizer + UITapGestureRecognizer
-- `KeyboardScreen.swift` — QWERTY 全键盘
-- `IOSSettingsView.swift` — Form 风格设置面板
-- `CameraPreview.swift` — AVCaptureVideoPreviewLayer
-- `Info.plist` — 权限描述、本地化（含 zh-Hans）、Bonjour 服务声明
-- `Assets.xcassets/AppIcon.appiconset/` — 14 个 iOS 尺寸图标
-- `Localizable.xcstrings` — 中英双语（60+ 字符串）
+把 iPhone/iPad 变成 Mac 的摄像头 / 麦克风 / 触控板 / 键盘，Bonjour + TCP，零云端、零订阅。
 
-### 1.2 Mac app (`iBridgeReceiver/`)
-- `iBridgeReceiverApp.swift` — 多个 Scene（first-launch / 菜单栏 / preview / control panel）
-- `ReceiverSession.swift` — NWBrowser Bonjour 浏览 + dispatch
-- `H264Decoder.swift` — VideoToolbox 硬解
-- `AudioPlayer.swift` — AVAudioEngine 播放
-- `AudioReceiver.swift` — 路由 iPhone 麦克风到 speakers / virtual mic
-- `iBridgeAudioUnit.swift` — AUAudioUnit v3 虚拟麦克风
-- `iBridgeAUInstanceProvider.swift` — host/extension 共享 AU
-- `Input/` — `InputInjector.swift` 协议 + `CGEventInjector.swift` + `Input/InputInjector.swift`（共享）
-- `MenuBarMenu.swift` — 菜单栏 popover
-- `MenuBarIcon.swift` — Canvas 自定义菜单栏图标
-- `FirstLaunchView.swift` — 首次启动引导 + Accessibility 权限检查
-- `ControlPanelView.swift` — 浮动控制面板
-- `PreviewWindow.swift` — 实时预览窗口
-- `CameraExtensionBridge.swift` — XPC bridge 到 Camera Extension
-- `PreferencesView.swift` — macOS Settings 风格偏好设置
-- `Info.plist` — LSUIElement=YES（菜单栏 app），权限描述，本地化
-- `Localizable.xcstrings` — 中英双语
-- `iBridgeReceiver.entitlements` — sandbox + network + camera + microphone
+## 已完成并真机验证（2026-09-12）
 
-### 1.3 iBridgeCore (`iBridgeCore/`)
-- `Package.swift` — iOS 17 / macOS 26, Swift 6.2
-- `Sources/iBridgeCore/`
-  - `DesignSystem/`
-    - `IBColors.swift` — 颜色 token
-    - `IBTypography.swift` — SF Pro Display/Text/Mono
-    - `IBSpacing.swift` — 间距 + 圆角
-    - `IBAnimations.swift` — spring 配置
-    - `IBMaterials.swift` — Liquid Glass 封装，iOS 17/18 fallback
-  - `Components/`
-    - `IBGlassCard.swift` — Liquid Glass 容器
-    - `IBStatusPill.swift` — 连接状态 pill
-    - `IBModifierBar.swift` — ⌃⌥⌘⇧ 修饰键
-    - `IBPrimaryButton.swift` — 录制按钮
-    - `IBToggleRow.swift` — 设置 toggle
-    - `IBMicMeter.swift` — 麦克风电平
-    - `IBKeyboardKey.swift` — 键盘按键
-    - `IBDesignSystemShowcase.swift` — 全组件 showcase
-  - `Input/InputInjector.swift` — 协议 + RecordingInputInjector（跨平台）
-  - `Networking/`
-    - `IBProtocol.swift` — 事件类型（TouchEvent / KeyEvent / AudioPacket）
-    - `IBWire.swift` — length-prefixed binary 帧编码
-    - `IBEventBroadcaster.swift` — iOS 端 sender
-  - `Audio/iBridgeAUInstanceProvider.swift` — host/extension 共享 AU
-- `Tests/` — 26 个 e2e 测试全过
+- **真机 e2e 全链路打通**（iPhone 14 / iOS 26.6.2 + Mac）
+  - 视频：1080p @ 30fps，Mac 端 VideoToolbox 解码正常
+  - 音频：48 kHz PCM 20 ms 包持续入站
+  - 键盘 / 鼠标注入：`iBridge-e2e-OK` 真的打进 TextEdit 光标处（Accessibility 已授权）
+  - **关键澄清**：之前"Mac 测试面板黑屏"不是解码 bug，是**后置摄像头被挡住**（手机扣在桌上）。
+    诊断方法：`H264Decoder` 里有 env-gated 亮度探针（`IBRIDGE_DEBUG_FRAME_PROBE=1`）。
+- **多语言**：iBridgeCore 统一 String Catalog（`Sources/iBridgeCore/Resources/Localizable.xcstrings`，en + zh-Hans），
+  `IBLocale` 走 `Bundle.module`；跟随系统语言。Mac 首启/菜单栏、iOS 首页均已验证中英切换。
+- **多 Mac 配对记忆**：见 `AGENTS.md` 的 "Multi-Mac pairing" 与
+  `docs/superpowers/specs/2026-09-12-multi-mac-pairing-design.md`。
+  首次 iPhone 弹窗授权 + TOFU token；已配对免弹窗；他人占用时 `busy` 退让不刷屏。
 
-### 1.4 Camera Extension (`iBridgeCameraExtension/`)
-- 完整 skeleton（`CameraExtensionProvider.swift` / `Device.swift` / `Stream.swift`）
-- 需 code signing + 系统扩展安装才能用
+## F2 虚拟麦克风（2026-09-13，代码完成待装）
 
-### 1.5 项目基础设施
-- `project-ios.yml` — xcodegen 配置，DEVELOPMENT_TEAM=DDG3CJL762（你的 Apple Development team）
-- `project-mac.yml` — macOS app + 两个扩展 target，ad-hoc signing
-- `scripts/`
-  - `test.sh` — CI 跑全套（26 测试 + 两端 build）
-  - `e2e-simulator.sh` — simulator 自动 e2e
-  - `install-to-iphone.sh` — 真机安装脚本
-  - `check-e2e-readiness.sh` — 检查 e2e 准备度
-  - `release-ios.sh` — App Store 发布
-  - `render_ui_screenshots.swift` — 生成设计截图
-  - `generate-ios-app-icons.sh`（Python + PIL）
-  - `ios-metadata.json` + `ios-app-store-metadata.py` — App Store Connect
-- `screenshots/` — 19 张 UI 截图
-- `E2E_TESTING.md` — 真机 e2e 步骤
-- `AGENTS.md` — 给 AI agent 的项目 context
-- `HANDOFF.md` — 本文件
-- `PRIVACY.md` — 隐私政策
-- `iOS 17 部署目标` — iPhone 14 (iOS 18.6.2) 可装
+- 新增 `iBridgeMicDriver/`：`SharedRing.{h,c}`（C + stdatomic 无锁 SPSC 环，48k mono Int16，2s）、
+  `iBridgeMicrophone.c`（CoreAudio HAL `AudioServerPlugIn`：驱动/设备/流三层，单**输入**设备
+  48k/1ch/Float32，`DoIOOperation(ReadInput)` 从环读 Int16→Float32，render 路径零分配）、
+  `MicRingBridge.{h,c}`（给 Swift 的不透明 C 桥）。
+- `project-mac.yml` 新增 `iBridgeMicrophone`（`type: bundle`，`WRAPPER_EXTENSION: driver`，
+  `CFPlugInFactories/Types` 指向 `iBridgeMicrophone_Create`），随 app 构建但不 embed。
+- Mac app：`iBridgeReceiver/MicRingWriter.swift` + 桥接头 + `SharedRing.c/MicRingBridge.c`；
+  `.audio` 收到 PCM 时同时 `micRing.write()`。
+- 脚本：`scripts/install-mic-driver.sh` / `uninstall-mic-driver.sh`（装 `/Library/Audio/Plug-Ins/HAL` + 重启 coreaudiod，需 sudo）。
+- **未验证**：需要 `sudo` 安装 + 在 App 里选「iBridge Microphone」；
+  **并需确认沙盒 app 能 `shm_open`**（若被挡，得让 Receiver 非沙盒或改 XPC 桥）。
+- 设计/行业调研见 `docs/superpowers/specs/2026-09-13-virtual-mic-hal-design.md`。
 
-## 2. 已做但你本地 Apple ID 装不了 iPhone 14 的部分
+## V1.0 补齐批次 1（2026-09-13）
 
-### 2.1 登录问题
-- Apple ID `edwinhao@sendpalm.com` 登录 Xcode 后已能装到 iPhone 14（已成功 `xcodebuild` 装到 `866A1921-B588-59D5-A1B7-B266103B2E49`）
-- DEVELOPMENT_TEAM 正确值是 `5XNDF727Y6`（**不是** `DDG3CJL762`），cert 实际属于这个 team
+- **F7** 后台/锁屏提示：iOS `scenePhase` → 回前台 toast「视频在后台暂停，现已恢复」。
+- **F6** 录制合轨：`StreamRecorder` 现在用 `AVAssetWriter` 写**单个 `.mov`**（H.264 + AAC），
+  ffprobe 验证双轨；不再输出 `.wav`。
+- **F4** iOS 演示模式：设置开关 + `DemoCameraView`（水印示例画面）+ 顶栏「演示」徽标；
+  演示态不弹离线 alert，方便 App Review 无 Mac 体验。
+- **F3** 手动 IP 兜底：iPhone 监听固定 8765（占用则动态），连接页显示 `IP:port`；
+  Mac 菜单「手动连接…」输入 `host:port`。
+- 仍在做：**F2 虚拟麦克风（CoreAudio HAL）**、**F1 Camera Extension 激活+验证**（见 `docs/RELEASE_PLAN.md`）。
 
-### 2.2 装到 iPhone 14 的命令
-```bash
-cd /Users/edwinhao/iBridge
-xcodebuild -project iBridgeCapture.xcodeproj -scheme iBridgeCapture \
-    -destination "id=866A1921-B588-59D5-A1B7-B266103B2E49" \
-    -configuration Debug build \
-    CODE_SIGNING_ALLOWED=YES \
-    DEVELOPMENT_TEAM=5XNDF727Y6 \
-    -allowProvisioningUpdates
-```
-然后用 devicectl 安装（详见 `scripts/install-to-iphone.sh`）
+## 菜单栏 logo / 报错 / 触控板卡顿（2026-09-13）
 
-## 3. 未完成 — **当前阻塞在 Accessibility 权限**
+- 菜单栏图标从 SF Symbol 手机 → **monitor-buddy logo 模板图**
+  （`iBridgeReceiver/Assets.xcassets/MenuBarIcon.imageset`，母版 `assets/menu-bar-icon.svg`，
+  `rsvg-convert` 生成 18/36/54，`template-rendering-intent: template`）。录制时仍切 record 圆点。
+- 不再把原始 `NWError` 显示到 UI（之前弹出 `POSIXErrorCode(rawValue: 54): Connection reset by peer`）；
+  改为日志记原始错误 + 界面显示 `IBLocale.Error.iPhoneConnectionLost`。`IBStatusPill.disconnected` 不再渲染 reason
+  （之前出现"离线 Connection lost"混排）。
+- 触控板卡顿：cursor 的 `TimelineView` 之前 20Hz 常驻重绘 → 改为 idle 时 paused。
 
-### 3.1 问题
-- iPhone 14 安装并启动了 iBridge app（Bonjour 服务已发布在 `local._ibridge._tcp`）
-- Mac 端 `iBridgeReceiver` 跑起来了（PID 5585），菜单栏 popover 显示 "iBridge" + 3 步说明
-- 但 **Accessibility 权限没授权** → iBridgeReceiver 在 `System Settings → Privacy & Security → Accessibility` 列表里**找不到**
+## e2e（2026-09-13）
 
-### 3.2 已尝试的方法（都失败）
-1. `AXIsProcessTrustedWithOptions(prompt: true)` — 不弹窗（被 system 缓存 "rejected" 状态）
-2. `tccutil reset Accessibility com.ibridge.iBridgeReceiver` — 成功输出 "Successfully reset"，但重启 app 仍不弹窗
-3. 多次重启 receiver —— 不弹窗
+- `./scripts/e2e-device.sh`：真机无头 e2e，构建+部署+跑全部 `IBRIDGE_E2E_*` 标志，断言 receiver 日志 marker。
+  **10/10 通过**：握手 / 视频 / 音频 / 触控 / 按键 / 文件传输 / 剪贴板 / 应用切换 / 录制。
+- `./scripts/test.sh`：74 单测 + 双端 build。
+- UI 审查：模拟器 `IBRIDGE_E2E_SURFACE=trackpad|keyboard|camera` 预设界面后 `simctl io screenshot`。
 
-### 3.3 为什么
-- macOS 14+：app dismiss 过一次 Accessibility 弹窗后，状态被缓存
-- `tccutil reset` 清了 TCC.db 里的条目，但 `accessibilityd` 守护进程缓存里仍是 "rejected"
-- ad-hoc 签名的 app 在系统里的优先级更低
+## iOS UI 大修（2026-09-13）
 
-### 3.4 唯一可靠的方法（**用户手动操作**）
-系统设置 → 辅助功能 → 点 **+** → 文件选择器 → **⌘⇧G** 输入路径 → 选 `iBridgeReceiver.app` → Open → 打开它 → 输密码授权
+- 顶栏收敛：状态胶囊 → 小图标 + 一个 `⋯` 溢出菜单（应用切换/发送/剪贴板/连接/设置）。
+- 连接状态做成**居中 alert 卡片**（图标+标题+副标题+暗色 scrim），不再挤顶栏、不竖排。
+- 修 FeatureDock 变高导致 `TouchpadScreen.dockClearance` 88 不够、⌃⌥⌘⇧ 压住"按住说话"的问题 → 148。
+- KeyboardScreen 顶部加 56pt 避让顶栏；"Start typing…" 等补齐本地化。
+- iOS 目录补 17 个 key（ConnectionSheet 的 Type/Domain/Status/Resolution/Bitrate/Codec、无障碍标签等）。
+- e2e：`IBRIDGE_E2E_SURFACE=trackpad|keyboard|camera` 预设界面，便于模拟器截图审查。
 
-路径：
-```
-/Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/iBridgeReceiver.app
-```
+## 语音改写选中文本（2026-09-13）
 
-### 3.5 另一个方法
-重启 Mac（Reddit 用户验证有效）— `sudo shutdown -r now` 然后再启动 app
+- `textCommand 0x14` + `TextTransform`（纯函数，本地）：大写/小写/首字母/去空格/去换行/项目符号。
+- iPhone 语音说「改写为全部大写 / make this a bullet list」→ Mac 变换当前选区。
+- Mac 用**合成 ⌘C 读选区 + ⌘V 写回**（保存/恢复用户剪贴板）。
+- **重要**：沙盒 app **读不了别的 app 的 AX 树**（`kAXSelectedTextAttribute` 静默返回空），
+  所以放弃了 AX 方案，改用剪贴板。这是踩过的坑。
+- 单测覆盖 TextTransform + wire；**真机端到端未稳定验证**（手机锁屏/多实例陈旧 owner 干扰），
+  建议在 TextEdit 里选中文字手动试一次。e2e：`IBRIDGE_E2E_TEXT_COMMAND=uppercase`（+10s）。
 
-## 4. 还没做的（V0.3 - V1.0）
+## 剪贴板互通 + 语音切应用（2026-09-13）
 
-### 4.1 待做功能
-- [x] Camera Extension 真正装到 Mac（需 code signing）
-- [x] Camera Extension 完整 XPC bridge
-- [ ] 系统设置里批准 iBridge camera extension（用户手动，一次性）
-- [ ] 虚拟麦克风（AUv3 extension）— 装到 iBridgeReceiver
-- [ ] Simulator e2e 增强（自动 Bonjour 验证）
-- [ ] 完整真机 e2e 流程
+- **剪贴板**：`clipboardSet 0x13`（双向）。iOS AppSwitcherView 工具栏 → 发 iPhone 剪贴板；
+  Mac 菜单栏 → 发 Mac 剪贴板。真机：`clipboard received from iPhone (21 chars)`。
+- **语音命令**：`CaptureEngine.handleVoiceCommand` —— 说"打开 X"/"切换到 X"/"switch to X"
+  会 `activateMacApp` 而不是输入文本。
+- e2e flag `IBRIDGE_E2E_CLIPBOARD=1`。
 
-### 4.2 待做发布项
-- [ ] 真机测试（用户自己跑）
-- [ ] App Store 截图（需真机 capture）
-- [ ] 真实 Apple Developer Program ($99/年) — 当前是个人 free team 5XNDF727Y6，能装不能发布
-- [ ] Notarization — Mac app 发布到 App Store 需要
-- [ ] 完整本地化（现在 .xcstrings 已搭好，但代码里 `IBLocale` 还没完全迁移过去用 `Text("…", bundle:)`）
-- [ ] 错误状态 UI（无权限 / Bonjour 失败 / 网络断）
-- [ ] 崩溃报告（OSLog + Sentry）
-- [ ] Settings UI — iOS 端有 `IOSSettingsView`，但 Mac 端 `PreferencesView` 是简化版
-- [ ] App Store 审核前的截图
-- [ ] 视频 / 音频的模拟器 e2e 增强（现在 simulator e2e 只跑 Bonjour discovery）
+## AirDrop 式文件传输 + 录制（2026-09-13）
 
-## 5. 关键架构决策
+- **发送到 Mac**：iPhone 顶栏上传图标 → 照片/视频（PhotosPicker）或文件（fileImporter）
+  → wire `fileOffer 0x0F` / `fileChunk 0x10`(raw) / `fileComplete 0x11`
+  → Mac 写入 `~/Downloads/iBridge/` 并**在 Finder 中显示**；`fileAck 0x12` 回进度。
+- **录制**：Mac 菜单栏 Record（⌘R）→ `~/Movies/iBridge/recording-<stamp>.mov`（H.264，5s≈3-5MB）
+  + `recording-<stamp>.wav`（16-bit PCM）；停止后 Finder 显示。
+- **沙盒坑**：沙盒里 `FileManager` 把 `~/Downloads`/`~/Movies` 重定向到容器。
+  解决：加 `files.downloads.read-write` + `assets.movies.read-write` 权限，并用
+  `getpwuid` 取真实 home（`MacPaths`，见 `StreamRecorder.swift`）。
+- 真机验证：`file saved /Users/edwinhao/Downloads/iBridge/…`；`.mov` 1920×1080 / 5.07s；
+  `.wav` 473KB（开麦）。e2e flag：`IBRIDGE_E2E_SEND_FILE=1`（iOS）、`IBRIDGE_E2E_RECORD=1`（Mac）。
 
-### 5.1 部署目标
-- iOS: **17.0**（兼容 iPhone 14, iOS 18.6.2）
-- macOS: **26.0**（需要 Liquid Glass + Camera Extension + AudioUnit v3）
+## App switcher（2026-09-13，借鉴 WhisPrompt / Codex Micro）
 
-### 5.2 设计系统
-- Apple Native + Liquid Glass（iOS 26+） + `.regularMaterial` fallback（iOS 17/18）
-- 颜色：Apple 语义色 + 自定义 brand 色
-- 字体：SF Pro Display/Text + SF Mono（technical readouts）
+- Mac 通过 `appList`(0x0C) 广播运行中的 App；iPhone 顶栏网格图标打开切换表，
+  点按发 `activateApp`(0x0E) → `NSRunningApplication.activate()`；可置顶（pin）。
+- 键盘快捷键栏新增 `⌘⇥` / `⌘\`` / `⌃↑` / `⌃↓` / `⌘H` / `⌘Q`。
+- 真机验证：`published 6 apps to iPhone` → `activated app 文本编辑`。
+- e2e flag `IBRIDGE_E2E_SWITCH=<bundleid>`。
 
-### 5.3 Wire 协议
-- 单一 TCP 连接，长度前缀 binary 帧
-- 4 byte BE 长度 + 1 byte kind + payload
-- kind：metadata(0x00), video(0x01), sps(0x02), pps(0x03), touch(0x04), key(0x05), audio(0x06)
-- Bonjour service: `_ibridge._tcp` on `local.`
+## 真机复测结果（2026-09-13）
 
-### 5.4 iPhone 端
-- `IBEventBroadcaster` → `IBWire.encode()` → TCP → `IBWire.Parser` on Mac → dispatch
-- 视频：`AVCaptureSession` → `VideoToolbox` H.264 硬编
-- 触控：`UIView` gesture recognizers → `TouchEvent` JSON
-- 键盘：`UITextField` → `KeyEvent` JSON
-- 麦克风：`AVAudioEngine` → 20ms PCM Int16 packets
+- 多 Mac 配对**已真机验证**：
+  - 首次：`clientHello (paired:false)` → `pending` →（AUTOPAIR 模拟点按）→ `accepted` → 视频/音频入站
+  - 令牌持久化：不重装、关掉 AUTOPAIR 后重连 → `clientHello (paired:true)` → 直接 `accepted`（无需再授权）
+  - 第二台 Mac（`open -n -a … --args -ibridge.mac.id second-mac-test`）→ `sessionReply: busy owner=MacBook Pro de Edwin`，
+    约每 32s 一次慢重试（30s slow retry，**无 3s 重连风暴**），owner 不受影响（持续 4140+ 帧）
 
-### 5.5 Mac 端
-- `ReceiverSession` — `NWBrowser` 找 iPhone，`IBWire.Parser` 解析
-- `H264Decoder` — VideoToolbox 解码
-- `AudioReceiver` — PCM 播放
-- `Input/InputInjector` 协议 + `CGEventInjector` 实现 + `RecordingInputInjector` 测试用
-- `MenuBarExtra(.window)` + 自定义 `MenuBarIcon` Canvas
+## 待做
 
-## 6. 关键设计文档
+- [ ] 相机扩展用户开关（系统设置 → 登录项与扩展 → 相机扩展 → 打开 iBridge）
+- [ ] 虚拟麦克风（CoreAudio HAL 插件，非 AUv3）+ 真实 Opus 编码
+- [ ] App Store 截图 / 提交、崩溃报告、VoiceOver、完整本地化收尾
 
-- `AGENTS.md` — 详细的项目 context（**下一个 AI agent 必读**）
-- `E2E_TESTING.md` — 真机 e2e 完整步骤
-- `RUN.md` — 真机/模拟器运行步骤
-- `README.md` — 项目概览 + 架构图
-- `PRIVACY.md` — 隐私政策
-
-## 7. 用户的真机状态
-
-### 7.1 设备
-- Mac（你现在的）：macOS 26
-- iPhone 14：iOS 18.6.2，UDID `866A1921-B588-59D5-A1B7-B266103B2E49`
-- iPhone 已连到 Mac 同一个 WiFi（`192.168.31.0/24` 网段）
-
-### 7.2 当前 Bonjour 状态
-- iPhone 14 正在 advertise `_ibridge._tcp` 服务
-- 名字："iBridge — iPhone"（UIDevice.current.name 返回 "iPhone"）
-- iPhone 17 Pro simulator 也在 advertise（独立 iBridge — iPhone 17 Pro）
-
-### 7.3 Mac 端进程
-- iBridgeReceiver 跑在 PID 5585
-- 菜单栏 popover 显示（需要 Accessibility 才能正常显示设备列表）
-- iPhoneReceiver UI 在屏幕上
-
-## 8. 你想做的下一步
-
-**最优先**：完成 e2e 真机测试。流程：
-1. 在 Mac 系统设置 → 辅助功能 → + → 加 iBridgeReceiver → 打开 → 输密码
-2. iBridgeReceiver popover 会显示 "Accessibility granted" 状态
-3. iPhone 14 已经 Bonjour 发布中
-4. 等待几秒，Mac 端会检测到 iPhone 14 并自动连接
-5. Mac 端显示实时画面
-
-**最简单一条命令解决**：
-```bash
-open -a "/Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/iBridgeReceiver.app"
-```
-- 菜单栏 popover 应出现
-- 等 2-3 秒
-- 列表里应出现 "iPhone"（iPhone 14）
-
-## 9. 关于 kimi code / 其他 AI agent
-
-任何 AI agent 接续工作时：
-
-1. **必读**：`AGENTS.md`（详细设计、协议、流程）
-2. **必看**：`E2E_TESTING.md`（真机测试步骤）
-3. **看 git log**：56 个 commits 全部为 V0.2 准备工作
-4. **跑测试**：`./scripts/test.sh` 验证 26 测试通过
-5. **必查环境**：
-   - Xcode 26 已装
-   - iPhone 14（iOS 18.6.2）已连 Mac
-   - iPhone 14 的 iBridgeCapture app 已装（需先在 Xcode 登录 Apple ID）
-   - Mac Apple ID 登录了
-   - Accessibility 是唯一阻塞 e2e 的点
-6. **如果要发真机测试**：
-   - 登录 Apple ID
-   - 在 System Settings → Accessibility → + → 选 iBridgeReceiver → 打开
-
-## 10. 立即可做的（无需再等任何东西）
-
-- ✅ `./scripts/test.sh` 跑全套 — 26 tests
-- ✅ `./scripts/e2e-simulator.sh` 跑 simulator e2e
-- ✅ `./scripts/check-e2e-readiness.sh` 看 e2e 准备度
-- ✅ `swift build` + `swiftc -parse-as-library` 跑 e2e_receiver_demo.swift
-- ✅ 截图、build、commit 任何修改
-- ❌ 装到真机需要先登录 Apple ID
-- ❌ Accessibility 需要手动加到列表
-
-## 11. 重要文件 / 路径速查
-
-| 文件 | 作用 |
-|---|---|
-| `iBridgeCapture/ContentView.swift` | iOS 主 UI（三个 mode 切换）|
-| `iBridgeCapture/CaptureEngine.swift` | 摄像头/麦克风采集 + Bonjour 发布 |
-| `iBridgeReceiver/ReceiverSession.swift` | Mac 端 Bonjour 浏览 + dispatch |
-| `iBridgeReceiver/MenuBarMenu.swift` | 菜单栏 popover 内容 |
-| `iBridgeReceiver/iBridgeAudioUnit.swift` | AUAudioUnit v3 虚拟麦克风 |
-| `iBridgeReceiver/CameraExtensionBridge.swift` | XPC bridge 到 Camera Extension |
-| `iBridgeCore/Networking/IBWire.swift` | length-prefixed 帧协议 |
-| `iBridgeCore/DesignSystem/IBMaterials.swift` | Liquid Glass 封装 |
-| `iBridgeCapture/Localizable.xcstrings` | iOS 中英双语 |
-| `iBridgeReceiver/Localizable.xcstrings` | Mac 中英双语 |
-| `scripts/test.sh` | CI 跑全套 |
-| `scripts/install-to-iphone.sh` | 真机安装 |
-| `scripts/check-e2e-readiness.sh` | e2e 准备度检查 |
-| `screenshots/` | 19 张 UI 截图 |
-| `AGENTS.md` | **给 AI agent 的项目 context** |
-| `E2E_TESTING.md` | 真机 e2e 步骤 |
-| `HANDOFF.md` | **本文件**（状态交接） |
-
-## 12. 验证脚本可跑的命令
+## 真机 e2e 速查
 
 ```bash
-cd /Users/edwinhao/iBridge
+# iOS：跳过 onboarding + 自动推流 + 自动配对（无头）
+xcrun devicectl device process launch --device 866A1921-B588-59D5-A1B7-B266103B2E49 \
+  --terminate-existing \
+  --environment-variables '{"IBRIDGE_AUTO_START":"1","IBRIDGE_AUTOSTREAM":"1","IBRIDGE_E2E_MIC":"1","IBRIDGE_E2E_AUTOPAIR":"1"}' \
+  com.ibridge.iBridgeCapture
 
-# 跑 26 测试 + 两端 build
-./scripts/test.sh
+# Mac 日志
+log stream --predicate 'subsystem == "com.ibridge"' --info --style compact
 
-# Simulator e2e
-./scripts/e2e-simulator.sh
-
-# 检查真机 e2e 准备度
-./scripts/check-e2e-readiness.sh
-
-# 看 iPhone 14 装的没装、什么状态
-xcrun devicectl device info list -d 866A1921-B588-59D5-A1B7-B266103B2E49 2>&1 | head -10
-xcrun devicectl device process list -d 866A1921-B588-59D5-A1B7-B266103B2E49 2>&1 | grep -i bridge
-
-# Bonjour 找 iBridge
-rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name" | head -3
-
-# 截屏 simulator 或 Mac
-rtk xcrun simctl io booted screenshot /tmp/sim-now.png 2>&1 | tail -1
-rtk screencapture -x /tmp/mac-now.png 2>&1 | tail -1
-
-# 触发 iPhone 上的 iBridge
-xcrun devicectl device process launch -d 866A1921-B588-59D5-A1B7-B266103B2E49 com.ibridge.iBridgeCapture --terminate-existing 2>&1 | tail -2
+# 门禁
+./scripts/test.sh              # 62 测试 + 双端 build
 ```
 
-## 13. 当前 e2e 阻塞点 + 解锁步骤
+env flags：`IBRIDGE_AUTO_START`（跳 onboarding）、`IBRIDGE_AUTOSTREAM`（自动推流）、
+`IBRIDGE_E2E_MIC`、`IBRIDGE_E2E_INPUT`（脚本化触控+打字）、`IBRIDGE_E2E_VOICE`、
+`IBRIDGE_E2E_AUTOPAIR`（自动批准配对）。
 
-**问题**：iBridgeReceiver 不在 macOS Accessibility 列表里 → 鼠标键盘模拟进不去 → 接收不到 iPhone 事件
+## 环境注意
 
-**解锁**（3 分钟）：
-1. Mac 系统设置 → 隐私与安全性 → 辅助功能
-2. 点窗口左下角小 + 号
-3. 按 **⌘⇧G**（前往文件夹）→ 取消 / 输入上面 iBridgeReceiver.app 路径
-4. **Open** → 选 iBridgeReceiver
-5. 列表里 iBridgeReceiver 出现 → 打开它
-6. 输密码授权
-
-**之后**：
-- iBridgeReceiver popover 状态变 "Accessibility granted"
-- iPhone 14 Bonjour 被检测到
-- 等待 2-3 秒 → Mac 显示实时 iPhone 摄像头画面
-- 触控板 / 键盘 / 麦克风全部通
-
-## 14. 给 kimi code / 下一个 AI 的关键
-
-**最优先任务**：完成 iPhone 14 ↔ Mac 真实 e2e。这需要：
-1. 用户手动授权 Accessibility（13 步走不通）
-2. 或者 macOS 重启（重新弹窗）
-3. 重启后跑 e2e-simulator 变体测试 iPhone 真机
-
-**然后**：补完 V0.3 / V1.0 缺失项（11 项待做）
-
-**不要做的事**：
-- 不要再花时间在 Apple ID 登录上（已经登录了）
-- 不要再花时间在 DMG 打包上（无助于 Accessibility）
-- 不要再花时间在 Bonjour discovery（已 working，iPhone 14 在 advertise）
-
-**关键判断点**：iPhone 14 的 `iBridge — iPhone` 已经在 Bonjour 上发布，Mac receiver 在跑。**唯一阻塞是 Mac 端 Accessibility 授权**。解决这个之后，整个 e2e 流就通了。
+- 真机 build：`DEVELOPMENT_TEAM=5XNDF727Y6`（不是 project-*.yml 里的 DDG3CJL762）。
+- Mac 端重签/换路径会让 Accessibility 失效；在**系统设置 → 辅助功能**里重新打开
+  `/Applications/iBridgeReceiver.app`（本次重部署后授权保留，验证过）。
+- iOS 锁屏会挂起 Bonjour 监听 → "Connection reset by peer"；测试时设自动锁定为永不。
+- `timeout` 命令 macOS 没有；别用它包 `dns-sd`。

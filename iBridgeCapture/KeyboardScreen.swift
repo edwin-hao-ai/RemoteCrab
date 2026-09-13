@@ -50,6 +50,9 @@ struct KeyboardScreen: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, IBSpace.s.pt)
+                // Clear ContentView's floating top bar (status icon +
+                // overflow menu) so the header isn't overlapped.
+                .padding(.top, 56)
                 .padding(.bottom, IBSpace.m.pt)
                 .padding(.bottom, keyboardHeight)
                 .onReceive(
@@ -108,7 +111,9 @@ struct KeyboardScreen: View {
                     .font(IBFont.monoMedium)
                     .foregroundStyle(.white.opacity(0.4))
             }
-            Text(committedText.isEmpty ? "Start typing…" : committedText)
+            Text(committedText.isEmpty
+                 ? IBLocale.Keyboard.startTyping
+                 : committedText)
                 .font(IBFont.titleMedium)
                 .foregroundStyle(committedText.isEmpty ? .white.opacity(0.35) : .white)
                 .lineLimit(2)
@@ -167,13 +172,22 @@ struct KeyboardScreen: View {
                 modifierKey(.shift)
                 shortcutKey(symbol: "arrow.left", accessibility: "Left arrow key", keycode: 123)
                 shortcutKey(symbol: "arrow.right", accessibility: "Right arrow key", keycode: 124)
+                // App / window switching — borrowed from WhisPrompt's
+                // window wheel and the Codex Micro macropad's "jump to
+                // app" keys, mapped onto macOS's native shortcuts.
+                shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
+                shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
+                shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
+                shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
+                shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
+                shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
             }
         }
     }
 
-    private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16) -> some View {
+    private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, extra: UInt8 = 0) -> some View {
         Button {
-            sendKeyTap(keycode)
+            sendKeyTap(keycode, extra: extra)
         } label: {
             Group {
                 if let symbol {
@@ -240,9 +254,12 @@ struct KeyboardScreen: View {
 
     // MARK: - Event plumbing
 
-    private func sendKeyTap(_ keycode: UInt16) {
-        engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: modifierMask))
-        engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: modifierMask))
+    private func sendKeyTap(_ keycode: UInt16, extra: UInt8 = 0) {
+        // `extra` lets a single tap emit a chord (e.g. ⌘⇥) on top of
+        // any locked modifiers.
+        let mask = modifierMask | extra
+        engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: mask))
+        engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: mask))
     }
 
     private func handleTextChange(from old: String, to new: String) {

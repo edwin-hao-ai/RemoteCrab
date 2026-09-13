@@ -1,27 +1,24 @@
 {
-  "_comment": "iBridge App Store Connect metadata. Replace 'appId' with your real Apple Developer app record ID after you create it at https://appstoreconnect.apple.com. The bundleId must match Info.plist CFBundleIdentifier.",
-
-  "appId": "000000000",
+  "_comment": "Familiar App Store Connect metadata. Replace 'appId' with your real Apple Developer app record ID after you create it at https://appstoreconnect.apple.com. The bundleId must match Info.plist CFBundleIdentifier.",
+  "appId": "6811599153",
   "bundleId": "com.ibridge.iBridgeCapture",
   "platform": "IOS",
-
   "locales": {
     "en-US": {
-      "description": "iBridge turns your iPhone or iPad into a high-quality camera, microphone, trackpad and keyboard for your Mac — over your local WiFi, with no subscription and no cloud.\n\nCAMERA\nUse your iPhone's camera as a Mac webcam. 1080p at 30 fps with hardware H.264 encoding. The Mac sees iBridge Camera as a standard UVC / CoreMediaIO device in Zoom, Teams, FaceTime, Photo Booth and OBS.\n\nMICROPHONE\nStream your iPhone's microphone to your Mac. Useful when the Mac's built-in mic is far away or noisy.\n\nTRACKPAD\nUse the iPhone screen as a wireless trackpad. Single-finger drag, tap, two-finger scroll, two-finger right-click — and ⌃⌥⌘⇧ modifier keys.\n\nKEYBOARD\nType on the iPhone and the text appears wherever the cursor is on the Mac. ⌘C / ⌘V / ⌘Z all work as you'd expect.\n\nSETUP\n1. Open iBridge Receiver on your Mac.\n2. Open iBridge Capture on your iPhone.\n3. Tap the big button on iPhone. The two devices find each other automatically over Bonjour.\n\nPRIVACY\niBridge is local-first. Your video, audio, and keystrokes never leave your WiFi. We don't run a server, we don't collect analytics, and there's no account to create.",
+      "description": "Familiar turns your iPhone or iPad into a high-quality camera, microphone, trackpad and keyboard for your Mac — over your local WiFi, with no subscription and no cloud.\n\nCAMERA\nUse your iPhone's camera as a Mac webcam. 1080p at 30 fps with hardware H.264 encoding. The Mac sees Familiar Camera as a standard UVC / CoreMediaIO device in Zoom, Teams, FaceTime, Photo Booth and OBS.\n\nMICROPHONE\nStream your iPhone's microphone to your Mac. Useful when the Mac's built-in mic is far away or noisy.\n\nTRACKPAD\nUse the iPhone screen as a wireless trackpad. Single-finger drag, tap, two-finger scroll, two-finger right-click — and ⌃⌥⌘⇧ modifier keys.\n\nKEYBOARD\nType on the iPhone and the text appears wherever the cursor is on the Mac. ⌘C / ⌘V / ⌘Z all work as you'd expect.\n\nSETUP\n1. Open Familiar Receiver on your Mac.\n2. Open Familiar on your iPhone.\n3. Tap the big button on iPhone. The two devices find each other automatically over Bonjour.\n\nPRIVACY\nFamiliar is local-first. Your video, audio, and keystrokes never leave your WiFi. We don't run a server, we don't collect analytics, and there's no account to create.",
       "keywords": "webcam,microphone,trackpad,keyboard,continuity,mac webcam,iphone as webcam,video,office,remote work,zoom,obs",
       "marketingUrl": "https://ibridge.app",
       "supportUrl": "https://ibridge.app/support",
       "promotionalText": "Your iPhone is a Mac peripheral. Camera, mic, trackpad, and keyboard — over WiFi, fully local."
     },
     "zh-Hans": {
-      "description": "iBridge 把你的 iPhone 或 iPad 变成 Mac 的高清摄像头、麦克风、触控板和键盘 —— 通过本地 WiFi，无需订阅，无需云端。\n\n摄像头\n把 iPhone 的摄像头当 Mac 摄像头用。1080p 30 fps，硬件 H.264 编码。Mac 端在 Zoom、Teams、FaceTime、Photo Booth、OBS 里直接选「iBridge Camera」就能看到画面。\n\n麦克风\n把 iPhone 的麦克风串流到 Mac。当 Mac 内置麦克风离得远或环境嘈杂时尤其有用。\n\n触控板\n把 iPhone 屏幕当无线触控板。单指拖动、单击、双指滚动、双指右键，配合 ⌃⌥⌘⇧ 修饰键。\n\n键盘\n在 iPhone 上打字，文本直接出现在 Mac 鼠标光标处。⌘C / ⌘V / ⌘Z 全部正常工作。\n\n使用步骤\n1. 在 Mac 上打开 iBridge Receiver。\n2. 在 iPhone 上打开 iBridge Capture。\n3. 点 iPhone 上的大圆按钮。两台设备通过 Bonjour 自动找到彼此。\n\n隐私\niBridge 是本地优先的。视频、音频、键盘事件全部留在你的 WiFi 里。我们不跑服务器、不收集数据、不需要注册账户。",
+      "description": "Familiar 把你的 iPhone 或 iPad 变成 Mac 的高清摄像头、麦克风、触控板和键盘 —— 通过本地 WiFi，无需订阅，无需云端。\n\n摄像头\n把 iPhone 的摄像头当 Mac 摄像头用。1080p 30 fps，硬件 H.264 编码。Mac 端在 Zoom、Teams、FaceTime、Photo Booth、OBS 里直接选「Familiar Camera」就能看到画面。\n\n麦克风\n把 iPhone 的麦克风串流到 Mac。当 Mac 内置麦克风离得远或环境嘈杂时尤其有用。\n\n触控板\n把 iPhone 屏幕当无线触控板。单指拖动、单击、双指滚动、双指右键，配合 ⌃⌥⌘⇧ 修饰键。\n\n键盘\n在 iPhone 上打字，文本直接出现在 Mac 鼠标光标处。⌘C / ⌘V / ⌘Z 全部正常工作。\n\n使用步骤\n1. 在 Mac 上打开 Familiar Receiver。\n2. 在 iPhone 上打开 Familiar。\n3. 点 iPhone 上的大圆按钮。两台设备通过 Bonjour 自动找到彼此。\n\n隐私\nFamiliar 是本地优先的。视频、音频、键盘事件全部留在你的 WiFi 里。我们不跑服务器、不收集数据、不需要注册账户。",
       "keywords": "摄像头,麦克风,触控板,键盘,接力,Mac 摄像头,iPhone 摄像头,视频,办公,远程办公,Zoom,OBS",
       "marketingUrl": "https://ibridge.app",
       "supportUrl": "https://ibridge.app/support",
       "promotionalText": "你的 iPhone 就是 Mac 的外设。摄像头、麦克风、触控板、键盘 —— 全部本地 WiFi。"
     }
   },
-
   "screenshots": {
     "iphone67": [
       "01-onboarding-hero",
@@ -38,7 +35,6 @@
       "04-trackpad"
     ]
   },
-
   "screenshotTitles": {
     "01-onboarding-hero": {
       "en-US": "Your iPhone is a Mac peripheral",

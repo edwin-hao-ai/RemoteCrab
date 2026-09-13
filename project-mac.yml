@@ -29,6 +29,9 @@ targets:
       - path: iBridgeReceiver
         excludes:
           - "Info.plist"
+      # Shared-memory ring (C) so the app can feed the virtual mic.
+      - path: iBridgeMicDriver/SharedRing.c
+      - path: iBridgeMicDriver/MicRingBridge.c
     resources: []
     dependencies:
       - package: iBridgeCore
@@ -39,10 +42,15 @@ targets:
       - target: iBridgeAudioExtension
         embed: true
         codeSign: true
+      # Built with the app, but installed to /Library/Audio/Plug-Ins/HAL
+      # by scripts/install-mic-driver.sh — not embedded in the bundle.
+      - target: iBridgeMicrophone
+        embed: false
+        codeSign: true
     info:
       path: iBridgeReceiver/Info.plist
       properties:
-        CFBundleDisplayName: iBridge
+        CFBundleDisplayName: Familiar
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "26.0"
@@ -67,6 +75,7 @@ targets:
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
+        SWIFT_OBJC_BRIDGING_HEADER: iBridgeReceiver/iBridgeReceiver-Bridging-Header.h
 
   # Camera Extension target — exposes iBridge as a virtual webcam
   # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM
@@ -105,9 +114,45 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
 
-  # Audio Unit extension target — exposes iBridge as a virtual mic
-  # via CoreAudio. When wired into the host, other Mac apps can pick
-  # "iBridge Microphone" as their audio input.
+  # CoreAudio HAL plug-in — the REAL virtual microphone. An AUv3 (below)
+  # is only a DAW-hosted plugin and never appears as a system input
+  # device; a HAL AudioServerPlugIn is what BlackHole/Loopback ship.
+  # Built as an mh_bundle `.driver`, installed to
+  # /Library/Audio/Plug-Ins/HAL by scripts/install-mic-driver.sh.
+  iBridgeMicrophone:
+    type: bundle
+    platform: macOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: iBridgeMicDriver
+    dependencies:
+      - sdk: CoreAudio.framework
+      - sdk: CoreFoundation.framework
+    info:
+      path: iBridgeMicDriver/Info.plist
+      properties:
+        CFBundleDisplayName: iBridge Microphone
+        CFBundleShortVersionString: "0.2"
+        CFBundleVersion: "1"
+        CFBundlePackageType: BNDL
+        CFPlugInFactories:
+          "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C": iBridgeMicrophone_Create
+        CFPlugInTypes:
+          "443ABAB8-E7B3-491A-B985-BEB9187030DB":
+            - "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeMicrophone
+        PRODUCT_NAME: iBridgeMicrophone
+        WRAPPER_EXTENSION: driver
+        MACH_O_TYPE: mh_bundle
+        SKIP_INSTALL: YES
+        CODE_SIGNING_ALLOWED: YES
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "5XNDF727Y6"
+
+  # Audio Unit extension target — DAW-hosted only (kept for reference;
+  # does NOT show up as a system input device).
   iBridgeAudioExtension:
     type: app-extension
     platform: macOS

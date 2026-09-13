@@ -1,7 +1,8 @@
 # iBridge 产品需求文档 (PRD)
 
-> V0.2 状态文档 — 2026-09-10
-> 配合 `HANDOFF.md`（状态）和 `AGENTS.md`（项目 context）一起看
+> V0.4 状态文档 — 2026-09-13
+> 配合 `HANDOFF.md`（状态）、`AGENTS.md`（项目 context）、
+> `docs/RELEASE_READINESS.md`（发布就绪度 + 过审评估）一起看
 
 ## 1. 产品愿景
 
@@ -41,12 +42,23 @@
 - 错误状态 UI
 - 崩溃报告
 
+### 3.3b V0.4（已交付，真机验证）
+- 多 Mac 配对（`clientHello`/`sessionReply`，TOFU token，busy 退让）
+- 应用切换器（iPhone 列出 Mac 运行 App，一键拉起）+ 键盘 ⌘⇥ 等 chords
+- 文件传输（照片/视频/文件 → `~/Downloads/iBridge` + Finder）
+- 剪贴板互通（双向）
+- Mac 端录制（`~/Movies/iBridge` 的 `.mov` + `.wav`）
+- 语音：hold-to-talk 听写 + "打开 X" 切应用 + "改写为…" 变换选中文本（本地、离线）
+- 多语言跟随系统（en + zh-Hans）
+- 74 单测 + `scripts/e2e-device.sh`（真机 10/10）
+
 ### 3.4 V1.0（待做）
-- Apple Developer Program ($99/年) — 真实发布
-- App Store 审核与上架
-- Notarization
-- 完整 VoiceOver / Dynamic Type
-- 真实本地化（10+ 语言）
+- **Camera Extension 用户激活 + 真机验证**（否则"UVC 摄像头"卖点不成立）
+- **虚拟麦克风（CoreAudio HAL 插件）**（否则"麦克风设备"卖点不成立）
+- 手动 IP 兜底、审核材料 + 演示模式、真机截图/隐私 URL
+- Apple Developer Program ($99/年)、App Store 审核与上架、Notarization
+- 完整 VoiceOver / Dynamic Type、更多语言
+- 详细缺口见 `docs/RELEASE_READINESS.md`
 
 ### 3.5 不做（明确划线）
 - ❌ Windows 支持
@@ -170,4 +182,4 @@
 - ❌ 实时滤镜（v0 不做）
 - ❌ Android（短期）
 - ❌ Windows（v0 不做）
-- ❌ ASR / 语音输入
+- ❌ 云端 ASR / LLM 听写清理（语音识别只在设备端；不接任何云服务）

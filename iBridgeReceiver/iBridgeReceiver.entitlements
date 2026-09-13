@@ -8,6 +8,12 @@
     <true/>
     <key>com.apple.security.network.server</key>
     <true/>
+    <!-- Received files land in the user's real ~/Downloads -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+    <!-- Recordings land in the user's real ~/Movies -->
+    <key>com.apple.security.assets.movies.read-write</key>
+    <true/>
     <key>com.apple.security.device.camera</key>
     <true/>
     <key>com.apple.security.device.microphone</key>

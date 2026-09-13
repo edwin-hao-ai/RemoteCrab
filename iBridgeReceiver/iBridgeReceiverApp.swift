@@ -49,7 +49,7 @@ struct iBridgeReceiverApp: App {
 
     var body: some Scene {
         // First-launch / minimal "running" view.
-        Window("iBridge", id: "root") {
+        Window("Familiar", id: "root") {
             if didFirstLaunch {
                 MainWindowView()
                     .environmentObject(session)
@@ -63,7 +63,7 @@ struct iBridgeReceiverApp: App {
         .defaultPosition(.center)
 
         // Preview window.
-        Window("iBridge Preview", id: "preview") {
+        Window("Familiar Preview", id: "preview") {
             PreviewWindow()
                 .environmentObject(session)
                 .frame(minWidth: 640, minHeight: 400)
@@ -74,7 +74,7 @@ struct iBridgeReceiverApp: App {
 
         // Floating control panel. The 380×620 size is the single source
         // of truth — ControlPanelView fills whatever it is given.
-        Window("iBridge Control Panel", id: "controls") {
+        Window("Familiar Control Panel", id: "controls") {
             ControlPanelView()
                 .environmentObject(session)
                 .frame(width: 380, height: 620)
@@ -108,27 +108,21 @@ struct iBridgeReceiverApp: App {
             MenuBarMenu()
                 .environmentObject(session)
         } label: {
-            // SF Symbol renders as a proper menu bar template image
-            // (visible in light + dark). A custom Canvas label renders
-            // as a solid blob — do not bring it back here.
+            // The app's "monitor buddy" logo, shipped as a monochrome
+            // TEMPLATE image asset so macOS tints it for light/dark menu
+            // bars (a custom Canvas label renders as a blob — don't).
+            // Recording swaps to a filled record dot so "am I recording?"
+            // is still answerable at a glance.
             // No session.start() here — ReceiverSession.init already
             // starts Bonjour browsing, and start() is idempotent.
-            Image(systemName: menuBarSymbol)
+            if session.isRecording {
+                Image(systemName: "record.circle.fill")
+            } else {
+                Image("MenuBarIcon")
+                    .renderingMode(.template)
+            }
         }
         .menuBarExtraStyle(.window)
-    }
-
-    /// The menu bar icon mirrors the connection state so status is
-    /// glanceable without opening the popover: radiowaves while live,
-    /// an antenna while looking/connecting, a plain iPhone when the
-    /// connection dropped. Plain SF Symbols only — template rendering
-    /// keeps them legible in light and dark menu bars.
-    private var menuBarSymbol: String {
-        switch session.state {
-        case .streaming:            return "iphone.gen3.radiowaves.left.and.right"
-        case .searching, .connecting: return "antenna.radiowaves.left.and.right"
-        case .error:                return "iphone.gen3"
-        }
     }
 }
 
@@ -141,7 +135,7 @@ private struct MainWindowView: View {
             Image(systemName: "iphone.gen3.radiowaves.left.and.right")
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.white.opacity(0.7))
-            Text("iBridge is running")
+            Text("Familiar is running")
                 .font(IBFont.titleMedium)
                 .foregroundStyle(.white)
             Text("Open the control panel from the menu bar icon.")

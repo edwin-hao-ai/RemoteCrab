@@ -22,6 +22,8 @@ import iBridgeCore
 struct MenuBarMenu: View {
     @EnvironmentObject private var session: ReceiverSession
     @Environment(\.openWindow) private var openWindow
+    @State private var showManualConnect = false
+    @State private var manualAddress = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +42,24 @@ struct MenuBarMenu: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
         }
+        .alert(LocalizedStringKey(IBLocale.Connection.connectManually),
+               isPresented: $showManualConnect) {
+            TextField("192.168.1.5:8765", text: $manualAddress)
+            Button(IBLocale.Connection.connect) { connectManually() }
+            Button(IBLocale.Connection.cancel, role: .cancel) {}
+        } message: {
+            Text(IBLocale.Connection.manualHint)
+        }
+    }
+
+    /// Parse "host[:port]" (port defaults to the iPhone's fixed port).
+    private func connectManually() {
+        let trimmed = manualAddress.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let parts = trimmed.split(separator: ":")
+        let host = String(parts.first ?? "")
+        let port = parts.count > 1 ? UInt16(parts[1]) : nil
+        session.connectManually(host: host, port: port ?? 8765)
     }
 
     // MARK: - Header
@@ -47,7 +67,7 @@ struct MenuBarMenu: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Text("iBridge")
+                Text("Familiar")
                     .font(IBFont.titleMedium)
                     .foregroundStyle(.primary)
                 Spacer()
@@ -176,26 +196,40 @@ struct MenuBarMenu: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
+            .frame(height: 74)
         } else {
-            // Offline state — show a single hint row
+            // Offline state — show a single hint row. The row is a FIXED
+            // height and the text is one line: a `MenuBarExtra(.window)`
+            // popover re-sizes (and animates) whenever its content height
+            // changes, which produced a looping motion as the state text
+            // changed during the reconnect loop.
             HStack(spacing: 8) {
                 if case .error = session.state {
                     Image(systemName: "wifi.slash")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 } else {
-                    ProgressView()
-                        .controlSize(.small)
-                        .scaleEffect(0.7)
+                    // A live ProgressView spinner made the MenuBarExtra
+                    // window re-layout every frame (visible drift), so a
+                    // static glyph is used instead.
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                         .frame(width: 12, height: 12)
                 }
-                Text("Waiting for an iPhone…")
+                Text(session.state.message)
                     .font(IBFont.bodySmall)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
+                if case .error = session.state {
+                    Button(IBLocale.Error.retry) { session.retryNow() }
+                        .font(IBFont.bodySmall)
+                        .controlSize(.small)
+                }
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 14)
+            .frame(height: 74)
         }
     }
 
@@ -207,25 +241,29 @@ struct MenuBarMenu: View {
             sectionHeader("FEATURES")
             ToggleRow(icon: "camera.fill",
                       title: "Camera",
-                      subtitle: connected ? "Live iPhone feed" : IBLocale.Status.connectIPhoneFirst,
+                      subtitle: connected ? LocalizedStringKey("Live iPhone feed")
+                                         : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.camera, \.cameraOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "mic.fill",
                       title: "Microphone",
-                      subtitle: connected ? "Stream iPhone mic" : IBLocale.Status.connectIPhoneFirst,
+                      subtitle: connected ? LocalizedStringKey("Stream iPhone mic")
+                                         : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.microphone, \.micOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
                       title: "Trackpad",
-                      subtitle: connected ? "Control Mac cursor" : IBLocale.Status.connectIPhoneFirst,
+                      subtitle: connected ? LocalizedStringKey("Control Mac cursor")
+                                         : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.trackpad, \.trackpadOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "keyboard",
                       title: "Keyboard",
-                      subtitle: connected ? "Type on the Mac" : IBLocale.Status.connectIPhoneFirst,
+                      subtitle: connected ? LocalizedStringKey("Type on the Mac")
+                                         : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.keyboard, \.keyboardOn),
                       isEnabled: connected)
         }
@@ -255,12 +293,43 @@ struct MenuBarMenu: View {
                       help: "Verify camera, keyboard, trackpad and mic live",
                       action: { openWindowActivating(id: "test") },
                       keys: KeyboardShortcut("t"))
+            ActionRow(icon: session.isRecording ? "stop.circle.fill" : "record.circle",
+                      title: LocalizedStringKey(session.isRecording
+                                                ? IBLocale.Record.stop
+                                                : IBLocale.Record.start),
+                      shortcut: "⌘R",
+                      help: LocalizedStringKey(IBLocale.Record.help),
+                      action: { session.toggleRecording() },
+                      keys: KeyboardShortcut("r"))
+            ActionRow(icon: "doc.on.clipboard",
+                      title: LocalizedStringKey(IBLocale.Transfer.clipboardToiPhone),
+                      shortcut: "",
+                      help: LocalizedStringKey(IBLocale.Transfer.clipboardHelp),
+                      action: { session.sendClipboardToPhone() })
+            if let file = session.lastReceivedFileURL {
+                ActionRow(icon: "folder",
+                          title: LocalizedStringKey(IBLocale.Transfer.showInFinder),
+                          shortcut: "",
+                          help: LocalizedStringKey(IBLocale.Transfer.lastReceived),
+                          action: { NSWorkspace.shared.activateFileViewerSelecting([file]) })
+            }
+            ActionRow(icon: "cable.connector",
+                      title: LocalizedStringKey(IBLocale.Connection.connectManually),
+                      shortcut: "",
+                      help: LocalizedStringKey(IBLocale.Connection.manualHint),
+                      action: { showManualConnect = true })
             ActionRow(icon: "gear",
                       title: "Preferences…",
                       shortcut: "⌘,",
-                      help: "Open iBridge settings",
+                      help: "Open Familiar settings",
                       action: { openPreferences() },
                       keys: KeyboardShortcut(","))
+            ActionRow(icon: "power",
+                      title: LocalizedStringKey(IBLocale.App.quit),
+                      shortcut: "⌘Q",
+                      help: LocalizedStringKey(IBLocale.App.quit),
+                      action: { NSApplication.shared.terminate(nil) },
+                      keys: KeyboardShortcut("q"))
         }
         .padding(.vertical, 4)
     }
@@ -269,7 +338,7 @@ struct MenuBarMenu: View {
 
     private var footer: some View {
         HStack {
-            Text("iBridge v\(appVersion)")
+            Text("Familiar v\(appVersion)")
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.secondary)
                 .ibEyebrowTracking()
@@ -299,7 +368,7 @@ struct MenuBarMenu: View {
         NSApp.activate()
     }
 
-    private func sectionHeader(_ text: String) -> some View {
+    private func sectionHeader(_ text: LocalizedStringKey) -> some View {
         Text(text)
             .font(IBFont.eyebrowMono)
             .foregroundStyle(.secondary)
@@ -331,6 +400,8 @@ struct MenuBarMenu: View {
         switch session.state {
         case .searching:        return IBColor.warning
         case .connecting:       return IBColor.warning
+        case .handshaking:      return IBColor.warning
+        case .awaitingApproval: return IBColor.warning
         case .streaming:        return IBColor.success
         case .error:            return IBColor.error
         }
@@ -341,8 +412,8 @@ struct MenuBarMenu: View {
 
 private struct ToggleRow: View {
     let icon: String
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     @Binding var isOn: Bool
     var isEnabled: Bool = true
 
@@ -377,9 +448,9 @@ private struct ToggleRow: View {
 
 private struct ActionRow: View {
     let icon: String
-    let title: String
+    let title: LocalizedStringKey
     let shortcut: String
-    let help: String
+    let help: LocalizedStringKey
     let action: () -> Void
     var keys: KeyboardShortcut? = nil
 
@@ -411,7 +482,7 @@ private struct ActionRow: View {
         }
         .buttonStyle(.plain)
         .keyboardShortcut(keys)
-        .help(help)
+        .help(Text(help))
         .onHover { isHovering = $0 }
     }
 }
