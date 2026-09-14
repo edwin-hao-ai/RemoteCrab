@@ -786,7 +786,9 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     injecting a 440 Hz sine over UDP 127.0.0.1:49182 and capturing
     from the device via AUHAL reads back the exact amplitude
     (peak=12000) — UDP → listener → ring → DoIOOperation → CoreAudio
-    all bit-plausible.
+    all bit-plausible. Same day, real hardware: iPhone mic →
+    Familiar app → MicRingWriter → UDP → device captured speech-level
+    audio (rms 0.0073) — full chain confirmed.
 20. **Personal Hotspot breaks Bonjour — ship a direct-IP fallback.**
     When the Mac's WiFi is the iPhone's hotspot (Mac gets 172.20.10.x,
     phone is always the gateway 172.20.10.1), mDNS multicast does not
