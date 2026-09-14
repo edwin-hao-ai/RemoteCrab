@@ -740,13 +740,53 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     QI-then-Release sequence — the definitive answer when the dlopen
     harness "passes" but the real host still crashes; extend the
     harness to replay the host's exact call sequence
-    (factory → QI → Release → use). Debug path when a
+    (factory → QI → Release → use). (g) **The publish path needs
+    `kAudioPlugInPropertyDeviceList` (`'dev#'`)**: after `Initialize`
+    the host asks the plug-in object for `'dev#'`; an
+    unknown-property error there makes it give up silently —
+    `CreateDevice` is never called and the device never publishes.
+    Also implement `kAudioPlugInPropertyTranslateUIDToDevice` (`'uidd'`,
+    UID via qualifier → AudioObjectID) for the on-demand
+    `kAudioHardwarePropertyPlugInForBundleID` query. (h) **Enumeration
+    then walks base-class properties**: `kAudioObjectPropertyClass`
+    (`'clas'`, return `kAudioPlugIn/Device/StreamClassID`) on every
+    object and `kAudioDevicePropertyZeroTimeStampPeriod` (`'ring'`) on
+    the device; and `HasProperty` must never claim a selector that
+    `GetPropertyData` refuses (RelatedDevices / PreferredChannelLayout
+    are now implemented; Icon / CustomPropertyInfoList were dropped) —
+    one mid-walk error aborts publishing, again silently.
+    **Instrumentation**: every lifecycle entry + every property error
+    is `os_log`'d under subsystem `com.ibridge.micdriver` — that's how
+    (g) and (h) were found. Debug path when a
     driver "installs but never appears": dlopen harness
-    (`dlopen` + `dlsym` factory + `Initialize`) reproduces load-time
-    crashes outside coreaudiod; compare against a working driver in
+    (`scripts/mic-driver-harness.c` — replays the host's exact
+    sequence factory → QI → Release → Initialize → dev# → clas → ring
+    → uidd → property tree; run it against the pkg payload BEFORE
+    installing); compare against a working driver in
     `/Library/Audio/Plug-Ins/HAL` (Teams/Lark/TFF load fine).
     The pkg's postinstall `killall coreaudiod` makes installs take
-    effect immediately.
+    effect immediately. **Iterating without user clicks**: the
+    pkg-installer GUI is a bottleneck — use a Terminal autoloader
+    (user types sudo password once per window) that watches a trigger
+    file, `ditto`s the `.driver` into `/Library/Audio/Plug-Ins/HAL`,
+    `killall coreaudiod`, and can also run queued root commands
+    (e.g. `sample coreaudiod`). Verify publication with a C tool
+    querying `kAudioHardwarePropertyDevices` + per-device UID —
+    `system_profiler` is cached and unusable.
+    **coreaudiod 100% CPU / clients hang on first query**: sample
+    showed a `HALC_ShellSimpleProxyList::Reconcile` notification storm
+    with 17k+ "Registering remote driver with bundle id
+    com.apple.AirPlayXPCHelper" entries — Apple's AirPlay helper in a
+    re-registration loop (an Apple bug, aggravated by the Personal-
+    Hotspot network; NOT our driver — our plugin registers once and
+    stays). `sudo killall AirPlayXPCHelper` breaks the loop and
+    coreaudiod drains within a minute; clients then answer again.
+    Verified end-to-end 2026-09-14: device publishes
+    (`com.ibridge.iBridgeMicrophone.device` in the system list),
+    injecting a 440 Hz sine over UDP 127.0.0.1:49182 and capturing
+    from the device via AUHAL reads back the exact amplitude
+    (peak=12000) — UDP → listener → ring → DoIOOperation → CoreAudio
+    all bit-plausible.
 20. **Personal Hotspot breaks Bonjour — ship a direct-IP fallback.**
     When the Mac's WiFi is the iPhone's hotspot (Mac gets 172.20.10.x,
     phone is always the gateway 172.20.10.1), mDNS multicast does not
