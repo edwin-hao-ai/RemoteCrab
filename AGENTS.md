@@ -713,7 +713,15 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     (`AudioServerPlugInDriverInterface *mInterfacePointer`), not the
     interface struct by value — `AudioServerPlugInDriverRef` is a
     pointer-to-pointer, so a by-value first field reads as a NULL
-    vtable and the very first host call segfaults. Debug path when a
+    vtable and the very first host call segfaults. (d) By the same
+    token, `QueryInterface` must return the **ref itself**
+    (`*outInterface = inDriver`), not `&driver->mInterface` — the host
+    derefs the returned ref and would read the struct's reserved NULL
+    slot as the vtable. This one crashes the
+    `Core-Audio-Driver-Service.helper` host process (report in
+    /Library/Logs/DiagnosticReports, stack in
+    `init_driver_interface` at `ldr x8,[x8,#0x10]`) and the log only
+    shows "Loading server plug-in X…" with no "Done". Debug path when a
     driver "installs but never appears": dlopen harness
     (`dlopen` + `dlsym` factory + `Initialize`) reproduces load-time
     crashes outside coreaudiod; compare against a working driver in

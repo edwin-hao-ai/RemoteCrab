@@ -145,8 +145,11 @@ void *iBridgeMicrophone_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequested
 
 static HRESULT iBridge_QueryInterface(void *inDriver, REFIID inUUID, LPVOID *outInterface) {
     (void)inUUID;
-    // Only one interface is ever requested by the host; hand it back.
-    *outInterface = &((iBridgeDriver *)inDriver)->mInterface;
+    // The ref IS pointer-to-interface-pointer (factory returned the
+    // driver whose first field is mInterfacePointer). Hand it back
+    // as-is: returning &driver->mInterface here makes the host read the
+    // struct's reserved NULL slot as the vtable and crash.
+    *outInterface = inDriver;
     return S_OK;
 }
 static ULONG iBridge_AddRef(void *inDriver) {
