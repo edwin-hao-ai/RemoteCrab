@@ -238,7 +238,9 @@ static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddre
             return addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyManufacturer ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
-                   addr->mSelector == kAudioPlugInPropertyBundleID;
+                   addr->mSelector == kAudioPlugInPropertyBundleID ||
+                   addr->mSelector == kAudioPlugInPropertyDeviceList ||
+                   addr->mSelector == kAudioPlugInPropertyTranslateUIDToDevice;
         case kObjectID_Device:
             return addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyManufacturer ||
@@ -300,6 +302,9 @@ static UInt32 propSize(AudioObjectID objectID, const AudioObjectPropertyAddress 
             return objectID == kObjectID_Device ? sizeof(AudioObjectID) : (objectID == kObjectID_PlugIn ? sizeof(AudioObjectID) : 0);
         case kAudioPlugInPropertyBundleID:
             return sizeof(CFStringRef);
+        case kAudioPlugInPropertyDeviceList:
+        case kAudioPlugInPropertyTranslateUIDToDevice:
+            return sizeof(AudioObjectID);
         case kAudioDevicePropertyStreams:
             return sizeof(AudioObjectID);
         case kAudioDevicePropertyRelatedDevices:
@@ -352,6 +357,7 @@ static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddres
         case kAudioPlugInPropertyBundleID:
             s = CFSTR("com.ibridge.iBridgeMicrophone");
             PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioPlugInPropertyDeviceList: { AudioObjectID v = kObjectID_Device; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
         case kAudioDevicePropertyDeviceUID:
             s = CFSTR("com.ibridge.iBridgeMicrophone.device");
             PUT(CFStringRef, s); return kAudioHardwareNoError;
@@ -413,6 +419,17 @@ static OSStatus iBridge_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver,
 static OSStatus iBridge_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, UInt32 *outDataSize, void *outData) {
     (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
     if (!hasAddress(inObjectID, inAddress)) { logSel("GetPropertyData", inObjectID, inAddress->mSelector, kAudioHardwareUnknownPropertyError); return kAudioHardwareUnknownPropertyError; }
+    // 'uidd': the qualifier carries a CFString UID; map it to our device.
+    if (inAddress->mSelector == kAudioPlugInPropertyTranslateUIDToDevice) {
+        if (inDataSize < sizeof(AudioObjectID)) return kAudioHardwareBadPropertySizeError;
+        AudioObjectID v = kAudioObjectUnknown;
+        if (inQualifierData && inQualifierDataSize == sizeof(CFStringRef)) {
+            CFStringRef uid = *(CFStringRef *)inQualifierData;
+            if (uid && CFStringCompare(uid, CFSTR("com.ibridge.iBridgeMicrophone.device"), 0) == kCFCompareEqualTo) v = kObjectID_Device;
+        }
+        *(AudioObjectID *)outData = v; *outDataSize = sizeof(AudioObjectID);
+        return kAudioHardwareNoError;
+    }
     OSStatus st = fillProp(inObjectID, inAddress, inDataSize, outDataSize, outData);
     if (st != kAudioHardwareNoError) logSel("GetPropertyData", inObjectID, inAddress->mSelector, st);
     return st;
