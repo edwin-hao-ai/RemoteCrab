@@ -1,6 +1,6 @@
-# How to run iBridge
+# How to run RemoteCrab
 
-This document covers everything you need to take iBridge from a freshly
+This document covers everything you need to take RemoteCrab from a freshly
 cloned repo to a working "iPhone camera + touchpad + keyboard + mic on
 Mac" demo, plus the automated test loop.
 
@@ -23,7 +23,7 @@ xcodegen generate --spec project-ios.yml
 xcodegen generate --spec project-mac.yml
 ```
 
-This produces `iBridgeCapture.xcodeproj` and `iBridgeReceiver.xcodeproj`.
+This produces `RemoteCrabCapture.xcodeproj` and `RemoteCrabReceiver.xcodeproj`.
 
 ## 1. Automated test loop (highly recommended)
 
@@ -33,23 +33,23 @@ This produces `iBridgeCapture.xcodeproj` and `iBridgeReceiver.xcodeproj`.
 
 What it runs:
 
-1. **`swift test` on `iBridgeCore`** — 26 unit + integration tests
+1. **`swift test` on `RemoteCrabCore`** — 26 unit + integration tests
    covering the wire protocol, Bonjour discovery, event pipeline,
    audio packet round-trip.
-2. **`xcodebuild` for `iBridgeCapture`** — confirms the iOS app builds.
-3. **`xcodebuild` for `iBridgeReceiver`** — confirms the Mac app builds.
+2. **`xcodebuild` for `RemoteCrabCapture`** — confirms the iOS app builds.
+3. **`xcodebuild` for `RemoteCrabReceiver`** — confirms the Mac app builds.
 
 If everything is green, proceed. If anything fails, **do not skip** —
 the rest depends on the wire protocol working.
 
 ```
-── iBridgeCore package tests ──
+── RemoteCrabCore package tests ──
 Test Suite 'All tests' passed.
    Executed 26 tests, with 0 failures
-✓ iBridgeCore tests (26 e2e + unit)
+✓ RemoteCrabCore tests (26 e2e + unit)
 
-✓ iBridgeCapture builds
-✓ iBridgeReceiver builds
+✓ RemoteCrabCapture builds
+✓ RemoteCrabReceiver builds
 
 All checks passed.
 ```
@@ -57,12 +57,12 @@ All checks passed.
 ## 2. Run the Mac app
 
 ```sh
-open iBridgeReceiver.xcodeproj
+open RemoteCrabReceiver.xcodeproj
 ```
 
 In Xcode:
 
-1. Select the **`iBridgeReceiver`** scheme (top bar).
+1. Select the **`RemoteCrabReceiver`** scheme (top bar).
 2. Make sure "My Mac" is the run destination.
 3. Press **⌘R** (Run).
 
@@ -80,7 +80,7 @@ feed when an iPhone connects.
 For the iOS app you need a real device — the simulator has no camera.
 
 ```sh
-open iBridgeCapture.xcodeproj
+open RemoteCrabCapture.xcodeproj
 ```
 
 In Xcode:
@@ -88,7 +88,7 @@ In Xcode:
 1. Plug in your iPhone / iPad via USB.
 2. Select it as the run target.
 3. **First time only**: Xcode will need a signing team.
-   - Click the `iBridgeCapture` project → target → **Signing & Capabilities**.
+   - Click the `RemoteCrabCapture` project → target → **Signing & Capabilities**.
    - Pick your personal **Team** (free Apple Developer account works).
 4. Press **⌘R** (Run).
 
@@ -130,15 +130,15 @@ When the iPhone app is streaming, **all four work simultaneously**:
 
 ## 6. Camera Extension (Mac virtual webcam)
 
-The `iBridgeCameraExtension/` folder contains the **CMIOExtension**
+The `RemoteCrabCameraExtension/` folder contains the **CMIOExtension**
 skeleton for a real macOS Camera Extension. When wired into
-`iBridgeReceiver.app`, Zoom / Teams / Photo Booth will see "iBridge
+`RemoteCrabReceiver.app`, Zoom / Teams / Photo Booth will see "RemoteCrab
 Camera" as a system webcam.
 
 The skeleton includes:
 
 - `CameraExtensionProvider` — system calls this
-- `CameraExtensionDevice` — one camera, "iBridge Camera"
+- `CameraExtensionDevice` — one camera, "RemoteCrab Camera"
 - `CameraExtensionStream` — one H.264 stream with sample-pull delivery
 - Format description + decoder wired to `VTDecompressionSession`
 - `CameraExtensionBridge` — host-side adapter that pushes decoded
@@ -147,8 +147,8 @@ The skeleton includes:
 What's left for the developer:
 
 1. **Apple Developer Program** ($99/yr) for system-extension signing.
-2. Add `iBridgeCameraExtension` as an `Embed App Extensions` build
-   phase on `iBridgeReceiver` in Xcode.
+2. Add `RemoteCrabCameraExtension` as an `Embed App Extensions` build
+   phase on `RemoteCrabReceiver` in Xcode.
 3. First-launch approval in **System Settings → Privacy & Security**.
 
 ## Troubleshooting
@@ -188,7 +188,7 @@ Use headphones on the Mac, or mute the Mac speakers.
 
 ### `test.sh` says BUILD FAILED
 
-Run `swift test --package-path iBridgeCore` directly to see the full
+Run `swift test --package-path RemoteCrabCore` directly to see the full
 error. Common cause: Xcode < 26 (you need iOS 26 / macOS 26 SDKs for
 the Liquid Glass APIs).
 
@@ -206,23 +206,23 @@ Run from Xcode (Cmd+R) once to bypass Gatekeeper, or right-click the
 ## Where the code lives
 
 ```
-iBridge/
+RemoteCrab/
 ├── README.md                          # project overview + architecture
 ├── RUN.md                             # this file
 ├── scripts/test.sh                    # automated test + build loop
 │
-├── project-ios.yml                    # xcodegen → iBridgeCapture.xcodeproj
-├── project-mac.yml                    # xcodegen → iBridgeReceiver.xcodeproj
+├── project-ios.yml                    # xcodegen → RemoteCrabCapture.xcodeproj
+├── project-mac.yml                    # xcodegen → RemoteCrabReceiver.xcodeproj
 │
-├── iBridgeCore/                       # Swift Package — design system, protocol
+├── RemoteCrabCore/                       # Swift Package — design system, protocol
 │   ├── Tests/                          # 26 unit + e2e tests
-│   └── Sources/iBridgeCore/
+│   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/               # colors / typography / materials / animations
 │       ├── Components/                 # IBGlassCard / IBStatusPill / etc.
 │       ├── Input/                      # InputInjector protocol + RecordingInputInjector
 │       └── Networking/                 # IBProtocol / IBWire / IBEvents / IBEventBroadcaster
 │
-├── iBridgeCapture/                    # iOS app sources
+├── RemoteCrabCapture/                    # iOS app sources
 │   ├── CaptureEngine.swift             # camera + Bonjour publish + broadcaster
 │   ├── H264Encoder.swift               # VideoToolbox hardware encode
 │   ├── MicrophoneEncoder.swift         # mic → PCM packets
@@ -231,7 +231,7 @@ iBridge/
 │   ├── ContentView.swift               # 3-mode tab UI
 │   └── ...
 │
-├── iBridgeReceiver/                   # macOS app sources
+├── RemoteCrabReceiver/                   # macOS app sources
 │   ├── ReceiverSession.swift           # Bonjour browse + parse + dispatch
 │   ├── H264Decoder.swift               # VideoToolbox hardware decode
 │   ├── AudioPlayer.swift               # PCM playback via AVAudioEngine
@@ -240,12 +240,12 @@ iBridge/
 │   ├── Input/CGEventInjector.swift     # real CGEventPost input injection
 │   └── ...
 │
-└── iBridgeCameraExtension/            # CMIOExtension skeleton
+└── RemoteCrabCameraExtension/            # CMIOExtension skeleton
 ```
 
 ## What's verified end-to-end (V0.2)
 
-The 26 automated tests in `iBridgeCore/Tests/` cover:
+The 26 automated tests in `RemoteCrabCore/Tests/` cover:
 
 - **Wire protocol** (11 tests) — every frame kind (metadata, video,
   SPS, PPS, touch, key, audio) survives a TCP round-trip with byte-for-byte
@@ -270,5 +270,5 @@ The 26 automated tests in `iBridgeCore/Tests/` cover:
 - Custom in-app keyboard that sends USB HID keycodes (preserves ⌘C,
   ⇧⌥→, etc.)
 - Mac virtual microphone (CoreAudio AU extension)
-- Full wiring of the Camera Extension so Zoom sees iBridge Camera
+- Full wiring of the Camera Extension so Zoom sees RemoteCrab Camera
 - Real Opus encoding (replace raw PCM) for lower bandwidth

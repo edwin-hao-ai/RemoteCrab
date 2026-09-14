@@ -1,4 +1,4 @@
-# iBridge — UI Prototypes
+# RemoteCrab — UI Prototypes
 
 6 个独立 HTML prototype，6 种完全不同的设计方向。直接用浏览器打开 `.html` 文件即可预览。
 
@@ -80,7 +80,7 @@
 ## 在 Xcode 里如何落地
 
 ```
-iBridgeCore/
+RemoteCrabCore/
 ├── DesignSystem/
 │   ├── Colors.swift           # 选定方向的颜色 token（自动 light/dark 切换）
 │   ├── Typography.swift       # SF Pro Display / Text / Mono

@@ -1,4 +1,4 @@
-# iBridge Session Memory — 2026-09-08 ~ 2026-09-10
+# RemoteCrab Session Memory — 2026-09-08 ~ 2026-09-10
 
 > 这个文件记录这次 session 的所有重要内容、决策、踩坑、教训。
 > 配合 `HANDOFF.md`（AI agent 状态交接）和 `AGENTS.md`（项目 context）一起看。
@@ -84,17 +84,17 @@ iOS 17 deployment target + `CODE_SIGN_IDENTITY="-"` 不能用。**绕路**：
 - build 命令：`DEVELOPMENT_TEAM=5XNDF727Y6`
 
 ### 2.4 通信架构
-- 单 TCP 连接 / Bonjour service `_ibridge._tcp` on `local.`
+- 单 TCP 连接 / Bonjour service `_remotecrab._tcp` on `local.`
 - 帧协议：4 byte BE 长度 + 1 byte kind + payload
 - kind 列表：`0x00=metadata, 0x01=video, 0x02=sps, 0x03=pps, 0x04=touch, 0x05=key, 0x06=audio`
 - 视频：H.264 VideoToolbox 硬编（iOS 端）+ 硬解（Mac 端）
 - 触控/键盘：JSON over TCP
 - 麦克风：16-bit Int16 PCM 20ms packets
-- Bonjour service name：`iBridge — <UIDevice.current.name>`
+- Bonjour service name：`RemoteCrab — <UIDevice.current.name>`
 
 ### 2.5 设计语言
 - Apple Native + Liquid Glass（iOS 26+） + `.regularMaterial` fallback
-- 颜色：Apple 语义色 + iBridge brand 色（深蓝 → 紫 → 玫瑰渐变）
+- 颜色：Apple 语义色 + RemoteCrab brand 色（深蓝 → 紫 → 玫瑰渐变）
 - 字体：SF Pro Display + SF Pro Text + **SF Mono**（技术数据用）
 - 26 个 SwiftUI 组件：IBGlassCard, IBStatusPill, IBModifierBar, IBPrimaryButton, IBMicMeter, IBKeyboardKey, IBToggleRow
 - 9 个 HTML prototypes（9 个 design 变体做选型）
@@ -127,7 +127,7 @@ iOS 17 deployment target + `CODE_SIGN_IDENTITY="-"` 不能用。**绕路**：
 
 **已尝试失败**：
 1. `AXIsProcessTrustedWithOptions` 不弹窗
-2. `tccutil reset Accessibility com.ibridge.iBridgeReceiver` 清了 TCC.db 但 `accessibilityd` 守护进程缓存没刷新
+2. `tccutil reset Accessibility com.remotecrab.RemoteCrabReceiver` 清了 TCC.db 但 `accessibilityd` 守护进程缓存没刷新
 3. 重启 receiver 不弹
 4. **必须**：手动加到 System Settings 或重启 Mac
 
@@ -141,8 +141,8 @@ iOS 17 deployment target + `CODE_SIGN_IDENTITY="-"` 不能用。**绕路**：
 
 **验证命令**：
 ```bash
-rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"
-# 应该看到 "iBridge — iPhone" 出现
+rtk timeout 3 dns-sd -B _remotecrab._tcp 2>&1 | grep "Instance Name"
+# 应该看到 "RemoteCrab — iPhone" 出现
 ```
 
 ### 3.5 ImageRenderer 不渲染 Liquid Glass
@@ -169,8 +169,8 @@ rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"
 ### 4.3 Bonjour 实例名冲突
 
 - simulator 和 iPhone 14 都用同一个 BundleID advertise
-- simulator 叫 "iBridge — iPhone 17 Pro"
-- iPhone 14 叫 "iBridge — iPhone"（UIDevice.current.name 是 "iPhone"）
+- simulator 叫 "RemoteCrab — iPhone 17 Pro"
+- iPhone 14 叫 "RemoteCrab — iPhone"（UIDevice.current.name 是 "iPhone"）
 - **iPhone 14 的实例名不直观**，但 Mac receiver 仍能连（用 NSDictionary 里的所有数据）
 
 ### 4.4 VideoToolbox API 变化（macOS 26 / iOS 26 SDK）
@@ -212,22 +212,22 @@ rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"
 
 | 路径 | 作用 |
 |---|---|
-| `iBridgeCapture/ContentView.swift` | iOS 主 UI 入口 |
-| `iBridgeCapture/CaptureEngine.swift` | Bonjour publish + H264 encode |
-| `iBridgeReceiver/ReceiverSession.swift` | Bonjour browse + dispatch |
-| `iBridgeReceiver/MenuBarMenu.swift` | 菜单栏 popover 主内容 |
-| `iBridgeReceiver/FirstLaunchView.swift` | 首次启动引导 + 权限检查 |
-| `iBridgeCore/Networking/IBWire.swift` | length-prefixed 帧协议 |
-| `iBridgeReceiver/iBridgeAudioUnit.swift` | AUAudioUnit v3 虚拟麦克风 |
-| `iBridgeReceiver/CameraExtensionBridge.swift` | XPC bridge to Camera Ext |
-| `iBridgeCore/DesignSystem/IBMaterials.swift` | Liquid Glass 封装（iOS 26 + 17 fallback）|
+| `RemoteCrabCapture/ContentView.swift` | iOS 主 UI 入口 |
+| `RemoteCrabCapture/CaptureEngine.swift` | Bonjour publish + H264 encode |
+| `RemoteCrabReceiver/ReceiverSession.swift` | Bonjour browse + dispatch |
+| `RemoteCrabReceiver/MenuBarMenu.swift` | 菜单栏 popover 主内容 |
+| `RemoteCrabReceiver/FirstLaunchView.swift` | 首次启动引导 + 权限检查 |
+| `RemoteCrabCore/Networking/IBWire.swift` | length-prefixed 帧协议 |
+| `RemoteCrabReceiver/RemoteCrabAudioUnit.swift` | AUAudioUnit v3 虚拟麦克风 |
+| `RemoteCrabReceiver/CameraExtensionBridge.swift` | XPC bridge to Camera Ext |
+| `RemoteCrabCore/DesignSystem/IBMaterials.swift` | Liquid Glass 封装（iOS 26 + 17 fallback）|
 | `screenshots/` | 19 张 UI 截图 |
 | `scripts/test.sh` | 跑 26 测试 + 两端 build |
 | `scripts/install-to-iphone.sh` | 真机安装 |
 | `scripts/check-e2e-readiness.sh` | e2e 准备度检查 |
 | `scripts/e2e-simulator.sh` | simulator 自动 e2e |
-| `iBridgeCapture/Localizable.xcstrings` | iOS 中英双语 |
-| `iBridgeReceiver/Localizable.xcstrings` | Mac 中英双语 |
+| `RemoteCrabCapture/Localizable.xcstrings` | iOS 中英双语 |
+| `RemoteCrabReceiver/Localizable.xcstrings` | Mac 中英双语 |
 | `AGENTS.md` | AI agent 用的项目 context |
 | `HANDOFF.md` | 状态交接（含本 session 阻塞点）|
 | `E2E_TESTING.md` | 真机 e2e 步骤 |
@@ -245,7 +245,7 @@ rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"
 
 ### 6.2 完整测试
 ```bash
-cd /Users/edwinhao/iBridge && ./scripts/test.sh
+cd /Users/edwinhao/RemoteCrab && ./scripts/test.sh
 # 期望输出：26 tests pass + 2 builds succeed
 ```
 
@@ -279,7 +279,7 @@ cd /Users/edwinhao/iBridge && ./scripts/test.sh
 
 **核心差异化**（v0.2 调研）:
 - 蓝牙类似 app（EpocCam / Camo / Iriun）需要订阅 + 云端
-- iBridge 走本地 WiFi、零订阅、零云端 — 唯一不同
+- RemoteCrab 走本地 WiFi、零订阅、零云端 — 唯一不同
 - Vision: 让 iPhone 14 这种"过时"手机在 Mac 旁"焕发第二春"
 
 **用户痛点**:
@@ -315,7 +315,7 @@ cd /Users/edwinhao/iBridge && ./scripts/test.sh
 | iOS 26 SDK 拒 ad-hoc | 真机用 team signing，sim 还能 ad-hoc |
 | iPhone 14 iOS 18.6 装不上 | 部署目标 iOS 17，cert 团队 5XNDF727Y6 |
 | Bonjour 找不到 iPhone | iPhone 必须拔 USB 走 WiFi，不能 USB-tether |
-| Accessibility 注册不到 iBridgeReceiver | 唯一办法：手动加到 System Settings |
+| Accessibility 注册不到 RemoteCrabReceiver | 唯一办法：手动加到 System Settings |
 | ImageRenderer 渲染无输出 | Liquid Glass 走 .regularMaterial fallback |
 | AXIsProcessTrusted 不弹窗 | ad-hoc 签名 + dismissed 后不再弹 |
 | iPhone 14 UDID 难找 | `xcrun devicectl list devices` (新 API) |

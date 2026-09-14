@@ -1,4 +1,4 @@
-# iBridge V0.3 — 功能独立开关与组合 UX 重设计
+# RemoteCrab V0.3 — 功能独立开关与组合 UX 重设计
 
 日期：2026-09-11
 状态：已获用户批准（脑暴全程经 visual companion 视觉确认）
@@ -56,7 +56,7 @@
 - Dock、CaptureEngine、设置页、PiP 预览全部绑定 `FeatureStore`
 - 消灭 ContentView / IOSSettingsView 两处 mic 开关不同步问题
 - 状态快照通过 `featureState` 帧同步给 Mac（见 §5）
-- 共享的 Codable 定义（`Feature` 枚举、`FeatureStateSnapshot`）放 iBridgeCore/Networking/IBEvents.swift
+- 共享的 Codable 定义（`Feature` 枚举、`FeatureStateSnapshot`）放 RemoteCrabCore/Networking/IBEvents.swift
 
 ## 4. iOS 端界面
 
@@ -137,7 +137,7 @@
 2. 设置页生效：分辨率/帧率 → CaptureEngine 重配置；灵敏度 → 加速曲线；
    保持亮屏 → `isIdleTimerDisabled`
 3. mic 开关统一到 FeatureStore（删除 ContentView/Settings 重复状态）
-4. `print()` → `os_log`（subsystem `com.ibridge`）
+4. `print()` → `os_log`（subsystem `com.remotecrab`）
 5. 删除 KeyboardScreen 头部 emoji（违反 AGENTS.md 设计规范）
 6. TouchpadScreen 修饰键条误发 `.down` 事件的问题（`TouchpadScreen.swift:149`）
 

@@ -4,7 +4,7 @@
 
 **Goal:** Make features (camera/mic/trackpad/keyboard) first-class toggleable capabilities with a single source of truth (`FeatureStore`), a bidirectional wire protocol (Mac→iPhone control), real Mac-side toggles, and fix the V0.2 debt (camera never starts, settings never applied, key events never injected).
 
-**Architecture:** Extend `IBWire`/`IBEvents` with three new frame kinds (featureControl 0x07 Mac→iPhone, featureState 0x08 iPhone→Mac, ping 0x09 for real RTT). Add a shared `FeatureStore` (@Observable) in iBridgeCore. CaptureEngine gains a receive loop; ReceiverSession gains a send path. Mac menu-bar toggles bind to real synced state.
+**Architecture:** Extend `IBWire`/`IBEvents` with three new frame kinds (featureControl 0x07 Mac→iPhone, featureState 0x08 iPhone→Mac, ping 0x09 for real RTT). Add a shared `FeatureStore` (@Observable) in RemoteCrabCore. CaptureEngine gains a receive loop; ReceiverSession gains a send path. Mac menu-bar toggles bind to real synced state.
 
 **Tech Stack:** Swift, SwiftUI, Network.framework (NWConnection/NWListener), XCTest, os_log.
 
@@ -12,23 +12,23 @@
 
 - 新增协议帧必须遵循 AGENTS.md 的 9 步模式，全部带 round-trip 测试
 - 新代码用 `@Observable`，不用 `ObservableObject`（既有类的 `@Published` 保持不动，避免大范围重构）
-- 日志用 `os_log`，subsystem `com.ibridge`；不允许新增 `print(`
+- 日志用 `os_log`，subsystem `com.remotecrab`；不允许新增 `print(`
 - UI 字符串不允许 emoji；SF Symbols only
 - 向后兼容：旧 Mac 不发 0x07 时 iOS 本地开关照常工作；旧 iOS 不发 0x08 时 Mac 开关显示禁用态
-- 每个 Task 完成跑 `./scripts/test.sh`（iBridgeCore 26 tests + 两个 app target 编译），必须全绿再 commit
-- 单测命令：`cd iBridgeCore && swift test --filter <TestClassName>`
+- 每个 Task 完成跑 `./scripts/test.sh`（RemoteCrabCore 26 tests + 两个 app target 编译），必须全绿再 commit
+- 单测命令：`cd RemoteCrabCore && swift test --filter <TestClassName>`
 
 ---
 
 ### Task 1: 协议扩展 — FeatureControl / FeatureStateSnapshot / Ping / TouchEvent 新相位
 
 **Files:**
-- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBEvents.swift`
-- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBWire.swift`
-- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBEventBroadcaster.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/IBEventsTests.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/IBWireTests.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/EventPipelineEndToEndTests.swift`
+- Modify: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift`
+- Modify: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBWire.swift`
+- Modify: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEventBroadcaster.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/IBEventsTests.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/IBWireTests.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/EventPipelineEndToEndTests.swift`
 
 **Interfaces:**
 - Produces（后续所有 Task 依赖这些精确签名）:
@@ -54,7 +54,7 @@
 
 - [ ] **Step 1: 写失败测试 — IBEvents round-trip**
 
-在 `iBridgeCore/Tests/iBridgeCoreTests/IBEventsTests.swift` 末尾追加：
+在 `RemoteCrabCore/Tests/RemoteCrabCoreTests/IBEventsTests.swift` 末尾追加：
 
 ```swift
     func testFeatureControlRoundTrip() throws {
@@ -87,7 +87,7 @@
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd iBridgeCore && swift test --filter IBEventsTests`
+Run: `cd RemoteCrabCore && swift test --filter IBEventsTests`
 Expected: 编译失败（FeatureControl 未定义）
 
 - [ ] **Step 3: 实现 IBEvents.swift 扩展**
@@ -106,7 +106,7 @@ Expected: 编译失败（FeatureControl 未定义）
 
 ```swift
 /// The independently toggleable capabilities of an iPhone running
-/// iBridgeCapture. `.camera / .microphone / .voice` are background
+/// RemoteCrabCapture. `.camera / .microphone / .voice` are background
 /// streams; `.trackpad / .keyboard` are input channels.
 public enum IBFeature: String, Codable, Sendable, CaseIterable {
     case camera
@@ -167,7 +167,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd iBridgeCore && swift test --filter IBEventsTests`
+Run: `cd RemoteCrabCore && swift test --filter IBEventsTests`
 Expected: PASS（含新 3 个测试）
 
 - [ ] **Step 5: 写失败测试 — IBWire 新 kind round-trip**
@@ -211,7 +211,7 @@ Expected: PASS（含新 3 个测试）
 
 - [ ] **Step 6: 运行确认失败**
 
-Run: `cd iBridgeCore && swift test --filter IBWireTests`
+Run: `cd RemoteCrabCore && swift test --filter IBWireTests`
 Expected: 编译失败
 
 - [ ] **Step 7: 实现 IBWire.swift 扩展**
@@ -314,13 +314,13 @@ decode helpers 区追加：
     }
 ```
 
-Run: `cd iBridgeCore && swift test`
+Run: `cd RemoteCrabCore && swift test`
 Expected: 全部 PASS（26 旧 + 7 新 = 33）
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add iBridgeCore/Sources/iBridgeCore/Networking/ iBridgeCore/Tests/
+git add RemoteCrabCore/Sources/RemoteCrabCore/Networking/ RemoteCrabCore/Tests/
 git commit -m "feat(protocol): featureControl/featureState/ping frames + touch phases"
 ```
 
@@ -329,8 +329,8 @@ git commit -m "feat(protocol): featureControl/featureState/ping frames + touch p
 ### Task 2: FeatureStore — 功能状态单一事实源
 
 **Files:**
-- Create: `iBridgeCore/Sources/iBridgeCore/State/FeatureStore.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/FeatureStoreTests.swift`
+- Create: `RemoteCrabCore/Sources/RemoteCrabCore/State/FeatureStore.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/FeatureStoreTests.swift`
 
 **Interfaces:**
 - Consumes: Task 1 的 `IBFeature` / `FeatureControl` / `FeatureStateSnapshot` / `Surface`
@@ -341,11 +341,11 @@ git commit -m "feat(protocol): featureControl/featureState/ping frames + touch p
 
 - [ ] **Step 1: 写失败测试**
 
-创建 `iBridgeCore/Tests/iBridgeCoreTests/FeatureStoreTests.swift`：
+创建 `RemoteCrabCore/Tests/RemoteCrabCoreTests/FeatureStoreTests.swift`：
 
 ```swift
 import XCTest
-@testable import iBridgeCore
+@testable import RemoteCrabCore
 
 @MainActor
 final class FeatureStoreTests: XCTestCase {
@@ -393,17 +393,17 @@ final class FeatureStoreTests: XCTestCase {
 
 - [ ] **Step 2: 运行确认失败**
 
-Run: `cd iBridgeCore && swift test --filter FeatureStoreTests`
+Run: `cd RemoteCrabCore && swift test --filter FeatureStoreTests`
 Expected: 编译失败
 
 - [ ] **Step 3: 实现 FeatureStore**
 
-创建 `iBridgeCore/Sources/iBridgeCore/State/FeatureStore.swift`：
+创建 `RemoteCrabCore/Sources/RemoteCrabCore/State/FeatureStore.swift`：
 
 ```swift
 import Foundation
 
-/// The single source of truth for which iBridge capabilities are live.
+/// The single source of truth for which RemoteCrab capabilities are live.
 ///
 /// Owned by `CaptureEngine` on iOS; every toggle — local UI or a
 /// remote `FeatureControl` frame from the Mac — flows through
@@ -475,13 +475,13 @@ public final class FeatureStore {
 
 - [ ] **Step 4: 运行确认通过**
 
-Run: `cd iBridgeCore && swift test --filter FeatureStoreTests`
+Run: `cd RemoteCrabCore && swift test --filter FeatureStoreTests`
 Expected: PASS（4 个测试）
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add iBridgeCore/Sources/iBridgeCore/State/ iBridgeCore/Tests/iBridgeCoreTests/FeatureStoreTests.swift
+git add RemoteCrabCore/Sources/RemoteCrabCore/State/ RemoteCrabCore/Tests/RemoteCrabCoreTests/FeatureStoreTests.swift
 git commit -m "feat(core): FeatureStore single source of truth for capability state"
 ```
 
@@ -490,8 +490,8 @@ git commit -m "feat(core): FeatureStore single source of truth for capability st
 ### Task 3: CaptureEngine — 接收循环 + FeatureStore 接线 + 相机启动修复 + os_log
 
 **Files:**
-- Modify: `iBridgeCapture/CaptureEngine.swift`
-- Modify: `iBridgeCapture/ContentView.swift`
+- Modify: `RemoteCrabCapture/CaptureEngine.swift`
+- Modify: `RemoteCrabCapture/ContentView.swift`
 
 **Interfaces:**
 - Consumes: Task 1 的 `IBWire.decodeFeatureControl/decodePing`、`FeatureControl`；Task 2 的 `FeatureStore`
@@ -608,10 +608,10 @@ git commit -m "feat(core): FeatureStore single source of truth for capability st
 文件顶部 `import os`；类内加：
 
 ```swift
-    private static let log = Logger(subsystem: "com.ibridge", category: "capture")
+    private static let log = Logger(subsystem: "com.remotecrab", category: "capture")
 ```
 
-把文件里全部 `print("[iBridge] ...")` 替换为 `Self.log.error/info(...)`（错误用 `.error`，状态用 `.info`；日志串用 `\(variable, privacy: .public)` 插值）。`IBEventBroadcaster.swift` 里那处 `print` 也一并换成同等 Logger（category `broadcaster`）。
+把文件里全部 `print("[RemoteCrab] ...")` 替换为 `Self.log.error/info(...)`（错误用 `.error`，状态用 `.info`；日志串用 `\(variable, privacy: .public)` 插值）。`IBEventBroadcaster.swift` 里那处 `print` 也一并换成同等 Logger（category `broadcaster`）。
 
 - [ ] **Step 4: ContentView 修复 — 相机启动 + mic 绑 FeatureStore**
 
@@ -634,12 +634,12 @@ git commit -m "feat(core): FeatureStore single source of truth for capability st
             } label: {
 ```
 
-4. 运行 `cd iBridgeCore && swift test` + 完整 `./scripts/test.sh`，全部通过。
+4. 运行 `cd RemoteCrabCore && swift test` + 完整 `./scripts/test.sh`，全部通过。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add iBridgeCapture/CaptureEngine.swift iBridgeCapture/ContentView.swift iBridgeCore/Sources/iBridgeCore/Networking/IBEventBroadcaster.swift
+git add RemoteCrabCapture/CaptureEngine.swift RemoteCrabCapture/ContentView.swift RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEventBroadcaster.swift
 git commit -m "feat(capture): bidirectional engine, FeatureStore wiring, camera start fix"
 ```
 
@@ -648,7 +648,7 @@ git commit -m "feat(capture): bidirectional engine, FeatureStore wiring, camera 
 ### Task 4: ReceiverSession — 发送 featureControl + 真 RTT + os_log
 
 **Files:**
-- Modify: `iBridgeReceiver/ReceiverSession.swift`
+- Modify: `RemoteCrabReceiver/ReceiverSession.swift`
 
 **Interfaces:**
 - Consumes: Task 1 的 `encode(featureControl:)` / `encodePing` / `decodeFeatureState` / `decodePing`；`FeatureStateSnapshot`
@@ -667,7 +667,7 @@ git commit -m "feat(capture): bidirectional engine, FeatureStore wiring, camera 
     @Published private(set) var featureState: FeatureStateSnapshot?
 
     private var pingTimer: Timer?
-    private static let log = Logger(subsystem: "com.ibridge", category: "receiver")
+    private static let log = Logger(subsystem: "com.remotecrab", category: "receiver")
 ```
 
 （顶部加 `import os`。）
@@ -736,7 +736,7 @@ git commit -m "feat(capture): bidirectional engine, FeatureStore wiring, camera 
 
 注意：`.ready` 分支里当前没有 `conn` 局部名——在该 case 里用 `if let connection` 拿到再传。
 
-4. os_log：文件里两处 `print("[iBridge] metadata decode failed: ...")` 等全部换成 `Self.log`。
+4. os_log：文件里两处 `print("[RemoteCrab] metadata decode failed: ...")` 等全部换成 `Self.log`。
 
 - [ ] **Step 3: 验证**
 
@@ -746,7 +746,7 @@ Expected: 37 tests PASS + 两个 app target 编译成功
 - [ ] **Step 4: Commit**
 
 ```bash
-git add iBridgeReceiver/ReceiverSession.swift
+git add RemoteCrabReceiver/ReceiverSession.swift
 git commit -m "feat(receiver): bidirectional session, real RTT latency via ping"
 ```
 
@@ -755,9 +755,9 @@ git commit -m "feat(receiver): bidirectional session, real RTT latency via ping"
 ### Task 5: Mac 端接入 — CGEventInjector 新相位/修 key 注入 + MenuBarMenu 真开关 + ControlPanel 徽章
 
 **Files:**
-- Modify: `iBridgeReceiver/Input/CGEventInjector.swift`
-- Modify: `iBridgeReceiver/MenuBarMenu.swift`（togglesSection，195–219 行附近）
-- Modify: `iBridgeReceiver/ControlPanelView.swift`（231–234 行附近的硬编码 `active: true`）
+- Modify: `RemoteCrabReceiver/Input/CGEventInjector.swift`
+- Modify: `RemoteCrabReceiver/MenuBarMenu.swift`（togglesSection，195–219 行附近）
+- Modify: `RemoteCrabReceiver/ControlPanelView.swift`（231–234 行附近的硬编码 `active: true`）
 
 **Interfaces:**
 - Consumes: Task 1 新相位；Task 4 的 `session.featureState` / `session.setFeature(_:_:)`
@@ -928,7 +928,7 @@ git commit -m "feat(receiver): bidirectional session, real RTT latency via ping"
     }
 ```
 
-（确认文件顶部有 `import iBridgeCore`；`session` 是该视图既有的 `@EnvironmentObject`/`@ObservedObject`——沿用现有属性名。）
+（确认文件顶部有 `import RemoteCrabCore`；`session` 是该视图既有的 `@EnvironmentObject`/`@ObservedObject`——沿用现有属性名。）
 
 - [ ] **Step 3: ControlPanel 徽章接真值**
 
@@ -949,7 +949,7 @@ Run: `./scripts/test.sh`
 Expected: 全绿
 
 ```bash
-git add iBridgeReceiver/Input/CGEventInjector.swift iBridgeReceiver/MenuBarMenu.swift iBridgeReceiver/ControlPanelView.swift
+git add RemoteCrabReceiver/Input/CGEventInjector.swift RemoteCrabReceiver/MenuBarMenu.swift RemoteCrabReceiver/ControlPanelView.swift
 git commit -m "feat(mac): real feature toggles, new gesture phases, fix key injection"
 ```
 
@@ -958,16 +958,16 @@ git commit -m "feat(mac): real feature toggles, new gesture phases, fix key inje
 ### Task 6: iOS 设置生效 + 残余还债
 
 **Files:**
-- Modify: `iBridgeCapture/CaptureEngine.swift`（加 `applyVideoConfig`）
-- Modify: `iBridgeCapture/IOSSettingsView.swift`
-- Modify: `iBridgeCapture/TouchpadScreen.swift`（149–158 行修饰键误发事件）
-- Modify: `iBridgeCapture/KeyboardScreen.swift`（52 行 emoji）
+- Modify: `RemoteCrabCapture/CaptureEngine.swift`（加 `applyVideoConfig`）
+- Modify: `RemoteCrabCapture/IOSSettingsView.swift`
+- Modify: `RemoteCrabCapture/TouchpadScreen.swift`（149–158 行修饰键误发事件）
+- Modify: `RemoteCrabCapture/KeyboardScreen.swift`（52 行 emoji）
 
 **Interfaces:**
 - Consumes: Task 3 的 `engine.features`
 - Produces:
   - `CaptureEngine.applyVideoConfig(resolution: String, fps: Int) async` — Plan 2/3 不动它
-  - `IOSSettingsView` 的 `trackpadSens` 保持 `@AppStorage("ibridge.ios.trackpadSens")` 原样 — Plan 2 的加速曲线读它
+  - `IOSSettingsView` 的 `trackpadSens` 保持 `@AppStorage("remotecrab.ios.trackpadSens")` 原样 — Plan 2 的加速曲线读它
 
 - [ ] **Step 1: CaptureEngine.applyVideoConfig**
 
@@ -1023,11 +1023,11 @@ git commit -m "feat(mac): real feature toggles, new gesture phases, fix key inje
     }
 ```
 
-注意：`IBStreamMetadata(deviceName:width:height:fps:bitrateBps:)` 的精确初始化签名以 `iBridgeCore` 中既有定义为准（`defaultConfig()` 用到的那组参数，可能还有 `codec`/`sps`/`pps` 带默认值——照搬 `defaultConfig()` 的调用形状）。
+注意：`IBStreamMetadata(deviceName:width:height:fps:bitrateBps:)` 的精确初始化签名以 `RemoteCrabCore` 中既有定义为准（`defaultConfig()` 用到的那组参数，可能还有 `codec`/`sps`/`pps` 带默认值——照搬 `defaultConfig()` 的调用形状）。
 
 - [ ] **Step 2: IOSSettingsView 生效化**
 
-1. 删除 `@AppStorage("ibridge.ios.micEnabled") private var micEnabled` 一行。
+1. 删除 `@AppStorage("remotecrab.ios.micEnabled") private var micEnabled` 一行。
 2. mic Toggle 改为绑 FeatureStore：
 
 ```swift
@@ -1082,7 +1082,7 @@ Run: `./scripts/test.sh`
 Expected: 37 tests PASS + 双 target 编译成功
 
 ```bash
-git add iBridgeCapture/CaptureEngine.swift iBridgeCapture/IOSSettingsView.swift iBridgeCapture/TouchpadScreen.swift iBridgeCapture/KeyboardScreen.swift
+git add RemoteCrabCapture/CaptureEngine.swift RemoteCrabCapture/IOSSettingsView.swift RemoteCrabCapture/TouchpadScreen.swift RemoteCrabCapture/KeyboardScreen.swift
 git commit -m "fix(ios): apply settings for real, unify mic state, drop stray events"
 ```
 

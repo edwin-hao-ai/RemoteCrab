@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Build a double-clickable installer package for the iBridge virtual
+# Build a double-clickable installer package for the RemoteCrab virtual
 # microphone. End users run THIS (double-click → one admin prompt),
 # never a shell script. Installer.app copies the HAL driver into
 # /Library/Audio/Plug-Ins/HAL and restarts coreaudiod.
@@ -19,13 +19,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DERIVED="${IBRIDGE_DERIVED:-$ROOT/.build/mic-derived}"
-TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
-IDENTITY="${IBRIDGE_MIC_IDENTITY:-Developer ID Application}"
-VERSION="${IBRIDGE_MIC_VERSION:-0.2.1}"
-DRIVER_NAME="iBridgeMicrophone.driver"
+DERIVED="${REMOTECRAB_DERIVED:-$ROOT/.build/mic-derived}"
+TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
+IDENTITY="${REMOTECRAB_MIC_IDENTITY:-Developer ID Application}"
+VERSION="${REMOTECRAB_MIC_VERSION:-0.2.1}"
+DRIVER_NAME="RemoteCrabMicrophone.driver"
 OUT_DIR="$ROOT/dist"
-OUT="$OUT_DIR/FamiliarMicrophone.pkg"
+OUT="$OUT_DIR/RemoteCrabMicrophone.pkg"
 
 echo "== building $DRIVER_NAME (identity: $IDENTITY, arch: x86_64) =="
 # x86_64 on purpose: macOS hosts each third-party driver in a
@@ -37,13 +37,13 @@ echo "== building $DRIVER_NAME (identity: $IDENTITY, arch: x86_64) =="
 # shipping third-party driver on this machine (Teams/Lark/TFF/…) is
 # x86_64 — the x86_64 helper has no PAC and just works. Rosetta is
 # present on every Apple Silicon Mac that has run any x86_64 app.
-xcodebuild -project "$ROOT/iBridgeReceiver.xcodeproj" -scheme iBridgeMicrophone \
+xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabMicrophone \
   -configuration Release -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
   ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= \
   CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
-  build >/tmp/ibridge-mic-pkg-build.log 2>&1 \
-  || { echo "build failed — see /tmp/ibridge-mic-pkg-build.log"; exit 1; }
+  build >/tmp/remotecrab-mic-pkg-build.log 2>&1 \
+  || { echo "build failed — see /tmp/remotecrab-mic-pkg-build.log"; exit 1; }
 
 DRIVER="$(find "$DERIVED/Build/Products" -maxdepth 3 -name "$DRIVER_NAME" | head -1)"
 [ -n "$DRIVER" ] || { echo "driver not found under $DERIVED"; exit 1; }
@@ -64,7 +64,7 @@ chmod +x "$SCRIPTS/postinstall"
 
 mkdir -p "$OUT_DIR"
 pkgbuild --root "$STAGE" --scripts "$SCRIPTS" \
-  --identifier "com.ibridge.iBridgeMicrophone" --version "$VERSION" \
+  --identifier "com.remotecrab.RemoteCrabMicrophone" --version "$VERSION" \
   --install-location / "$OUT"
 
 echo "== built $OUT =="

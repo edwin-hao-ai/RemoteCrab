@@ -6,7 +6,7 @@
 // Build:
 //     swiftc -parse-as-library -o /tmp/e2e scripts/e2e_receiver_demo.swift
 // Run:
-//     /tmp/e2e /tmp/ibridge-e2e-output 30
+//     /tmp/e2e /tmp/remotecrab-e2e-output 30
 
 import AppKit
 import AVFoundation
@@ -16,7 +16,7 @@ import Foundation
 import ImageIO
 import VideoToolbox
 
-// MARK: - iBridgeCore-compatible wire types (self-contained)
+// MARK: - RemoteCrabCore-compatible wire types (self-contained)
 
 enum IBWireKind: UInt8 { case metadata = 0x00, video = 0x01, sps = 0x02, pps = 0x03 }
 
@@ -304,12 +304,12 @@ final class H264Decoder {
 struct E2EReceiverDemo {
     static func main() async {
         let args = CommandLine.arguments
-        let outputDir = args.count > 1 ? args[1] : "/tmp/ibridge-e2e"
+        let outputDir = args.count > 1 ? args[1] : "/tmp/remotecrab-e2e"
         let frameCount = args.count > 2 ? (Int(args[2]) ?? 30) : 30
         try? FileManager.default.createDirectory(
             atPath: outputDir, withIntermediateDirectories: true)
 
-        print("🎬 iBridge e2e demo: encode test pattern → wire → decode → PNG")
+        print("🎬 RemoteCrab e2e demo: encode test pattern → wire → decode → PNG")
         print("   Output dir: \(outputDir)")
         print("   Frames:     \(frameCount)")
 
@@ -365,7 +365,7 @@ struct E2EReceiverDemo {
 
         let summaryURL = URL(fileURLWithPath: "\(outputDir)/SUMMARY.txt")
         let report = """
-        iBridge e2e receiver demo
+        RemoteCrab e2e receiver demo
         ══════════════════════════
 
         Frames requested:       \(frameCount)

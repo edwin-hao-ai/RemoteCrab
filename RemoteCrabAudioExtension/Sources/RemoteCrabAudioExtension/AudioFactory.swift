@@ -1,0 +1,34 @@
+import AudioToolbox
+import AVFoundation
+import Foundation
+import RemoteCrabCore
+
+/// AudioUnit v3 extension entry point. macOS discovers this when the
+/// extension bundle is embedded in RemoteCrabReceiver.app/Contents/
+/// PlugIns and registers it as a selectable audio input device.
+///
+/// **V0.2 status:** skeleton. The full AUv3 render pipeline is
+/// scaffolded but the AU class itself is provided by the host (see
+/// `RemoteCrabAUInstanceProvider` in RemoteCrabCore) so the extension and the
+/// host can share the same buffer.
+public final class RemoteCrabAudioFactory: NSObject, AUAudioUnitFactory {
+
+    /// NSExtensionRequestHandling requirement. AudioUnit extensions do
+    /// not use extension contexts; instantiation goes through
+    /// `createAudioUnit(with:)`.
+    public func beginRequest(with context: NSExtensionContext) {
+    }
+
+    public func createAudioUnit(with componentDescription: AudioComponentDescription) throws -> AUAudioUnit {
+        // The real unit lives in the Mac app target — we just hand it
+        // back here. The host process uses the same instance whether the
+        // AU is being instantiated as a hosted extension or as an
+        // in-process unit.
+        let raw = RemoteCrabAUInstanceProvider.makeInstance
+        guard let unit = raw as? AUAudioUnit else {
+            throw NSError(domain: "RemoteCrab.audio", code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not build AUAudioUnit"])
+        }
+        return unit
+    }
+}

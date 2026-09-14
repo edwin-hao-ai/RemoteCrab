@@ -1,0 +1,517 @@
+//
+//  RemoteCrabMicrophone.c
+//  A minimal CoreAudio HAL AudioServerPlugIn that exposes ONE input-only
+//  device ("RemoteCrab Microphone") whose samples are read from an
+//  in-process ring fed by the RemoteCrab Mac app over loopback UDP.
+//
+//  Based on the canonical Apple AudioServerPlugIn object model
+//  (driver → device → stream). Deliberately tiny: no output, no volume,
+//  no sample-rate conversion — just a 48 kHz / 1 ch / Float32 input.
+//
+//  The render path (DoIOOperation) NEVER allocates or locks: it copies
+//  from the ring and converts Int16 → Float32.
+//
+
+#include <CoreAudio/AudioServerPlugIn.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <CoreFoundation/CFPlugIn.h>
+#include <CoreFoundation/CFUUID.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mach/mach_time.h>
+#include <os/log.h>
+
+#include "SharedRing.h"
+#include "MicSocketListener.h"
+
+// The driver service gives no feedback when a device silently fails to
+// publish — os_log is the only channel (log stream --predicate
+// 'subsystem == "com.remotecrab.micdriver"').
+static os_log_t iblog(void) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = os_log_create("com.remotecrab.micdriver", "driver"); });
+    return log;
+}
+#define IBLOG(...) os_log(iblog(), __VA_ARGS__)
+static void logSel(const char *fn, AudioObjectID obj, AudioObjectPropertySelector sel, OSStatus st) {
+    char c[5] = { (char)(sel >> 24), (char)(sel >> 16), (char)(sel >> 8), (char)sel, 0 };
+    IBLOG("%{public}s obj=%u sel=%{public}s st=%d", fn, obj, c, (int)st);
+}
+
+// MARK: - Object IDs
+
+enum {
+    kObjectID_PlugIn = kAudioObjectPlugInObject, // = 1
+    kObjectID_Device = 2,
+    kObjectID_Stream_Input = 3,
+};
+
+// MARK: - Fixed format
+
+#define kIB_SampleRate 48000.0
+#define kIB_Channels 1
+
+static const AudioStreamBasicDescription kIBStreamFormat = {
+    .mSampleRate = kIB_SampleRate,
+    .mFormatID = kAudioFormatLinearPCM,
+    .mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked | kAudioFormatFlagIsNonInterleaved,
+    .mBytesPerPacket = 4,
+    .mFramesPerPacket = 1,
+    .mBytesPerFrame = 4,
+    .mChannelsPerFrame = kIB_Channels,
+    .mBitsPerChannel = 32,
+    .mReserved = 0,
+};
+
+// MARK: - Driver object
+
+typedef struct {
+    AudioServerPlugInDriverInterface *mInterfacePointer; // MUST be first: the ref is an interface-pointer-pointer
+    AudioServerPlugInDriverInterface mInterface;
+    UInt32 mRefCount;
+    AudioObjectID mDeviceObjectID;
+    IBRing *mRing;
+    IBMicSocketListener *mListener;
+    int16_t *mScratch;      // preallocated render scratch (frames)
+    int64_t mScratchFrames;
+    UInt64 mIOCount;
+    UInt64 mHostTicksPerFrame;
+    UInt64 mAnchorHostTime;
+    Boolean mRunning;
+} RemoteCrabDriver;
+
+static HRESULT RemoteCrab_QueryInterface(void *inDriver, REFIID inUUID, LPVOID *outInterface);
+static ULONG RemoteCrab_AddRef(void *inDriver);
+static ULONG RemoteCrab_Release(void *inDriver);
+static OSStatus RemoteCrab_Initialize(AudioServerPlugInDriverRef inDriver, AudioServerPlugInHostRef inHost);
+static OSStatus RemoteCrab_CreateDevice(AudioServerPlugInDriverRef inDriver, CFDictionaryRef inDescription, const AudioServerPlugInClientInfo *inClientInfo, AudioObjectID *outDeviceObjectID);
+static OSStatus RemoteCrab_DestroyDevice(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID);
+static OSStatus RemoteCrab_AddDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo);
+static OSStatus RemoteCrab_RemoveDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo);
+static OSStatus RemoteCrab_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void *inChangeInfo);
+static OSStatus RemoteCrab_AbortDeviceConfigurationChange(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void *inChangeInfo);
+static Boolean RemoteCrab_HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress);
+static OSStatus RemoteCrab_IsPropertySettable(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, Boolean *outIsSettable);
+static OSStatus RemoteCrab_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 *outDataSize);
+static OSStatus RemoteCrab_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, UInt32 *outDataSize, void *outData);
+static OSStatus RemoteCrab_SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, const void *inData);
+static OSStatus RemoteCrab_StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID);
+static OSStatus RemoteCrab_StopIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID);
+static OSStatus RemoteCrab_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, Float64 *outSampleTime, UInt64 *outHostTime, UInt64 *outSeed);
+static OSStatus RemoteCrab_WillDoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, Boolean *outWillDo, Boolean *outWillDoInPlace);
+static OSStatus RemoteCrab_BeginIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo);
+static OSStatus RemoteCrab_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, AudioObjectID inStreamObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo, void *ioMainBuffer, void *ioSecondaryBuffer);
+static OSStatus RemoteCrab_EndIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo);
+
+static AudioServerPlugInDriverInterface gInterface = {
+    NULL,
+    RemoteCrab_QueryInterface,
+    RemoteCrab_AddRef,
+    RemoteCrab_Release,
+    RemoteCrab_Initialize,
+    RemoteCrab_CreateDevice,
+    RemoteCrab_DestroyDevice,
+    RemoteCrab_AddDeviceClient,
+    RemoteCrab_RemoveDeviceClient,
+    RemoteCrab_PerformDeviceConfigurationChange,
+    RemoteCrab_AbortDeviceConfigurationChange,
+    RemoteCrab_HasProperty,
+    RemoteCrab_IsPropertySettable,
+    RemoteCrab_GetPropertyDataSize,
+    RemoteCrab_GetPropertyData,
+    RemoteCrab_SetPropertyData,
+    RemoteCrab_StartIO,
+    RemoteCrab_StopIO,
+    RemoteCrab_GetZeroTimeStamp,
+    RemoteCrab_WillDoIOOperation,
+    RemoteCrab_BeginIOOperation,
+    RemoteCrab_DoIOOperation,
+    RemoteCrab_EndIOOperation,
+};
+
+// MARK: - Entry point
+
+__attribute__((visibility("default")))
+void *RemoteCrabMicrophone_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequestedTypeUUID) {
+    (void)inAllocator; (void)inRequestedTypeUUID;
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)calloc(1, sizeof(RemoteCrabDriver));
+    if (!driver) return NULL;
+    driver->mInterface = gInterface;
+    driver->mInterfacePointer = &driver->mInterface;
+    driver->mRefCount = 1;
+    // Preallocate render scratch for the largest plausible IO size.
+    driver->mScratchFrames = 8192;
+    driver->mScratch = (int16_t *)calloc((size_t)driver->mScratchFrames, sizeof(int16_t));
+    // The ring lives in this process: the sandboxed app can't shm_open
+    // into coreaudiod, so it feeds PCM over loopback UDP and the socket
+    // listener (single writer) fills the ring. The IO thread stays the
+    // single reader — SPSC semantics unchanged.
+    driver->mRing = (IBRing *)calloc(1, sizeof(IBRing));
+    IBRingInit(driver->mRing);
+    driver->mListener = IBMicSocketListenerStart(driver->mRing);
+    IBLOG("factory create driver=%{public}p listener=%{public}p", driver, (void *)driver->mListener);
+    mach_timebase_info_data_t tb;
+    mach_timebase_info(&tb);
+    double hostPerFrame = ((double)NSEC_PER_SEC / kIB_SampleRate) * (double)tb.denom / (double)tb.numer;
+    driver->mHostTicksPerFrame = (UInt64)hostPerFrame;
+    return driver;
+}
+
+// MARK: - COM-ish
+
+static HRESULT RemoteCrab_QueryInterface(void *inDriver, REFIID inUUID, LPVOID *outInterface) {
+    (void)inUUID;
+    // The ref IS pointer-to-interface-pointer (factory returned the
+    // driver whose first field is mInterfacePointer). Hand it back
+    // as-is: returning &driver->mInterface here makes the host read the
+    // struct's reserved NULL slot as the vtable and crash.
+    // MUST AddRef: the host (get_asp_interface) Releases the factory's
+    // initial reference right after QueryInterface — without this bump
+    // the driver is freed before first use and the host calls AddRef on
+    // a dangling pointer (SIGSEGV reading vtable+0x10).
+    *outInterface = inDriver;
+    RemoteCrab_AddRef(inDriver);
+    return S_OK;
+}
+static ULONG RemoteCrab_AddRef(void *inDriver) {
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    return (ULONG)__sync_add_and_fetch(&driver->mRefCount, 1);
+}
+static ULONG RemoteCrab_Release(void *inDriver) {
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    ULONG count = (ULONG)__sync_sub_and_fetch(&driver->mRefCount, 1);
+    if (count == 0) {
+        IBMicSocketListenerStop(driver->mListener);
+        free(driver->mRing);
+        free(driver->mScratch);
+        free(driver);
+    }
+    return count;
+}
+
+// MARK: - Lifecycle
+
+static OSStatus RemoteCrab_Initialize(AudioServerPlugInDriverRef inDriver, AudioServerPlugInHostRef inHost) {
+    (void)inDriver; (void)inHost;
+    IBLOG("Initialize");
+    return kAudioHardwareNoError;
+}
+
+static OSStatus RemoteCrab_CreateDevice(AudioServerPlugInDriverRef inDriver, CFDictionaryRef inDescription,
+                                     const AudioServerPlugInClientInfo *inClientInfo, AudioObjectID *outDeviceObjectID) {
+    (void)inDescription; (void)inClientInfo;
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    driver->mDeviceObjectID = kObjectID_Device;
+    *outDeviceObjectID = kObjectID_Device;
+    IBLOG("CreateDevice -> %u", kObjectID_Device);
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_DestroyDevice(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID) {
+    (void)inDriver; (void)inDeviceObjectID;
+    IBLOG("DestroyDevice %u", inDeviceObjectID);
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_AddDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inClientInfo;
+    IBLOG("AddDeviceClient dev=%u", inDeviceObjectID);
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_RemoveDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inClientInfo;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_PerformDeviceConfigurationChange(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void *inChangeInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inChangeAction; (void)inChangeInfo;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_AbortDeviceConfigurationChange(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt64 inChangeAction, void *inChangeInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inChangeAction; (void)inChangeInfo;
+    return kAudioHardwareNoError;
+}
+
+// MARK: - Properties
+
+static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddress *addr) {
+    switch (objectID) {
+        case kObjectID_PlugIn:
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
+                   addr->mSelector == kAudioObjectPropertyManufacturer ||
+                   addr->mSelector == kAudioObjectPropertyOwnedObjects ||
+                   addr->mSelector == kAudioPlugInPropertyBundleID ||
+                   addr->mSelector == kAudioPlugInPropertyDeviceList ||
+                   addr->mSelector == kAudioPlugInPropertyTranslateUIDToDevice;
+        case kObjectID_Device:
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
+                   addr->mSelector == kAudioObjectPropertyManufacturer ||
+                   addr->mSelector == kAudioObjectPropertyOwnedObjects ||
+                   addr->mSelector == kAudioObjectPropertyControlList ||
+                   addr->mSelector == kAudioDevicePropertyDeviceUID ||
+                   addr->mSelector == kAudioDevicePropertyModelUID ||
+                   addr->mSelector == kAudioDevicePropertyTransportType ||
+                   addr->mSelector == kAudioDevicePropertyRelatedDevices ||
+                   addr->mSelector == kAudioDevicePropertyClockDomain ||
+                   addr->mSelector == kAudioDevicePropertyDeviceIsAlive ||
+                   addr->mSelector == kAudioDevicePropertyDeviceIsRunning ||
+                   addr->mSelector == kAudioDevicePropertyDeviceCanBeDefaultDevice ||
+                   addr->mSelector == kAudioDevicePropertyDeviceCanBeDefaultSystemDevice ||
+                   addr->mSelector == kAudioDevicePropertyLatency ||
+                   addr->mSelector == kAudioDevicePropertyStreams ||
+                   addr->mSelector == kAudioDevicePropertySafetyOffset ||
+                   addr->mSelector == kAudioDevicePropertyNominalSampleRate ||
+                   addr->mSelector == kAudioDevicePropertyAvailableNominalSampleRates ||
+                   addr->mSelector == kAudioDevicePropertyZeroTimeStampPeriod ||
+                   addr->mSelector == kAudioDevicePropertyIsHidden ||
+                   addr->mSelector == kAudioDevicePropertyPreferredChannelsForStereo ||
+                   addr->mSelector == kAudioDevicePropertyPreferredChannelLayout;
+        case kObjectID_Stream_Input:
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
+                   addr->mSelector == kAudioObjectPropertyOwnedObjects ||
+                   addr->mSelector == kAudioStreamPropertyIsActive ||
+                   addr->mSelector == kAudioStreamPropertyDirection ||
+                   addr->mSelector == kAudioStreamPropertyTerminalType ||
+                   addr->mSelector == kAudioStreamPropertyStartingChannel ||
+                   addr->mSelector == kAudioStreamPropertyLatency ||
+                   addr->mSelector == kAudioStreamPropertyVirtualFormat ||
+                   addr->mSelector == kAudioStreamPropertyAvailableVirtualFormats ||
+                   addr->mSelector == kAudioStreamPropertyPhysicalFormat ||
+                   addr->mSelector == kAudioStreamPropertyAvailablePhysicalFormats;
+        default:
+            return false;
+    }
+}
+
+static Boolean RemoteCrab_HasProperty(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress) {
+    (void)inDriver; (void)inClientProcessID;
+    return hasAddress(inObjectID, inAddress);
+}
+
+static OSStatus RemoteCrab_IsPropertySettable(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, Boolean *outIsSettable) {
+    (void)inDriver; (void)inObjectID; (void)inClientProcessID; (void)inAddress;
+    *outIsSettable = false;
+    return kAudioHardwareNoError;
+}
+
+static UInt32 propSize(AudioObjectID objectID, const AudioObjectPropertyAddress *addr) {
+    switch (addr->mSelector) {
+        case kAudioObjectPropertyClass:
+            return sizeof(AudioClassID);
+        case kAudioDevicePropertyZeroTimeStampPeriod:
+            return sizeof(UInt32);
+        case kAudioObjectPropertyName:
+        case kAudioObjectPropertyManufacturer:
+        case kAudioDevicePropertyDeviceUID:
+        case kAudioDevicePropertyModelUID:
+            return sizeof(CFStringRef);
+        case kAudioObjectPropertyOwnedObjects:
+            return objectID == kObjectID_Device ? sizeof(AudioObjectID) : (objectID == kObjectID_PlugIn ? sizeof(AudioObjectID) : 0);
+        case kAudioPlugInPropertyBundleID:
+            return sizeof(CFStringRef);
+        case kAudioPlugInPropertyDeviceList:
+        case kAudioPlugInPropertyTranslateUIDToDevice:
+            return sizeof(AudioObjectID);
+        case kAudioDevicePropertyStreams:
+            return sizeof(AudioObjectID);
+        case kAudioDevicePropertyRelatedDevices:
+            return sizeof(AudioObjectID);
+        case kAudioDevicePropertyTransportType:
+        case kAudioDevicePropertyClockDomain:
+        case kAudioDevicePropertyDeviceIsAlive:
+        case kAudioDevicePropertyDeviceIsRunning:
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice:
+        case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice:
+        case kAudioDevicePropertyLatency: // == kAudioStreamPropertyLatency
+        case kAudioDevicePropertySafetyOffset:
+        case kAudioDevicePropertyIsHidden:
+        case kAudioStreamPropertyIsActive:
+        case kAudioStreamPropertyDirection:
+        case kAudioStreamPropertyTerminalType:
+        case kAudioStreamPropertyStartingChannel:
+            return sizeof(UInt32);
+        case kAudioDevicePropertyNominalSampleRate:
+            return sizeof(Float64);
+        case kAudioDevicePropertyAvailableNominalSampleRates:
+            return sizeof(AudioValueRange);
+        case kAudioDevicePropertyPreferredChannelLayout:
+            return sizeof(AudioChannelLayout) + (sizeof(AudioChannelDescription) * kIB_Channels);
+        case kAudioDevicePropertyPreferredChannelsForStereo:
+            return sizeof(UInt32) * 2;
+        case kAudioStreamPropertyVirtualFormat:
+        case kAudioStreamPropertyPhysicalFormat:
+            return sizeof(AudioStreamBasicDescription);
+        case kAudioStreamPropertyAvailableVirtualFormats:
+        case kAudioStreamPropertyAvailablePhysicalFormats:
+            return sizeof(AudioStreamRangedDescription);
+        case kAudioObjectPropertyControlList:
+            return 0;
+        default:
+            return 0;
+    }
+}
+
+static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddress *addr, UInt32 inDataSize, UInt32 *outDataSize, void *outData) {
+    #define PUT(T, V) do { if (inDataSize < sizeof(T)) return kAudioHardwareBadPropertySizeError; *(T *)outData = (V); *outDataSize = sizeof(T); } while (0)
+    CFStringRef s;
+    switch (addr->mSelector) {
+        case kAudioObjectPropertyClass: {
+            AudioClassID v = objectID == kObjectID_PlugIn ? kAudioPlugInClassID
+                           : objectID == kObjectID_Device ? kAudioDeviceClassID
+                           : kAudioStreamClassID;
+            PUT(AudioClassID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyZeroTimeStampPeriod: { UInt32 v = 480; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioObjectPropertyName:
+            s = objectID == kObjectID_Stream_Input ? CFSTR("RemoteCrab Microphone Input") : CFSTR("RemoteCrab Microphone");
+            PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioObjectPropertyManufacturer:
+            s = CFSTR("RemoteCrab");
+            PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioPlugInPropertyBundleID:
+            s = CFSTR("com.remotecrab.RemoteCrabMicrophone");
+            PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioPlugInPropertyDeviceList: { AudioObjectID v = kObjectID_Device; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyDeviceUID:
+            s = CFSTR("com.remotecrab.RemoteCrabMicrophone.device");
+            PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioDevicePropertyModelUID:
+            s = CFSTR("com.remotecrab.RemoteCrabMicrophone.model");
+            PUT(CFStringRef, s); return kAudioHardwareNoError;
+        case kAudioObjectPropertyOwnedObjects:
+            if (objectID == kObjectID_PlugIn) { AudioObjectID v = kObjectID_Device; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+            if (objectID == kObjectID_Device) { AudioObjectID v = kObjectID_Stream_Input; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+            *outDataSize = 0; return kAudioHardwareNoError;
+        case kAudioDevicePropertyStreams: { AudioObjectID v = kObjectID_Stream_Input; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyRelatedDevices: { AudioObjectID v = kObjectID_Device; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyPreferredChannelLayout: {
+            UInt32 need = (UInt32)(offsetof(AudioChannelLayout, mChannelDescriptions) + sizeof(AudioChannelDescription));
+            if (inDataSize < need) return kAudioHardwareBadPropertySizeError;
+            AudioChannelLayout *acl = (AudioChannelLayout *)outData;
+            memset(acl, 0, need);
+            acl->mChannelLayoutTag = kAudioChannelLayoutTag_Mono;
+            acl->mNumberChannelDescriptions = 1;
+            acl->mChannelDescriptions[0].mChannelLabel = kAudioChannelLabel_Mono;
+            *outDataSize = need; return kAudioHardwareNoError; }
+        case kAudioObjectPropertyControlList: *outDataSize = 0; return kAudioHardwareNoError;
+        case kAudioDevicePropertyTransportType: { UInt32 v = kAudioDeviceTransportTypeVirtual; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyClockDomain: { UInt32 v = 0; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyDeviceIsAlive: { UInt32 v = 1; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyDeviceIsRunning: { UInt32 v = 0; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyDeviceCanBeDefaultDevice:
+        case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice: { UInt32 v = 1; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyLatency: // == kAudioStreamPropertyLatency
+        case kAudioDevicePropertySafetyOffset: { UInt32 v = 0; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyIsHidden: { UInt32 v = 0; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyNominalSampleRate: { Float64 v = kIB_SampleRate; PUT(Float64, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyAvailableNominalSampleRates: {
+            AudioValueRange r = { kIB_SampleRate, kIB_SampleRate }; PUT(AudioValueRange, r); return kAudioHardwareNoError; }
+        case kAudioStreamPropertyIsActive: { UInt32 v = 1; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioStreamPropertyDirection: { UInt32 v = 1; PUT(UInt32, v); return kAudioHardwareNoError; } // 1 = input
+        case kAudioStreamPropertyTerminalType: { UInt32 v = kAudioStreamTerminalTypeMicrophone; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioStreamPropertyStartingChannel: { UInt32 v = 1; PUT(UInt32, v); return kAudioHardwareNoError; }
+        case kAudioStreamPropertyVirtualFormat:
+        case kAudioStreamPropertyPhysicalFormat: { AudioStreamBasicDescription v = kIBStreamFormat; PUT(AudioStreamBasicDescription, v); return kAudioHardwareNoError; }
+        case kAudioStreamPropertyAvailableVirtualFormats:
+        case kAudioStreamPropertyAvailablePhysicalFormats: {
+            AudioStreamRangedDescription d; d.mFormat = kIBStreamFormat;
+            d.mSampleRateRange.mMinimum = kIB_SampleRate; d.mSampleRateRange.mMaximum = kIB_SampleRate;
+            PUT(AudioStreamRangedDescription, d); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyPreferredChannelsForStereo: { UInt32 v[2] = {1,1}; if (inDataSize < sizeof(v)) return kAudioHardwareBadPropertySizeError; memcpy(outData, v, sizeof v); *outDataSize = sizeof v; return kAudioHardwareNoError; }
+        default: return kAudioHardwareUnknownPropertyError;
+    }
+    #undef PUT
+}
+
+static OSStatus RemoteCrab_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 *outDataSize) {
+    (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
+    if (!hasAddress(inObjectID, inAddress)) { logSel("GetPropertyDataSize", inObjectID, inAddress->mSelector, kAudioHardwareUnknownPropertyError); return kAudioHardwareUnknownPropertyError; }
+    *outDataSize = propSize(inObjectID, inAddress);
+    return kAudioHardwareNoError;
+}
+
+static OSStatus RemoteCrab_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, UInt32 *outDataSize, void *outData) {
+    (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
+    if (!hasAddress(inObjectID, inAddress)) { logSel("GetPropertyData", inObjectID, inAddress->mSelector, kAudioHardwareUnknownPropertyError); return kAudioHardwareUnknownPropertyError; }
+    // 'uidd': the qualifier carries a CFString UID; map it to our device.
+    if (inAddress->mSelector == kAudioPlugInPropertyTranslateUIDToDevice) {
+        if (inDataSize < sizeof(AudioObjectID)) return kAudioHardwareBadPropertySizeError;
+        AudioObjectID v = kAudioObjectUnknown;
+        if (inQualifierData && inQualifierDataSize == sizeof(CFStringRef)) {
+            CFStringRef uid = *(CFStringRef *)inQualifierData;
+            if (uid && CFStringCompare(uid, CFSTR("com.remotecrab.RemoteCrabMicrophone.device"), 0) == kCFCompareEqualTo) v = kObjectID_Device;
+        }
+        *(AudioObjectID *)outData = v; *outDataSize = sizeof(AudioObjectID);
+        return kAudioHardwareNoError;
+    }
+    OSStatus st = fillProp(inObjectID, inAddress, inDataSize, outDataSize, outData);
+    if (st != kAudioHardwareNoError) logSel("GetPropertyData", inObjectID, inAddress->mSelector, st);
+    return st;
+}
+
+static OSStatus RemoteCrab_SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, const void *inData) {
+    (void)inDriver; (void)inObjectID; (void)inClientProcessID; (void)inAddress; (void)inQualifierDataSize; (void)inQualifierData; (void)inDataSize; (void)inData;
+    return kAudioHardwareUnknownPropertyError;
+}
+
+// MARK: - IO
+
+static OSStatus RemoteCrab_StartIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
+    (void)inDeviceObjectID; (void)inClientID;
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    driver->mRunning = true;
+    driver->mIOCount = 0;
+    driver->mAnchorHostTime = mach_absolute_time();
+    IBLOG("StartIO");
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_StopIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
+    (void)inDeviceObjectID; (void)inClientID;
+    ((RemoteCrabDriver *)inDriver)->mRunning = false;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_GetZeroTimeStamp(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, Float64 *outSampleTime, UInt64 *outHostTime, UInt64 *outSeed) {
+    (void)inDeviceObjectID; (void)inClientID;
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    *outSampleTime = (Float64)driver->mIOCount * 0; // filled by host cycle info
+    UInt64 now = mach_absolute_time();
+    UInt64 delta = now - driver->mAnchorHostTime;
+    UInt64 frames = driver->mHostTicksPerFrame ? delta / driver->mHostTicksPerFrame : 0;
+    *outSampleTime = (Float64)frames;
+    *outHostTime = driver->mAnchorHostTime + frames * driver->mHostTicksPerFrame;
+    *outSeed = 1;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_WillDoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, Boolean *outWillDo, Boolean *outWillDoInPlace) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inClientID;
+    *outWillDo = (inOperationID == kAudioServerPlugInIOOperationReadInput);
+    *outWillDoInPlace = true;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_BeginIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inClientID; (void)inOperationID; (void)inIOBufferFrameSize; (void)inIOCycleInfo;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_DoIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, AudioObjectID inStreamObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo, void *ioMainBuffer, void *ioSecondaryBuffer) {
+    (void)inDeviceObjectID; (void)inStreamObjectID; (void)inClientID; (void)inIOCycleInfo; (void)ioSecondaryBuffer;
+    if (inOperationID != kAudioServerPlugInIOOperationReadInput || !ioMainBuffer) return kAudioHardwareNoError;
+
+    RemoteCrabDriver *driver = (RemoteCrabDriver *)inDriver;
+    Float32 *out = (Float32 *)ioMainBuffer;
+    UInt32 frames = inIOBufferFrameSize;
+
+    if (!driver->mRing || frames > driver->mScratchFrames) {
+        memset(out, 0, frames * sizeof(Float32));
+        return kAudioHardwareNoError;
+    }
+    IBRingRead(driver->mRing, driver->mScratch, frames);
+    for (UInt32 i = 0; i < frames; i++) {
+        out[i] = (Float32)driver->mScratch[i] / 32768.0f;
+    }
+    driver->mIOCount += frames;
+    return kAudioHardwareNoError;
+}
+static OSStatus RemoteCrab_EndIOOperation(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID, UInt32 inOperationID, UInt32 inIOBufferFrameSize, const AudioServerPlugInIOCycleInfo *inIOCycleInfo) {
+    (void)inDriver; (void)inDeviceObjectID; (void)inClientID; (void)inOperationID; (void)inIOBufferFrameSize; (void)inIOCycleInfo;
+    return kAudioHardwareNoError;
+}

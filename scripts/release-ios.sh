@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# iBridge iOS release automation.
+# RemoteCrab iOS release automation.
 #
 # Usage:
 #   ./scripts/release-ios.sh 0.2.0                    # build + upload IPA only
@@ -10,7 +10,7 @@
 #
 # What it does:
 #   1. Loads App Store Connect API credentials from
-#      ~/.config/ibridge/ios-release.env
+#      ~/.config/remotecrab/ios-release.env
 #   2. Bumps the iOS bundle version (Info.plist + project.yml)
 #   3. Regenerates the Xcode project via xcodegen
 #   4. Builds a signed release IPA
@@ -28,12 +28,12 @@
 #   - App Store Connect API key generated at
 #     https://appstoreconnect.apple.com/access/integrations/api
 #   - Xcode 26+ with iOS 26+ SDK installed
-#   - ~/.config/ibridge/ios-release.env populated (see below)
+#   - ~/.config/remotecrab/ios-release.env populated (see below)
 #
-# Credentials file example (~/.config/ibridge/ios-release.env, mode 0600):
+# Credentials file example (~/.config/remotecrab/ios-release.env, mode 0600):
 #   APPLE_API_KEY=ABCDE12345
 #   APPLE_API_ISSUER=uuid-from-app-store-connect
-#   APPLE_API_KEY_PATH=$HOME/.config/ibridge/AuthKey_ABCDE12345.p8
+#   APPLE_API_KEY_PATH=$HOME/.config/remotecrab/AuthKey_ABCDE12345.p8
 #   APPLE_TEAM_ID=YOUR_TEAM_ID
 #
 # Notes:
@@ -45,7 +45,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_FILE="${IBRIDGE_IOS_RELEASE_ENV:-$HOME/.config/ibridge/ios-release.env}"
+ENV_FILE="${REMOTECRAB_IOS_RELEASE_ENV:-$HOME/.config/remotecrab/ios-release.env}"
 
 IOS_VERSION=""
 DO_METADATA=false
@@ -77,7 +77,7 @@ Options:
   -h, --help            Show this help
 
 Env overrides:
-  IBRIDGE_IOS_RELEASE_ENV  - path to credentials env file
+  REMOTECRAB_IOS_RELEASE_ENV  - path to credentials env file
   APPLE_TEAM_ID             - Apple Team ID for code signing
 EOF
 }
@@ -122,7 +122,7 @@ if ! echo "$BUILD_NUMBER" | grep -qE '^[0-9]+$'; then
 fi
 
 echo "=========================================="
-echo "  iBridge iOS Release v${IOS_VERSION} (build ${BUILD_NUMBER})"
+echo "  RemoteCrab iOS Release v${IOS_VERSION} (build ${BUILD_NUMBER})"
 echo "=========================================="
 echo ""
 
@@ -180,7 +180,7 @@ echo ""
 
 # ---- Bump version ----
 echo "--- [3/5] Bumping iOS version to $IOS_VERSION (build $BUILD_NUMBER) ---"
-INFO_PLIST="$ROOT/iBridgeCapture/Info.plist"
+INFO_PLIST="$ROOT/RemoteCrabCapture/Info.plist"
 PROJECT_YML="$ROOT/project-ios.yml"
 
 if [[ ! -f "$INFO_PLIST" ]]; then
@@ -231,14 +231,14 @@ if [[ "$SKIP_BUILD" == true ]]; then
   echo ""
 else
   echo "--- [4/5] Building iOS release archive ---"
-  rm -rf ~/Library/Developer/Xcode/DerivedData/iBridgeCapture-*
+  rm -rf ~/Library/Developer/Xcode/DerivedData/RemoteCrabCapture-*
   cd "$ROOT"
   xcodebuild \
-    -project iBridgeCapture.xcodeproj \
-    -scheme iBridgeCapture \
+    -project RemoteCrabCapture.xcodeproj \
+    -scheme RemoteCrabCapture \
     -configuration Release \
     -destination "generic/platform=iOS" \
-    -archivePath build/iBridgeCapture.xcarchive \
+    -archivePath build/RemoteCrabCapture.xcarchive \
     archive \
     CODE_SIGNING_ALLOWED=NO \
     DEVELOPMENT_TEAM="$TEAM_ID"
@@ -248,7 +248,7 @@ else
   # user runs exportArchive separately with proper signing identity:
   #
   #   xcodebuild -exportArchive \
-  #     -archivePath build/iBridgeCapture.xcarchive \
+  #     -archivePath build/RemoteCrabCapture.xcarchive \
   #     -exportPath build/ipa \
   #     -exportOptionsPlist ExportOptions.plist
   #
@@ -276,7 +276,7 @@ EOF
   echo ""
   echo "  To export the signed IPA, run (requires your signing key):"
   echo "    xcodebuild -exportArchive \\"
-  echo "      -archivePath build/iBridgeCapture.xcarchive \\"
+  echo "      -archivePath build/RemoteCrabCapture.xcarchive \\"
   echo "      -exportPath build/ipa \\"
   echo "      -exportOptionsPlist ExportOptions.plist"
   echo ""
@@ -314,7 +314,7 @@ PY
 fi
 
 echo "=========================================="
-echo "  iBridge v${IOS_VERSION} release workflow complete"
+echo "  RemoteCrab v${IOS_VERSION} release workflow complete"
 echo "=========================================="
 echo ""
 echo "Next steps (manual, in App Store Connect):"

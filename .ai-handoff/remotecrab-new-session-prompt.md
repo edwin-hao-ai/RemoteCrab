@@ -4,26 +4,26 @@
 
 ---
 
-你是 Kimi Code，工作目录 `/Users/edwinhao/iBridge`。这是一个"把 iPhone 变成 Mac 的摄像头/麦克风/触控板/键盘"的双端项目（iOS Capture + macOS Receiver + CMIO 相机扩展 + CoreAudio HAL 麦克风驱动）。开始前先读：
+你是 Kimi Code，工作目录 `/Users/edwinhao/RemoteCrab`。这是一个"把 iPhone 变成 Mac 的摄像头/麦克风/触控板/键盘"的双端项目（iOS Capture + macOS Receiver + CMIO 相机扩展 + CoreAudio HAL 麦克风驱动）。开始前先读：
 
 1. `AGENTS.md`（项目圣经，含全部踩坑记录，尤其"Real-device lessons"和 CMIO/麦克风驱动两节）
 2. `docs/CMIO_AND_RELEASE_HANDOFF.md`
 3. 运行 `mddock recall "虚拟麦克风"` 和 `mddock recall "改名"` 读取最新记忆
 
-当前代码状态：main 全绿（`./scripts/test.sh` 通过，15+ commits 已提交），虚拟麦克风全链路真机验证通过，Mac App 显示名已是 Familiar（半改名状态）。
+当前代码状态：main 全绿（`./scripts/test.sh` 通过，15+ commits 已提交），虚拟麦克风全链路真机验证通过，Mac App 显示名已是 RemoteCrab（半改名状态）。
 
-## 任务一：产品改名 iBridge/Familiar → RemoteCrab（最高优先级）
+## 任务一：产品改名 RemoteCrab/RemoteCrab → RemoteCrab（最高优先级）
 
-原因："iBridge" 会被苹果禁掉（商标冲突）。最终产品名 **RemoteCrab**。
+原因："RemoteCrab" 会被苹果禁掉（商标冲突）。最终产品名 **RemoteCrab**。
 
-现状：代码库仍是 iBridge 命名，仅 Mac App 显示名改成了 Familiar。用 `grep -rli "ibridge\|familiar" --exclude-dir=.git` 全量扫描，改名范围包括：
+现状：代码库仍是 RemoteCrab 命名，仅 Mac App 显示名改成了 RemoteCrab。用 `grep -rli "remotecrab\|remotecrab" --exclude-dir=.git` 全量扫描，改名范围包括：
 
-- 目录：`iBridgeCapture/`、`iBridgeReceiver/`、`iBridgeCore/`、`iBridgeMicDriver/`、`iBridgeCameraExtension/`、`iBridgeAudioExtension/`
+- 目录：`RemoteCrabCapture/`、`RemoteCrabReceiver/`、`RemoteCrabCore/`、`RemoteCrabMicDriver/`、`RemoteCrabCameraExtension/`、`RemoteCrabAudioExtension/`
 - 两个 `.xcodeproj`、`project-ios.yml` / `project-mac.yml`（xcodegen 生成，改完重跑 xcodegen）
-- target / scheme / Swift Package 名、bundle id（`com.ibridge.*`）、os_log subsystem `com.ibridge`
-- Bonjour 服务名 `_ibridge._tcp`（**两端必须同步改，否则互相发现不了**）
-- UserDefaults 键 `ibridge.*`、E2E 环境变量 `IBRIDGE_*`（脚本同步改）
-- 显示名：Familiar → RemoteCrab，含 "Familiar Microphone" / "Familiar Camera" 设备名、pkg 文件名
+- target / scheme / Swift Package 名、bundle id（`com.remotecrab.*`）、os_log subsystem `com.remotecrab`
+- Bonjour 服务名 `_remotecrab._tcp`（**两端必须同步改，否则互相发现不了**）
+- UserDefaults 键 `remotecrab.*`、E2E 环境变量 `REMOTECRAB_*`（脚本同步改）
+- 显示名：RemoteCrab → RemoteCrab，含 "RemoteCrab Microphone" / "RemoteCrab Camera" 设备名、pkg 文件名
 - 全部脚本（scripts/）、文档、README
 - **GitHub**：`gh repo rename RemoteCrab`，更新本地 remote URL，替换文档里的仓库链接
 
@@ -31,7 +31,7 @@
 
 - bundle id 变更 → TCC 授权（辅助功能/麦克风/相机）全部失效，真机回归时要重新授权并**重启 App**（TCC 按进程缓存）
 - CMIO 系统扩展改名/重签名 → 用户批准被重置，必须 bump 扩展 `CFBundleVersion` 走替换路径 + 用户重新批准；**绝不自动重注册**（AGENTS.md CMIO 节）
-- 麦克风 HAL 驱动 bundle id 变更 → 需要重新打包安装驱动（`IBRIDGE_MIC_VERSION=x.y.z ./scripts/build-mic-driver-pkg.sh`），设备 UID 同步改
+- 麦克风 HAL 驱动 bundle id 变更 → 需要重新打包安装驱动（`REMOTECRAB_MIC_VERSION=x.y.z ./scripts/build-mic-driver-pkg.sh`），设备 UID 同步改
 - App Store Connect appId 6811599153 的元数据（名称/截图/文案）同步更新
 - wire protocol 的 frame kind 字节**不变**（协议兼容），只改服务名/bundle id/显示名，两端同步
 - 改完必须 `./scripts/test.sh` 全绿 + `./scripts/e2e-device.sh` 真机回归（前置：iPhone 解锁亮屏、同局域网、关 VPN——fake-ip 198.18.x.x 段会打断 Bonjour）
@@ -50,7 +50,7 @@
 
 ## 任务三：触控板体验优化
 
-现状：统一手势引擎在 `iBridgeCapture/Input/TouchSurface.swift`（摇杆式相对定位，光标不瞬移），数学模型在 `iBridgeCore/.../TrackpadMath.swift`，单测 `iBridgeCore/Tests/iBridgeCoreTests/TrackpadMathTests.swift`。真机手感迭代，单测同步更新。
+现状：统一手势引擎在 `RemoteCrabCapture/Input/TouchSurface.swift`（摇杆式相对定位，光标不瞬移），数学模型在 `RemoteCrabCore/.../TrackpadMath.swift`，单测 `RemoteCrabCore/Tests/RemoteCrabCoreTests/TrackpadMathTests.swift`。真机手感迭代，单测同步更新。
 
 1. **鼠标右键**：目前是重按触发（force right-click）。评估改为**双指点按**为主（Mac 触控板肌肉记忆）或两者共存；确認 `CGEventInjector` 端 rightMouseDown/Up 事件正确落位
 2. **横竖屏手感**：iPhone 竖屏握持映射到 Mac 横屏，方向感不一致（用户实测反馈"横竖屏都要支持"）。评估坐标映射、分轴灵敏度（竖屏 X 轴行程短）、以及 iPhone 横屏握持时的布局与映射适配（相机流的横竖屏旋转支持之前做过，可复用思路）
@@ -60,7 +60,7 @@
 
 1. e2e 真机回归（改名后必跑）：`./scripts/e2e-device.sh` 全绿
 2. App Store 截图 + 元数据：appId 6811599153，`scripts/release-ios.sh --all`，截图要真机采集（不能用 mockup）
-3. 调试代码收敛：`Forensic.swift`、各 `IBRIDGE_E2E_*` 钩子评估保留/裁剪
+3. 调试代码收敛：`Forensic.swift`、各 `REMOTECRAB_E2E_*` 钩子评估保留/裁剪
 4. Opus 编码（现在是 raw PCM ~96kbps，wire format 已预留 `opusData`）
 5. 无障碍审计（VoiceOver/Dynamic Type）、本地化统一（.xcstrings，coach marks 中文/其余英文混杂）
 6. iOS 端主动选择连接哪台 Mac（现在是 Mac 发起 + iPhone 批准；反向需要 iOS 端浏览/持久化目标，属架构改动，放最后）

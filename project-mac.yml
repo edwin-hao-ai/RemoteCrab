@@ -1,6 +1,6 @@
-name: iBridgeReceiver
+name: RemoteCrabReceiver
 options:
-  bundleIdPrefix: com.ibridge
+  bundleIdPrefix: com.remotecrab
   deploymentTarget:
     macOS: "26.0"
   developmentLanguage: en
@@ -17,52 +17,52 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "26.0"
 
 packages:
-  iBridgeCore:
-    path: iBridgeCore
+  RemoteCrabCore:
+    path: RemoteCrabCore
 
 targets:
-  iBridgeReceiver:
+  RemoteCrabReceiver:
     type: application
     platform: macOS
     deploymentTarget: "26.0"
     sources:
-      - path: iBridgeReceiver
+      - path: RemoteCrabReceiver
         excludes:
           - "Info.plist"
       # Embedded one-click installer for the virtual microphone,
       # opened from the setup assistant / Preferences. Built by
       # scripts/build-mic-driver-pkg.sh (dist/ is gitignored).
-      - path: dist/FamiliarMicrophone.pkg
+      - path: dist/RemoteCrabMicrophone.pkg
         buildPhase: resources
     resources: []
     dependencies:
-      - package: iBridgeCore
-        product: iBridgeCore
-      - target: iBridgeCameraExtension
+      - package: RemoteCrabCore
+        product: RemoteCrabCore
+      - target: RemoteCrabCameraExtension
         embed: true
         codeSign: true
-      - target: iBridgeAudioExtension
+      - target: RemoteCrabAudioExtension
         embed: true
         codeSign: true
       # Built with the app, but installed to /Library/Audio/Plug-Ins/HAL
       # by scripts/install-mic-driver.sh — not embedded in the bundle.
-      - target: iBridgeMicrophone
+      - target: RemoteCrabMicrophone
         embed: false
         codeSign: true
     info:
-      path: iBridgeReceiver/Info.plist
+      path: RemoteCrabReceiver/Info.plist
       properties:
-        CFBundleDisplayName: Familiar
+        CFBundleDisplayName: RemoteCrab
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSHighResolutionCapable: true
-        NSLocalNetworkUsageDescription: Familiar discovers your iPhone on the local WiFi network.
+        NSLocalNetworkUsageDescription: RemoteCrab discovers your iPhone on the local WiFi network.
         NSBonjourServices:
-          - _ibridge._tcp
-        NSMicrophoneUsageDescription: Familiar uses your Mac microphone for audio routing when the iPhone mic is unavailable.
-        NSSystemExtensionUsageDescription: Familiar installs a camera extension so other apps can use your iPhone as a webcam.
+          - _remotecrab._tcp
+        NSMicrophoneUsageDescription: RemoteCrab uses your Mac microphone for audio routing when the iPhone mic is unavailable.
+        NSSystemExtensionUsageDescription: RemoteCrab installs a camera extension so other apps can use your iPhone as a webcam.
         # xcodegen rewrites Info.plist from these properties alone —
         # keep CFBundleLocalizations here or regeneration drops it.
         CFBundleLocalizations:
@@ -70,16 +70,16 @@ targets:
           - zh-Hans
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver
-        PRODUCT_NAME: Familiar
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver
+        PRODUCT_NAME: RemoteCrab
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
-        CODE_SIGN_ENTITLEMENTS: iBridgeReceiver/iBridgeReceiver.entitlements
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabReceiver/RemoteCrabReceiver.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
 
-  # Camera Extension target — exposes iBridge as a virtual webcam
+  # Camera Extension target — exposes RemoteCrab as a virtual webcam
   # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM
   # extensions: this target builds as a .systemextension and is
   # embedded into Contents/Library/SystemExtensions of the host via
@@ -87,31 +87,31 @@ targets:
   # automatically for a `system-extension` dependency with
   # `embed: true`). The CMIOExtensionMachServiceName lives in the
   # target's `info.properties` below — this yml is the source of truth.
-  iBridgeCameraExtension:
+  RemoteCrabCameraExtension:
     type: system-extension
     platform: macOS
     deploymentTarget: "26.0"
     sources:
-      - path: iBridgeCameraExtension/Sources
+      - path: RemoteCrabCameraExtension/Sources
     dependencies:
-      - package: iBridgeCore
-        product: iBridgeCore
+      - package: RemoteCrabCore
+        product: RemoteCrabCore
     info:
-      path: iBridgeCameraExtension/Info.plist
+      path: RemoteCrabCameraExtension/Info.plist
       properties:
-        CFBundleDisplayName: Familiar Camera
+        CFBundleDisplayName: RemoteCrab Camera
         CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "6"
+        CFBundleVersion: "7"
         CFBundlePackageType: SYSX
         CMIOExtension:
-          CMIOExtensionMachServiceName: 5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera
-        NSSystemExtensionUsageDescription: Familiar uses your iPhone as a camera for this Mac.
+          CMIOExtensionMachServiceName: 5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera
+        NSSystemExtensionUsageDescription: RemoteCrab uses your iPhone as a camera for this Mac.
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
-        PRODUCT_NAME: com.ibridge.iBridgeReceiver.Camera
-        INFOPLIST_FILE: iBridgeCameraExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: iBridgeCameraExtension/CameraExtension.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver.Camera
+        PRODUCT_NAME: com.remotecrab.RemoteCrabReceiver.Camera
+        INFOPLIST_FILE: RemoteCrabCameraExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabCameraExtension/CameraExtension.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
@@ -121,31 +121,31 @@ targets:
   # device; a HAL AudioServerPlugIn is what BlackHole/Loopback ship.
   # Built as an mh_bundle `.driver`, installed to
   # /Library/Audio/Plug-Ins/HAL by scripts/install-mic-driver.sh.
-  iBridgeMicrophone:
+  RemoteCrabMicrophone:
     type: bundle
     platform: macOS
     deploymentTarget: "26.0"
     sources:
-      - path: iBridgeMicDriver
+      - path: RemoteCrabMicDriver
     dependencies:
       - sdk: CoreAudio.framework
       - sdk: CoreFoundation.framework
     info:
-      path: iBridgeMicDriver/Info.plist
+      path: RemoteCrabMicDriver/Info.plist
       properties:
-        CFBundleDisplayName: Familiar Microphone
+        CFBundleDisplayName: RemoteCrab Microphone
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         CFBundlePackageType: BNDL
         CFPlugInFactories:
-          "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C": iBridgeMicrophone_Create
+          "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C": RemoteCrabMicrophone_Create
         CFPlugInTypes:
           "443ABAB8-E7B3-491A-B985-BEB9187030DB":
             - "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeMicrophone
-        PRODUCT_NAME: iBridgeMicrophone
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabMicrophone
+        PRODUCT_NAME: RemoteCrabMicrophone
         WRAPPER_EXTENSION: driver
         MACH_O_TYPE: mh_bundle
         SKIP_INSTALL: YES
@@ -155,29 +155,29 @@ targets:
 
   # Audio Unit extension target — DAW-hosted only (kept for reference;
   # does NOT show up as a system input device).
-  iBridgeAudioExtension:
+  RemoteCrabAudioExtension:
     type: app-extension
     platform: macOS
     deploymentTarget: "26.0"
     sources:
-      - path: iBridgeAudioExtension/Sources
+      - path: RemoteCrabAudioExtension/Sources
     dependencies:
-      - package: iBridgeCore
-        product: iBridgeCore
+      - package: RemoteCrabCore
+        product: RemoteCrabCore
     info:
-      path: iBridgeAudioExtension/Info.plist
+      path: RemoteCrabAudioExtension/Info.plist
       properties:
-        CFBundleDisplayName: Familiar Microphone
+        CFBundleDisplayName: RemoteCrab Microphone
         CFBundleShortVersionString: "0.2"
         CFBundleVersion: "1"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.audiounit
-          NSExtensionPrincipalClass: iBridgeAudioFactory
+          NSExtensionPrincipalClass: RemoteCrabAudioFactory
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Audio
-        INFOPLIST_FILE: iBridgeAudioExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: iBridgeAudioExtension/AudioExtension.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver.Audio
+        INFOPLIST_FILE: RemoteCrabAudioExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabAudioExtension/AudioExtension.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"

@@ -1,4 +1,4 @@
-# iBridge 踩坑手册 (Pitfalls & Lessons Learned)
+# RemoteCrab 踩坑手册 (Pitfalls & Lessons Learned)
 
 > 这次 session 踩的所有坑、原因、修复方案。
 > 任何接续这个项目的人应该先读这个。
@@ -17,17 +17,17 @@
 **修复**：
 - iPhone 拔 USB（必须 WiFi 连接）
 - 或 iPhone 同时连同一个 WiFi 5G
-- 验证：`rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"`
+- 验证：`rtk timeout 3 dns-sd -B _remotecrab._tcp 2>&1 | grep "Instance Name"`
 
 ### 1.2 macOS Accessibility 弹窗只一次
-**症状**：点 "Open System Settings" 没反应，iBridgeReceiver 不在列表里
+**症状**：点 "Open System Settings" 没反应，RemoteCrabReceiver 不在列表里
 **原因**：
 - macOS 14+ 缓存 "rejected" 状态
 - 一旦 dismiss，再启 app 不再弹
 - `tccutil reset` 清了 TCC.db 但 `accessibilityd` 守护进程缓存独立
 - ad-hoc 签名的 app 在系统里优先级最低
 **修复**（**唯一可靠**）：
-- 手动加：System Settings → Privacy & Security → Accessibility → + → 选 `iBridgeReceiver.app` → 打开
+- 手动加：System Settings → Privacy & Security → Accessibility → + → 选 `RemoteCrabReceiver.app` → 打开
 - 或重启 Mac（Reddit 用户验证有效）
 
 ### 1.3 ImageRenderer 不渲染 Liquid Glass
@@ -72,7 +72,7 @@ security find-certificate -c "Apple Development" -p | openssl x509 -text -noout 
 ### 1.6 tccutil reset 不刷新
 **症状**：
 ```
-Successfully reset Accessibility approval status for com.ibridge.iBridgeReceiver
+Successfully reset Accessibility approval status for com.remotecrab.RemoteCrabReceiver
 ```
 但 app 重启后还是不弹窗
 **原因**：macOS 14+ 的 `accessibilityd` 守护进程有独立缓存
@@ -154,7 +154,7 @@ v0.3 时把代码里所有 `Text("...")` 换成 `Text(IBLocale.对应key)` + 真
 **修复**：拆成 view modifier 链、抽 `@ViewBuilder func content() -> some View`
 
 ### 3.3 SwiftUI MenuBarExtra popover 重复 title
-**症状**：popover 标题栏写 "iBridge" + 内容里又写一个大 "iBridge" 标题 → 颜色冲突
+**症状**：popover 标题栏写 "RemoteCrab" + 内容里又写一个大 "RemoteCrab" 标题 → 颜色冲突
 **修复**：删内容里那个重复标题，让标题栏做唯一标识符
 
 ## 4. iOS / macOS 集成
@@ -180,7 +180,7 @@ v0.3 时把代码里所有 `Text("...")` 换成 `Text(IBLocale.对应key)` + 真
 **修复**：simulator e2e 只验证 Bonjour + wire 协议（不验证 video frame 内容）
 
 ### 4.4 UIDevice.current.name 跨 iOS 变化
-**症状**：iPhone 14 报 "iBridge — iPhone"（不是 "iBridge — iPhone 14"）
+**症状**：iPhone 14 报 "RemoteCrab — iPhone"（不是 "RemoteCrab — iPhone 14"）
 **原因**：UIDevice.name 在 iOS 16+ 返回 "iPhone"（generic），不是具体型号
 **修复**：手动拼字符串 + UIDevice.model 拼 "iPhone 15,3" 等
 **当前状态**：Mac receiver 兼容两种命名（同时显示）
@@ -191,7 +191,7 @@ v0.3 时把代码里所有 `Text("...")` 换成 `Text(IBLocale.对应key)` + 真
 **症状**：iPhone 17 Pro sim 和 iPhone 14 都用 BundleID `com.ibridge.iBridgeCapture` advertise
 **原因**：Bonjour 不管 BundleID，只看 instance name
 **修复**：用 UIDevice.name + UIDevice.model 拼唯一名
-**当前状态**：sim 报 "iBridge — iPhone 17 Pro"，iPhone 14 报 "iBridge — iPhone"
+**当前状态**：sim 报 "RemoteCrab — iPhone 17 Pro"，iPhone 14 报 "RemoteCrab — iPhone"
 
 ### 5.2 Bonjour 跨网段
 见 1.1
@@ -206,7 +206,7 @@ Invalid device: --setenv
 **原因**：simctl launch 不支持 --setflag 之前的 --setenv
 **修复**：用 `SIMCTL_CHILD_` 前缀：
 ```bash
-SIMCTL_CHILD_IBRIDGE_AUTO_START=1 xcrun simctl launch $SIM com.ibridge.iBridgeCapture
+SIMCTL_CHILD_REMOTECRAB_AUTO_START=1 xcrun simctl launch $SIM com.ibridge.iBridgeCapture
 ```
 
 ### 6.2 simctl 设备 ID
@@ -228,7 +228,7 @@ xcrun devicectl device info details $UDID   # 注意子命令 details
 ### 6.4 cliclick 路径
 **症状**：`cliclick c:2300,12` 不工作
 **原因**：坐标可能错或没有 MenuBarExtra
-**修复**：先 `osascript` 查 menu bar items 找到 iBridge，再 cliclick 那个位置
+**修复**：先 `osascript` 查 menu bar items 找到 RemoteCrab，再 cliclick 那个位置
 
 ### 6.5 simctl screenshot 设备
 **症状**：`xcrun simctl io <UDID> screenshot <path>` 不工作
@@ -241,7 +241,7 @@ xcrun simctl io booted screenshot /tmp/sim.png   # 'booted' 是关键字
 
 ### 7.1 Swift 6 测试编译
 **症状**：测试编译卡住
-**修复**：用 `swift test --package-path iBridgeCore` 而不是 `xcodebuild test`
+**修复**：用 `swift test --package-path RemoteCrabCore` 而不是 `xcodebuild test`
 
 ### 7.2 xcodebuild 测试 simulator
 **症状**：用 simulator 跑测试要 5+ 分钟
@@ -275,9 +275,9 @@ xcrun simctl io booted screenshot /tmp/sim.png   # 'booted' 是关键字
 - 0x06 audio (base64 PCM)
 
 ### 9.2 Bonjour service name
-**采用**：`_ibridge._tcp` on `local.` domain
+**采用**：`_remotecrab._tcp` on `local.` domain
 **为什么用 TCP**：视频需要流式可靠传输（UDP 重传复杂）
-**为什么 _ibridge 不带前缀**：Apple 推荐用公司前缀（`_ibridge._tcp`），但用裸名也行
+**为什么 _remotecrab 不带前缀**：Apple 推荐用公司前缀（`_remotecrab._tcp`），但用裸名也行
 
 ## 10. 修复历史时间线
 
@@ -287,7 +287,7 @@ xcrun simctl io booted screenshot /tmp/sim.png   # 'booted' 是关键字
 | iOS 26 SDK 拒 ad-hoc | 真机用 team signing，sim 还能 ad-hoc |
 | iPhone 14 iOS 18.6 装不上 | 部署目标 iOS 17，cert 团队 5XNDF727Y6 |
 | Bonjour 找不到 iPhone | iPhone 必须拔 USB 走 WiFi，不能 USB-tether |
-| Accessibility 注册不到 iBridgeReceiver | 唯一办法：手动加到 System Settings |
+| Accessibility 注册不到 RemoteCrabReceiver | 唯一办法：手动加到 System Settings |
 | ImageRenderer 渲染无输出 | Liquid Glass 走 .regularMaterial fallback |
 | AXIsProcessTrusted 不弹窗 | ad-hoc 签名 + dismissed 后不再弹 |
 | iPhone 14 UDID 难找 | `xcrun devicectl list devices` (新 API) |
@@ -302,7 +302,7 @@ xcrun simctl io booted screenshot /tmp/sim.png   # 'booted' 是关键字
 
 ### 11.1 查 Bonjour 服务
 ```bash
-rtk timeout 3 dns-sd -B _ibridge._tcp 2>&1 | grep "Instance Name"
+rtk timeout 3 dns-sd -B _remotecrab._tcp 2>&1 | grep "Instance Name"
 ```
 
 ### 11.2 查 iPhone 进程
@@ -312,7 +312,7 @@ xcrun devicectl device process list -d $PHONE_UDID | grep -i bridge
 
 ### 11.3 查 Mac Accessibility
 ```bash
-lsappinfo info -only StatusLabel "iBridgeReceiver"
+lsappinfo info -only StatusLabel "RemoteCrabReceiver"
 ```
 
 ### 11.4 截屏

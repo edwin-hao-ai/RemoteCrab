@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# iBridge device end-to-end test.
+# RemoteCrab device end-to-end test.
 #
 # Drives the iPhone app headlessly (env flags, no taps) against a real
-# Mac receiver and asserts the expected `com.ibridge` log markers:
+# Mac receiver and asserts the expected `com.remotecrab` log markers:
 #   connect handshake, video, audio, touch, key, file transfer,
 #   clipboard, app switch, recording.
 #
 # Prereqs:
 #   • iPhone connected via USB (`xcrun devicectl list devices` = available)
-#   • iPhone unlocked, screen on, iBridge app allowed on Local Network
+#   • iPhone unlocked, screen on, RemoteCrab app allowed on Local Network
 #   • Mac receiver has the Accessibility grant
 #
 # Usage:  ./scripts/e2e-device.sh
@@ -17,12 +17,12 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEVICE="${IBRIDGE_DEVICE:-866A1921-B588-59D5-A1B7-B266103B2E49}"
-TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
+DEVICE="${REMOTECRAB_DEVICE:-866A1921-B588-59D5-A1B7-B266103B2E49}"
+TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
 BUNDLE_IOS="com.ibridge.iBridgeCapture"
-DD_MAC="$HOME/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/Familiar.app"
-DD_IOS="$HOME/Library/Developer/Xcode/DerivedData/iBridgeCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphoneos/iBridgeCapture.app"
-LOG=/tmp/ibridge-e2e.log
+DD_MAC="$HOME/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/RemoteCrab.app"
+DD_IOS="$HOME/Library/Developer/Xcode/DerivedData/RemoteCrabCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
+LOG=/tmp/remotecrab-e2e.log
 
 pass=0; fail=0
 check() { # check <marker> <label>
@@ -33,7 +33,7 @@ check() { # check <marker> <label>
   fi
 }
 
-echo "== iBridge device e2e =="
+echo "== RemoteCrab device e2e =="
 
 echo "[1/5] devices"
 if ! xcrun devicectl list devices 2>/dev/null | grep -q "$DEVICE.*available"; then
@@ -41,30 +41,30 @@ if ! xcrun devicectl list devices 2>/dev/null | grep -q "$DEVICE.*available"; th
 fi
 
 echo "[2/5] build (signed)"
-xcodebuild -project "$ROOT/iBridgeReceiver.xcodeproj" -scheme iBridgeReceiver -configuration Debug \
+xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabReceiver -configuration Debug \
   -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
-  DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/ibridge-e2e-macbuild.log 2>&1 || { echo "  mac build failed"; exit 1; }
-xcodebuild -project "$ROOT/iBridgeCapture.xcodeproj" -scheme iBridgeCapture -configuration Debug \
+  DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-e2e-macbuild.log 2>&1 || { echo "  mac build failed"; exit 1; }
+xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCapture -configuration Debug \
   -destination "id=$DEVICE" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
-  DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/ibridge-e2e-iosbuild.log 2>&1 || { echo "  ios build failed"; exit 1; }
+  DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-e2e-iosbuild.log 2>&1 || { echo "  ios build failed"; exit 1; }
 
 echo "[3/5] deploy + install"
-pkill -9 -x Familiar 2>/dev/null; sleep 1
-rm -rf /Applications/Familiar.app && ditto "$DD_MAC" /Applications/Familiar.app
+pkill -9 -x RemoteCrab 2>/dev/null; sleep 1
+rm -rf /Applications/RemoteCrab.app && ditto "$DD_MAC" /Applications/RemoteCrab.app
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1
 
 echo "[4/5] run"
 pkill -f "log stream --predicate" 2>/dev/null
-nohup log stream --predicate 'subsystem == "com.ibridge"' --info --style compact > "$LOG" 2>&1 &
+nohup log stream --predicate 'subsystem == "com.remotecrab"' --info --style compact > "$LOG" 2>&1 &
 disown 2>/dev/null || true
 sleep 1
 # TextEdit is the app-switcher target + the typing target.
 open -a TextEdit; sleep 1
-env IBRIDGE_E2E_RECORD=1 /Applications/Familiar.app/Contents/MacOS/Familiar >/dev/null 2>&1 &
+env REMOTECRAB_E2E_RECORD=1 /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
-  --environment-variables '{"IBRIDGE_AUTO_START":"1","IBRIDGE_AUTOSTREAM":"1","IBRIDGE_E2E_AUTOPAIR":"1","IBRIDGE_E2E_MIC":"1","IBRIDGE_E2E_INPUT":"1","IBRIDGE_E2E_SEND_FILE":"1","IBRIDGE_E2E_CLIPBOARD":"1","IBRIDGE_E2E_SWITCH":"com.apple.TextEdit"}' \
+  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
 echo "  waiting 22s for the scripted run…"
 sleep 22
@@ -80,7 +80,7 @@ check "receiving file"                    "file offer received"
 check "file saved"                        "file saved + Finder revealed"
 check "clipboard received from iPhone"    "clipboard iPhone → Mac"
 check "activated app"                     "app switch (activateApp)"
-check "recording saved"                   "recording written to ~/Movies/Familiar"
+check "recording saved"                   "recording written to ~/Movies/RemoteCrab"
 
 echo
 echo "== $pass passed, $fail failed =="

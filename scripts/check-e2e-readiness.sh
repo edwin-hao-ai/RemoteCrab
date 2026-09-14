@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PHONE_UDID="${1:-866A1921-B588-59D5-A1B7-B266103B2E49}"
 
 echo "═══════════════════════════════════════════════════════"
-echo "  iBridge e2e readiness check"
+echo "  RemoteCrab e2e readiness check"
 echo "═══════════════════════════════════════════════════════"
 echo ""
 
@@ -40,27 +40,27 @@ for range in 192.168.0 192.168.1 192.168.2 192.168.3 192.168.31; do
 done
 echo ""
 
-# 3. Check Bonjour sees the iBridge service
-echo "3. Bonjour browse for iBridge service:"
+# 3. Check Bonjour sees the RemoteCrab service
+echo "3. Bonjour browse for RemoteCrab service:"
 rtk killall dns-sd 2>/dev/null || true
 sleep 0.5
-BONJOUR_OUT=$(rtk timeout 4 dns-sd -B _ibridge._tcp 2>&1)
+BONJOUR_OUT=$(rtk timeout 4 dns-sd -B _remotecrab._tcp 2>&1)
 echo "$BONJOUR_OUT" | grep -E "Instance Name|Error" | head -5 || true
 echo ""
 
 # 4. Check Mac receiver is running
-echo "4. Mac iBridgeReceiver status:"
-RECV_PID=$(pgrep -f iBridgeReceiver 2>&1 | head -1)
+echo "4. Mac RemoteCrabReceiver status:"
+RECV_PID=$(pgrep -f RemoteCrabReceiver 2>&1 | head -1)
 if [[ -n "$RECV_PID" ]]; then
     echo "   ✓ Running (PID $RECV_PID)"
 else
     echo "   ✗ NOT running"
-    echo "   Fix: open iBridgeReceiver.xcodeproj in Xcode and ⌘R"
+    echo "   Fix: open RemoteCrabReceiver.xcodeproj in Xcode and ⌘R"
 fi
 echo ""
 
 # 5. Check if iPhone has the app installed
-echo "5. iBridgeCapture on iPhone:"
+echo "5. RemoteCrabCapture on iPhone:"
 APP_BUNDLE_ID="com.ibridge.iBridgeCapture"
 xcrun devicectl device install list 2>&1 | grep -i "$APP_BUNDLE_ID" | head -1 || true
 echo ""
@@ -75,10 +75,10 @@ echo "  2. Connect iPhone 14 to the SAME WiFi network as the Mac"
 echo "     (Settings → WiFi → pick your home network)"
 echo "  3. On iPhone 14, open Settings → General → VPN & Device Management"
 echo "     → trust the 'Apple Development: Edwin Hao' certificate"
-echo "  4. Run iBridgeCapture on the iPhone 14 (it's already installed)"
+echo "  4. Run RemoteCrabCapture on the iPhone 14 (it's already installed)"
 echo "  5. Tap the big red START button. The Local Network prompt appears"
 echo "     → tap Allow."
-echo "  6. On Mac, click the iBridge menu bar icon"
+echo "  6. On Mac, click the RemoteCrab menu bar icon"
 echo "     → it should show 'CONNECTED' within 1-2 seconds"
 echo ""
 echo "  Tip: run './scripts/check-e2e-readiness.sh' again after these"

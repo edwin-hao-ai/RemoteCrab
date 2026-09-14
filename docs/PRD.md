@@ -1,4 +1,4 @@
-# iBridge 产品需求文档 (PRD)
+# RemoteCrab 产品需求文档 (PRD)
 
 > V0.4 状态文档 — 2026-09-13
 > 配合 `HANDOFF.md`（状态）、`AGENTS.md`（项目 context）、
@@ -17,7 +17,7 @@
 
 ### 2.2 核心场景
 - "Mac mini 没有摄像头" — 解决方案：iPhone 当前置 / 后置摄像头
-- "蓝牙 app 走订阅 + 隐私顾虑" — 解决方案：iBridge 完全本地
+- "蓝牙 app 走订阅 + 隐私顾虑" — 解决方案：RemoteCrab 完全本地
 - "工作流需要动触控板但不在 Mac 旁" — 解决方案：iPhone 当触控板
 
 ## 3. 范围
@@ -45,9 +45,9 @@
 ### 3.3b V0.4（已交付，真机验证）
 - 多 Mac 配对（`clientHello`/`sessionReply`，TOFU token，busy 退让）
 - 应用切换器（iPhone 列出 Mac 运行 App，一键拉起）+ 键盘 ⌘⇥ 等 chords
-- 文件传输（照片/视频/文件 → `~/Downloads/iBridge` + Finder）
+- 文件传输（照片/视频/文件 → `~/Downloads/RemoteCrab` + Finder）
 - 剪贴板互通（双向）
-- Mac 端录制（`~/Movies/iBridge` 的 `.mov` + `.wav`）
+- Mac 端录制（`~/Movies/RemoteCrab` 的 `.mov` + `.wav`）
 - 语音：hold-to-talk 听写 + "打开 X" 切应用 + "改写为…" 变换选中文本（本地、离线）
 - 多语言跟随系统（en + zh-Hans）
 - 74 单测 + `scripts/e2e-device.sh`（真机 10/10）
@@ -70,7 +70,7 @@
 
 ## 4. 核心差异化
 
-| 对手 | 模式 | iBridge |
+| 对手 | 模式 | RemoteCrab |
 |---|---|---|
 | EpocCam | 订阅 $8 一次性 | 免费、本地、零订阅 |
 | Camo | $40/年订阅 | 一次性安装、零订阅 |

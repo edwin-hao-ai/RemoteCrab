@@ -4,28 +4,28 @@
 
 **Goal:** 按住功能坞 🗣 → iPhone 端侧语音识别（SFSpeechRecognizer，zh-Hans/en-US）→ 松手把定稿文本以 `KeyEvent(.text)` 打进 Mac 当前焦点；语音期间麦克风流自动让路。
 
-**Architecture:** 新增 `VoiceRecognizer`（iBridgeCapture 层，封装 SFSpeechRecognizer + AVAudioEngine 识别会话）。FeatureDock 的按住手势从「只切 voiceOn 状态」升级为「驱动 VoiceRecognizer」。语音激活期间 CaptureEngine 暂停 MicrophoneEncoder（识别独占音频输入）。权限走 PermissionFlow 新增 speech 页 + `NSSpeechRecognitionUsageDescription`。
+**Architecture:** 新增 `VoiceRecognizer`（RemoteCrabCapture 层，封装 SFSpeechRecognizer + AVAudioEngine 识别会话）。FeatureDock 的按住手势从「只切 voiceOn 状态」升级为「驱动 VoiceRecognizer」。语音激活期间 CaptureEngine 暂停 MicrophoneEncoder（识别独占音频输入）。权限走 PermissionFlow 新增 speech 页 + `NSSpeechRecognitionUsageDescription`。
 
-**Tech Stack:** Speech framework (SFSpeechRecognizer/SFSpeechAudioBufferRecognitionRequest), AVAudioEngine, SwiftUI, iBridgeCore (KeyEvent/IBWire 已有，无协议变更)。
+**Tech Stack:** Speech framework (SFSpeechRecognizer/SFSpeechAudioBufferRecognitionRequest), AVAudioEngine, SwiftUI, RemoteCrabCore (KeyEvent/IBWire 已有，无协议变更)。
 
 **Spec:** `docs/superpowers/specs/2026-09-11-feature-toggles-design.md` §4.3（语音最小版）。用户已批准的范围：最小可用版，端侧识别，Mac 端不做识别。
 
 ## Global Constraints
 
-- 设计语言（AGENTS.md）：Apple 原生 Liquid Glass；SF Symbols only；UI 字符串无 emoji；技术读数用 SF Mono；`os_log` subsystem `com.ibridge`，禁止 `print()`；新代码用 `@Observable` 而非 `ObservableObject`
+- 设计语言（AGENTS.md）：Apple 原生 Liquid Glass；SF Symbols only；UI 字符串无 emoji；技术读数用 SF Mono；`os_log` subsystem `com.remotecrab`，禁止 `print()`；新代码用 `@Observable` 而非 `ObservableObject`
 - 不改协议（KeyEvent `.text` 已存在，Mac 端 CGEventInjector 已能消费——Plan 2 Task 5 键盘已在用）
 - 语音流 ≠ 麦克风流：语音激活时 MicrophoneEncoder 必须停止（两个 AVAudioEngine 抢同一输入硬件会冲突），松手后按 micOn 状态恢复
 - Gate：`./scripts/test.sh` 全绿（49+ tests + 两个 app target 编译）
-- **并行会话警告**：工作区有别的会话的未提交改动（`.gitignore`、`iBridgeCapture/Info.plist`、未跟踪的 `.ai-handoff/`、`.mddock/`、`memories/`）。只 stage 自己任务的文件，绝不碰这些
-- `iBridgeCapture/Info.plist` 特殊处理：它被并行会话改着（未提交），且 project-ios.yml 的 `info.properties` 才是 xcodegen 再生时的来源。`NSSpeechRecognitionUsageDescription` 要**两边都加**：yml（提交）+ 工作树 Info.plist（**只改不 stage**，留给并行会话一起带走）
+- **并行会话警告**：工作区有别的会话的未提交改动（`.gitignore`、`RemoteCrabCapture/Info.plist`、未跟踪的 `.ai-handoff/`、`.mddock/`、`memories/`）。只 stage 自己任务的文件，绝不碰这些
+- `RemoteCrabCapture/Info.plist` 特殊处理：它被并行会话改着（未提交），且 project-ios.yml 的 `info.properties` 才是 xcodegen 再生时的来源。`NSSpeechRecognitionUsageDescription` 要**两边都加**：yml（提交）+ 工作树 Info.plist（**只改不 stage**，留给并行会话一起带走）
 
 ---
 
 ### Task 1: VoiceRecognizer 核心 + 麦克风让路
 
 **Files:**
-- Create: `iBridgeCapture/VoiceRecognizer.swift`
-- Modify: `iBridgeCapture/CaptureEngine.swift`（syncMicrophone 让路逻辑）
+- Create: `RemoteCrabCapture/VoiceRecognizer.swift`
+- Modify: `RemoteCrabCapture/CaptureEngine.swift`（syncMicrophone 让路逻辑）
 
 **Interfaces:**
 - Produces（Task 2 依赖）:
@@ -61,7 +61,7 @@ import AVFoundation
 - `start()`：先 `SFSpeechRecognizer.requestAuthorization`（异步 await 包装）；非 `.authorized` → return false。然后 `AVAudioSession` `.record` category + `.measurement` mode + setActive(true)（包 do-catch，失败 return false）。建 `SFSpeechAudioBufferRecognitionRequest`，`shouldReportPartialResults = true`，若 `recognizer.supportsOnDeviceRecognition` 则 `requiresOnDeviceRecognition = true`。`recognizer.recognitionTask(with:request)` 回调里更新 `partialText`（跳 MainActor）。tap：`inputNode.installTap(onBus: 0, bufferSize: 1024, format:)` → append buffer。audioEngine.prepare + start
 - `stop()`：`audioEngine.stop()`、`inputNode.removeTap(onBus: 0)`、`request.endAudio()`；在 task 的 isFinal 回调或 1.5s 兜底延迟后：取最终文本（非空去空白后）调 `onFinal`，然后 cleanup（task.cancel、request=nil、`try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)`）。注意 onFinal 只调一次（用 flag 防 isFinal 与兜底双触发）
 - 所有属性读写收敛到 MainActor（类标 `@MainActor` 或内部 hop，遵循既有代码风格）
-- os_log：subsystem `com.ibridge`，category `VoiceRecognizer`；记录授权结果、识别错误、on-device 是否可用
+- os_log：subsystem `com.remotecrab`，category `VoiceRecognizer`；记录授权结果、识别错误、on-device 是否可用
 
 `CaptureEngine.swift` 让路（最小改动）：
 
@@ -72,7 +72,7 @@ import AVFoundation
 - [ ] **Step 2: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/VoiceRecognizer.swift iBridgeCapture/CaptureEngine.swift
+git add RemoteCrabCapture/VoiceRecognizer.swift RemoteCrabCapture/CaptureEngine.swift
 git commit -m "feat(ios): voice recognizer core + mic stream yield during voice"
 ```
 
@@ -81,8 +81,8 @@ git commit -m "feat(ios): voice recognizer core + mic stream yield during voice"
 ### Task 2: FeatureDock 接线 + 悬浮识别卡 + VoiceOver
 
 **Files:**
-- Modify: `iBridgeCapture/FeatureDock.swift`（voice 按钮驱动 VoiceRecognizer）
-- Modify: `iBridgeCapture/ContentView.swift`（持有 VoiceRecognizer、悬浮卡 overlay、onFinal → sendKey）
+- Modify: `RemoteCrabCapture/FeatureDock.swift`（voice 按钮驱动 VoiceRecognizer）
+- Modify: `RemoteCrabCapture/ContentView.swift`（持有 VoiceRecognizer、悬浮卡 overlay、onFinal → sendKey）
 
 **Interfaces:**
 - Consumes: Task 1 的 `VoiceRecognizer`（`partialText/isRunning/onFinal/start()/stop()`）；`CaptureEngine.sendKey(KeyEvent)`、`KeyEvent(kind: .text, text:)`（IBEvents.swift，签名以现有代码为准）；`FeatureStore.set(feature: .voice, enabled:)`（现状）
@@ -90,7 +90,7 @@ git commit -m "feat(ios): voice recognizer core + mic stream yield during voice"
 
 **规格：**
 
-- `ContentView` 层 `@State private var voiceRecognizer = VoiceRecognizer()`（或 engine 持有，取与现有环境注入最自然的方式——ContentView 已 `@EnvironmentObject engine`）。onAppear 时配置 `voiceRecognizer.onFinal = { text in engine.sendKey(KeyEvent(kind: .text, keyCode: nil, text: text, ...)) }`——KeyEvent 的初始化参数以 `iBridgeCore/Sources/iBridgeCore/Networking/IBEvents.swift` 实际签名为准，参照 KeyboardScreen 里 `.text` 的既有用法
+- `ContentView` 层 `@State private var voiceRecognizer = VoiceRecognizer()`（或 engine 持有，取与现有环境注入最自然的方式——ContentView 已 `@EnvironmentObject engine`）。onAppear 时配置 `voiceRecognizer.onFinal = { text in engine.sendKey(KeyEvent(kind: .text, keyCode: nil, text: text, ...)) }`——KeyEvent 的初始化参数以 `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift` 实际签名为准，参照 KeyboardScreen 里 `.text` 的既有用法
 - `FeatureDock` 加一个 `let voice: VoiceRecognizer` 参数；voiceButton 的 DragGesture：`onChanged` 首次 → `features.set(feature: .voice, enabled: true)` + `Task { await voice.start() }`；`onEnded` → `features.set(feature: .voice, enabled: false)` + `voice.stop()`。`start()` 返回 false（无权限）时：立即 `features.set(feature: .voice, enabled: false)`（按钮不亮假状态）
 - **悬浮识别卡**：voice.isRunning 时在坞上方悬浮一张圆角卡（IBMaterial/bar 材质，与 FeatureDock 同风格）：实时显示 `voice.partialText`（空时显示 "Listening…"），左侧一个红色 `waveform` SF Symbol。任一面上都要显示（overlay 在 ContentView 根 ZStack，和 PiP 同级），不拦截触摸（`.allowsHitTesting(false)`）
 - **VoiceOver**（Task 4 评审留的尾巴）：voice 按钮加 `.accessibilityAction(named: "Start Voice Input")` / 松开语义无法由 action 表达——改为：VoiceOver 下双击切换 start/stop（`accessibilityAction` 里 `voiceHeld ? stop : start`），label 文案保持现状即可
@@ -100,7 +100,7 @@ git commit -m "feat(ios): voice recognizer core + mic stream yield during voice"
 - [ ] **Step 2: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/FeatureDock.swift iBridgeCapture/ContentView.swift
+git add RemoteCrabCapture/FeatureDock.swift RemoteCrabCapture/ContentView.swift
 git commit -m "feat(ios): hold-to-talk voice input wired to speech recognition"
 ```
 
@@ -109,9 +109,9 @@ git commit -m "feat(ios): hold-to-talk voice input wired to speech recognition"
 ### Task 3: 权限 — speech 页 + UsageDescription
 
 **Files:**
-- Modify: `iBridgeCapture/PermissionFlow.swift`（Stage 加 speech）
+- Modify: `RemoteCrabCapture/PermissionFlow.swift`（Stage 加 speech）
 - Modify: `project-ios.yml`（info.properties 加 NSSpeechRecognitionUsageDescription——提交）
-- Modify: `iBridgeCapture/Info.plist`（同 key——**只改不 stage**，并行会话占用中）
+- Modify: `RemoteCrabCapture/Info.plist`（同 key——**只改不 stage**，并行会话占用中）
 
 **规格：**
 
@@ -123,16 +123,16 @@ git commit -m "feat(ios): hold-to-talk voice input wired to speech recognition"
 - `import Speech`
 - project-ios.yml `info.properties`（NSMicrophoneUsageDescription 行之后）加：
   ```yaml
-  NSSpeechRecognitionUsageDescription: iBridge recognizes your speech on-device to type into your Mac.
+  NSSpeechRecognitionUsageDescription: RemoteCrab recognizes your speech on-device to type into your Mac.
   ```
-- iBridgeCapture/Info.plist 工作树加同 key/string（跟随现有 key 顺序，插在 NSMicrophoneUsageDescription 后），**不要 git add 这个文件**
+- RemoteCrabCapture/Info.plist 工作树加同 key/string（跟随现有 key 顺序，插在 NSMicrophoneUsageDescription 后），**不要 git add 这个文件**
 - Commit 只含 PermissionFlow.swift + project-ios.yml
 
 - [ ] **Step 1: PermissionFlow + yml + 工作树 plist**
 - [ ] **Step 2: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/PermissionFlow.swift project-ios.yml
+git add RemoteCrabCapture/PermissionFlow.swift project-ios.yml
 git commit -m "feat(ios): speech recognition permission — onboarding page + usage description"
 ```
 
@@ -141,7 +141,7 @@ git commit -m "feat(ios): speech recognition permission — onboarding page + us
 ### Task 4: Plan 2 polish wave（Minor 清扫）
 
 **Files:**
-- Modify: `iBridgeCapture/KeyboardScreen.swift`、 `iBridgeCapture/TouchpadScreen.swift`、`iBridgeCapture/Input/TouchSurface.swift`、`iBridgeCore/Sources/iBridgeCore/Text/TextDiff.swift`（路径以实际为准，TextDiff 在 Plan 2 Task 1 引入，先 grep 定位）
+- Modify: `RemoteCrabCapture/KeyboardScreen.swift`、 `RemoteCrabCapture/TouchpadScreen.swift`、`RemoteCrabCapture/Input/TouchSurface.swift`、`RemoteCrabCore/Sources/RemoteCrabCore/Text/TextDiff.swift`（路径以实际为准，TextDiff 在 Plan 2 Task 1 引入，先 grep 定位）
 
 **规格（全部来自 Plan 2 终审确认的 Minor 清单，逐条修）：**
 
@@ -158,7 +158,7 @@ git commit -m "feat(ios): speech recognition permission — onboarding page + us
 - [ ] **Step 2: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/KeyboardScreen.swift iBridgeCapture/TouchpadScreen.swift iBridgeCapture/Input/TouchSurface.swift iBridgeCore/Sources/iBridgeCore/Text/TextDiff.swift
+git add RemoteCrabCapture/KeyboardScreen.swift RemoteCrabCapture/TouchpadScreen.swift RemoteCrabCapture/Input/TouchSurface.swift RemoteCrabCore/Sources/RemoteCrabCore/Text/TextDiff.swift
 git commit -m "fix(ios): polish wave — focus guards, coach-mark generation, wheel touch identity"
 ```
 

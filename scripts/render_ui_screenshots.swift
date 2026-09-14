@@ -1,6 +1,6 @@
 import SwiftUI
 import UIKit
-import iBridgeCore
+import RemoteCrabCore
 
 /// Renders the V0.2 iOS UI screens to PNG so we can see what the
 /// Liquid Glass design looks like without needing a real device.
@@ -9,10 +9,10 @@ import iBridgeCore
 ///     swift scripts/render_ui_screenshots.swift
 ///
 /// Output:
-///     /tmp/ibridge_camera.png
-///     /tmp/ibridge_trackpad.png
-///     /tmp/ibridge_keyboard.png
-///     /tmp/ibridge_mic.png
+///     /tmp/remotecrab_camera.png
+///     /tmp/remotecrab_trackpad.png
+///     /tmp/remotecrab_keyboard.png
+///     /tmp/remotecrab_mic.png
 
 @MainActor
 enum UIRenderer {
@@ -77,7 +77,7 @@ let camera = ZStack {
     .preferredColorScheme(.dark)
 
 UIRenderer.render(camera, size: CGSize(width: 390, height: 844),
-                   to: "/tmp/ibridge_camera.png")
+                   to: "/tmp/remotecrab_camera.png")
 
 // MARK: - Trackpad screen
 
@@ -156,7 +156,7 @@ let trackpad = ZStack {
     .preferredColorScheme(.dark)
 
 UIRenderer.render(trackpad, size: CGSize(width: 390, height: 844),
-                   to: "/tmp/ibridge_trackpad.png")
+                   to: "/tmp/remotecrab_trackpad.png")
 
 // MARK: - Keyboard screen
 
@@ -300,13 +300,13 @@ let keyboard = ZStack {
     .preferredColorScheme(.dark)
 
 UIRenderer.render(keyboard, size: CGSize(width: 390, height: 844),
-                   to: "/tmp/ibridge_keyboard.png")
+                   to: "/tmp/remotecrab_keyboard.png")
 
 // MARK: - Mac control panel + design system showcase
 
 let designSystem = IBDesignSystemShowcase()
 UIRenderer.render(designSystem.frame(width: 800, height: 700),
                    size: CGSize(width: 800, height: 700),
-                   to: "/tmp/ibridge_design_system.png")
+                   to: "/tmp/remotecrab_design_system.png")
 
 print("Done.")

@@ -5,7 +5,7 @@ _2026-09-13 · F2 · 目标：iPhone 麦克风在 Mac 上成为一个**系统输
 ## 1. 问题
 
 现在 Mac 端只是把收到的 PCM `AVAudioPlayer` 播放到扬声器（已默认静音防啸叫）。
-Zoom / QuickTime / 系统「听写」里**看不到** iBridge，所以"麦克风"卖点不成立。
+Zoom / QuickTime / 系统「听写」里**看不到** RemoteCrab，所以"麦克风"卖点不成立。
 
 macOS 上没有公开 API 能让普通 App 变成系统音频输入设备 —— 必须写一个
 **CoreAudio HAL AudioServerPlugin**（俗称 HAL 驱动），装到
@@ -28,11 +28,11 @@ macOS 上没有公开 API 能让普通 App 变成系统音频输入设备 ——
 
 - Mac 设置页新增「麦克风驱动」区块：
   - 未安装 → 一个 **「安装麦克风驱动…」** 按钮。
-  - 已安装 → 绿点「iBridge Microphone 已就绪」+「卸载」。
+  - 已安装 → 绿点「RemoteCrab Microphone 已就绪」+「卸载」。
 - 点击安装：触发随 App 打包的 **签名 `.pkg`**（`NSWorkspace.open`），系统弹一次
   管理员授权；安装脚本把 `.driver` 拷进 HAL 目录并 `killall coreaudiod`。
 - 不安装也能用其它功能；安装是**可选、可撤销**的，文案写清楚。
-- 设备固定命名 **「iBridge Microphone」**，稳定出现在所有 App 的输入列表里。
+- 设备固定命名 **「RemoteCrab Microphone」**，稳定出现在所有 App 的输入列表里。
 
 ## 4. 架构
 
@@ -40,10 +40,10 @@ macOS 上没有公开 API 能让普通 App 变成系统音频输入设备 ——
 iPhone ──PCM(48k mono Int16)──► Mac Receiver
                                    │  写入共享内存环形缓冲
                                    ▼
-                        /tmp/ibridge-mic-<uid>.shm
+                        /tmp/remotecrab-mic-<uid>.shm
                                    ▲  读取（render 回调）
                                    │
-                       iBridgeMicrophone.driver（coreaudiod 内）
+                       RemoteCrabMicrophone.driver（coreaudiod 内）
 ```
 
 - **共享内存**：SPSC 无锁环形缓冲，头 = `{ writeFrame, readFrame: Int64, sampleRate, channels }`，
@@ -56,8 +56,8 @@ iPhone ──PCM(48k mono Int16)──► Mac Receiver
 
 ## 5. 构建与分发
 
-- 新增 target `iBridgeMicrophone`（`com.apple.audio.AudioServerPlugIn`），产物
-  `iBridgeMicrophone.driver`，随 Mac App 打包进 `Contents/Library/Audio/`。
+- 新增 target `RemoteCrabMicrophone`（`com.apple.audio.AudioServerPlugIn`），产物
+  `RemoteCrabMicrophone.driver`，随 Mac App 打包进 `Contents/Library/Audio/`。
 - 安装脚本 `scripts/install-mic-driver.sh`：`pkgbuild`/`productbuild` 生成 `.pkg`，
   postinstall `cp -R` + `killall coreaudiod`；开发用 `sudo` 脚本直装。
 - 正式分发需 Developer ID 签名 + 公证（`productsign` / `notarytool`）。
@@ -75,6 +75,6 @@ iPhone ──PCM(48k mono Int16)──► Mac Receiver
 
 ## 7. 验收
 
-- 系统设置 → 声音 → 输入 里出现「iBridge Microphone」，有音量条。
+- 系统设置 → 声音 → 输入 里出现「RemoteCrab Microphone」，有音量条。
 - QuickTime / Zoom / 语音备忘录里选它，能录到 iPhone 的声音。
 - 卸载后设备消失、系统音频正常。

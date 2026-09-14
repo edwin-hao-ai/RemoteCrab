@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate iBridge iOS AppIcon.appiconset PNGs from a 1024x1024 source.
+"""Generate RemoteCrab iOS AppIcon.appiconset PNGs from a 1024x1024 source.
 
 Usage:
     python3 scripts/generate-ios-app-icons.py
@@ -9,7 +9,7 @@ If no source is provided, renders the master SVG
 (`assets/app-icon-liquid.svg` — the Liquid Glass "monitor buddy"
 mascot) to `assets/source-1024-ios.png` via rsvg-convert, then
 generates all the AppIcon sizes into
-`iBridgeCapture/Assets.xcassets/AppIcon.appiconset/`.
+`RemoteCrabCapture/Assets.xcassets/AppIcon.appiconset/`.
 
 Design language: a friendly glass monitor character (the "monitor
 buddy") with glowing cyan eyes and a signal antenna, rendered as
@@ -32,7 +32,7 @@ except ImportError:
 
 
 ROOT = Path(__file__).resolve().parent.parent
-ASSET_CATALOG = ROOT / "iBridgeCapture" / "Assets.xcassets" / "AppIcon.appiconset"
+ASSET_CATALOG = ROOT / "RemoteCrabCapture" / "Assets.xcassets" / "AppIcon.appiconset"
 MARKETING_PATH = ROOT / "screenshots" / "app-store-marketing-icon.png"
 
 DEFAULT_SOURCE = ROOT / "assets" / "source-1024-ios.png"

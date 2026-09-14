@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render polished iBridge app-icon concept drafts.
+"""Render polished RemoteCrab app-icon concept drafts.
 
 Dark "Pro tool" style: deep navy gradient background, glowing
 signal-cyan glyphs. Everything is drawn at 4x and Lanczos-downscaled

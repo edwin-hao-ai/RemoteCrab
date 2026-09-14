@@ -4,7 +4,7 @@ Date: 2026-09-12 · Status: approved by user
 
 ## 问题
 
-iBridge 的 iPhone 端是 Bonjour 服务端，Mac 端是客户端。当前行为：
+RemoteCrab 的 iPhone 端是 Bonjour 服务端，Mac 端是客户端。当前行为：
 
 - iPhone `NWListener` 的 `newConnectionHandler` → `accept()` **无条件踢掉已有连接、接受最新一台**
 - Mac `ReceiverSession` 发现后**自动连 `discovered.first`**，掉线后每 3 秒重连
@@ -31,7 +31,7 @@ iPhone 只保留最后一个 —— 结果互相抢占、连接抖动（flapping
 
 ## 身份
 
-- **Mac**：`ibridge.mac.id`（`UUID()` 持久化于 UserDefaults）+ `ibridge.mac.name`
+- **Mac**：`remotecrab.mac.id`（`UUID()` 持久化于 UserDefaults）+ `remotecrab.mac.name`
   （`Host.current().localizedName`，回退 `SCDynamicStoreCopyComputerName`）
 - **iPhone**：已配对列表 `[PairedMac]`（Codable，UserDefaults）：
   `{ id, name, pairedAt, token }`

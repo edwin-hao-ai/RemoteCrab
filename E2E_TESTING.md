@@ -1,6 +1,6 @@
 # e2e 测试 iPhone 14 ↔ Mac — 操作手册
 
-> iOS app 已装到 iPhone 14，Mac 端 iBridgeReceiver 已在跑（PID 在菜单栏）。要让两边真正联动起来，按下面步骤走。
+> iOS app 已装到 iPhone 14，Mac 端 RemoteCrabReceiver 已在跑（PID 在菜单栏）。要让两边真正联动起来，按下面步骤走。
 
 ## 关键问题
 
@@ -27,23 +27,23 @@
 3. 点 **"Trust 'Apple Development: Edwin Hao'"**
 4. 弹框 → **Trust**
 
-## Step 3: 启动 iBridgeReceiver on Mac
+## Step 3: 启动 RemoteCrabReceiver on Mac
 
-iBridgeReceiver 已经在跑（PID 在你的菜单栏右上角），但你可以再确保一次：
+RemoteCrabReceiver 已经在跑（PID 在你的菜单栏右上角），但你可以再确保一次：
 
 ```bash
 # 检查 receiver 是否在跑
-pgrep -f iBridgeReceiver
+pgrep -f RemoteCrabReceiver
 
 # 如果没跑，启它
-open /Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app
+open /Users/edwinhao/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-*/Build/Products/Debug/RemoteCrabReceiver.app
 ```
 
-你看到 macOS 菜单栏右上角有 iBridge 的小图标就 OK 了。
+你看到 macOS 菜单栏右上角有 RemoteCrab 的小图标就 OK 了。
 
-## Step 4: 启动 iPhone 上的 iBridge
+## Step 4: 启动 iPhone 上的 RemoteCrab
 
-iPhone 上找到 **iBridge** app，tap 打开。它会直接进 camera 模式（因为 IBRIDGE_AUTO_START 已经设了）。
+iPhone 上找到 **RemoteCrab** app，tap 打开。它会直接进 camera 模式（因为 REMOTECRAB_AUTO_START 已经设了）。
 
 ## Step 5: 启动 streaming
 
@@ -54,7 +54,7 @@ iPhone 上点**大的红色 START 按钮**。会弹两个系统权限框：
 
 ## Step 6: 验证连接
 
-Mac 上点菜单栏的 iBridge 图标，会看到：
+Mac 上点菜单栏的 RemoteCrab 图标，会看到：
 - ✅ `CONNECTED · XXms`（绿色圆点）
 - 设备名是 `Edwin Hao的iPhone`
 - 信号延迟在 100ms 以下
@@ -66,14 +66,14 @@ Mac 上点菜单栏的 iBridge 图标，会看到：
 任何时候跑：
 
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 ./scripts/check-e2e-readiness.sh
 ```
 
 如果一切正常，会看到：
 - Mac WiFi: `192.168.31.105`
 - iPhone info: `marketingName: iPhone 14, osVersionNumber: 18.6.2, transportType: localNetwork`
-- Bonjour: 列出 `iBridge — iPhone 14` 服务（这是 Mac 找到的 iPhone！）
+- Bonjour: 列出 `RemoteCrab — iPhone 14` 服务（这是 Mac 找到的 iPhone！）
 
 如果 Bonjour 列里只有 iPhone 17 Pro（simulator），说明 iPhone 14 不在 Mac 同一个 WiFi 段上。
 
@@ -82,10 +82,10 @@ cd /Users/edwinhao/iBridge
 | 现象 | 可能原因 | 解决 |
 |---|---|---|
 | Mac 找不到 iPhone 14 | iPhone 不在 Mac 同一个 WiFi 段 | 拔 USB，连同一个 WiFi |
-| 点 START 没弹权限框 | 之前拒绝过 Local Network | iOS Settings → Privacy → Local Network → 打开 iBridge |
+| 点 START 没弹权限框 | 之前拒绝过 Local Network | iOS Settings → Privacy → Local Network → 打开 RemoteCrab |
 | 弹框了 Allow 但 Bonjour 还是没出现 | 权限没真的允许 | 杀掉 app 重启重试 |
-| iBridge 启动崩溃 | dev cert 没信任 | Step 2 |
-| 菜单栏图标没出现 | iBridgeReceiver 没跑 | 跑 `open ...` 启动它 |
+| RemoteCrab 启动崩溃 | dev cert 没信任 | Step 2 |
+| 菜单栏图标没出现 | RemoteCrabReceiver 没跑 | 跑 `open ...` 启动它 |
 
 ## 跑完后
 
@@ -100,29 +100,29 @@ cd /Users/edwinhao/iBridge
 实际流程（2026-09-11 验证）：
 
 1. 真签构建（team 5XNDF727Y6，xcodegen 后
-   `xcodebuild -scheme iBridgeReceiver -configuration Debug -allowProvisioningUpdates clean build`；
+   `xcodebuild -scheme RemoteCrabReceiver -configuration Debug -allowProvisioningUpdates clean build`；
    必须 clean —— 增量 build 出过 adhoc 签名产物，sysextd 会拒绝）
 2. ~~手动打包修正~~（已废弃）：自 51c5e30 起，新构建直接嵌入命名正确的
-   `com.ibridge.iBridgeReceiver.Camera.systemextension`，且
+   `com.remotecrab.RemoteCrabReceiver.Camera.systemextension`，且
    `CFBundlePackageType` 已是 `SYSX`，无需任何手动修补。
    此前的重命名 + `plutil -replace CFBundlePackageType` + 重签步骤
    只是 51c5e30 之前的临时 workaround。
-3. `cp -R` 到 `/Applications/iBridgeReceiver.app`，`open -a` 启动
+3. `cp -R` 到 `/Applications/RemoteCrabReceiver.app`，`open -a` 启动
    （host 必须在 /Applications 里运行）
 4. 启动时 `SystemExtensionManager` 自动提交
    `OSSystemExtensionRequest.activationRequest` —— 首次会到
    `[activated waiting for user]` 状态
 5. **用户手动（一次性）**：系统设置 → 通用 → 登录项与扩展 → 相机扩展 →
-   打开 iBridge 开关
+   打开 RemoteCrab 开关
 6. 验证：`systemextensionsctl list` 应出现
-   `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`（cmio 类别，
+   `5XNDF727Y6 com.remotecrab.RemoteCrabReceiver.Camera`（cmio 类别，
    批准前 `[activated waiting for user]`，批准后 `[activated enabled]`）；
    `ffmpeg -f avfoundation -list_devices true -i ""` 的 video devices 里
-   出现 `iBridge Camera`（批准并加载后才枚举得到）
-7. iPhone 启动 iBridgeCapture 并连接
-8. Photo Booth / Zoom → 摄像头选 "iBridge Camera" → 应看到实时画面
-9. 退出 iBridgeReceiver → "iBridge Camera" 不可用，不崩溃
+   出现 `RemoteCrab Camera`（批准并加载后才枚举得到）
+7. iPhone 启动 RemoteCrabCapture 并连接
+8. Photo Booth / Zoom → 摄像头选 "RemoteCrab Camera" → 应看到实时画面
+9. 退出 RemoteCrabReceiver → "RemoteCrab Camera" 不可用，不崩溃
 
-排查：`log stream --info --predicate 'subsystem == "com.ibridge" OR process == "sysextd"'`
+排查：`log stream --info --predicate 'subsystem == "com.remotecrab" OR process == "sysextd"'`
 （`log show --last` 在本机损坏：`cannot use --last when archive metadata is missing`；
 注意 info 级日志必须加 `--info`）

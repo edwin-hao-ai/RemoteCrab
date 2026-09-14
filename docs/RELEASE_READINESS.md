@@ -1,8 +1,8 @@
-# iBridge — 发布就绪度分析（V1.0）
+# RemoteCrab — 发布就绪度分析（V1.0）
 
 _2026-09-13 · 功能与细节层面 · 附 App Store 过审评估_
 
-上架对象只有 **iOS 端 `iBridge Capture`**；Mac 端 `iBridge Receiver` 需要
+上架对象只有 **iOS 端 `RemoteCrab Capture`**；Mac 端 `RemoteCrab Receiver` 需要
 Accessibility + CMIO system extension，通常**不走 Mac App Store**，单独分发。
 所以"过审"只针对 iOS 包，但 iOS 包的核心价值依赖 Mac 端 —— 这正是最大风险。
 
@@ -19,9 +19,9 @@ Accessibility + CMIO system extension，通常**不走 Mac App Store**，单独�
 | 语音听写（设备端 SFSpeechRecognizer）+ 语音切应用/改写选中文本 | ✅ 逻辑+触发路径 |
 | Bonjour 自动发现 + 多 Mac 配对（TOFU token，busy 退让） | ✅ 真机 |
 | 应用切换器（iPhone 列出 Mac 运行中 App，一键拉起） | ✅ 真机 |
-| 文件传输（照片/视频/文件 → `~/Downloads/iBridge` + Finder） | ✅ 真机 |
+| 文件传输（照片/视频/文件 → `~/Downloads/RemoteCrab` + Finder） | ✅ 真机 |
 | 剪贴板互通（双向） | ✅ 真机 |
-| Mac 端录制（`.mov` + `.wav` → `~/Movies/iBridge`） | ✅ 真机 |
+| Mac 端录制（`.mov` + `.wav` → `~/Movies/RemoteCrab`） | ✅ 真机 |
 | en + zh-Hans 本地化（跟随系统） | ✅ 已截图核对 |
 | 74 单测 + `scripts/test.sh` + `scripts/e2e-device.sh`(10/10) | ✅ |
 
@@ -32,7 +32,7 @@ Accessibility + CMIO system extension，通常**不走 Mac App Store**，单独�
 | # | 缺口 | 为什么必须 | 工作量 |
 |---|---|---|---|
 | F1 | **Camera Extension 用户激活 + 真机验证** | 头部卖点是"在 Zoom/OBS/Photo Booth 里当摄像头"。现在 Mac 端只有预览窗口；CMIO sysex 已装但用户未在系统设置打开、也未在任一 App 验证。**不跑通就必须收回营销文案** | 0.5 天 |
-| F2 | **虚拟麦克风** 🟡 代码完成待装 | HAL `AudioServerPlugin`（`iBridgeMicDriver/`）+ 共享内存环 + 安装脚本已就绪并 build 通过；需 `sudo` 安装 + 验证，且要确认沙盒 app 的 `shm_open` 可用 | 装+验 0.5 天 |
+| F2 | **虚拟麦克风** 🟡 代码完成待装 | HAL `AudioServerPlugin`（`RemoteCrabMicDriver/`）+ 共享内存环 + 安装脚本已就绪并 build 通过；需 `sudo` 安装 + 验证，且要确认沙盒 app 的 `shm_open` 可用 | 装+验 0.5 天 |
 | F3 | ~~**手动输入 IP 兜底**~~ ✅ 已做 | iPhone 固定 8765 端口 + 连接页显示 `IP:port`；Mac 菜单「手动连接…」 | 已完成 |
 | F4 | ~~**审核员可测试路径**~~ ✅ 已做 | 设置里「演示模式」：无 Mac 也能看到示例摄像头画面 + DEMO 徽标 | 已完成 |
 | F5 | **App Store 素材 + 托管 URL** | 真机截图、privacy/support URL、App Privacy 问卷 | 1 天 |

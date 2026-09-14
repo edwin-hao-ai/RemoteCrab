@@ -62,7 +62,7 @@ modifiers、接收时间（用于淡出）。
 由 AudioPlayer 内部按 packet 时间戳节流）。ReceiverSession 在 init 里
 把回调接到 `micLevel`（跳 MainActor）。
 
-### 新文件 `iBridgeReceiver/TestWindowView.swift`
+### 新文件 `RemoteCrabReceiver/TestWindowView.swift`
 
 SwiftUI 四象限视图，遵循现有设计系统（IBFont/IBColor/圆角卡片/白字深色渐变，
 与 ControlPanelView 同语言）。纯展示，不持有状态——全部读 `session`。
@@ -76,7 +76,7 @@ SwiftUI 四象限视图，遵循现有设计系统（IBFont/IBColor/圆角卡片
 - 麦克风象限：水平电平条（绿→黄→红梯度），`micLevel` 驱动，
   带 150ms 衰减动画
 
-### 窗口注册与入口（`iBridgeReceiverApp.swift` / `MenuBarMenu.swift` / `ControlPanelView.swift`）
+### 窗口注册与入口（`RemoteCrabReceiverApp.swift` / `MenuBarMenu.swift` / `ControlPanelView.swift`）
 
 - App 新增 `Window("Connection Test", id: "test")`，默认 560×640
 - `MenuBarMenu` 的 ActionRow 全部接上 `@Environment(\.openWindow)`：
@@ -96,7 +96,7 @@ SwiftUI 四象限视图，遵循现有设计系统（IBFont/IBColor/圆角卡片
 
 ## 测试
 
-- `iBridgeCore/Tests/` 不动（无协议变更）
+- `RemoteCrabCore/Tests/` 不动（无协议变更）
 - 新增轻量单测（放在 Receiver target 没有测试束——不加；用真机验证）
 - 验证路径：`./scripts/test.sh`（26 测试 + 双端 build）→ 真机 e2e：
   iPhone 已连接状态下打开自检窗口，iPhone 上打字/滑触控板/说话，
@@ -105,7 +105,7 @@ SwiftUI 四象限视图，遵循现有设计系统（IBFont/IBColor/圆角卡片
 ## 风险 / 注意
 
 - **并行 session 在改同一批 Mac 文件**（MenuBarMenu / ControlPanelView /
-  iBridgeReceiverApp）。动手前 `git status` + 重读文件；在
+  RemoteCrabReceiverApp）。动手前 `git status` + 重读文件；在
   `.ai-handoff/STATUS.md` 登记领地。新增文件（TestWindowView.swift）
   无冲突风险。
 - `AudioPlayer.consume` 在专用 queue 上跑；RMS 回调必须跳 MainActor

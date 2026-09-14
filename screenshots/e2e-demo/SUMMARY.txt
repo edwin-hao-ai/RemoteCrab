@@ -1,28 +1,28 @@
-iBridge simulator e2e
+RemoteCrab simulator e2e
 ═══════════════════════════
 
 This run executed:
-  • Built iBridgeCapture.app for iPhone 17 Pro simulator
+  • Built RemoteCrabCapture.app for iPhone 17 Pro simulator
     (iOS 17+ deployment target, Liquid Glass fallback path)
   • Granted camera + microphone permissions
-  • Launched with IBRIDGE_AUTO_START=1 to skip onboarding and
+  • Launched with REMOTECRAB_AUTO_START=1 to skip onboarding and
     auto-start streaming
 
 Screenshots:
-  /Users/edwinhao/iBridge/screenshots/e2e-demo/01_sim_autostart.png
-  /Users/edwinhao/iBridge/screenshots/e2e-demo/02_sim_after_tap.png
+  /Users/edwinhao/RemoteCrab/screenshots/e2e-demo/01_sim_autostart.png
+  /Users/edwinhao/RemoteCrab/screenshots/e2e-demo/02_sim_after_tap.png
 
 To complete the full e2e (live frames on the Mac):
-  1. In Xcode, open iBridgeReceiver.xcodeproj and Run on "My Mac".
-  2. Watch the Mac menu bar for the iBridge icon. Click → Open
+  1. In Xcode, open RemoteCrabReceiver.xcodeproj and Run on "My Mac".
+  2. Watch the Mac menu bar for the RemoteCrab icon. Click → Open
      Control Panel / Open Preview Window.
-  3. The simulator's iBridgeCapture will start streaming to the
+  3. The simulator's RemoteCrabCapture will start streaming to the
      Mac over Bonjour.
   4. The Mac should show "CONNECTED" in the status pill with
      a green dot.
 
 For real iPhone 14 (iOS 18) testing:
-  1. In Xcode, open iBridgeCapture.xcodeproj.
+  1. In Xcode, open RemoteCrabCapture.xcodeproj.
   2. Set scheme to your iPhone.
   3. ⌘R — Xcode will install on the device.
   4. Grant camera/mic/local-network permissions.

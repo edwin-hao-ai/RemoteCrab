@@ -6,7 +6,7 @@ _2026-09-14，由 opencode session 沉淀。承接 `docs/CMIO_AND_RELEASE_HANDOF
 
 ## 结论先行
 
-**CMIO 虚拟摄像头已完整打通**：`Familiar Camera` 出现在系统相机列表，
+**CMIO 虚拟摄像头已完整打通**：`RemoteCrab Camera` 出现在系统相机列表，
 宿主 → 扩展 → 任意 AVFoundation 客户端的像素链路已用真实客户端验证
 （探针读到 `fmt=BGRA min=3 max=241 avg=111`，并抓到了正确的 PNG 帧：
 iPhone 后置摄像头拍的木地板，色彩/亮度准确）。
@@ -25,7 +25,7 @@ iPhone 后置摄像头拍的木地板，色彩/亮度准确）。
 ### 1. 系统扩展注册残留（改名 App 的坑）
 `/Library/SystemExtensions/db.plist` 里记录的 `container.bundlePath` /
 `originPath` 是**激活时的宿主 App 路径**。App 从
-`/Applications/iBridgeReceiver.app` 改名成 `Familiar.app` 后，记录指向
+`/Applications/RemoteCrabReceiver.app` 改名成 `RemoteCrab.app` 后，记录指向
 不存在的路径：`systemextensionsctl` 仍显示 `[activated enabled]`，但
 扩展永远不会被启动，也没有任何崩溃日志。
 
@@ -105,7 +105,7 @@ Apple 论坛 (706184) 确认 app→CMIO extension 的自定义 XPC 不受支持�
   一锤定音「管线是好的，画面是真实的」。
 - **`devicectl device process launch --console`** 抓 iOS stderr——iOS App
   的 `[e2e]` 标记都走 stderr（`FileHandle.standardError`），os_log 反而
-  抓不到（`idevicesyslog -n -p iBridgeCapture` 为空）。
+  抓不到（`idevicesyslog -n -p RemoteCrabCapture` 为空）。
 - **`idevicesyslog -n`**（网络设备）可用，但 App 的 os_log 不透传。
 - **`launchctl setenv XXX 1` + `open -a`**：给可见启动的 App 传环境变量
   （`open` 本身不传 env）。用完记得 unset。
@@ -130,7 +130,7 @@ VTCompressionSession**。回前台后采集会话恢复出帧，但每一帧
 **取证方法**：`devicectl device process launch --console` 太不稳定
 （频繁报 CoreDeviceError 10002 / POSIX 22——只能在 App 已由
 devicectl 启动且存活的瞬间偶然 attach 成功）。可靠做法是
-`iBridgeCapture/Forensic.swift`：每帧计数 + 事件标记同时写 stderr
+`RemoteCrabCapture/Forensic.swift`：每帧计数 + 事件标记同时写 stderr
 和 App 容器 `Documents/forensic.log`，用
 `devicectl device copy from --domain-type appDataContainer
 --domain-identifier com.ibridge.iBridgeCapture --source
@@ -146,7 +146,7 @@ VTCompressionSession` → `recreated OK` → `frames sent to Mac` 继续
 
 **顺带修掉一个上线级 bug**：昨天新加的 `videoWatchdog` 的
 `DispatchSource` event handler 在 `@MainActor` 类型里形成、继承
-MainActor 隔离，timer 在 `com.ibridge.encoder` 队列触发时
+MainActor 隔离，timer 在 `com.remotecrab.encoder` 队列触发时
 `swift_task_checkIsolated` 直接 SIGTRAP——**只要开始推流 3 秒内
 必崩**（crash log `dispatch_assert_queue_fail → closure #1 in
 CaptureEngine.startVideoWatchdog()`）。修复：handler 显式标注
@@ -180,7 +180,7 @@ handler 不像 `DispatchQueue.async` 那样被 SDK 标成 @Sendable。
    input/output 递回主 actor。改完冷启动到第 100 帧约 4 秒、
    主线程零阻塞调用。
 4. **「黑屏」一度是环境因素**：用户报预览黑屏时 forensic 显示
-   出帧正常但 luma=15——加了 `IBRIDGE_DUMP_FRAMES=1`（
+   出帧正常但 luma=15——加了 `REMOTECRAB_DUMP_FRAMES=1`（
    `H264Encoder.dumpFrame`，第 100 帧起每 1800 帧把原始相机帧
    落成 JPEG 存 Documents）后眼见为实：画面明亮清晰、竖屏
    1080×1920、方向正确。当时的 luma=15 是手机放置位置暗。
@@ -235,8 +235,8 @@ handler 不像 `DispatchQueue.async` 那样被 SDK 标成 @Sendable。
 ### 系统扩展管理重构
 - `SystemExtensionManager` 改为单例 + `applicationDidFinishLaunching` 时注册
   （原来在 `App.init()` 里提交，太早，sysextd 连接未建立，请求被静默丢弃）
-- 新增 `repair()`（deactivate→activate）、stall 检测、`IBRIDGE_SYSEX_REPAIR=1` /
-  `IBRIDGE_SYSEX_ACTIVATE=1` 调试钩子
+- 新增 `repair()`（deactivate→activate）、stall 检测、`REMOTECRAB_SYSEX_REPAIR=1` /
+  `REMOTECRAB_SYSEX_ACTIVATE=1` 调试钩子
 - Preferences 加 Re-register；新增 `CameraExtensionCard` 一键引导卡
   （触发系统弹窗 + 深链 `x-apple.systempreferences:com.apple.ExtensionsPreferences`，
   fallback `com.apple.LoginItems-Settings.extension`）
@@ -245,7 +245,7 @@ handler 不像 `DispatchQueue.async` 那样被 SDK 标成 @Sendable。
 
 ## 六、操作注意事项（给下一次部署）
 
-1. **只改宿主 App** → 直接 `ditto` 覆盖 `/Applications/Familiar.app`，
+1. **只改宿主 App** → 直接 `ditto` 覆盖 `/Applications/RemoteCrab.app`，
    扩展批准保留，无需任何操作
 2. **改了扩展代码** → 必须 bump `project-mac.yml` 里扩展的
    `CFBundleVersion`（当前 6）→ 部署 → 用户在系统设置重新批准
@@ -268,10 +268,10 @@ handler 不像 `DispatchQueue.async` 那样被 SDK 标成 @Sendable。
   General → Paired iPhones（断开/忘记，`ReceiverSession.forgetPhone`）。
   `disconnect()` 置 `autoConnectSuppressed`，用户再点连接前不自动连。
 - 触控板 surface 如何退回全屏摄像头（查 `FeatureDock` 的 surface 切换交互）
-- 虚拟麦克风 F2：代码完成，`sudo` 装 `dist/FamiliarMicrophone.pkg` 验证；
+- 虚拟麦克风 F2：代码完成，`sudo` 装 `dist/RemoteCrabMicrophone.pkg` 验证；
   沙盒 `shm_open` 被挡（`micring unavailable (shm_open failed)`），挡了就
   改 XPC 桥或非沙盒
 - Mac 配对 token key 去掉 App 名前缀（改名不再掉配对）
 - ASC 文案/截图推送（`scripts/ios-app-store-metadata.py`，appId 6811599153）
 - 收敛：`CameraProbe.app` / `feed_sink.swift` / `cmio_list.swift` 等临时
-  调试脚本收进 `scripts/`；`IBRIDGE_SYSEX_*` 调试钩子去留
+  调试脚本收进 `scripts/`；`REMOTECRAB_SYSEX_*` 调试钩子去留

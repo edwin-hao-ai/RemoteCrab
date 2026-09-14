@@ -1,4 +1,4 @@
-# iBridge 图标重设计 — Liquid Glass 显示器小伙伴
+# RemoteCrab 图标重设计 — Liquid Glass 显示器小伙伴
 
 日期：2026-09-10
 状态：已获用户批准（视觉稿确认）
@@ -30,10 +30,10 @@ rsvg-convert 2048px 渲染 → Lanczos 缩至 1024px 作为源图）。
 ## 产出物
 
 1. `assets/source-1024-ios.png` — 替换为新设计
-2. `iBridgeCapture/Assets.xcassets/AppIcon.appiconset/` — 全套尺寸
+2. `RemoteCrabCapture/Assets.xcassets/AppIcon.appiconset/` — 全套尺寸
    （由 `scripts/generate-ios-app-icons.py` 从 1024 源图生成）
 3. `screenshots/app-store-marketing-icon.png` — 同步更新
-4. `iBridgeReceiver/MenuBarIcon.swift` — 菜单栏图标改为同一角色的
+4. `RemoteCrabReceiver/MenuBarIcon.swift` — 菜单栏图标改为同一角色的
    单色线条版（显示器轮廓 + 双眼 + 微笑 + 天线），天线球兼作
    连接状态灯（绿=streaming / 橙=connecting / 红=error）
 5. `AGENTS.md` — 更新图标相关描述

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install iBridgeCapture to your iPhone 14 after you've logged into
+# Install RemoteCrabCapture to your iPhone 14 after you've logged into
 # Apple ID in Xcode (Xcode → Settings → Accounts).
 #
 # Usage:
 #     ./scripts/install-to-iphone.sh
 #     ./scripts/install-to-iphone.sh --auto-start
 #
-# The --auto-start flag sets the IBRIDGE_AUTO_START=1 env var on the
+# The --auto-start flag sets the REMOTECRAB_AUTO_START=1 env var on the
 # installed app so it skips onboarding and auto-starts streaming.
 #
 # Prerequisites:
@@ -30,18 +30,18 @@ if [[ "${1:-}" == "--auto-start" ]]; then
 fi
 
 echo "═══════════════════════════════════════════════════════"
-echo "  iBridge install to iPhone"
+echo "  RemoteCrab install to iPhone"
 echo "═══════════════════════════════════════════════════════"
 echo "Device:       $PHONE_UDID"
 echo "Auto-start:   $AUTO_START"
 echo ""
 
 # 1. Build for the device
-echo "→ Building iBridgeCapture for device..."
+echo "→ Building RemoteCrabCapture for device..."
 cd "$ROOT"
 xcodebuild \
-    -project iBridgeCapture.xcodeproj \
-    -scheme iBridgeCapture \
+    -project RemoteCrabCapture.xcodeproj \
+    -scheme RemoteCrabCapture \
     -destination "id=$PHONE_UDID" \
     -configuration Debug \
     build \
@@ -51,9 +51,9 @@ echo ""
 
 # 2. Locate the built .app
 APP=$(find ~/Library/Developer/Xcode/DerivedData \
-    -name "iBridgeCapture.app" -path "*Debug-iphoneos*" 2>/dev/null | head -1)
+    -name "RemoteCrabCapture.app" -path "*Debug-iphoneos*" 2>/dev/null | head -1)
 if [[ -z "$APP" ]]; then
-    echo "❌ Build didn't produce iBridgeCapture.app for device"
+    echo "❌ Build didn't produce RemoteCrabCapture.app for device"
     echo "   Check the Xcode log for the failure reason."
     exit 1
 fi
@@ -77,9 +77,9 @@ echo "   supports `privacy grant`; grant manually on first run)."
 echo ""
 echo "→ Launching on iPhone..."
 if [[ $AUTO_START == 1 ]]; then
-    echo "   (with IBRIDGE_AUTO_START=1 + IBRIDGE_AUTOSTREAM=1)"
+    echo "   (with REMOTECRAB_AUTO_START=1 + REMOTECRAB_AUTOSTREAM=1)"
     xcrun devicectl device process launch --device "$PHONE_UDID" --terminate-existing \
-        --environment-variables '{"IBRIDGE_AUTO_START":"1","IBRIDGE_AUTOSTREAM":"1"}' \
+        --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1"}' \
         com.ibridge.iBridgeCapture 2>&1 | tail -1
 else
     xcrun devicectl device process launch --device "$PHONE_UDID" --terminate-existing \
@@ -88,7 +88,7 @@ fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════"
-echo "  ✓ Installed iBridgeCapture on your iPhone"
+echo "  ✓ Installed RemoteCrabCapture on your iPhone"
 echo "═══════════════════════════════════════════════════════"
 echo ""
 echo "Next: open the app, grant Local Network permission,"

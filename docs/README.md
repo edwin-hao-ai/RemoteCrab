@@ -1,11 +1,11 @@
-# iBridge — Documentation
+# RemoteCrab — Documentation
 
 This directory holds the project's documentation. See the files
 below in the order suggested for someone picking up the project cold.
 
 ## Reading order (recommended)
 
-1. **[PRD.md](PRD.md)** — Product Requirements Document. What iBridge
+1. **[PRD.md](PRD.md)** — Product Requirements Document. What RemoteCrab
    is, who it's for, scope across V0.1 → V1.0, what's explicitly
    out of scope, and the business model.
 2. **[HANDOFF.md](../HANDOFF.md)** — Status handoff. What's done, what

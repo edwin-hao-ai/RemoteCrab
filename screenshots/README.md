@@ -1,4 +1,4 @@
-# iBridge — Visual tour
+# RemoteCrab — Visual tour
 
 Screenshots of the V0.1 (basic) and V0.2 (polished) UI.
 
@@ -6,7 +6,7 @@ Screenshots of the V0.1 (basic) and V0.2 (polished) UI.
 
 | # | File | What it is |
 |---|---|---|
-| 1 | `01_ios_v0.1_camera_mode.png` | The original iBridge Capture app running in iOS 26 Simulator, with the iOS 17 camera permission dialog. Shows the original status pill, mode tabs (camera / trackpad / keyboard), and the big red STOP button. |
+| 1 | `01_ios_v0.1_camera_mode.png` | The original RemoteCrab Capture app running in iOS 26 Simulator, with the iOS 17 camera permission dialog. Shows the original status pill, mode tabs (camera / trackpad / keyboard), and the big red STOP button. |
 | 2 | `02_v0.1_status_pills.png` | The three connection-state pills: CONNECTED / RECONNECTING / OFFLINE. |
 
 ## V0.2 (designed)
@@ -28,9 +28,9 @@ Liquid Glass aesthetic. See `RUN.md` for the per-feature story.
 ## How to regenerate
 
 ```sh
-cd /tmp/ibridge-screenshot && swift run
+cd /tmp/remotecrab-screenshot && swift run
 ```
 
 Renders both V0.1 and V0.2 demo screens to `/tmp/v2_*.png` (and
-`/tmp/ibridge_demo_*.png` for the older designs). The `v2_*.png` files
+`/tmp/remotecrab_demo_*.png` for the older designs). The `v2_*.png` files
 are the up-to-date ones.

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 Zoom / FaceTime / Photo Booth 能选择 "iBridge Camera" 并显示 iPhone 摄像头的实时画面（NAL over XPC，extension 自解码）。
+**Goal:** 让 Zoom / FaceTime / Photo Booth 能选择 "RemoteCrab Camera" 并显示 iPhone 摄像头的实时画面（NAL over XPC，extension 自解码）。
 
-**Architecture:** host（iBridgeReceiver）真签构建并 embed CMIO camera extension；extension 内起 `NSXPCListener(machServiceName:)`，host 通过 XPC 推压缩 H.264 NAL；extension 内已有 `StreamDecoder` 负责 VideoToolbox 解码并经 CMIO 拉取接口吐帧。XPC 连接失败时 host 静默 fallback 到 in-process 预览路径。
+**Architecture:** host（RemoteCrabReceiver）真签构建并 embed CMIO camera extension；extension 内起 `NSXPCListener(machServiceName:)`，host 通过 XPC 推压缩 H.264 NAL；extension 内已有 `StreamDecoder` 负责 VideoToolbox 解码并经 CMIO 拉取接口吐帧。XPC 连接失败时 host 静默 fallback 到 in-process 预览路径。
 
 **Tech Stack:** Swift 6.2、xcodegen、NSXPCConnection/NSXPCListener、CoreMediaIO CMIOExtension、VideoToolbox。
 
@@ -13,33 +13,33 @@
 ## Global Constraints
 
 - 签名：`CODE_SIGN_STYLE: Automatic` + `DEVELOPMENT_TEAM: 5XNDF727Y6`（**不是** DDG3CJL762）
-- 部署目标：macOS 26.0（host + 两个 extension），iOS 17.0（iBridgeCore 保留双平台）
-- Mach service name：`com.ibridge.iBridgeReceiver.Camera`（与 camera ext bundle id 一致）
+- 部署目标：macOS 26.0（host + 两个 extension），iOS 17.0（RemoteCrabCore 保留双平台）
+- Mach service name：`com.remotecrab.RemoteCrabReceiver.Camera`（与 camera ext bundle id 一致）
 - NAL kind 值：video=1, sps=2, pps=3（`IBNalFrame.Kind` raw value）
 - wire kind 值：metadata=0, video=1, sps=2, pps=3, touch=4, key=5, audio=6
-- iBridgeCore 是 iOS 17 + macOS 26 双平台 SPM 包：XPC 相关代码必须 `#if os(macOS)` 包裹
+- RemoteCrabCore 是 iOS 17 + macOS 26 双平台 SPM 包：XPC 相关代码必须 `#if os(macOS)` 包裹
 - XPC / CMIO 集成代码不进单元测试（spec 已批准）；每个 task 的验证 = `./scripts/test.sh` 26 测试全绿 + 双端 build 成功 + task 特有验证命令
-- **不要** commit 工作区已有的未提交改动（`iBridgeReceiver/FirstLaunchView.swift`、`iBridgeReceiver/iBridgeReceiverApp.swift`）——每个 commit 只 `git add` 本 task 的文件
-- 日志用 `os_log`，subsystem `com.ibridge`，不写裸 `print()`（新代码遵守；不回头改旧代码）
+- **不要** commit 工作区已有的未提交改动（`RemoteCrabReceiver/FirstLaunchView.swift`、`RemoteCrabReceiver/RemoteCrabReceiverApp.swift`）——每个 commit 只 `git add` 本 task 的文件
+- 日志用 `os_log`，subsystem `com.remotecrab`，不写裸 `print()`（新代码遵守；不回头改旧代码）
 - UI 字符串不加 emoji
 
 ---
 
-### Task 1: project-mac.yml — 真签 + embed extension + 补 iBridgeCore 依赖
+### Task 1: project-mac.yml — 真签 + embed extension + 补 RemoteCrabCore 依赖
 
 **Files:**
 - Modify: `project-mac.yml`
-- Modify: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionStream.swift:101-114`（修编译错误）
+- Modify: `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/CameraExtensionStream.swift:101-114`（修编译错误）
 
 **Interfaces:**
 - Consumes: 无
-- Produces: 真签的 `iBridgeReceiver.app`，其 `Contents/PlugIns/` 内含 `iBridgeCameraExtension.appex` 和 `iBridgeAudioExtension.appex`；后续 task 的所有代码都在这个构建配置下编译
+- Produces: 真签的 `RemoteCrabReceiver.app`，其 `Contents/PlugIns/` 内含 `RemoteCrabCameraExtension.appex` 和 `RemoteCrabAudioExtension.appex`；后续 task 的所有代码都在这个构建配置下编译
 
 **背景（executor 需要知道的）:**
 
 1. 当前 `project-mac.yml` 所有 target 是 ad-hoc 签名（`CODE_SIGN_IDENTITY: "-"`），CMIO extension 不会被系统加载。
-2. **潜在 bug 1**：`iBridgeCameraExtension` 和 `iBridgeAudioExtension` 两个 target 的源码都 `import iBridgeCore`，但 yml 里没声明 package 依赖 —— 一旦 extension 参与构建必然链接失败。
-3. **潜在 bug 2**：`CameraExtensionStream.swift` 的 `StreamDecoder.feed(nalUnit:kind:)` 里 `switch kind` 有一个 `case .metadata: break`，但 `IBNalFrame.Kind`（`iBridgeCore/Sources/iBridgeCore/Networking/IBProtocol.swift:68-72`）只有 `video / sps / pps` 三个 case —— extension 一旦编译就会报错。当前没炸是因为 host 不依赖 extension，它从未被构建过。
+2. **潜在 bug 1**：`RemoteCrabCameraExtension` 和 `RemoteCrabAudioExtension` 两个 target 的源码都 `import RemoteCrabCore`，但 yml 里没声明 package 依赖 —— 一旦 extension 参与构建必然链接失败。
+3. **潜在 bug 2**：`CameraExtensionStream.swift` 的 `StreamDecoder.feed(nalUnit:kind:)` 里 `switch kind` 有一个 `case .metadata: break`，但 `IBNalFrame.Kind`（`RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBProtocol.swift:68-72`）只有 `video / sps / pps` 三个 case —— extension 一旦编译就会报错。当前没炸是因为 host 不依赖 extension，它从未被构建过。
 
 - [ ] **Step 1: 修改 `project-mac.yml` 顶层 settings**
 
@@ -60,42 +60,42 @@ settings:
 
 - [ ] **Step 2: 修改 host target 的签名设置和 dependencies**
 
-`targets.iBridgeReceiver.settings.base`（第 51-59 行）改为：
+`targets.RemoteCrabReceiver.settings.base`（第 51-59 行）改为：
 
 ```yaml
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_HARDENED_RUNTIME: YES
-        CODE_SIGN_ENTITLEMENTS: iBridgeReceiver/iBridgeReceiver.entitlements
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabReceiver/RemoteCrabReceiver.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
 ```
 
-`targets.iBridgeReceiver.dependencies`（第 34-36 行）改为：
+`targets.RemoteCrabReceiver.dependencies`（第 34-36 行）改为：
 
 ```yaml
     dependencies:
-      - package: iBridgeCore
-        product: iBridgeCore
-      - target: iBridgeCameraExtension
+      - package: RemoteCrabCore
+        product: RemoteCrabCore
+      - target: RemoteCrabCameraExtension
         embed: true
         codeSignOnCopy: true
-      - target: iBridgeAudioExtension
+      - target: RemoteCrabAudioExtension
         embed: true
         codeSignOnCopy: true
 ```
 
-- [ ] **Step 3: 修改两个 extension target — 签名 + 补 iBridgeCore 依赖**
+- [ ] **Step 3: 修改两个 extension target — 签名 + 补 RemoteCrabCore 依赖**
 
-`iBridgeCameraExtension` target：在 `sources:` 之后、`info:` 之前插入：
+`RemoteCrabCameraExtension` target：在 `sources:` 之后、`info:` 之前插入：
 
 ```yaml
     dependencies:
-      - package: iBridgeCore
-        product: iBridgeCore
+      - package: RemoteCrabCore
+        product: RemoteCrabCore
 ```
 
 其 `settings.base` 改为：
@@ -103,22 +103,22 @@ settings:
 ```yaml
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Camera
-        INFOPLIST_FILE: iBridgeCameraExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: iBridgeCameraExtension/CameraExtension.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver.Camera
+        INFOPLIST_FILE: RemoteCrabCameraExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabCameraExtension/CameraExtension.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
 ```
 
-`iBridgeAudioExtension` target 同样插入 `dependencies`（同上），`settings.base` 改为：
+`RemoteCrabAudioExtension` target 同样插入 `dependencies`（同上），`settings.base` 改为：
 
 ```yaml
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeReceiver.Audio
-        INFOPLIST_FILE: iBridgeAudioExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: iBridgeAudioExtension/AudioExtension.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: com.remotecrab.RemoteCrabReceiver.Audio
+        INFOPLIST_FILE: RemoteCrabAudioExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: RemoteCrabAudioExtension/AudioExtension.entitlements
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
@@ -149,9 +149,9 @@ settings:
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 xcodegen generate --spec project-mac.yml
-xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+xcodebuild -project RemoteCrabReceiver.xcodeproj -scheme RemoteCrabReceiver \
     -configuration Debug -allowProvisioningUpdates build 2>&1 | tail -5
 ```
 Expected: `** BUILD SUCCEEDED **`
@@ -162,30 +162,30 @@ Expected: `** BUILD SUCCEEDED **`
 
 Run:
 ```bash
-ls /Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app/Contents/PlugIns/
+ls /Users/edwinhao/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-*/Build/Products/Debug/RemoteCrabReceiver.app/Contents/PlugIns/
 ```
-Expected: 输出包含 `iBridgeCameraExtension.appex` 和 `iBridgeAudioExtension.appex`
+Expected: 输出包含 `RemoteCrabCameraExtension.appex` 和 `RemoteCrabAudioExtension.appex`
 
 - [ ] **Step 7: 跑全套测试确认无回归**
 
-Run: `cd /Users/edwinhao/iBridge && ./scripts/test.sh 2>&1 | tail -5`
+Run: `cd /Users/edwinhao/RemoteCrab && ./scripts/test.sh 2>&1 | tail -5`
 Expected: `All checks passed.`
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd /Users/edwinhao/iBridge
-git add project-mac.yml iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionStream.swift iBridgeReceiver.xcodeproj/project.pbxproj
+cd /Users/edwinhao/RemoteCrab
+git add project-mac.yml RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/CameraExtensionStream.swift RemoteCrabReceiver.xcodeproj/project.pbxproj
 git commit -m "Mac: real signing (team 5XNDF727Y6) + embed camera/audio extensions"
 ```
 
 ---
 
-### Task 2: XPC 协议移到 iBridgeCore（`IBCameraXPC.swift`）
+### Task 2: XPC 协议移到 RemoteCrabCore（`IBCameraXPC.swift`）
 
 **Files:**
-- Create: `iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift`
-- Modify: `iBridgeReceiver/CameraExtensionBridge.swift`（删协议定义 + 清死代码）
+- Create: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift`
+- Modify: `RemoteCrabReceiver/CameraExtensionBridge.swift`（删协议定义 + 清死代码）
 
 **Interfaces:**
 - Consumes: 无（纯定义迁移）
@@ -194,9 +194,9 @@ git commit -m "Mac: real signing (team 5XNDF727Y6) + embed camera/audio extensio
   - `@objc public protocol IBridgeFrameSource` — `currentFormat() -> [String: Int]?` / `deviceName() -> String?`
   - `public enum IBridgeCameraXPC { public static let machServiceName: String }`
 
-**背景：** host 和 extension 必须共享同一份 `@objc` 协议定义（NSXPCInterface 按协议方法签名握手）。当前协议定义在 host 侧的 `CameraExtensionBridge.swift` 里，extension 看不到。移到 iBridgeCore 后双端 `import iBridgeCore` 即可。iBridgeCore 同时编 iOS，所以整个文件 `#if os(macOS)` 包裹。
+**背景：** host 和 extension 必须共享同一份 `@objc` 协议定义（NSXPCInterface 按协议方法签名握手）。当前协议定义在 host 侧的 `CameraExtensionBridge.swift` 里，extension 看不到。移到 RemoteCrabCore 后双端 `import RemoteCrabCore` 即可。RemoteCrabCore 同时编 iOS，所以整个文件 `#if os(macOS)` 包裹。
 
-- [ ] **Step 1: 创建 `iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift`**
+- [ ] **Step 1: 创建 `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift`**
 
 完整内容：
 
@@ -204,8 +204,8 @@ git commit -m "Mac: real signing (team 5XNDF727Y6) + embed camera/audio extensio
 #if os(macOS)
 import Foundation
 
-/// XPC contract between `iBridgeReceiver` (host) and
-/// `iBridgeCameraExtension` (system camera extension).
+/// XPC contract between `RemoteCrabReceiver` (host) and
+/// `RemoteCrabCameraExtension` (system camera extension).
 ///
 /// The extension runs an `NSXPCListener` on
 /// `IBridgeCameraXPC.machServiceName`. The host connects and pushes
@@ -241,7 +241,7 @@ import Foundation
 public enum IBridgeCameraXPC {
     /// Mach service name the extension's `NSXPCListener` registers.
     /// Matches the camera extension's bundle identifier.
-    public static let machServiceName = "com.ibridge.iBridgeReceiver.Camera"
+    public static let machServiceName = "com.remotecrab.RemoteCrabReceiver.Camera"
 }
 #endif
 ```
@@ -252,11 +252,11 @@ public enum IBridgeCameraXPC {
 
 ```swift
 import Foundation
-import iBridgeCore
+import RemoteCrabCore
 
 /// The macOS-side bridge between `ReceiverSession` and the system
 /// camera extension. The `IBridgeFrameSink` / `IBridgeFrameSource`
-/// XPC protocols live in iBridgeCore (`IBCameraXPC.swift`) so both
+/// XPC protocols live in RemoteCrabCore (`IBCameraXPC.swift`) so both
 /// processes share one definition.
 ```
 
@@ -300,25 +300,25 @@ import iBridgeCore
 
 （说明：`remoteObjectProxy` 是懒代理，同步就能拿到；对端不存在时错误经 error handler / invalidation 回调，自动 fallback `inProcess`。原来 `withCheckedThrowingContinuation` + `DispatchQueue.main` 的拿法既不必要也可能死锁。）
 
-- [ ] **Step 4: 验证 iBridgeCore 双平台都能编**
+- [ ] **Step 4: 验证 RemoteCrabCore 双平台都能编**
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge/iBridgeCore && swift build 2>&1 | tail -3
+cd /Users/edwinhao/RemoteCrab/RemoteCrabCore && swift build 2>&1 | tail -3
 ```
 Expected: `Build complete!`（无错误）
 
 - [ ] **Step 5: 跑全套测试**
 
-Run: `cd /Users/edwinhao/iBridge && ./scripts/test.sh 2>&1 | tail -5`
+Run: `cd /Users/edwinhao/RemoteCrab && ./scripts/test.sh 2>&1 | tail -5`
 Expected: `All checks passed.`（26 测试 + 两端 build）
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/edwinhao/iBridge
-git add iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift iBridgeReceiver/CameraExtensionBridge.swift
-git commit -m "Move camera XPC protocols to iBridgeCore, share with extension"
+cd /Users/edwinhao/RemoteCrab
+git add RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift RemoteCrabReceiver/CameraExtensionBridge.swift
+git commit -m "Move camera XPC protocols to RemoteCrabCore, share with extension"
 ```
 
 ---
@@ -333,10 +333,10 @@ git commit -m "Move camera XPC protocols to iBridgeCore, share with extension"
 > `CMIOExtensionProvider.startService(provider:)`，extension 加载了也不服务。
 
 **Files:**
-- Create: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/XPCFrameListener.swift`
-- Create: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/main.swift`
-- Modify: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionProvider.swift`
-- Modify: `iBridgeCameraExtension/Sources/iBridgeCameraExtension/CameraExtensionStream.swift`（加 `reset()`）
+- Create: `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/XPCFrameListener.swift`
+- Create: `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/main.swift`
+- Modify: `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/CameraExtensionProvider.swift`
+- Modify: `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/CameraExtensionStream.swift`（加 `reset()`）
 - Modify: `project-mac.yml`（camera ext 去掉 `NSExtensionPrincipalClass`，改由 main.swift 入口）
 
 **Interfaces:**
@@ -349,7 +349,7 @@ git commit -m "Move camera XPC protocols to iBridgeCore, share with extension"
 
 **背景（三个要点）：**
 
-1. `CameraExtensionProvider.swift` 里有死代码：Swift 协议 `iBridgeFrameSink`
+1. `CameraExtensionProvider.swift` 里有死代码：Swift 协议 `RemoteCrabFrameSink`
    （小写 i，第 44-47 行）和 `weak var frameSink`（第 21 行）——没有任何代码
    设置或调用它们。本 task 删除，用真正的 XPC 路径替代。
 2. **入口缺失**：extension 要真正服务，进程 main 必须调用
@@ -393,16 +393,16 @@ extension 的 entitlements 已含 `com.apple.security.network.server`，可以�
 ```swift
 import Foundation
 import os
-import iBridgeCore
+import RemoteCrabCore
 
-/// Extension-side XPC listener. The host (iBridgeReceiver) connects
+/// Extension-side XPC listener. The host (RemoteCrabReceiver) connects
 /// to `IBridgeCameraXPC.machServiceName` and pushes H.264 NAL units
 /// through the `IBridgeFrameSink` interface.
 final class XPCFrameListener: NSObject, NSXPCListenerDelegate {
 
     private let listener: NSXPCListener
     private let stream: CameraExtensionStream
-    private let log = Logger(subsystem: "com.ibridge", category: "camera-xpc")
+    private let log = Logger(subsystem: "com.remotecrab", category: "camera-xpc")
 
     init(stream: CameraExtensionStream) {
         self.stream = stream
@@ -469,7 +469,7 @@ final class ExtensionFrameSink: NSObject, IBridgeFrameSink {
 三处改动（保留 Task 1 重写的真实 SDK 结构，不要整体替换文件）：
 
 1. 删除第 17-21 行的 `frameSink` 属性及其注释，删除第 41-47 行的
-   `protocol iBridgeFrameSink` 死协议及其注释。
+   `protocol RemoteCrabFrameSink` 死协议及其注释。
 2. 在 `private let deviceSource: CameraExtensionDevice` 之后加属性：
 
 ```swift
@@ -495,7 +495,7 @@ final class ExtensionFrameSink: NSObject, IBridgeFrameSink {
 
 - [ ] **Step 4: 创建 `main.swift` + yml 去掉 principal class**
 
-创建 `iBridgeCameraExtension/Sources/iBridgeCameraExtension/main.swift`，完整内容：
+创建 `RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/main.swift`，完整内容：
 
 ```swift
 import CoreMediaIO
@@ -503,12 +503,12 @@ import Foundation
 
 // Entry point for the CMIO camera extension. The system launches this
 // process when a client (Zoom, FaceTime, Photo Booth, …) enumerates or
-// opens the "iBridge Camera" device. `startService` never returns.
+// opens the "RemoteCrab Camera" device. `startService` never returns.
 let providerSource = CameraExtensionProvider()
 CMIOExtensionProvider.startService(provider: providerSource.provider)
 ```
 
-`project-mac.yml` 的 `iBridgeCameraExtension.info.properties.NSExtension`
+`project-mac.yml` 的 `RemoteCrabCameraExtension.info.properties.NSExtension`
 改为（删除 `NSExtensionPrincipalClass` 一行）：
 
 ```yaml
@@ -520,23 +520,23 @@ CMIOExtensionProvider.startService(provider: providerSource.provider)
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 xcodegen generate --spec project-mac.yml
 ```
 Expected: 无错误输出（`💾  Generated project` 之类）
 
-注意：xcodegen 会把 `iBridgeReceiver/Info.plist` 里手工加的
+注意：xcodegen 会把 `RemoteCrabReceiver/Info.plist` 里手工加的
 `CFBundleLocalizations` 块删掉（已知问题，见 Task 1 报告）。重新生成后
-检查 `git diff iBridgeReceiver/Info.plist`，若该块被删，用
-`git checkout -- iBridgeReceiver/Info.plist` 恢复（Info.plist 在 yml 里以
+检查 `git diff RemoteCrabReceiver/Info.plist`，若该块被删，用
+`git checkout -- RemoteCrabReceiver/Info.plist` 恢复（Info.plist 在 yml 里以
 `info.path` 引用、不由 xcodegen 管理内容，恢复是安全的）。
 
 - [ ] **Step 5: 构建验证 extension 编译通过**
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
-xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+cd /Users/edwinhao/RemoteCrab
+xcodebuild -project RemoteCrabReceiver.xcodeproj -scheme RemoteCrabReceiver \
     -configuration Debug -allowProvisioningUpdates build 2>&1 | tail -3
 ```
 Expected: `** BUILD SUCCEEDED **`（extension 作为 embedded dependency 一并编译）
@@ -549,8 +549,8 @@ Expected: `All checks passed.`
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/edwinhao/iBridge
-git add iBridgeCameraExtension/Sources/iBridgeCameraExtension/ project-mac.yml
+cd /Users/edwinhao/RemoteCrab
+git add RemoteCrabCameraExtension/Sources/RemoteCrabCameraExtension/ project-mac.yml
 git commit -m "Camera extension: XPC listener + startService entry point"
 ```
 
@@ -559,8 +559,8 @@ git commit -m "Camera extension: XPC listener + startService entry point"
 ### Task 4: Host 侧接线 — `ReceiverSession` → `CameraExtensionBridge`
 
 **Files:**
-- Modify: `iBridgeReceiver/CameraExtensionBridge.swift`（加 `NullFrameSink` + deviceName 支持）
-- Modify: `iBridgeReceiver/ReceiverSession.swift`
+- Modify: `RemoteCrabReceiver/CameraExtensionBridge.swift`（加 `NullFrameSink` + deviceName 支持）
+- Modify: `RemoteCrabReceiver/ReceiverSession.swift`
 
 **Interfaces:**
 - Consumes: Task 2 的 `IBridgeCameraXPC.machServiceName`、Task 3 的 extension listener
@@ -694,7 +694,7 @@ final class NullFrameSink: NSObject, IBridgeFrameSink {
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 ./scripts/test.sh 2>&1 | tail -5
 ```
 Expected: `All checks passed.`
@@ -703,17 +703,17 @@ Expected: `All checks passed.`
 
 Run:
 ```bash
-open -a "/Users/edwinhao/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/iBridgeReceiver.app"
+open -a "/Users/edwinhao/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/RemoteCrabReceiver.app"
 sleep 3
-log show --last 1m --predicate 'subsystem == "com.ibridge"' 2>/dev/null | head -20
+log show --last 1m --predicate 'subsystem == "com.remotecrab"' 2>/dev/null | head -20
 ```
-Expected: receiver 正常启动不崩；extension 侧日志要等系统加载 extension 后才出现（Task 5 验证）。此步只确认 host 启动无 crash。若 DerivedData 路径不同，用 `ls -d ~/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app` 定位。
+Expected: receiver 正常启动不崩；extension 侧日志要等系统加载 extension 后才出现（Task 5 验证）。此步只确认 host 启动无 crash。若 DerivedData 路径不同，用 `ls -d ~/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-*/Build/Products/Debug/RemoteCrabReceiver.app` 定位。
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /Users/edwinhao/iBridge
-git add iBridgeReceiver/CameraExtensionBridge.swift iBridgeReceiver/ReceiverSession.swift
+cd /Users/edwinhao/RemoteCrab
+git add RemoteCrabReceiver/CameraExtensionBridge.swift RemoteCrabReceiver/ReceiverSession.swift
 git commit -m "Wire ReceiverSession to camera extension via XPC bridge"
 ```
 
@@ -731,35 +731,35 @@ git commit -m "Wire ReceiverSession to camera extension via XPC bridge"
 - Produces: 可复现的验证步骤文档
 
 **前置条件（用户/环境）:**
-- iPhone 14 在线且 iBridgeCapture 在跑（当前 `devicectl` 显示 unavailable，需要先解锁/连接）
-- 或：用 iPhone simulator 跑 iBridgeCapture 提供视频源（simulator 无摄像头，此路径只能验证 XPC 连接不能验证画面）
+- iPhone 14 在线且 RemoteCrabCapture 在跑（当前 `devicectl` 显示 unavailable，需要先解锁/连接）
+- 或：用 iPhone simulator 跑 RemoteCrabCapture 提供视频源（simulator 无摄像头，此路径只能验证 XPC 连接不能验证画面）
 
 - [ ] **Step 1: 确认 extension 已被系统注册**
 
-启动真签的 iBridgeReceiver 后：
+启动真签的 RemoteCrabReceiver 后：
 
 Run:
 ```bash
-systemextensionsctl list 2>&1 | grep -i ibridge
-pluginkit -m -i com.apple.cmioextension-provider 2>/dev/null | grep -i ibridge
+systemextensionsctl list 2>&1 | grep -i remotecrab
+pluginkit -m -i com.apple.cmioextension-provider 2>/dev/null | grep -i remotecrab
 ```
-Expected: 至少一条命令输出包含 `com.ibridge.iBridgeReceiver.Camera`
+Expected: 至少一条命令输出包含 `com.remotecrab.RemoteCrabReceiver.Camera`
 
 - [ ] **Step 2: Photo Booth 验证画面**
 
-1. iPhone 14 解锁并启动 iBridgeCapture（摄像头模式）
-2. Mac 上启动 iBridgeReceiver（应自动 Bonjour 连接）
-3. 打开 Photo Booth → 菜单 Camera → 选 "iBridge Camera"
+1. iPhone 14 解锁并启动 RemoteCrabCapture（摄像头模式）
+2. Mac 上启动 RemoteCrabReceiver（应自动 Bonjour 连接）
+3. 打开 Photo Booth → 菜单 Camera → 选 "RemoteCrab Camera"
 4. Expected: 看到 iPhone 摄像头的实时画面
 
-若列表里没有 "iBridge Camera"：
-- 检查 extension 签名：`codesign -dv <path>/iBridgeReceiver.app/Contents/PlugIns/iBridgeCameraExtension.appex`
-- 检查日志：`log stream --predicate 'subsystem == "com.ibridge"'` 看 XPC listener 是否起来
+若列表里没有 "RemoteCrab Camera"：
+- 检查 extension 签名：`codesign -dv <path>/RemoteCrabReceiver.app/Contents/PlugIns/RemoteCrabCameraExtension.appex`
+- 检查日志：`log stream --predicate 'subsystem == "com.remotecrab"'` 看 XPC listener 是否起来
 - 杀掉 `com.apple.cmio.registeration` 相关缓存：`sudo killall -9 cmioextensionagent 2>/dev/null; killall "Photo Booth"` 重试
 
 - [ ] **Step 3: 断开行为验证**
 
-退出 iBridgeReceiver → Photo Booth 中 "iBridge Camera" 应消失或黑帧，Photo Booth 不崩溃。
+退出 RemoteCrabReceiver → Photo Booth 中 "RemoteCrab Camera" 应消失或黑帧，Photo Booth 不崩溃。
 
 - [ ] **Step 4: 更新 `E2E_TESTING.md`**
 
@@ -769,12 +769,12 @@ Expected: 至少一条命令输出包含 `com.ibridge.iBridgeReceiver.Camera`
 ## Camera Extension（V0.3）
 
 1. 真签构建（team 5XNDF727Y6，xcodegen 后 xcodebuild -allowProvisioningUpdates）
-2. 启动 iBridgeReceiver —— 系统自动注册 embedded extension
-3. iPhone 启动 iBridgeCapture 并连接
-4. Photo Booth / Zoom → 摄像头选 "iBridge Camera" → 应看到实时画面
-5. 退出 iBridgeReceiver → "iBridge Camera" 不可用，不崩溃
-排查：`log stream --predicate 'subsystem == "com.ibridge"'`，
-`pluginkit -m -i com.apple.cmioextension-provider | grep -i ibridge`
+2. 启动 RemoteCrabReceiver —— 系统自动注册 embedded extension
+3. iPhone 启动 RemoteCrabCapture 并连接
+4. Photo Booth / Zoom → 摄像头选 "RemoteCrab Camera" → 应看到实时画面
+5. 退出 RemoteCrabReceiver → "RemoteCrab Camera" 不可用，不崩溃
+排查：`log stream --predicate 'subsystem == "com.remotecrab"'`，
+`pluginkit -m -i com.apple.cmioextension-provider | grep -i remotecrab`
 ```
 
 - [ ] **Step 5: 更新 `AGENTS.md` 和 `HANDOFF.md`**
@@ -791,7 +791,7 @@ Expected: 至少一条命令输出包含 `com.ibridge.iBridgeReceiver.Camera`
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 git add E2E_TESTING.md AGENTS.md HANDOFF.md
 git commit -m "Docs: camera extension wired, Photo Booth verification steps"
 ```
@@ -800,7 +800,7 @@ git commit -m "Docs: camera extension wired, Photo Booth verification steps"
 
 ## Self-Review 记录
 
-- **Spec 覆盖**：签名（T1）、embed（T1）、iBridgeCore 依赖 bug（T1）、`.metadata` 编译错误（T1）、协议迁移（T2）、extension listener（T3）、死协议删除（T3）、host 接线 + fallback（T2 Step 3 的 invalidation handler + T4）、isAvailable 驱动（T3）、E2E 文档（T5）——全覆盖
+- **Spec 覆盖**：签名（T1）、embed（T1）、RemoteCrabCore 依赖 bug（T1）、`.metadata` 编译错误（T1）、协议迁移（T2）、extension listener（T3）、死协议删除（T3）、host 接线 + fallback（T2 Step 3 的 invalidation handler + T4）、isAvailable 驱动（T3）、E2E 文档（T5）——全覆盖
 - **类型一致性**：`IBridgeFrameSink.feed(nalUnit:kind:)` 在 T2 定义、T3 实现、T4 调用一致；`IBNalFrame.Kind` raw value (1/2/3) 与 spec 一致；`machServiceName` 与 bundle id 一致
 - **Placeholder 扫描**：无 TBD/TODO；每个代码 step 都是完整代码
 
@@ -832,15 +832,15 @@ ldenoue/cameraextension 已上架样本 + theoffcuts 三部曲，三方一致）
 
 **Files:**
 - Modify: `project-mac.yml`（camera ext target 改 system-extension + embed 目的地；host 加 entitlements/plist 键）
-- Modify: `iBridgeCameraExtension/Info.plist`（NSExtension 块 → CMIOExtension 块）
-- Modify: `iBridgeReceiver/iBridgeReceiver.entitlements`（加 system-extension.install）
-- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift`（mach service 名改 team 前缀）
-- 可能 Modify: `iBridgeCameraExtension/CameraExtension.entitlements`
+- Modify: `RemoteCrabCameraExtension/Info.plist`（NSExtension 块 → CMIOExtension 块）
+- Modify: `RemoteCrabReceiver/RemoteCrabReceiver.entitlements`（加 system-extension.install）
+- Modify: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift`（mach service 名改 team 前缀）
+- 可能 Modify: `RemoteCrabCameraExtension/CameraExtension.entitlements`
 
 **Interfaces:**
 - Consumes: Task 1-5 全部产出
-- Produces: `iBridgeCameraExtension.systemextension` 嵌在
-  `iBridgeReceiver.app/Contents/Library/SystemExtensions/`；真签构建通过；
+- Produces: `RemoteCrabCameraExtension.systemextension` 嵌在
+  `RemoteCrabReceiver.app/Contents/Library/SystemExtensions/`；真签构建通过；
   XPC mach service 新名字（Task 7 的激活代码依赖）
 
 **背景：** xcodegen 对 system extension 的支持：`type: system-extension`
@@ -855,27 +855,27 @@ xcodegen 生成的 phase 后用 `buildSettings` 修正。executor 先查 xcodege
 
 - [ ] **Step 1: 改 camera ext target 为 system-extension**
 
-`project-mac.yml` 的 `iBridgeCameraExtension` target：
+`project-mac.yml` 的 `RemoteCrabCameraExtension` target：
 - `type: app-extension` → `type: system-extension`
 - `info.properties` 里删掉整个 `NSExtension` dict（system extension 不用它）
-- 保留 bundle id `com.ibridge.iBridgeReceiver.Camera`、entitlements、签名设置
+- 保留 bundle id `com.remotecrab.RemoteCrabReceiver.Camera`、entitlements、签名设置
 
-audio ext target (`iBridgeAudioExtension`) **保持 app-extension 不动**
+audio ext target (`RemoteCrabAudioExtension`) **保持 app-extension 不动**
 （AUv3 是 app extension，不受本次修正影响）。
 
 - [ ] **Step 2: 改 extension Info.plist 为 CMIO sysex 形状**
 
-`iBridgeCameraExtension/Info.plist`：删除 `NSExtension` 块，加入（对照
+`RemoteCrabCameraExtension/Info.plist`：删除 `NSExtension` 块，加入（对照
 ldenoue 样本）：
 
 ```xml
 <key>CMIOExtension</key>
 <dict>
     <key>CMIOExtensionMachServiceName</key>
-    <string>5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera</string>
+    <string>5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera</string>
 </dict>
 <key>NSSystemExtensionUsageDescription</key>
-<string>iBridge uses your iPhone as a camera for this Mac.</string>
+<string>RemoteCrab uses your iPhone as a camera for this Mac.</string>
 ```
 
 注意 `CMIOExtensionMachServiceName` 是 **team ID 前缀** + 名字（样本：
@@ -884,29 +884,29 @@ ldenoue 样本）：
 
 - [ ] **Step 3: 我们自己的 XPC mach service 改 team 前缀**
 
-`iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift` 里：
+`RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift` 里：
 
 ```swift
-public static let machServiceName = "5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames"
+public static let machServiceName = "5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera.frames"
 ```
 
 理由：system extension 的 sandbox 只能注册 team-ID 前缀的 mach service；
 host（sandboxed app）也只能 lookup team 前缀的 mach service。加 `.frames`
 后缀避免和 CMIOExtensionMachServiceName 撞名。
 
-**连带改动**：host 的 `iBridgeReceiver.entitlements` 若 sandbox 阻止
+**连带改动**：host 的 `RemoteCrabReceiver.entitlements` 若 sandbox 阻止
 mach-lookup，需要加（先不加，构建后运行时若 lookup 失败再加）：
 
 ```xml
 <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
 <array>
-    <string>5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera.frames</string>
+    <string>5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera.frames</string>
 </array>
 ```
 
 - [ ] **Step 4: host 加 System Extension capability + usage description**
 
-`iBridgeReceiver/iBridgeReceiver.entitlements` 加：
+`RemoteCrabReceiver/RemoteCrabReceiver.entitlements` 加：
 
 ```xml
 <key>com.apple.developer.system-extension.install</key>
@@ -916,7 +916,7 @@ mach-lookup，需要加（先不加，构建后运行时若 lookup 失败再加�
 `project-mac.yml` host 的 `info.properties` 加：
 
 ```yaml
-        NSSystemExtensionUsageDescription: iBridge installs a camera extension so other apps can use your iPhone as a webcam.
+        NSSystemExtensionUsageDescription: RemoteCrab installs a camera extension so other apps can use your iPhone as a webcam.
 ```
 
 同时给 host 和 extension 都加 App Groups capability（Apple 文档要求）：
@@ -925,7 +925,7 @@ entitlements 两边各加：
 ```xml
 <key>com.apple.security.application-groups</key>
 <array>
-    <string>5XNDF727Y6.com.ibridge</string>
+    <string>5XNDF727Y6.com.remotecrab</string>
 </array>
 ```
 
@@ -935,16 +935,16 @@ entitlements 两边各加：
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
+cd /Users/edwinhao/RemoteCrab
 xcodegen generate --spec project-mac.yml
-git checkout -- iBridgeReceiver/Info.plist 2>/dev/null  # 若 CFBundleLocalizations 被 xcodegen 删掉
-xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+git checkout -- RemoteCrabReceiver/Info.plist 2>/dev/null  # 若 CFBundleLocalizations 被 xcodegen 删掉
+xcodebuild -project RemoteCrabReceiver.xcodeproj -scheme RemoteCrabReceiver \
     -configuration Debug -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
     build 2>&1 | tail -5
-ls ~/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app/Contents/Library/SystemExtensions/
+ls ~/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-*/Build/Products/Debug/RemoteCrabReceiver.app/Contents/Library/SystemExtensions/
 ```
 
-Expected: `** BUILD SUCCEEDED **` + `iBridgeCameraExtension.systemextension`
+Expected: `** BUILD SUCCEEDED **` + `RemoteCrabCameraExtension.systemextension`
 出现在 SystemExtensions 目录。
 
 **若 provisioning 失败**（System Extension capability 加不上 App ID）：
@@ -955,25 +955,25 @@ Expected: `** BUILD SUCCEEDED **` + `iBridgeCameraExtension.systemextension`
 Run: `./scripts/test.sh 2>&1 | tail -5` → `All checks passed.`
 
 ```bash
-git add project-mac.yml iBridgeCameraExtension/Info.plist \
-    iBridgeCameraExtension/CameraExtension.entitlements \
-    iBridgeReceiver/iBridgeReceiver.entitlements \
-    iBridgeCore/Sources/iBridgeCore/Networking/IBCameraXPC.swift \
-    iBridgeCameraExtension/  # 若 xcodegen 重新生成了 extension 的 Info.plist
+git add project-mac.yml RemoteCrabCameraExtension/Info.plist \
+    RemoteCrabCameraExtension/CameraExtension.entitlements \
+    RemoteCrabReceiver/RemoteCrabReceiver.entitlements \
+    RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBCameraXPC.swift \
+    RemoteCrabCameraExtension/  # 若 xcodegen 重新生成了 extension 的 Info.plist
 git commit -m "Repackage camera extension as system extension (CMIO)"
 ```
 
 ### Task 7: host 激活代码 + /Applications 部署 + 注册验证
 
 **Files:**
-- Create: `iBridgeReceiver/SystemExtensionManager.swift`
-- Modify: `iBridgeReceiver/iBridgeReceiverApp.swift`（启动时请求激活）
+- Create: `RemoteCrabReceiver/SystemExtensionManager.swift`
+- Modify: `RemoteCrabReceiver/RemoteCrabReceiverApp.swift`（启动时请求激活）
 - Modify: `E2E_TESTING.md`、`AGENTS.md`、`HANDOFF.md`（状态更新）
 
 **Interfaces:**
 - Consumes: Task 6 的 `.systemextension` bundle + entitlement
 - Produces: `SystemExtensionManager`（`activate()` / delegate 回调 os_log）；
-  `systemextensionsctl list` 出现 `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`
+  `systemextensionsctl list` 出现 `5XNDF727Y6 com.remotecrab.RemoteCrabReceiver.Camera`
 
 **背景：** Apple 文档 + ldenoue 样本都要求：host 在 `/Applications` 里运行，
 调用 `OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier:queue:)`
@@ -983,7 +983,7 @@ git commit -m "Repackage camera extension as system extension (CMIO)"
 macOS 15/26 上用户还要在 系统设置 → 通用 → 登录项与扩展 → 相机扩展 里
 打开开关（这步是用户手动操作，executor 提示用户即可）。
 
-- [ ] **Step 1: 创建 `iBridgeReceiver/SystemExtensionManager.swift`**
+- [ ] **Step 1: 创建 `RemoteCrabReceiver/SystemExtensionManager.swift`**
 
 完整内容：
 
@@ -998,8 +998,8 @@ import SystemExtensions
 /// General → Login Items & Extensions → Camera Extensions.
 final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
 
-    private let log = Logger(subsystem: "com.ibridge", category: "sysex")
-    private static let extensionIdentifier = "com.ibridge.iBridgeReceiver.Camera"
+    private let log = Logger(subsystem: "com.remotecrab", category: "sysex")
+    private static let extensionIdentifier = "com.remotecrab.RemoteCrabReceiver.Camera"
 
     func activate() {
         let request = OSSystemExtensionRequest.activationRequest(
@@ -1036,7 +1036,7 @@ final class SystemExtensionManager: NSObject, OSSystemExtensionRequestDelegate {
 
 - [ ] **Step 2: 启动时触发激活**
 
-`iBridgeReceiver/iBridgeReceiverApp.swift`：在 `init()` 里（AXIsProcessTrusted
+`RemoteCrabReceiver/RemoteCrabReceiverApp.swift`：在 `init()` 里（AXIsProcessTrusted
 调用之后）实例化并激活。注意该文件有**用户未提交的改动**（init 里加了
 Accessibility prompt）——保留那些改动，只追加：
 
@@ -1045,7 +1045,7 @@ Accessibility prompt）——保留那些改动，只追加：
 ```
 
 注意：manager 是 delegate 持有方，request.delegate 是 weak——把 manager
-存成 app 级属性（在 `iBridgeReceiverApp` struct 加
+存成 app 级属性（在 `RemoteCrabReceiverApp` struct 加
 `private let sysexManager = SystemExtensionManager()`，init 里
 `sysexManager.activate()`），防止提前释放。
 
@@ -1053,27 +1053,27 @@ Accessibility prompt）——保留那些改动，只追加：
 
 Run:
 ```bash
-cd /Users/edwinhao/iBridge
-xcodebuild -project iBridgeReceiver.xcodeproj -scheme iBridgeReceiver \
+cd /Users/edwinhao/RemoteCrab
+xcodebuild -project RemoteCrabReceiver.xcodeproj -scheme RemoteCrabReceiver \
     -configuration Debug -allowProvisioningUpdates build 2>&1 | tail -3
-pkill -f "iBridgeReceiver.app" 2>/dev/null; sleep 1
-cp -R ~/Library/Developer/Xcode/DerivedData/iBridgeReceiver-*/Build/Products/Debug/iBridgeReceiver.app /Applications/
-open -a /Applications/iBridgeReceiver.app
+pkill -f "RemoteCrabReceiver.app" 2>/dev/null; sleep 1
+cp -R ~/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-*/Build/Products/Debug/RemoteCrabReceiver.app /Applications/
+open -a /Applications/RemoteCrabReceiver.app
 sleep 5
-systemextensionsctl list 2>&1 | grep -i -A2 ibridge
-log show --last 3m --predicate 'subsystem == "com.ibridge"' 2>/dev/null | grep -i sysex | tail -10
+systemextensionsctl list 2>&1 | grep -i -A2 remotecrab
+log show --last 3m --predicate 'subsystem == "com.remotecrab"' 2>/dev/null | grep -i sysex | tail -10
 ```
 
 Expected:
-- `systemextensionsctl list` 出现 `5XNDF727Y6 com.ibridge.iBridgeReceiver.Camera`
+- `systemextensionsctl list` 出现 `5XNDF727Y6 com.remotecrab.RemoteCrabReceiver.Camera`
   （状态可能是 `[activated waiting for user]` 或 `[activated enabled]`）
 - 若报 "needs user approval"：提示用户去 系统设置 → 通用 → 登录项与扩展 →
-  相机扩展 打开 iBridge 开关，然后重跑 `systemextensionsctl list`
+  相机扩展 打开 RemoteCrab 开关，然后重跑 `systemextensionsctl list`
 - 若 `log show --last` 在本机报错（已知问题），用
-  `log stream --predicate 'subsystem == "com.ibridge"' --timeout 10s` 替代
+  `log stream --predicate 'subsystem == "com.remotecrab"' --timeout 10s` 替代
 
 **若 activation 报 "must be in /Applications"**：确认 cp 目标路径、确认
-启动的是 /Applications 里的副本（`ps aux | grep iBridgeReceiver`）。
+启动的是 /Applications 里的副本（`ps aux | grep RemoteCrabReceiver`）。
 
 - [ ] **Step 4: 验证相机枚举**
 
@@ -1082,7 +1082,7 @@ Run:
 ffmpeg -f avfoundation -list_devices true -i "" 2>&1 | grep -i -A6 "video devices"
 ```
 
-Expected: 列表里出现 `iBridge Camera`。（此时没视频流是正常的——iPhone
+Expected: 列表里出现 `RemoteCrab Camera`。（此时没视频流是正常的——iPhone
 不在线；能枚举到就证明 CMIO 注册链路通了。）
 
 - [ ] **Step 5: 更新文档 + commit**
@@ -1092,14 +1092,14 @@ Expected: 列表里出现 `iBridge Camera`。（此时没视频流是正常的�
 `AGENTS.md`：Camera Extension 行 Notes 改为
 "system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle"。
 `HANDOFF.md` §4.1 保持两个 `[x]`，补一行：
-`- [ ] 系统设置里批准 iBridge camera extension（用户手动，一次性）`。
+`- [ ] 系统设置里批准 RemoteCrab camera extension（用户手动，一次性）`。
 
 ```bash
-git add iBridgeReceiver/SystemExtensionManager.swift iBridgeReceiver/iBridgeReceiverApp.swift \
+git add RemoteCrabReceiver/SystemExtensionManager.swift RemoteCrabReceiver/RemoteCrabReceiverApp.swift \
     E2E_TESTING.md AGENTS.md HANDOFF.md
 git commit -m "Activate camera sysex on launch; verify registration + docs"
 ```
 
-⚠️ `iBridgeReceiverApp.swift` 有用户的未提交改动——commit 前
-`git diff iBridgeReceiver/iBridgeReceiverApp.swift` 确认只多了 sysex 相关行，
+⚠️ `RemoteCrabReceiverApp.swift` 有用户的未提交改动——commit 前
+`git diff RemoteCrabReceiver/RemoteCrabReceiverApp.swift` 确认只多了 sysex 相关行，
 用户的 Accessibility prompt 改动一并提交是**可以的**（它属于同一功能面）。

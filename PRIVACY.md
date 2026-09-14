@@ -1,14 +1,14 @@
-# iBridge — Privacy Policy
+# RemoteCrab — Privacy Policy
 
 _Last updated: 2026-09-09_
 
-iBridge is a local-network utility that turns your iPhone or iPad into a
+RemoteCrab is a local-network utility that turns your iPhone or iPad into a
 camera, microphone, trackpad and keyboard for your Mac. This page
 describes what data the app handles and what it does **not** do.
 
 ## Summary
 
-iBridge is **local-first**. We do not run any servers. We do not
+RemoteCrab is **local-first**. We do not run any servers. We do not
 collect analytics. We do not require an account.
 
 The only data the app handles is the live media and input stream
@@ -29,15 +29,15 @@ is sent to the Mac over your local WiFi:
 | Keyboard | Key codes + UTF-8 text | Drives Mac input via `CGEventPost` |
 
 All of this is encrypted only by your WiFi network's WPA2/WPA3
-encryption. iBridge itself adds no application-layer encryption (the
+encryption. RemoteCrab itself adds no application-layer encryption (the
 session is between two devices on the same trusted LAN).
 
-## What iBridge does **not** collect
+## What RemoteCrab does **not** collect
 
 - **No analytics** — no Firebase, no Mixpanel, no telemetry
 - **No crash reporting** — the app does not phone home
 - **No account** — no sign-up, no email, no user identifier
-- **No remote server** — there is no iBridge backend
+- **No remote server** — there is no RemoteCrab backend
 - **No recording** — the app streams in real time only; nothing is
   saved to disk or cloud unless you do so explicitly through the
   receiving app (e.g. Zoom's "Record to cloud" toggle)
@@ -51,7 +51,7 @@ session is between two devices on the same trusted LAN).
 | **Local Network** | Bonjour discovery of your Mac on the same WiFi |
 
 You can revoke any of these at any time in **iOS Settings →
-Privacy**. iBridge will continue to work for the streams whose
+Privacy**. RemoteCrab will continue to work for the streams whose
 permissions are still granted.
 
 ## Permissions requested by the Mac app
@@ -68,7 +68,7 @@ Privacy & Security → Accessibility**.
 
 ## Children
 
-iBridge is not directed to children under 13. We do not knowingly
+RemoteCrab is not directed to children under 13. We do not knowingly
 collect any data from children. Because we do not collect any data at
 all, this is largely moot.
 
@@ -80,4 +80,4 @@ be reflected by a new "Last updated" date at the top.
 ## Contact
 
 If you have questions about this policy, contact us at
-[privacy@ibridge.app](mailto:privacy@ibridge.app).
+[privacy@remotecrab.app](mailto:privacy@remotecrab.app).

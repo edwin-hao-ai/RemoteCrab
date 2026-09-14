@@ -4,7 +4,7 @@
 
 **Goal:** Rebuild the iOS main UI around the Feature Dock (streams vs surfaces), replace the mock keyboard with a system-keyboard K3 layout, and give the trackpad a real gesture engine (drag / momentum scroll / pinch / accel curve / haptics / force click / three-finger) plus Labs (air mouse, wheel scroll).
 
-**Architecture:** Pure, unit-testable logic (acceleration curve, momentum decay, text diffing) lives in iBridgeCore. A single reusable UIKit touch surface (`TouchSurfaceUIView`) produces all `TouchEvent`s and is embedded by both the trackpad screen and the keyboard's mini-trackpad strip. `FeatureStore` (Plan 1) drives the dock and surface switching; `CGEventInjector` learns to apply modifier flags.
+**Architecture:** Pure, unit-testable logic (acceleration curve, momentum decay, text diffing) lives in RemoteCrabCore. A single reusable UIKit touch surface (`TouchSurfaceUIView`) produces all `TouchEvent`s and is embedded by both the trackpad screen and the keyboard's mini-trackpad strip. `FeatureStore` (Plan 1) drives the dock and surface switching; `CGEventInjector` learns to apply modifier flags.
 
 **Tech Stack:** Swift, SwiftUI, UIKit gesture recognizers, CoreMotion (labs), UIFeedbackGenerator, XCTest.
 
@@ -12,12 +12,12 @@
 - `FeatureStore`：`cameraOn/micOn/voiceOn/trackpadOn/keyboardOn`（private(set)，经 `set(feature:enabled:)` 修改）、`activeSurface: Surface`（public var）
 - `CaptureEngine.features`、`engine.sendTouch(_:)`、`engine.sendKey(_:)`（已按 trackpadOn/keyboardOn 门控）
 - `TouchEvent.Phase` 新相位：`dragStart / pinch / threeFingerSwipe / threeFingerTap / forceClick`
-- `IBModifierBar`（iBridgeCore 组件，`activeModifiers: Binding<Set<IBModifierBar.Modifier>>`，Modifier 有 `.control/.option/.command/.shift`）
+- `IBModifierBar`（RemoteCrabCore 组件，`activeModifiers: Binding<Set<IBModifierBar.Modifier>>`，Modifier 有 `.control/.option/.command/.shift`）
 
 ## Global Constraints
 
 - `./scripts/test.sh` 每个 Task 必须全绿（37 tests + 双 target）
-- 新代码 `@Observable`；不新增 `print(`（os_log, subsystem `com.ibridge`）；UI 无 emoji
+- 新代码 `@Observable`；不新增 `print(`（os_log, subsystem `com.remotecrab`）；UI 无 emoji
 - UI 文案沿用 `IBLocale` 既有 key；新文案直接硬编码英文（与现状一致），不进 xcstrings
 - **keycode 语义澄清**：`KeyEvent.keycode` 文档原写"USB HID"，但 Mac 端 `CGEventInjector.postKey` 直接把它当 `CGKeyCode`（macOS 虚拟键码）用。本计划统一为 **macOS CGKeyCode**，并修正 IBEvents.swift 注释。常用值：esc=53, tab=48, delete=51, return=36, ←=123, →=124, ↑=126, ↓=125
 - 触感用 `UIFeedbackGenerator`（scroll tick = `UISelectionFeedbackGenerator`，click/drag = `UIImpactFeedbackGenerator`），不用 CHHapticEngine —— 这是对 spec §4.2 措辞的收敛，理由是 generator 正是为这类离散反馈设计的，无需手工排布 haptic pattern
@@ -25,13 +25,13 @@
 
 ---
 
-### Task 1: iBridgeCore 纯逻辑 — TrackpadMath + TextDiff
+### Task 1: RemoteCrabCore 纯逻辑 — TrackpadMath + TextDiff
 
 **Files:**
-- Create: `iBridgeCore/Sources/iBridgeCore/Input/TrackpadMath.swift`
-- Create: `iBridgeCore/Sources/iBridgeCore/Input/TextDiff.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/TrackpadMathTests.swift`
-- Test: `iBridgeCore/Tests/iBridgeCoreTests/TextDiffTests.swift`
+- Create: `RemoteCrabCore/Sources/RemoteCrabCore/Input/TrackpadMath.swift`
+- Create: `RemoteCrabCore/Sources/RemoteCrabCore/Input/TextDiff.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/TrackpadMathTests.swift`
+- Test: `RemoteCrabCore/Tests/RemoteCrabCoreTests/TextDiffTests.swift`
 
 **Interfaces:**
 - Produces（Task 2/5 依赖）:
@@ -43,7 +43,7 @@
 
 ```swift
 import XCTest
-@testable import iBridgeCore
+@testable import RemoteCrabCore
 
 final class TrackpadMathTests: XCTestCase {
 
@@ -97,7 +97,7 @@ final class TrackpadMathTests: XCTestCase {
 
 ```swift
 import XCTest
-@testable import iBridgeCore
+@testable import RemoteCrabCore
 
 final class TextDiffTests: XCTestCase {
 
@@ -145,7 +145,7 @@ final class TextDiffTests: XCTestCase {
 
 - [ ] **Step 3: 运行确认失败**
 
-Run: `cd iBridgeCore && swift test --filter TrackpadMathTests`
+Run: `cd RemoteCrabCore && swift test --filter TrackpadMathTests`
 Expected: 编译失败
 
 - [ ] **Step 4: 实现 TrackpadMath.swift**
@@ -155,7 +155,7 @@ import CoreGraphics
 import Foundation
 
 /// Pure pointer/scroll math for the iPhone-as-trackpad surface.
-/// Kept in iBridgeCore (no UIKit) so the curves are unit-testable.
+/// Kept in RemoteCrabCore (no UIKit) so the curves are unit-testable.
 public enum TrackpadMath {
 
     /// Pointer acceleration: slow drags stay precise, fast flicks
@@ -243,11 +243,11 @@ public enum TextDiff {
 
 - [ ] **Step 6: 运行确认通过 + Commit**
 
-Run: `cd iBridgeCore && swift test`
+Run: `cd RemoteCrabCore && swift test`
 Expected: 全部 PASS（37 + 12 新 = 49）
 
 ```bash
-git add iBridgeCore/Sources/iBridgeCore/Input/TrackpadMath.swift iBridgeCore/Sources/iBridgeCore/Input/TextDiff.swift iBridgeCore/Tests/iBridgeCoreTests/TrackpadMathTests.swift iBridgeCore/Tests/iBridgeCoreTests/TextDiffTests.swift
+git add RemoteCrabCore/Sources/RemoteCrabCore/Input/TrackpadMath.swift RemoteCrabCore/Sources/RemoteCrabCore/Input/TextDiff.swift RemoteCrabCore/Tests/RemoteCrabCoreTests/TrackpadMathTests.swift RemoteCrabCore/Tests/RemoteCrabCoreTests/TextDiffTests.swift
 git commit -m "feat(core): trackpad accel/momentum math + text diffing"
 ```
 
@@ -256,8 +256,8 @@ git commit -m "feat(core): trackpad accel/momentum math + text diffing"
 ### Task 2: CGEventInjector 修饰键端到端 + keycode 注释修正（Mac 端 + Core 注释）
 
 **Files:**
-- Modify: `iBridgeReceiver/Input/CGEventInjector.swift`
-- Modify: `iBridgeCore/Sources/iBridgeCore/Networking/IBEvents.swift`（注释）
+- Modify: `RemoteCrabReceiver/Input/CGEventInjector.swift`
+- Modify: `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift`（注释）
 
 **Interfaces:**
 - Consumes: `TouchEvent.modifiers` / `KeyEvent.modifiers` bitmask（shift=1, control=2, option=4, command=8）
@@ -318,7 +318,7 @@ Run: `./scripts/test.sh`
 Expected: 49 tests + 双 target 绿
 
 ```bash
-git add iBridgeReceiver/Input/CGEventInjector.swift iBridgeCore/Sources/iBridgeCore/Networking/IBEvents.swift
+git add RemoteCrabReceiver/Input/CGEventInjector.swift RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift
 git commit -m "fix(mac): apply modifier flags to injected events end-to-end"
 ```
 
@@ -327,7 +327,7 @@ git commit -m "fix(mac): apply modifier flags to injected events end-to-end"
 ### Task 3: TouchSurfaceUIView — 统一手势引擎
 
 **Files:**
-- Create: `iBridgeCapture/Input/TouchSurface.swift`
+- Create: `RemoteCrabCapture/Input/TouchSurface.swift`
 - Delete（在 Task 6 中随旧屏删除，本任务不动）: 旧 `TouchpadUIView` 继续存在直到 Task 6
 
 **Interfaces:**
@@ -404,7 +404,7 @@ Expected: 绿（新文件暂未被任何屏引用，不影响行为）
 - [ ] **Step 3: Commit**
 
 ```bash
-git add iBridgeCapture/Input/TouchSurface.swift
+git add RemoteCrabCapture/Input/TouchSurface.swift
 git commit -m "feat(ios): unified touch surface gesture engine"
 ```
 
@@ -413,8 +413,8 @@ git commit -m "feat(ios): unified touch surface gesture engine"
 ### Task 4: FeatureDock + ContentView 重构 + 画中画预览
 
 **Files:**
-- Create: `iBridgeCapture/FeatureDock.swift`
-- Modify: `iBridgeCapture/ContentView.swift`
+- Create: `RemoteCrabCapture/FeatureDock.swift`
+- Modify: `RemoteCrabCapture/ContentView.swift`
 
 **Interfaces:**
 - Consumes: `engine.features`（FeatureStore）、`Surface` 枚举
@@ -439,14 +439,14 @@ git commit -m "feat(ios): unified touch surface gesture engine"
 - `.cameraPreview` 面下：右上角一个 "Done" 圆形按钮（`xmark` 图标）→ 回到 `.trackpad`
 - 顶部栏保留：IBStatusPill + 天线 + 设置；中间的模式切换器删除
 - 相机未开时 `.cameraPreview` 面显示占位（`video.slash` 图标 + "Camera is off" 文本 + 一个 "Turn on" 按钮 `set(feature: .camera, enabled: true)`）
-- `.task { await engine.startIfNeeded() }` 保留；`IBRIDGE_AUTO_START` 逻辑保留
+- `.task { await engine.startIfNeeded() }` 保留；`REMOTECRAB_AUTO_START` 逻辑保留
 
 - [ ] **Step 1: 实现 FeatureDock.swift**（规格如上）
 - [ ] **Step 2: 重构 ContentView.swift**（规格如上；ConnectionSheet 保持不动）
 - [ ] **Step 3: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/FeatureDock.swift iBridgeCapture/ContentView.swift
+git add RemoteCrabCapture/FeatureDock.swift RemoteCrabCapture/ContentView.swift
 git commit -m "feat(ios): feature dock home — streams vs surfaces, PiP camera"
 ```
 
@@ -455,8 +455,8 @@ git commit -m "feat(ios): feature dock home — streams vs surfaces, PiP camera"
 ### Task 5: KeyboardScreen 重写 — K3 键鼠一体
 
 **Files:**
-- Rewrite: `iBridgeCapture/KeyboardScreen.swift`（整文件替换）
-- Create: `iBridgeCapture/Input/SystemKeyboardInput.swift`
+- Rewrite: `RemoteCrabCapture/KeyboardScreen.swift`（整文件替换）
+- Create: `RemoteCrabCapture/Input/SystemKeyboardInput.swift`
 
 **Interfaces:**
 - Consumes: Task 1 `TextDiff.events(from:to:)`、Task 3 `TouchSurface`、macOS keycode 约定（Global Constraints）
@@ -484,7 +484,7 @@ git commit -m "feat(ios): feature dock home — streams vs surfaces, PiP camera"
 - [ ] **Step 3: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/KeyboardScreen.swift iBridgeCapture/Input/SystemKeyboardInput.swift
+git add RemoteCrabCapture/KeyboardScreen.swift RemoteCrabCapture/Input/SystemKeyboardInput.swift
 git commit -m "feat(ios): K3 keyboard — system IME + shortcut bar + mini trackpad"
 ```
 
@@ -493,15 +493,15 @@ git commit -m "feat(ios): K3 keyboard — system IME + shortcut bar + mini track
 ### Task 6: TouchpadScreen 重写 — 接入引擎 + coach marks
 
 **Files:**
-- Rewrite: `iBridgeCapture/TouchpadScreen.swift`（整文件替换；旧 `TouchpadUIView`/`TouchpadCaptureSurface` 随之删除）
+- Rewrite: `RemoteCrabCapture/TouchpadScreen.swift`（整文件替换；旧 `TouchpadUIView`/`TouchpadCaptureSurface` 随之删除）
 
 **Interfaces:**
-- Consumes: Task 3 `TouchSurface`；`@AppStorage("ibridge.ios.trackpadSens")`
+- Consumes: Task 3 `TouchSurface`；`@AppStorage("remotecrab.ios.trackpadSens")`
 
 **规格：**
-- 全屏 `TouchSurface`：onEvent → `engine.sendTouch`；modifierMask 从 `IBModifierBar` 的 @State Set 实时换算（shift=1, control=2, option=4, command=8）；sensitivity 从 `@AppStorage("ibridge.ios.trackpadSens")` 读
+- 全屏 `TouchSurface`：onEvent → `engine.sendTouch`；modifierMask 从 `IBModifierBar` 的 @State Set 实时换算（shift=1, control=2, option=4, command=8）；sensitivity 从 `@AppStorage("remotecrab.ios.trackpadSens")` 读
 - 光标预览圆点 + 按下扫描线：沿用现有视觉代码（从旧文件搬）
-- **删除**中央常驻 gestureHints 卡 → 改为 coach marks：前 3 次进入触控板面时淡显（`@AppStorage("ibridge.ios.trackpadCoachShown")` 计数 Int，>= 3 不再显示；显示时 3.5 秒后淡出，或任一触摸立即消失）。coach 内容三行：拖动=移动光标 / 双击按住=拖拽 / 双指=滚动·右键
+- **删除**中央常驻 gestureHints 卡 → 改为 coach marks：前 3 次进入触控板面时淡显（`@AppStorage("remotecrab.ios.trackpadCoachShown")` 计数 Int，>= 3 不再显示；显示时 3.5 秒后淡出，或任一触摸立即消失）。coach 内容三行：拖动=移动光标 / 双击按住=拖拽 / 双指=滚动·右键
 - 底部保留 `IBModifierBar`（去掉 "MODIFIER KEYS" 小标题，坞上方悬浮即可）
 - 顶部 "TRACKPAD MODE" pill 删除（功能坞已表明身份）
 
@@ -509,7 +509,7 @@ git commit -m "feat(ios): K3 keyboard — system IME + shortcut bar + mini track
 - [ ] **Step 2: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/TouchpadScreen.swift
+git add RemoteCrabCapture/TouchpadScreen.swift
 git commit -m "feat(ios): trackpad surface — full gestures, haptics, coach marks"
 ```
 
@@ -518,8 +518,8 @@ git commit -m "feat(ios): trackpad surface — full gestures, haptics, coach mar
 ### Task 7: 实验室 — 空中鼠标 + 转盘滚动
 
 **Files:**
-- Modify: `iBridgeCapture/IOSSettingsView.swift`（加实验室 section）
-- Modify: `iBridgeCapture/Input/TouchSurface.swift`（加两个 labs 开关属性 + 实现）
+- Modify: `RemoteCrabCapture/IOSSettingsView.swift`（加实验室 section）
+- Modify: `RemoteCrabCapture/Input/TouchSurface.swift`（加两个 labs 开关属性 + 实现）
 - Modify: `project-ios.yml`（若 CoreMotion 需要——不需要，系统框架直接 import）
 
 **Interfaces:**
@@ -531,8 +531,8 @@ git commit -m "feat(ios): trackpad surface — full gestures, haptics, coach mar
 **设置页实验室 section（IOSSettingsView，inputSection 之后插入）：**
 
 ```swift
-    @AppStorage("ibridge.ios.labAirMouse")   private var labAirMouse = false
-    @AppStorage("ibridge.ios.labWheelScroll") private var labWheelScroll = false
+    @AppStorage("remotecrab.ios.labAirMouse")   private var labAirMouse = false
+    @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
 
     private var labsSection: some View {
         Section {
@@ -563,7 +563,7 @@ git commit -m "feat(ios): trackpad surface — full gestures, haptics, coach mar
 - [ ] **Step 3: `./scripts/test.sh` 全绿 + Commit**
 
 ```bash
-git add iBridgeCapture/IOSSettingsView.swift iBridgeCapture/Input/TouchSurface.swift iBridgeCapture/TouchpadScreen.swift
+git add RemoteCrabCapture/IOSSettingsView.swift RemoteCrabCapture/Input/TouchSurface.swift RemoteCrabCapture/TouchpadScreen.swift
 git commit -m "feat(ios): labs — air mouse (gyro) and wheel scrolling"
 ```
 

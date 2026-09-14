@@ -31,9 +31,9 @@ xcuserdata/
 DerivedData/
 .build/
 
-# iBridgeCore Swift Package
-iBridgeCore/.build/
-iBridgeCore/Package.resolved
+# RemoteCrabCore Swift Package
+RemoteCrabCore/.build/
+RemoteCrabCore/Package.resolved
 # Superpowers brainstorming sessions
 .superpowers/
 # MDDock local metadata (do not commit)
@@ -50,3 +50,4 @@ dist/
 
 # e2e run logs
 .e2e-logs/
+__pycache__/

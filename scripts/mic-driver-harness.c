@@ -20,7 +20,7 @@ static OSStatus getData(AudioObjectID obj, AudioObjectPropertySelector sel, UInt
     return (*iface)->GetPropertyData(inst, obj, 0, &a, 0, NULL, size, &got, buf);
 }
 
-// mic-driver-harness.c — dlopen test bench for the iBridgeMicrophone HAL
+// mic-driver-harness.c — dlopen test bench for the RemoteCrabMicrophone HAL
 // plug-in. Replays the exact call sequence observed in
 // Core-Audio-Driver-Service (factory → QI → Release(factory) → use),
 // then walks the property tree and the full host enumeration
@@ -28,12 +28,12 @@ static OSStatus getData(AudioObjectID obj, AudioObjectPropertySelector sel, UInt
 // Build & run (from the repo root):
 //   clang -arch x86_64 -o /tmp/mic-harness scripts/mic-driver-harness.c \
 //     -framework CoreFoundation -framework CoreAudio
-//   /tmp/mic-harness /path/to/iBridgeMicrophone   # binary inside the .driver
+//   /tmp/mic-harness /path/to/RemoteCrabMicrophone   # binary inside the .driver
 int main(int argc, char **argv) {
-    const char *path = argc > 1 ? argv[1] : "/Library/Audio/Plug-Ins/HAL/iBridgeMicrophone.driver/Contents/MacOS/iBridgeMicrophone";
+    const char *path = argc > 1 ? argv[1] : "/Library/Audio/Plug-Ins/HAL/RemoteCrabMicrophone.driver/Contents/MacOS/RemoteCrabMicrophone";
     void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!h) { STEP("dlopen FAILED: %s\n", dlerror()); return 1; }
-    FactoryFn f = (FactoryFn)dlsym(h, "iBridgeMicrophone_Create");
+    FactoryFn f = (FactoryFn)dlsym(h, "RemoteCrabMicrophone_Create");
     CFUUIDRef type = CFUUIDCreateFromString(NULL, CFSTR("443ABAB8-E7B3-491A-B985-BEB9187030DB"));
     inst = f(NULL, type);
     STEP("factory OK %p\n", inst);
@@ -131,7 +131,7 @@ int main(int argc, char **argv) {
     }
     {   // uidd translate
         AudioObjectPropertyAddress a = { 'uidd', kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
-        CFStringRef uid = CFSTR("com.ibridge.iBridgeMicrophone.device");
+        CFStringRef uid = CFSTR("com.remotecrab.RemoteCrabMicrophone.device");
         AudioObjectID v = 0; UInt32 got = sizeof v;
         st = (*iface)->GetPropertyData(inst, 1, 0, &a, sizeof uid, &uid, sizeof v, &got, &v);
         STEP("plugIn uidd: st=%d val=%u\n", (int)st, v);

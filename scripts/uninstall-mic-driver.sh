@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Remove the iBridge virtual-microphone HAL driver and restart coreaudiod.
+# Remove the RemoteCrab virtual-microphone HAL driver and restart coreaudiod.
 #
 set -euo pipefail
 
-DEST="/Library/Audio/Plug-Ins/HAL/FamiliarMicrophone.driver"
+DEST="/Library/Audio/Plug-Ins/HAL/RemoteCrabMicrophone.driver"
 
 if [ ! -e "$DEST" ]; then
-  echo "iBridge Microphone driver is not installed."
+  echo "RemoteCrab Microphone driver is not installed."
   exit 0
 fi
 

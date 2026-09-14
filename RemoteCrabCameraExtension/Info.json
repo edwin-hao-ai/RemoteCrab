@@ -1,0 +1,16 @@
+{
+    "info": {
+        "version": 1,
+        "author": "RemoteCrab"
+    },
+    "main": {
+        "executable": "CameraExtensionMain",
+        "identifier": "com.remotecrab.camera-extension",
+        "version": "0.1"
+    },
+    "extension": {
+        "identifier": "com.remotecrab.camera-extension",
+        "extension-point": "com.apple.cmioextension-provider",
+        "platform": "macOS"
+    }
+}

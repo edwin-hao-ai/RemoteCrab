@@ -4,16 +4,16 @@
 #
 # This is the "one command to verify the iOS side works" workflow.
 # It:
-#   1. Builds the iBridgeCapture.app for the iPhone 17 Pro simulator
+#   1. Builds the RemoteCrabCapture.app for the iPhone 17 Pro simulator
 #      (or the first booted iOS 26 simulator it finds).
 #   2. Reinstalls the app on the simulator.
 #   3. Grants the required permissions (camera, microphone).
-#   4. Launches the app with IBRIDGE_AUTO_START=1 (skips onboarding,
+#   4. Launches the app with REMOTECRAB_AUTO_START=1 (skips onboarding,
 #      auto-starts streaming).
 #   5. Captures screenshots showing the iOS side in its streaming state.
 #
 # To complete the full e2e you also need:
-#   • iBridgeReceiver running on the host Mac
+#   • RemoteCrabReceiver running on the host Mac
 #   • Both on the same WiFi (Bonjour discovery)
 #   • A real iPhone (when the simulator can't be used)
 #
@@ -41,11 +41,11 @@ else
 fi
 
 mkdir -p "$OUTPUT_DIR"
-APP_PATH="$ROOT/iBridgeCapture.xcodeproj"
-APP_NAME="iBridgeCapture"
+APP_PATH="$ROOT/RemoteCrabCapture.xcodeproj"
+APP_NAME="RemoteCrabCapture"
 
 echo "═══════════════════════════════════════════════════════"
-echo "  iBridge simulator e2e"
+echo "  RemoteCrab simulator e2e"
 echo "═══════════════════════════════════════════════════════"
 echo "Simulator:  $SIM"
 echo "App path:   $APP_PATH"
@@ -53,11 +53,11 @@ echo "Output:     $OUTPUT_DIR"
 echo ""
 
 # 1. Build
-echo "→ Building iBridgeCapture for simulator..."
+echo "→ Building RemoteCrabCapture for simulator..."
 cd "$ROOT"
 xcodebuild \
-    -project iBridgeCapture.xcodeproj \
-    -scheme iBridgeCapture \
+    -project RemoteCrabCapture.xcodeproj \
+    -scheme RemoteCrabCapture \
     -destination "id=$SIM" \
     -configuration Debug \
     build \
@@ -67,7 +67,7 @@ echo ""
 
 # 2. Locate built .app
 APP=$(find ~/Library/Developer/Xcode/DerivedData \
-    -name "iBridgeCapture.app" -path "*Debug-iphonesimulator*" 2>/dev/null | head -1)
+    -name "RemoteCrabCapture.app" -path "*Debug-iphonesimulator*" 2>/dev/null | head -1)
 if [[ -z "$APP" ]]; then
     echo "❌ Build didn't produce $APP_NAME.app"
     exit 1
@@ -90,11 +90,11 @@ done
 
 # 5. Launch with auto-start
 echo ""
-echo "→ Launching with IBRIDGE_AUTO_START=1..."
+echo "→ Launching with REMOTECRAB_AUTO_START=1..."
 # Per simctl help: "If you want to set environment variables in the
 # resulting environment, set them in the calling environment with a
 # SIMCTL_CHILD_ prefix."
-SIMCTL_CHILD_IBRIDGE_AUTO_START=1 xcrun simctl launch \
+SIMCTL_CHILD_REMOTECRAB_AUTO_START=1 xcrun simctl launch \
     "$SIM" com.ibridge.iBridgeCapture 2>&1 | tail -1
 
 # 6. Wait + capture
@@ -112,14 +112,14 @@ xcrun simctl io "$SIM" screenshot "$SHOT2" 2>&1 | tail -1
 
 # 8. Generate summary
 cat > "$OUTPUT_DIR/SUMMARY.txt" <<EOF
-iBridge simulator e2e
+RemoteCrab simulator e2e
 ═══════════════════════════
 
 This run executed:
-  • Built iBridgeCapture.app for iPhone 17 Pro simulator
+  • Built RemoteCrabCapture.app for iPhone 17 Pro simulator
     (iOS 17+ deployment target, Liquid Glass fallback path)
   • Granted camera + microphone permissions
-  • Launched with IBRIDGE_AUTO_START=1 to skip onboarding and
+  • Launched with REMOTECRAB_AUTO_START=1 to skip onboarding and
     auto-start streaming
 
 Screenshots:
@@ -127,16 +127,16 @@ Screenshots:
   $SHOT2
 
 To complete the full e2e (live frames on the Mac):
-  1. In Xcode, open iBridgeReceiver.xcodeproj and Run on "My Mac".
-  2. Watch the Mac menu bar for the iBridge icon. Click → Open
+  1. In Xcode, open RemoteCrabReceiver.xcodeproj and Run on "My Mac".
+  2. Watch the Mac menu bar for the RemoteCrab icon. Click → Open
      Control Panel / Open Preview Window.
-  3. The simulator's iBridgeCapture will start streaming to the
+  3. The simulator's RemoteCrabCapture will start streaming to the
      Mac over Bonjour.
   4. The Mac should show "CONNECTED" in the status pill with
      a green dot.
 
 For real iPhone 14 (iOS 18) testing:
-  1. In Xcode, open iBridgeCapture.xcodeproj.
+  1. In Xcode, open RemoteCrabCapture.xcodeproj.
   2. Set scheme to your iPhone.
   3. ⌘R — Xcode will install on the device.
   4. Grant camera/mic/local-network permissions.
