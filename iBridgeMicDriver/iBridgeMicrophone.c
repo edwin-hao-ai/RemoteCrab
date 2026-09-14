@@ -235,14 +235,16 @@ static OSStatus iBridge_AbortDeviceConfigurationChange(AudioServerPlugInDriverRe
 static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddress *addr) {
     switch (objectID) {
         case kObjectID_PlugIn:
-            return addr->mSelector == kAudioObjectPropertyName ||
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyManufacturer ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
                    addr->mSelector == kAudioPlugInPropertyBundleID ||
                    addr->mSelector == kAudioPlugInPropertyDeviceList ||
                    addr->mSelector == kAudioPlugInPropertyTranslateUIDToDevice;
         case kObjectID_Device:
-            return addr->mSelector == kAudioObjectPropertyName ||
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyManufacturer ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
                    addr->mSelector == kAudioObjectPropertyControlList ||
@@ -260,11 +262,13 @@ static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddre
                    addr->mSelector == kAudioDevicePropertySafetyOffset ||
                    addr->mSelector == kAudioDevicePropertyNominalSampleRate ||
                    addr->mSelector == kAudioDevicePropertyAvailableNominalSampleRates ||
+                   addr->mSelector == kAudioDevicePropertyZeroTimeStampPeriod ||
                    addr->mSelector == kAudioDevicePropertyIsHidden ||
                    addr->mSelector == kAudioDevicePropertyPreferredChannelsForStereo ||
                    addr->mSelector == kAudioDevicePropertyPreferredChannelLayout;
         case kObjectID_Stream_Input:
-            return addr->mSelector == kAudioObjectPropertyName ||
+            return addr->mSelector == kAudioObjectPropertyClass ||
+                   addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
                    addr->mSelector == kAudioStreamPropertyIsActive ||
                    addr->mSelector == kAudioStreamPropertyDirection ||
@@ -293,6 +297,10 @@ static OSStatus iBridge_IsPropertySettable(AudioServerPlugInDriverRef inDriver, 
 
 static UInt32 propSize(AudioObjectID objectID, const AudioObjectPropertyAddress *addr) {
     switch (addr->mSelector) {
+        case kAudioObjectPropertyClass:
+            return sizeof(AudioClassID);
+        case kAudioDevicePropertyZeroTimeStampPeriod:
+            return sizeof(UInt32);
         case kAudioObjectPropertyName:
         case kAudioObjectPropertyManufacturer:
         case kAudioDevicePropertyDeviceUID:
@@ -348,6 +356,12 @@ static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddres
     #define PUT(T, V) do { if (inDataSize < sizeof(T)) return kAudioHardwareBadPropertySizeError; *(T *)outData = (V); *outDataSize = sizeof(T); } while (0)
     CFStringRef s;
     switch (addr->mSelector) {
+        case kAudioObjectPropertyClass: {
+            AudioClassID v = objectID == kObjectID_PlugIn ? kAudioPlugInClassID
+                           : objectID == kObjectID_Device ? kAudioDeviceClassID
+                           : kAudioStreamClassID;
+            PUT(AudioClassID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyZeroTimeStampPeriod: { UInt32 v = 480; PUT(UInt32, v); return kAudioHardwareNoError; }
         case kAudioObjectPropertyName:
             s = objectID == kObjectID_Stream_Input ? CFSTR("Familiar Microphone Input") : CFSTR("Familiar Microphone");
             PUT(CFStringRef, s); return kAudioHardwareNoError;
