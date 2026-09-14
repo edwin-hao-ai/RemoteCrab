@@ -728,7 +728,19 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     authentication), which faults on a plain arm64 binary's unsigned
     function pointers (SIGILL right after the "Loading" line). Every
     shipping third-party driver (Teams/Lark/TFF/…) is x86_64 — the
-    x86_64 helper has no PAC. Debug path when a
+    x86_64 helper has no PAC. (f) **`QueryInterface` MUST `AddRef`
+    (COM contract)**: the x86_64 host's `get_asp_interface` calls
+    `vtable->Release` on the factory reference right after QI — a QI
+    that only returns the pointer drops the refcount to 0 and frees
+    the driver before first use; the host then calls `AddRef` through
+    a dangling/NULL vtable and SIGSEGVs at 0x10 in `load_driver`
+    (this crash is in the main `Core-Audio-Driver-Service`, not the
+    helper). Disassembly of the service binary
+    (`otool -tvV`, trace `get_asp_interface`) shows the exact
+    QI-then-Release sequence — the definitive answer when the dlopen
+    harness "passes" but the real host still crashes; extend the
+    harness to replay the host's exact call sequence
+    (factory → QI → Release → use). Debug path when a
     driver "installs but never appears": dlopen harness
     (`dlopen` + `dlsym` factory + `Initialize`) reproduces load-time
     crashes outside coreaudiod; compare against a working driver in
