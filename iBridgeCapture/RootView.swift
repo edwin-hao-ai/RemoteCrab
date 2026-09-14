@@ -11,6 +11,9 @@ import iBridgeCore
 struct RootView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @AppStorage("ibridge.didOnboard") private var didOnboard: Bool = false
+    /// Settings → "Replay Onboarding" flips this; RootView consumes it
+    /// and drops back into the onboarding stage.
+    @AppStorage("ibridge.replayOnboarding") private var replayOnboarding: Bool = false
     @State private var stage: Stage = .onboarding
 
     enum Stage {
@@ -45,6 +48,11 @@ struct RootView: View {
             } else {
                 stage = .onboarding
             }
+        }
+        .onChange(of: replayOnboarding) { _, on in
+            guard on else { return }
+            replayOnboarding = false
+            advance(to: .onboarding)
         }
     }
 

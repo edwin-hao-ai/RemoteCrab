@@ -217,6 +217,15 @@ struct IOSSettingsView: View {
                 Label("Privacy Policy", systemImage: "hand.raised.fill")
             }
             .accessibilityLabel("Privacy Policy (opens in Safari)")
+
+            Button {
+                UserDefaults.standard.set(false, forKey: "ibridge.didOnboard")
+                UserDefaults.standard.set(true, forKey: "ibridge.replayOnboarding")
+                dismiss()
+            } label: {
+                Label(IBLocale.Settings.replayOnboarding, systemImage: "play.rectangle")
+            }
+            .accessibilityLabel(IBLocale.Settings.replayOnboarding)
         } header: {
             Text(IBLocale.Settings.about)
         } footer: {

@@ -168,6 +168,7 @@ public enum IBLocale {
         public static let about = IBL("About")
         public static let accessibility = IBL("Accessibility")
         public static let permissions = IBL("Permissions")
+        public static let replayOnboarding = IBL("Replay Onboarding")
 
         public enum Resolution: String, CaseIterable, Identifiable {
             case p720  = "720p"

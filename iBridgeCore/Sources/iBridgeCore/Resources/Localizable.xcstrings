@@ -3365,6 +3365,22 @@
           }
         }
       }
+    },
+    "Replay Onboarding": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replay Onboarding"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新查看引导"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
