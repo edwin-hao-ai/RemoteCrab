@@ -186,6 +186,25 @@ public struct FeatureControl: Codable, Sendable, Equatable {
     }
 }
 
+/// Which physical camera the iPhone streams from.
+public enum IBCameraPosition: String, Codable, Sendable, CaseIterable {
+    case front
+    case back
+
+    public var toggled: IBCameraPosition { self == .back ? .front : .back }
+}
+
+/// Mac → iPhone: switch the streaming camera (kind 0x15). One-shot
+/// action, not a toggle — the iPhone reconfigures its capture session
+/// and reports the new position back in its next `FeatureStateSnapshot`.
+public struct IBCameraCommand: Codable, Sendable, Equatable {
+    public let position: IBCameraPosition
+
+    public init(position: IBCameraPosition) {
+        self.position = position
+    }
+}
+
 /// Which interaction surface currently occupies the iPhone screen.
 public enum Surface: String, Codable, Sendable {
     case trackpad
@@ -202,6 +221,9 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
     public let trackpadOn: Bool
     public let keyboardOn: Bool
     public let activeSurface: Surface
+    /// Which camera is streaming. Defaults to `.back` when absent so
+    /// snapshots from older builds still decode.
+    public let cameraPosition: IBCameraPosition
     public let timestampMicros: UInt64
 
     public init(
@@ -211,6 +233,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         trackpadOn: Bool,
         keyboardOn: Bool,
         activeSurface: Surface,
+        cameraPosition: IBCameraPosition = .back,
         timestampMicros: UInt64
     ) {
         self.cameraOn = cameraOn
@@ -219,7 +242,20 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         self.trackpadOn = trackpadOn
         self.keyboardOn = keyboardOn
         self.activeSurface = activeSurface
+        self.cameraPosition = cameraPosition
         self.timestampMicros = timestampMicros
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cameraOn = try c.decode(Bool.self, forKey: .cameraOn)
+        micOn = try c.decode(Bool.self, forKey: .micOn)
+        voiceOn = try c.decode(Bool.self, forKey: .voiceOn)
+        trackpadOn = try c.decode(Bool.self, forKey: .trackpadOn)
+        keyboardOn = try c.decode(Bool.self, forKey: .keyboardOn)
+        activeSurface = try c.decode(Surface.self, forKey: .activeSurface)
+        cameraPosition = try c.decodeIfPresent(IBCameraPosition.self, forKey: .cameraPosition) ?? .back
+        timestampMicros = try c.decode(UInt64.self, forKey: .timestampMicros)
     }
 }
 

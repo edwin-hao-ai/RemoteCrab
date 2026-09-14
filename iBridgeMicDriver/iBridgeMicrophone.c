@@ -1,15 +1,15 @@
 //
 //  iBridgeMicrophone.c
 //  A minimal CoreAudio HAL AudioServerPlugIn that exposes ONE input-only
-//  device ("iBridge Microphone") whose samples are read from the shared
-//  ring fed by the iBridge Mac app.
+//  device ("iBridge Microphone") whose samples are read from an
+//  in-process ring fed by the Familiar Mac app over loopback UDP.
 //
 //  Based on the canonical Apple AudioServerPlugIn object model
 //  (driver → device → stream). Deliberately tiny: no output, no volume,
 //  no sample-rate conversion — just a 48 kHz / 1 ch / Float32 input.
 //
 //  The render path (DoIOOperation) NEVER allocates or locks: it copies
-//  from the pre-mapped ring and converts Int16 → Float32.
+//  from the ring and converts Int16 → Float32.
 //
 
 #include <CoreAudio/AudioServerPlugIn.h>
@@ -21,6 +21,7 @@
 #include <mach/mach_time.h>
 
 #include "SharedRing.h"
+#include "MicSocketListener.h"
 
 // MARK: - Object IDs
 
@@ -55,6 +56,7 @@ typedef struct {
     UInt32 mRefCount;
     AudioObjectID mDeviceObjectID;
     IBRing *mRing;
+    IBMicSocketListener *mListener;
     int16_t *mScratch;      // preallocated render scratch (frames)
     int64_t mScratchFrames;
     UInt64 mIOCount;
@@ -125,7 +127,13 @@ void *iBridgeMicrophone_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequested
     // Preallocate render scratch for the largest plausible IO size.
     driver->mScratchFrames = 8192;
     driver->mScratch = (int16_t *)calloc((size_t)driver->mScratchFrames, sizeof(int16_t));
-    driver->mRing = IBRingOpen();
+    // The ring lives in this process: the sandboxed app can't shm_open
+    // into coreaudiod, so it feeds PCM over loopback UDP and the socket
+    // listener (single writer) fills the ring. The IO thread stays the
+    // single reader — SPSC semantics unchanged.
+    driver->mRing = (IBRing *)calloc(1, sizeof(IBRing));
+    IBRingInit(driver->mRing);
+    driver->mListener = IBMicSocketListenerStart(driver->mRing);
     mach_timebase_info_data_t tb;
     mach_timebase_info(&tb);
     double hostPerFrame = ((double)NSEC_PER_SEC / kIB_SampleRate) * (double)tb.denom / (double)tb.numer;
@@ -149,6 +157,8 @@ static ULONG iBridge_Release(void *inDriver) {
     iBridgeDriver *driver = (iBridgeDriver *)inDriver;
     ULONG count = (ULONG)__sync_sub_and_fetch(&driver->mRefCount, 1);
     if (count == 0) {
+        IBMicSocketListenerStop(driver->mListener);
+        free(driver->mRing);
         free(driver->mScratch);
         free(driver);
     }

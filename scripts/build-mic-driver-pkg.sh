@@ -5,9 +5,14 @@
 # never a shell script. Installer.app copies the HAL driver into
 # /Library/Audio/Plug-Ins/HAL and restarts coreaudiod.
 #
-# The app can embed the produced pkg (Contents/Resources) and open it
-# from Preferences → Microphone Driver. For public distribution, sign
-# it with a "Developer ID Installer" cert and notarize:
+# SIGNING RULE (hard-won): the driver must be signed with **Developer ID
+# Application**, not "Apple Development" — coreaudiod runs with library
+# validation and silently refuses to load development-signed HAL
+# plug-ins (the pkg installs fine; the device just never appears).
+#
+# The app embeds the produced pkg (Contents/Resources) and opens it
+# from Preferences → Microphone Driver. For public distribution, also
+# productsign with a "Developer ID Installer" cert and notarize:
 #   productsign --sign "Developer ID Installer: …" in.pkg out.pkg
 #   xcrun notarytool submit out.pkg --keychain-profile … --wait
 #
@@ -16,16 +21,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DERIVED="${IBRIDGE_DERIVED:-$ROOT/.build/mic-derived}"
 TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
-VERSION="${IBRIDGE_MIC_VERSION:-0.2}"
-DRIVER_NAME="FamiliarMicrophone.driver"
+IDENTITY="${IBRIDGE_MIC_IDENTITY:-Developer ID Application}"
+VERSION="${IBRIDGE_MIC_VERSION:-0.2.1}"
+DRIVER_NAME="iBridgeMicrophone.driver"
 OUT_DIR="$ROOT/dist"
 OUT="$OUT_DIR/FamiliarMicrophone.pkg"
 
-echo "== building $DRIVER_NAME =="
+echo "== building $DRIVER_NAME (identity: $IDENTITY) =="
 xcodebuild -project "$ROOT/iBridgeReceiver.xcodeproj" -scheme iBridgeMicrophone \
   -configuration Release -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
-  CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$TEAM" \
-  -allowProvisioningUpdates build >/tmp/ibridge-mic-pkg-build.log 2>&1 \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= \
+  CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
+  build >/tmp/ibridge-mic-pkg-build.log 2>&1 \
   || { echo "build failed — see /tmp/ibridge-mic-pkg-build.log"; exit 1; }
 
 DRIVER="$(find "$DERIVED/Build/Products" -maxdepth 3 -name "$DRIVER_NAME" | head -1)"

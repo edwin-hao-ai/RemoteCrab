@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import CoreVideo
 import Foundation
 import VideoToolbox
@@ -30,6 +31,14 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
     private var lastPPS: Data?
     private var isReady = false
     private let queue = DispatchQueue(label: "com.ibridge.h264-encoder")
+
+    // Session self-healing: iOS invalidates the VTCompressionSession
+    // while the app is backgrounded — after an interruption every
+    // VTCompressionSessionEncodeFrame returns kVTInvalidSessionErr
+    // forever (this was the root cause of "video silently stops").
+    // The only recovery is to invalidate + recreate the session.
+    private var recreationPending = false
+    private var lastRecreationAt = Date.distantPast
 
     init(width: Int32 = 1920,
          height: Int32 = 1080,
@@ -108,10 +117,42 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
 
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
 
+    /// Live-forensics counters (visible via devicectl --console stderr).
+    /// Comparing capture-in vs encode-out tells us which stage silently
+    /// stopped when video goes black.
+    private var captureInCount = 0
+    private var encodeOutCount = 0
+    private var encodeErrorCount = 0
+    private var droppedCount = 0
+
+    private static func forensic(_ message: String) {
+        Forensic.log("[video-forensic] \(message)")
+    }
+
+    func captureOutput(_ output: AVCaptureOutput,
+                       didDrop sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        droppedCount += 1
+        if droppedCount % 30 == 1 {
+            Self.forensic("capture DID DROP frames: \(droppedCount) total")
+        }
+    }
+
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard isReady, let session = compressionSession else { return }
+        captureInCount += 1
+        if captureInCount % 300 == 0 {
+            Self.forensic("capture frames IN: \(captureInCount) (out=\(encodeOutCount) err=\(encodeErrorCount) drop=\(droppedCount))")
+            Self.forensic("capture luma probe: \(Self.lumaProbe(sampleBuffer)) (avg 0 = camera delivering black)")
+        }
+        if Self.dumpFramesEnabled && (captureInCount == 100 || captureInCount % 1800 == 0) {
+            Self.dumpFrame(sampleBuffer, tag: "f\(captureInCount)")
+        }
+        guard isReady, let session = compressionSession else {
+            scheduleSessionRecreation()
+            return
+        }
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
@@ -126,14 +167,116 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
             duration: duration,
             frameProperties: nil,
             infoFlagsOut: nil,
-            outputHandler: { [weak self] _, _, outputBuffer in
-                guard let self, let outputBuffer else { return }
-                self.processSampleBuffer(outputBuffer)
+            outputHandler: { [weak self] callbackStatus, _, outputBuffer in
+                guard let self else { return }
+                if callbackStatus != noErr || outputBuffer == nil {
+                    self.encodeErrorCount += 1
+                    if self.encodeErrorCount % 30 == 1 {
+                        Self.forensic("VT encode callback FAILED status=\(callbackStatus) bufferNil=\(outputBuffer == nil) (err total=\(self.encodeErrorCount), in=\(self.captureInCount))")
+                    }
+                    if callbackStatus == kVTInvalidSessionErr {
+                        self.scheduleSessionRecreation()
+                    }
+                    return
+                }
+                self.processSampleBuffer(outputBuffer!)
             }
         )
 
         if status != noErr {
             Self.log.error("VTCompressionSessionEncodeFrame failed: \(status)")
+            encodeErrorCount += 1
+            Self.forensic("VTCompressionSessionEncodeFrame returned \(status) (in=\(captureInCount) out=\(encodeOutCount))")
+            if status == kVTInvalidSessionErr {
+                scheduleSessionRecreation()
+            }
+        }
+    }
+
+    /// Average luma of the Y plane, coarsely sampled (~1/1024 of
+    /// pixels). Distinguishes "camera delivers black" from "encoder
+    /// produces black from good input" during forensics.
+    private static let dumpFramesEnabled =
+        ProcessInfo.processInfo.environment["IBRIDGE_DUMP_FRAMES"] == "1"
+
+    /// Write a JPEG of the raw camera frame to Documents so forensics
+    /// can SEE what the sensor delivered (numbers lie less than eyes).
+    private static func dumpFrame(_ sampleBuffer: CMSampleBuffer, tag: String) {
+        guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let image = CIImage(cvPixelBuffer: buffer)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let data = CIContext().jpegRepresentation(
+                of: image, colorSpace: colorSpace,
+                options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
+        else { return }
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("frame-\(tag).jpg")
+        do {
+            try data.write(to: url)
+            forensic("frame dumped: \(url.lastPathComponent) \(data.count) bytes")
+        } catch {
+            forensic("frame dump FAILED: \(error.localizedDescription)")
+        }
+    }
+
+    /// Average luma of the Y plane, coarsely sampled (~1/1024 of
+    /// pixels). Distinguishes "camera delivers black" from "encoder
+    /// produces black from good input" during forensics.
+    private static func lumaProbe(_ sampleBuffer: CMSampleBuffer) -> String {
+        guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return "n/a" }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let w = CVPixelBufferGetWidth(buffer)
+        let h = CVPixelBufferGetHeight(buffer)
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return "n/a \(w)x\(h)" }
+        let height = CVPixelBufferGetHeightOfPlane(buffer, 0)
+        let bytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        guard height > 0, bytesPerRow > 0 else { return "n/a \(w)x\(h)" }
+        var sum = 0
+        var count = 0
+        var row = 0
+        let ptr = base.assumingMemoryBound(to: UInt8.self)
+        while row < height {
+            let rowPtr = ptr.advanced(by: row * bytesPerRow)
+            var col = 0
+            while col < bytesPerRow {
+                sum += Int(rowPtr[col])
+                count += 1
+                col += 32
+            }
+            row += 32
+        }
+        let avg = count > 0 ? sum / count : -1
+        return "avg=\(avg) \(w)x\(h)"
+    }
+
+    /// Invalidate and rebuild the compression session. Runs on the
+    /// encoder queue; throttled to one attempt per second so a session
+    /// that can't come up yet (still backgrounded) doesn't spin.
+    private func scheduleSessionRecreation() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard !self.recreationPending,
+                  Date().timeIntervalSince(self.lastRecreationAt) > 1 else { return }
+            self.recreationPending = true
+            self.lastRecreationAt = Date()
+            defer { self.recreationPending = false }
+            Self.forensic("recreating VTCompressionSession (was invalid)")
+            if let old = self.compressionSession {
+                VTCompressionSessionInvalidate(old)
+            }
+            self.compressionSession = nil
+            self.isReady = false
+            // Reset cached parameter sets so the first frame from the new
+            // session re-emits SPS/PPS — the Mac reconfigures its decoder.
+            self.lastSPS = nil
+            self.lastPPS = nil
+            do {
+                try self.createSession()
+                Self.forensic("VTCompressionSession recreated OK (in=\(self.captureInCount) out=\(self.encodeOutCount))")
+            } catch {
+                Self.forensic("VTCompressionSession recreation FAILED: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -197,6 +340,10 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
                 lastPPS = Data(nalSlice)
                 onFrame?(IBNalFrame(kind: .pps, data: Data(nalSlice), timestampMicros: micros))
             } else if nalUnitType == 1 || nalUnitType == 5 {
+                encodeOutCount += 1
+                if encodeOutCount % 300 == 0 {
+                    Self.forensic("encoded frames OUT: \(encodeOutCount) (in=\(captureInCount) err=\(encodeErrorCount))")
+                }
                 onFrame?(IBNalFrame(kind: .video, data: Data(nalSlice), timestampMicros: micros))
             }
             // SEI (6), AUD (9) and friends are skipped: the receiver feeds

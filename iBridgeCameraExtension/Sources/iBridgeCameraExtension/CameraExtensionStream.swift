@@ -1,33 +1,31 @@
-import AVFoundation
 import CoreMedia
 import CoreMediaIO
 import CoreVideo
 import Foundation
-import VideoToolbox
+import OSLog
 import iBridgeCore
 
-/// One H.264 stream exposed by the camera device. Frames decoded from
-/// the connected iPhone are pushed to the system via
-/// `CMIOExtensionStream.send(_:discontinuity:hostTimeInNanoseconds:)`.
+private let logger = Logger(subsystem: "com.ibridge", category: "CameraExtension")
+
+/// The **source** stream (device → apps). Frames the host pushes into the
+/// sink stream are forwarded here to every attached client (Zoom,
+/// FaceTime, Photo Booth, …).
 final class CameraExtensionStream: NSObject {
 
-    /// Stable identifier for the single video stream.
-    private static let streamID = UUID(uuidString: "3B7B09B4-2E2A-4C6B-9C0E-1B0E6B0D6A02")!
+    private static let streamID = UUID(uuidString: IBCameraDevice.sourceStreamID)!
 
-    /// Video format advertised to consumers. Uses the same resolution
-    /// and codec as what the iPhone is currently streaming.
-    var formatDescription: CMVideoFormatDescription?
-
-    /// The CMIO stream object registered with the device.
     private(set) var stream: CMIOExtensionStream!
 
-    private let decoder = StreamDecoder()
-    private var isStreaming = false
+    /// How many clients currently have the stream open. Frames are only
+    /// pushed while someone is watching, so the host isn't decoding and
+    /// feeding video into the void.
+    private var attachedClients = 0
+    private var sentCount = 0
 
     override init() {
         super.init()
         stream = CMIOExtensionStream(
-            localizedName: "iBridge Camera",
+            localizedName: "Familiar Camera",
             streamID: Self.streamID,
             direction: .source,
             clockType: .hostTime,
@@ -35,42 +33,20 @@ final class CameraExtensionStream: NSObject {
         )
     }
 
-    // MARK: - Wired up by the host
-
-    /// Called by `iBridgeReceiver` whenever a fresh H.264 NAL arrives
-    /// from the iPhone. We feed it through our own VTDecompressionSession
-    /// and push the resulting frame to connected clients.
-    func receive(nalUnit: Data, kind: IBNalFrame.Kind) {
-        decoder.feed(nalUnit: nalUnit, kind: kind)
-        guard isStreaming,
-              let pixelBuffer = decoder.dequeuePixelBuffer(),
-              let sample = decoder.makeSampleBuffer(from: pixelBuffer) else { return }
+    /// Forward one decoded frame (BGRA, `IBCameraDevice.width × height`)
+    /// to attached clients.
+    func send(sampleBuffer: CMSampleBuffer) {
+        guard attachedClients > 0 else { return }
+        sentCount += 1
+        if sentCount == 1 || sentCount % 150 == 0 {
+            logger.info("source sent \(self.sentCount) frames (clients=\(self.attachedClients))")
+        }
+        let now = CMClockGetTime(CMClockGetHostTimeClock())
         stream.send(
-            sample,
+            sampleBuffer,
             discontinuity: [],
-            hostTimeInNanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            hostTimeInNanoseconds: UInt64(now.seconds * Double(NSEC_PER_SEC))
         )
-    }
-
-    /// Release buffered frames. Called when the host disconnects or
-    /// the stream format changes.
-    func reset() {
-        decoder.reset()
-    }
-
-    /// Fallback format advertised until the first SPS/PPS arrives from
-    /// the iPhone: 1080p BGRA, matching the capture pipeline.
-    private static func defaultFormatDescription() -> CMVideoFormatDescription {
-        var description: CMVideoFormatDescription?
-        CMVideoFormatDescriptionCreate(
-            allocator: kCFAllocatorDefault,
-            codecType: kCVPixelFormatType_32BGRA,
-            width: 1920,
-            height: 1080,
-            extensions: nil,
-            formatDescriptionOut: &description
-        )
-        return description!
     }
 }
 
@@ -79,14 +55,12 @@ final class CameraExtensionStream: NSObject {
 extension CameraExtensionStream: CMIOExtensionStreamSource {
 
     var formats: [CMIOExtensionStreamFormat] {
-        let formatDescription = formatDescription ?? Self.defaultFormatDescription()
-        let format = CMIOExtensionStreamFormat(
-            formatDescription: formatDescription,
-            maxFrameDuration: CMTime(value: 1, timescale: 30),
-            minFrameDuration: CMTime(value: 1, timescale: 60),
+        [CMIOExtensionStreamFormat(
+            formatDescription: Self.formatDescription(),
+            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
+            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
             validFrameDurations: nil
-        )
-        return [format]
+        )]
     }
 
     var availableProperties: Set<CMIOExtensionProperty> {
@@ -105,188 +79,29 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        // V0.1: anyone running the extension may use the camera.
         true
     }
 
     func startStream() throws {
-        isStreaming = true
+        attachedClients += 1
+        logger.info("source stream started (clients=\(self.attachedClients))")
     }
 
     func stopStream() throws {
-        isStreaming = false
-    }
-}
-
-// MARK: - Per-stream decoder
-
-/// Wraps VideoToolbox decoding + a small ring buffer of the most
-/// recent decoded `CVPixelBuffer`s. Decoded frames are pushed to
-/// connected clients via `CMIOExtensionStream.send` as soon as
-/// VideoToolbox delivers them.
-final class StreamDecoder: @unchecked Sendable {
-
-    private var session: VTDecompressionSession?
-    private var format: CMVideoFormatDescription?
-
-    private let lock = NSLock()
-    private var pixelBuffers: [CVPixelBuffer] = []
-    private let maxBuffers = 2
-
-    func feed(nalUnit: Data, kind: IBNalFrame.Kind) {
-        switch kind {
-        case .sps:
-            sps = nalUnit
-            tryMakeSession()
-        case .pps:
-            pps = nalUnit
-            tryMakeSession()
-        case .video:
-            decode(nalUnit: nalUnit)
-        }
+        attachedClients = max(0, attachedClients - 1)
     }
 
-    private var sps: Data?
-    private var pps: Data?
-
-    func dequeuePixelBuffer() -> CVPixelBuffer? {
-        lock.lock(); defer { lock.unlock() }
-        guard !pixelBuffers.isEmpty else { return nil }
-        return pixelBuffers.removeFirst()
-    }
-
-    func reset() {
-        lock.lock()
-        pixelBuffers.removeAll()
-        lock.unlock()
-    }
-
-    func makeSampleBuffer(from pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
-        var sample: CMSampleBuffer?
-        var timing = CMSampleTimingInfo(
-            duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: CMTime(value: CMTimeValue(Date().timeIntervalSince1970 * 1000), timescale: 1000),
-            decodeTimeStamp: .invalid
-        )
-        // The sample's format description must describe the *decoded*
-        // pixels (32BGRA), not the encoded avc1 stream — otherwise
-        // clients like Photo Booth render black/garbled video.
-        var decodedFormat: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(
+    /// 1080p BGRA — the format the host fills the sink stream with.
+    private static func formatDescription() -> CMVideoFormatDescription {
+        var description: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
-            imageBuffer: pixelBuffer,
-            formatDescriptionOut: &decodedFormat
-        ) == noErr, let decodedFormat else { return nil }
-        let status = CMSampleBufferCreateReadyWithImageBuffer(
-            allocator: kCFAllocatorDefault,
-            imageBuffer: pixelBuffer,
-            formatDescription: decodedFormat,
-            sampleTiming: &timing,
-            sampleBufferOut: &sample
+            codecType: kCVPixelFormatType_32BGRA,
+            width: Int32(IBCameraDevice.width),
+            height: Int32(IBCameraDevice.height),
+            extensions: nil,
+            formatDescriptionOut: &description
         )
-        return status == noErr ? sample : nil
-    }
-
-    private func tryMakeSession() {
-        guard let sps, let pps else { return }
-
-        var pointers: [UnsafePointer<UInt8>] = [
-            sps.withUnsafeBytes { $0.baseAddress!.assumingMemoryBound(to: UInt8.self) },
-            pps.withUnsafeBytes { $0.baseAddress!.assumingMemoryBound(to: UInt8.self) }
-        ]
-        var sizes: [Int] = [sps.count, pps.count]
-        var newFormat: CMVideoFormatDescription?
-
-        let status = pointers.withUnsafeMutableBufferPointer { ptr in
-            sizes.withUnsafeMutableBufferPointer { sz in
-                CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                    allocator: kCFAllocatorDefault,
-                    parameterSetCount: 2,
-                    parameterSetPointers: ptr.baseAddress!,
-                    parameterSetSizes: sz.baseAddress!,
-                    nalUnitHeaderLength: 4,
-                    formatDescriptionOut: &newFormat
-                )
-            }
-        }
-        guard status == noErr, let newFormat else { return }
-        self.format = newFormat
-
-        var newSession: VTDecompressionSession?
-        let imageBufferAttributes: CFDictionary = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ] as CFDictionary
-        VTDecompressionSessionCreate(
-            allocator: kCFAllocatorDefault,
-            formatDescription: newFormat,
-            decoderSpecification: nil,
-            imageBufferAttributes: imageBufferAttributes,
-            outputCallback: nil,
-            decompressionSessionOut: &newSession
-        )
-        if let newSession { self.session = newSession }
-    }
-
-    private func decode(nalUnit: Data) {
-        guard let session, let format else { return }
-
-        var blockBuffer: CMBlockBuffer?
-        CMBlockBufferCreateWithMemoryBlock(
-            allocator: kCFAllocatorDefault,
-            memoryBlock: nil,
-            blockLength: nalUnit.count,
-            blockAllocator: nil,
-            customBlockSource: nil,
-            offsetToData: 0,
-            dataLength: nalUnit.count,
-            flags: 0,
-            blockBufferOut: &blockBuffer
-        )
-        guard let blockBuffer else { return }
-        nalUnit.withUnsafeBytes { raw in
-            CMBlockBufferCopyDataBytes(
-                blockBuffer,
-                atOffset: 0,
-                dataLength: nalUnit.count,
-                destination: UnsafeMutableRawPointer(mutating: raw.baseAddress!)
-            )
-        }
-
-        var sample: CMSampleBuffer?
-        var size = nalUnit.count
-        var timing = CMSampleTimingInfo(
-            duration: .invalid,
-            presentationTimeStamp: CMTime(value: 0, timescale: 1000),
-            decodeTimeStamp: .invalid
-        )
-        CMSampleBufferCreateReady(
-            allocator: kCFAllocatorDefault,
-            dataBuffer: blockBuffer,
-            formatDescription: format,
-            sampleCount: 1,
-            sampleTimingEntryCount: 1,
-            sampleTimingArray: &timing,
-            sampleSizeEntryCount: 1,
-            sampleSizeArray: &size,
-            sampleBufferOut: &sample
-        )
-
-        guard let sample else { return }
-
-        VTDecompressionSessionDecodeFrame(
-            session,
-            sampleBuffer: sample,
-            flags: [._EnableAsynchronousDecompression],
-            infoFlagsOut: nil
-        ) { [weak self] status, _, imageBuffer, _, _, _ in
-            guard status == noErr, let imageBuffer else { return }
-            guard let self else { return }
-            self.lock.lock()
-            self.pixelBuffers.append(imageBuffer)
-            if self.pixelBuffers.count > self.maxBuffers {
-                self.pixelBuffers.removeFirst()
-            }
-            self.lock.unlock()
-        }
+        return description!
     }
 }

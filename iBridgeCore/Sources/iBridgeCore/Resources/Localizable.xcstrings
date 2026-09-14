@@ -2053,7 +2053,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "移除"
+            "value": "忘记"
           }
         }
       }
@@ -2785,6 +2785,567 @@
           "stringUnit": {
             "state": "translated",
             "value": "退出应用"
+          }
+        }
+      }
+    },
+    "DEVICES": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DEVICES"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        }
+      }
+    },
+    "Paired iPhones": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired iPhones"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 iPhone"
+          }
+        }
+      }
+    },
+    "No paired iPhones yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No paired iPhones yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有已配对的 iPhone"
+          }
+        }
+      }
+    },
+    "Paired iPhones connect automatically when they appear on the network. Forget one to require approval again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired iPhones connect automatically when they appear on the network. Forget one to require approval again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 iPhone 出现在局域网时会自动连接。忘记后需重新批准。"
+          }
+        }
+      }
+    },
+    "Paired — connects automatically": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paired — connects automatically"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对——出现时自动连接"
+          }
+        }
+      }
+    },
+    "STARTING CAMERA…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STARTING CAMERA…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动相机…"
+          }
+        }
+      }
+    },
+    "Setup Assistant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setup Assistant"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置向导"
+          }
+        }
+      }
+    },
+    "Finish Setup…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish Setup…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成设置…"
+          }
+        }
+      }
+    },
+    "Complete Accessibility and camera extension setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete Accessibility and camera extension setup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成辅助功能与摄像头扩展设置"
+          }
+        }
+      }
+    },
+    "Reopen Setup Assistant…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen Setup Assistant…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新打开设置向导…"
+          }
+        }
+      }
+    },
+    "Welcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Welcome"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎"
+          }
+        }
+      }
+    },
+    "Virtual Camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virtual Camera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虚拟摄像头"
+          }
+        }
+      }
+    },
+    "Virtual Microphone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Virtual Microphone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "虚拟麦克风"
+          }
+        }
+      }
+    },
+    "All Set": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Set"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部就绪"
+          }
+        }
+      }
+    },
+    "Familiar turns your iPhone into a camera, microphone, trackpad and keyboard for this Mac. This short setup grants what macOS needs.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familiar turns your iPhone into a camera, microphone, trackpad and keyboard for this Mac. This short setup grants what macOS needs."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familiar 将你的 iPhone 变成这台 Mac 的摄像头、麦克风、触控板和键盘。本向导将完成 macOS 所需的授权。"
+          }
+        }
+      }
+    },
+    "Also install Familiar on your iPhone from the App Store — both devices must be on the same WiFi.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also install Familiar on your iPhone from the App Store — both devices must be on the same WiFi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时请在 iPhone 上从 App Store 安装 Familiar——两台设备需在同一 WiFi 下。"
+          }
+        }
+      }
+    },
+    "Begin Setup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begin Setup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始设置"
+          }
+        }
+      }
+    },
+    "Familiar drives your Mac's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familiar drives your Mac's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familiar 需要从 iPhone 控制 Mac 的光标和键盘——macOS 要求授予辅助功能权限。此步骤不可跳过：没有它，触控板和键盘无法工作。"
+          }
+        }
+      }
+    },
+    "Grant Accessibility…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grant Accessibility…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "授予辅助功能权限…"
+          }
+        }
+      }
+    },
+    "If no prompt appears, open System Settings → Privacy & Security → Accessibility and turn on Familiar.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If no prompt appears, open System Settings → Privacy & Security → Accessibility and turn on Familiar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果没有弹出提示，请打开 系统设置 → 隐私与安全性 → 辅助功能，并开启 Familiar。"
+          }
+        }
+      }
+    },
+    "A small camera extension lets FaceTime, Zoom, Photo Booth and other apps select “Familiar Camera”. macOS asks you to approve it once, then turn it on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A small camera extension lets FaceTime, Zoom, Photo Booth and other apps select “Familiar Camera”. macOS asks you to approve it once, then turn it on."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个小型摄像头扩展让 FaceTime、Zoom、Photo Booth 等应用可以选择“Familiar Camera”。macOS 会要求你批准一次，然后打开开关。"
+          }
+        }
+      }
+    },
+    "Click “Enable Camera Extension” below — macOS will ask you to approve the extension once.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click “Enable Camera Extension” below — macOS will ask you to approve the extension once."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击下方“启用摄像头扩展”——macOS 会要求你批准一次该扩展。"
+          }
+        }
+      }
+    },
+    "Waiting for approval — allow Familiar in System Settings → Privacy & Security.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for approval — allow Familiar in System Settings → Privacy & Security."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待批准——请在 系统设置 → 隐私与安全性 中允许 Familiar。"
+          }
+        }
+      }
+    },
+    "Open System Settings → General → Login Items & Extensions, then turn on Familiar under Camera Extensions.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open System Settings → General → Login Items & Extensions, then turn on Familiar under Camera Extensions."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 系统设置 → 通用 → 登录项与扩展，然后在“摄像头扩展”下开启 Familiar。"
+          }
+        }
+      }
+    },
+    "Optional — the trackpad and keyboard work without it.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional — the trackpad and keyboard work without it."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选——没有它，触控板和键盘也能正常工作。"
+          }
+        }
+      }
+    },
+    "Optional — without it, iPhone audio only plays through your Mac's speakers.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional — without it, iPhone audio only plays through your Mac's speakers."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选——没有它，iPhone 音频只会通过 Mac 扬声器播放。"
+          }
+        }
+      }
+    },
+    "The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此构建未内嵌安装包。请使用 scripts/build-mic-driver-pkg.sh 构建并嵌入后再分发。"
+          }
+        }
+      }
+    },
+    "Skip for now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip for now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时跳过"
+          }
+        }
+      }
+    },
+    "Skipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过"
+          }
+        }
+      }
+    },
+    "Not yet": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not yet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完成"
+          }
+        }
+      }
+    },
+    "Open Familiar from the menu bar and connect your iPhone to start.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Familiar from the menu bar and connect your iPhone to start."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从菜单栏打开 Familiar，连接你的 iPhone 即可开始。"
+          }
+        }
+      }
+    },
+    "Finish": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        }
+      }
+    },
+    "Enable Camera Extension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Camera Extension"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用摄像头扩展"
           }
         }
       }

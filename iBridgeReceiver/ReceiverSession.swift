@@ -86,11 +86,10 @@ final class ReceiverSession: ObservableObject {
     let decoder = H264Decoder()
     let parser = IBWire.Parser()
 
-    /// Feeds a copy of every inbound NAL to the camera extension.
-    /// Falls back to a no-op when the extension isn't reachable.
-    let cameraBridge = CameraExtensionBridge(
-        mode: .xpc(machServiceName: IBridgeCameraXPC.machServiceName)
-    )
+    /// Pushes decoded frames into the camera extension's CMIO sink
+    /// stream so Zoom / FaceTime / Photo Booth can use the iPhone as a
+    /// webcam. No-ops until the extension is active.
+    let cameraSinkFeeder = CameraSinkFeeder()
 
     /// Where `TouchEvent` / `KeyEvent` get posted. Defaults to the real
     /// `CGEventInjector` so iPhone gestures drive the Mac cursor; tests
@@ -115,10 +114,21 @@ final class ReceiverSession: ObservableObject {
     /// iPhone-name → pairing token, persisted across launches. Lets the
     /// iPhone recognise this Mac without re-prompting.
     private var tokenStore: [String: String] = ReceiverSession.loadTokens()
+    /// Names of iPhones this Mac has paired with (token store keys),
+    /// surfaced for Preferences → Paired iPhones.
+    @Published private(set) var pairedPhones: [String] = []
     /// Bonjour name of the phone we're handshaking with (token key).
     private var currentTokenKey: String?
     /// True only after the iPhone's `sessionReply` accepted us.
     private var sessionGranted = false
+    /// The phone the user last connected to — preferred on reconnect.
+    private var lastAttemptedPhoneName: String?
+    /// Bidirectional pairing: first contact is explicit (the user picks
+    /// a phone in the menu bar, then approves on the iPhone). After a
+    /// user-initiated disconnect we stay idle until the user connects
+    /// again — auto-connect only ever targets paired phones, and this
+    /// flag suspends even that.
+    private var autoConnectSuppressed = false
     /// Set when the iPhone is busy/denied so the 3 s reconnect loop
     /// doesn't hammer it — replaced by a single slow retry + manual.
     private var suppressReconnect = false
@@ -134,15 +144,15 @@ final class ReceiverSession: ObservableObject {
     private var incoming: IncomingFile?
 
     init() {
+        pairedPhones = tokenStore.keys.sorted()
         decoder.onDecoded = { [weak self] image in
             Task { @MainActor in
+                self?.cameraSinkFeeder.feed(image: image)
                 self?.latestFrame = image
                 self?.recorder.appendVideo(image)
             }
         }
-        Task { [cameraBridge] in
-            try? await cameraBridge.start(sink: NullFrameSink())
-        }
+        cameraSinkFeeder.start()
         audioPlayer.onLevel = { [weak self] level in
             // onLevel fires on the audio player's private queue.
             Task { @MainActor in
@@ -224,7 +234,7 @@ final class ReceiverSession: ObservableObject {
     // MARK: - File receive (iPhone → Mac)
 
     private static func incomingDirectory() -> URL {
-        MacPaths.directory("Downloads/iBridge")
+        MacPaths.directory("Downloads/Familiar")
     }
 
     /// Strip any path components so a malicious name can't escape the
@@ -391,6 +401,7 @@ final class ReceiverSession: ObservableObject {
     private func saveTokens() {
         guard let data = try? JSONEncoder().encode(tokenStore) else { return }
         UserDefaults.standard.set(data, forKey: "ibridge.mac.tokens")
+        pairedPhones = tokenStore.keys.sorted()
     }
 
     // MARK: - Discovery
@@ -414,12 +425,68 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    /// Mac → iPhone: switch the streaming camera. No-op when disconnected.
+    func switchCamera(to position: IBCameraPosition) {
+        guard sessionGranted, let connection, connection.state == .ready else { return }
+        do {
+            let data = try IBWire.encode(cameraCommand: IBCameraCommand(position: position))
+            connection.send(content: data, completion: .contentProcessed { _ in })
+        } catch {
+            Self.log.error("cameraCommand encode failed: \(error, privacy: .public)")
+        }
+    }
+
+    /// Flip the iPhone's camera between front and back.
+    func toggleCamera() {
+        switchCamera(to: (featureState?.cameraPosition ?? .back).toggled)
+    }
+
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
         Self.log.info("discovered \(phones.count, privacy: .public) phone(s); connection==nil: \(self.connection == nil, privacy: .public)")
-        if connection == nil, let phone = phones.first {
+        guard connection == nil, !autoConnectSuppressed else { return }
+        // Bidirectional pairing: the Mac never connects to an iPhone it
+        // hasn't paired with — the user picks one from the Devices list
+        // and the iPhone shows its approval card. A phone this Mac holds
+        // a token for was approved on both sides already, so it may
+        // connect on sight (this is also the reconnect-after-drop path).
+        if let phone = phones.first(where: { tokenStore[$0.name] != nil }) {
             connect(to: phone)
         }
+    }
+
+    /// UI action: the user picked a discovered iPhone — explicit consent
+    /// on the Mac side, matching the iPhone's approval card.
+    func connectTo(_ phone: DiscoveredPhone) {
+        autoConnectSuppressed = false
+        connect(to: phone)
+    }
+
+    /// UI action: hang up and stay idle until the user connects again.
+    func disconnect() {
+        autoConnectSuppressed = true
+        suppressReconnect = true
+        slowRetryTask?.cancel()
+        slowRetryTask = nil
+        connection?.cancel()
+        // The .cancelled state callback keeps the current state when
+        // suppressReconnect is set, so land on .searching ourselves.
+        state = .searching
+        Self.log.info("user disconnected")
+    }
+
+    /// Preferences → Paired iPhones: drop the stored token so the next
+    /// contact with that phone requires approval again (both sides have
+    /// symmetric Forget actions).
+    func forgetPhone(named name: String) {
+        tokenStore.removeValue(forKey: name)
+        saveTokens()
+        Self.log.info("forgot paired phone \(name, privacy: .public)")
+    }
+
+    /// Whether this Mac holds a pairing token for a discovered phone.
+    func isPaired(_ phone: DiscoveredPhone) -> Bool {
+        tokenStore[phone.name] != nil
     }
 
     /// Manual "connect by IP" fallback for networks where Bonjour is
@@ -430,6 +497,7 @@ final class ReceiverSession: ObservableObject {
                                     name: "\(host):\(port)",
                                     endpoint: host, port: port,
                                     serviceEndpoint: nil)
+        autoConnectSuppressed = false
         connect(to: phone)
     }
 
@@ -441,6 +509,7 @@ final class ReceiverSession: ObservableObject {
         slowRetryTask?.cancel()
         slowRetryTask = nil
         currentTokenKey = phone.name
+        lastAttemptedPhoneName = phone.name
 
         state = .connecting(name: phone.name)
         Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
@@ -577,10 +646,11 @@ final class ReceiverSession: ObservableObject {
     /// UI action: clear a busy/denied state and try again immediately.
     func retryNow() {
         suppressReconnect = false
+        autoConnectSuppressed = false
         slowRetryTask?.cancel()
         slowRetryTask = nil
         state = .searching
-        if let phone = discovered.first { connect(to: phone) }
+        if let phone = preferredPhone() ?? discovered.first { connect(to: phone) }
     }
 
     /// One polite retry 30 s after being refused, then stop.
@@ -610,18 +680,30 @@ final class ReceiverSession: ObservableObject {
         pingTimer = nil
     }
 
-    /// After a drop, retry the last discovered phone every few seconds.
-    /// The Bonjour browser keeps running, so `discovered` stays fresh;
-    /// if the phone disappears the connect fails and this re-arms.
+    /// After a drop, retry the phone we were talking to every few
+    /// seconds. The Bonjour browser keeps running, so `discovered`
+    /// stays fresh; if the phone disappears the connect fails and this
+    /// re-arms. Never auto-dials a phone we haven't paired with.
     private func scheduleReconnect() {
         guard !suppressReconnect else { return }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard let self, self.connection == nil else { return }
-            if let phone = self.discovered.first {
+            if let phone = self.preferredPhone() {
                 self.connect(to: phone)
             }
         }
+    }
+
+    /// Which discovered phone an automatic (re)connect should target:
+    /// the one we were last talking to if it's still around, else any
+    /// paired phone. Strangers require the explicit Devices → Connect.
+    private func preferredPhone() -> DiscoveredPhone? {
+        if let name = lastAttemptedPhoneName,
+           let phone = discovered.first(where: { $0.name == name }) {
+            return phone
+        }
+        return discovered.first(where: { tokenStore[$0.name] != nil })
     }
 
     private func currentPhoneName() -> String? {
@@ -642,7 +724,6 @@ final class ReceiverSession: ObservableObject {
         metadata = nil
         latestFrame = nil
         latencyHistory = []
-        cameraBridge.streamStopped()
         typedText = ""
         lastKey = nil
         touchVisual = nil
@@ -696,17 +777,14 @@ final class ReceiverSession: ObservableObject {
             case .sps:
                 Self.log.info("SPS received (\(frame.payload.count, privacy: .public) bytes)")
                 decoder.feedSPS(frame.payload)
-                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.sps.rawValue))
             case .pps:
                 decoder.feedPPS(frame.payload)
-                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.pps.rawValue))
             case .video:
                 videoFrameCount += 1
                 if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
                     Self.log.info("video frames received: \(self.videoFrameCount)")
                 }
                 decoder.feedVideo(frame.payload)
-                cameraBridge.feed(nalUnit: frame.payload, kind: Int(IBNalFrame.Kind.video.rawValue))
             case .touch:
                 if let event = try? IBWire.decodeTouch(frame) {
                     touchEventCount += 1
@@ -813,14 +891,6 @@ final class ReceiverSession: ObservableObject {
             metadata = decoded
             if let sps = decoded.sps { decoder.feedSPS(sps) }
             if let pps = decoded.pps { decoder.feedPPS(pps) }
-            cameraBridge.updateFormat(width: decoded.width, height: decoded.height, fps: decoded.fps)
-            cameraBridge.updateDeviceName(decoded.deviceName)
-            if let sps = decoded.sps {
-                cameraBridge.feed(nalUnit: sps, kind: Int(IBNalFrame.Kind.sps.rawValue))
-            }
-            if let pps = decoded.pps {
-                cameraBridge.feed(nalUnit: pps, kind: Int(IBNalFrame.Kind.pps.rawValue))
-            }
         } catch {
             Self.log.error("metadata decode failed: \(error, privacy: .public)")
         }
@@ -878,6 +948,18 @@ extension ReceiverSession.State {
         case .awaitingApproval:     return .connecting
         case .streaming(_, let ms): return .connected(latencyMs: ms)
         case .error:                return .disconnected(reason: "Connection lost")
+        }
+    }
+
+    /// The phone name carried by in-flight / live states, if any — the
+    /// UI shows this instead of guessing from the discovery list.
+    var phoneName: String? {
+        switch self {
+        case .connecting(let name),
+             .handshaking(let name),
+             .awaitingApproval(let name): return name
+        case .streaming(let name, _):     return name
+        case .searching, .error:          return nil
         }
     }
 }

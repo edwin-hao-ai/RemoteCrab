@@ -16,8 +16,28 @@ final class CaptureEngine: ObservableObject {
 
     private static let log = Logger(subsystem: "com.ibridge", category: "capture")
 
+    /// Unconditional stderr marker for live forensics — visible via
+    /// `devicectl device process launch --console` (os_log doesn't
+    /// surface there). Also persisted to a pullable file (Forensic).
+    nonisolated static func forensic(_ message: String) {
+        Forensic.log("[video-forensic] \(message)")
+    }
+
     // Public state surfaced to SwiftUI.
     @Published private(set) var isStreaming = false
+    /// True once the capture session's first `startRunning()` has
+    /// RETURNED. SwiftUI must not create a camera preview before this:
+    /// attaching an AVCaptureVideoPreviewLayer while startRunning is in
+    /// flight blocks the main thread for the whole (multi-second) start
+    /// — measured 9 s on iPhone 14 — and can wedge the layer black
+    /// forever.
+    @Published private(set) var captureSessionReady = false
+    /// The app's ONE camera preview view; the full-screen surface and the
+    /// PiP reparent this same instance. A second AVCaptureVideoPreviewLayer
+    /// on the session blocks the main thread ~9 s at cold start (camera
+    /// daemon serializes preview-client registration) — measured on
+    /// iPhone 14 / iOS 26.
+    @Published private(set) var previewView: CameraPreview.PreviewView?
     @Published private(set) var connectionState: ConnectionState = .idle
     @Published private(set) var metadata: IBStreamMetadata = .defaultConfig()
     @Published private(set) var lastLatencyMs: Int?
@@ -53,6 +73,23 @@ final class CaptureEngine: ObservableObject {
 
     private var encoder = H264Encoder()
     private var listener: NWListener?
+    /// The video data output, kept so rotation changes can re-point the
+    /// sample-buffer delegate at a rebuilt encoder and set the capture
+    /// connection's rotation angle.
+    private var videoOutput: AVCaptureVideoDataOutput?
+    /// The active video input, kept so a front/back switch can swap it.
+    private var videoInput: AVCaptureDeviceInput?
+    private var currentCameraPosition: AVCaptureDevice.Position = .back
+    /// Current video configuration, re-applied (with swapped dims) when
+    /// the device rotates between portrait and landscape.
+    private var currentResolution = "1080p"
+    private var currentFps = 30
+    /// Rotation angle currently applied to the capture connection.
+    /// 0 = sensor-native landscape; 90 = upright portrait.
+    private var currentRotationAngle: CGFloat = 0
+    /// Whether the encoder is configured for portrait (swapped) dims.
+    private var encoderIsPortrait = false
+    private var orientationObserver: NSObjectProtocol?
     /// The granted owner connection. Only this connection streams and
     /// may send `featureControl`; candidates live in `candidate` until
     /// the pairing handshake admits them.
@@ -95,6 +132,9 @@ final class CaptureEngine: ObservableObject {
     func startIfNeeded() async {
         guard !didConfigure else { return }
         didConfigure = true
+        Forensic.reset()
+        Forensic.MainStallMonitor.start()
+        Self.forensic("startIfNeeded begin")
         FileHandle.standardError.write("[e2e] startIfNeeded begin\n".data(using: .utf8)!)
 
         features.onChange = { [weak self] snapshot in
@@ -103,20 +143,78 @@ final class CaptureEngine: ObservableObject {
         refreshPairedMacs()
 
         await requestPermissions()
+        Self.forensic("stage: permissions done")
 
+        // Configure portrait/landscape UP FRONT: rebuilding the encoder
+        // right after a cold session start (orientation observer firing
+        // into the in-flight startRunning) visibly froze the launch UI.
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        let initialAngle = Self.rotationAngle(for: UIDevice.current.orientation) ?? 90
+        currentRotationAngle = initialAngle
+        encoderIsPortrait = initialAngle == 90 || initialAngle == 270
+
+        let savedResolution = UserDefaults.standard.string(forKey: "ibridge.ios.resolution") ?? "1080p"
+        let savedFps = UserDefaults.standard.integer(forKey: "ibridge.ios.frameRate")
+        currentResolution = savedResolution
+        currentFps = savedFps == 0 ? 30 : savedFps
+
+        let dims = videoDims(resolution: currentResolution, portrait: encoderIsPortrait)
         do {
-            try configureCaptureSession()
+            // The encoder must exist BEFORE the session is configured:
+            // configuration wires `videoOutput.setSampleBufferDelegate(encoder)`
+            // — passing nil silently drops every frame.
+            let newEncoder = H264Encoder(width: Int32(dims.width), height: Int32(dims.height),
+                                         fps: currentFps,
+                                         bitrate: bitrateFor(width: dims.width, height: dims.height, fps: currentFps))
+            encoder = newEncoder
+            // commitConfiguration + addInput block for several hundred ms —
+            // run the whole configuration on the capture queue so the
+            // launch UI never stalls. The box hops the non-Sendable AV
+            // objects across the continuation.
+            let outcome = await withCheckedContinuation { continuation in
+                let position = currentCameraPosition
+                queue.async { [captureSession, queue] in
+                    let outcome: ConfigureOutcome
+                    do {
+                        let (input, output) = try Self.configureCaptureSession(
+                            captureSession, preset: dims.preset,
+                            rotationAngle: initialAngle, position: position,
+                            delegate: newEncoder, delegateQueue: queue)
+                        outcome = ConfigureOutcome(input: input, output: output, error: nil)
+                    } catch {
+                        outcome = ConfigureOutcome(input: nil, output: nil, error: error)
+                    }
+                    continuation.resume(returning: outcome)
+                }
+            }
+            if let error = outcome.error { throw error }
+            Self.forensic("stage: session configured")
+            videoInput = outcome.input
+            videoOutput = outcome.output
+            metadata = IBStreamMetadata(deviceName: UIDevice.current.name,
+                                        width: dims.width, height: dims.height,
+                                        fps: currentFps,
+                                        bitrateBps: bitrateFor(width: dims.width, height: dims.height, fps: currentFps))
             observeCaptureInterruptions()
-            try await encoder.start { [weak self] frame in
+            observeDeviceOrientation()
+            try await newEncoder.start { [weak self] frame in
                 Task { @MainActor in
                     self?.handleEncodedFrame(frame)
                 }
             }
-            let savedResolution = UserDefaults.standard.string(forKey: "ibridge.ios.resolution") ?? "1080p"
-            let savedFps = UserDefaults.standard.integer(forKey: "ibridge.ios.frameRate")
-            let fps = savedFps == 0 ? 30 : savedFps
-            if savedResolution != "1080p" || fps != 30 {
-                await applyVideoConfig(resolution: savedResolution, fps: fps)
+            // startRunning blocks for ~1 s — never on the main thread.
+            queue.async { [captureSession, weak self] in
+                captureSession.startRunning()
+                Self.forensic("stage: startRunning returned")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    // The session is running now, so attaching the single
+                    // shared preview layer is fast and cannot wedge.
+                    let view = CameraPreview.PreviewView(label: "shared")
+                    view.attach(to: self.captureSession)
+                    self.previewView = view
+                    self.captureSessionReady = true
+                }
             }
         } catch {
             Self.log.error("capture start failed: \(error, privacy: .public)")
@@ -128,6 +226,7 @@ final class CaptureEngine: ObservableObject {
         // tied to the camera. Trackpad, keyboard and voice work without
         // ever turning the camera on; the camera is just another toggle.
         await startStreaming()
+        Self.forensic("stage: startIfNeeded done")
     }
 
     func toggleStreaming() async {
@@ -222,6 +321,9 @@ final class CaptureEngine: ObservableObject {
             try startListener()
             FileHandle.standardError.write("[e2e] listener started OK\n".data(using: .utf8)!)
             isStreaming = true
+            lastVideoFrameAt = Date()
+            hasProducedVideoFrame = false
+            startVideoWatchdog()
             UIApplication.shared.isIdleTimerDisabled =
                 UserDefaults.standard.bool(forKey: "ibridge.ios.keepScreenOn")
                 || ProcessInfo.processInfo.environment["IBRIDGE_AUTOSTREAM"] == "1"
@@ -250,6 +352,7 @@ final class CaptureEngine: ObservableObject {
         isStreaming = false
         connectionState = .idle
         parser.reset()
+        stopVideoWatchdog()
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
@@ -289,45 +392,146 @@ final class CaptureEngine: ObservableObject {
         center.addObserver(forName: .AVCaptureSessionInterruptionEnded,
                            object: captureSession, queue: nil) { [weak self] _ in
             Self.log.info("capture interruption ended — ensuring running")
-            self?.restartCaptureIfNeeded()
+            Self.forensic("interruption ENDED, isRunning=\(self?.captureSession.isRunning ?? false)")
+            self?.restartCaptureAfterInterruption()
         }
         center.addObserver(forName: .AVCaptureSessionRuntimeError,
                            object: captureSession, queue: nil) { [weak self] note in
             Self.log.error("capture runtime error: \(note.userInfo ?? [:], privacy: .public)")
+            Self.forensic("RUNTIME ERROR: \(note.userInfo ?? [:])")
             self?.restartCaptureIfNeeded()
         }
         center.addObserver(forName: .AVCaptureSessionWasInterrupted,
-                           object: captureSession, queue: nil) { _ in
+                           object: captureSession, queue: nil) { [weak self] note in
+            let reason = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue
             Self.log.info("capture session interrupted")
+            Self.forensic("INTERRUPTED reason=\(reason.map(String.init) ?? "nil") userInfo=\(note.userInfo ?? [:])")
         }
     }
 
     private func restartCaptureIfNeeded() {
         queue.async { [weak self] in
-            guard let self, !self.captureSession.isRunning else { return }
+            guard let self else { return }
+            Self.forensic("restartCaptureIfNeeded: isRunning=\(self.captureSession.isRunning)")
+            guard !self.captureSession.isRunning else { return }
             self.captureSession.startRunning()
+        }
+    }
+
+    /// Called when a capture interruption ends. iOS sometimes reports
+    /// `isRunning == true` here while the device feed is degraded —
+    /// observed on device: after a long background interruption the
+    /// session kept "running" but delivered pure-black frames forever
+    /// (capture luma probe avg=0, Mac frame probe avg=0), while a
+    /// stop/start cycle recovers real pixels. So: always cycle the
+    /// session after an interruption, not just when it looks stopped.
+    private func restartCaptureAfterInterruption() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if self.captureSession.isRunning {
+                Self.forensic("interruption ended with isRunning=true — forcing stop/start")
+                self.captureSession.stopRunning()
+            }
+            self.captureSession.startRunning()
+        }
+    }
+
+    /// Last time the encoder produced a frame. Drives the watchdog below.
+    private var lastVideoFrameAt = Date()
+    /// Whether the encoder has produced at least one frame since the
+    /// last (re)start. Until it has, the pipeline is still warming up
+    /// and the watchdog must use a long grace period — a cold
+    /// `startRunning()` can legitimately take several seconds.
+    private var hasProducedVideoFrame = false
+    /// Camera on/off on the previous feature snapshot, so the watchdog
+    /// gets a fresh grace period when the user re-enables the camera.
+    private var wasCameraOn = true
+    private var videoWatchdog: DispatchSourceTimer?
+
+    /// AVFoundation has a state where `captureSession.isRunning` is true
+    /// but the video output silently stops delivering — an interruption
+    /// that `restartCaptureIfNeeded`'s `!isRunning` check can't see.
+    /// Symptom: touch and audio keep flowing while video goes black
+    /// forever. This watchdog force-restarts the session whenever the
+    /// camera should be producing but hasn't for >2.5 s.
+    private func startVideoWatchdog() {
+        guard videoWatchdog == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 3, repeating: 3)
+        // The handler must be explicitly @Sendable: a plain closure formed
+        // in this @MainActor type inherits MainActor isolation and traps in
+        // swift_task_checkIsolated when the timer fires on `queue`
+        // (EXC_BREAKPOINT in _dispatch_assert_queue_fail).
+        let tick: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor in self?.checkVideoHeartbeat() }
+        }
+        timer.setEventHandler(handler: tick)
+        timer.resume()
+        videoWatchdog = timer
+    }
+
+    private func stopVideoWatchdog() {
+        videoWatchdog?.cancel()
+        videoWatchdog = nil
+    }
+
+    private func checkVideoHeartbeat() {
+        guard isStreaming, features.cameraOn else { return }
+        guard connection?.state == .ready else { return }
+        // Only recover while foregrounded — in the background the camera
+        // is unavailable by platform rule and a restart can't succeed.
+        guard UIApplication.shared.applicationState == .active else { return }
+        // Session still starting (startRunning is async on `queue`) —
+        // nothing to recover yet.
+        guard captureSession.isRunning else { return }
+        let idle = Date().timeIntervalSince(lastVideoFrameAt)
+        // Cold start / reconfiguration: the first frame can take many
+        // seconds; only use the tight 2.5 s stall threshold once frames
+        // have actually flowed.
+        let threshold: TimeInterval = hasProducedVideoFrame ? 2.5 : 12
+        guard idle > threshold else { return }
+        Self.log.error("no video frames for \(Int(idle), privacy: .public)s with camera on — force-restarting capture session")
+        Self.forensic("WATCHDOG fired: idle=\(Int(idle))s isRunning=\(captureSession.isRunning) — stop/start")
+        lastVideoFrameAt = Date()
+        queue.async { [captureSession] in
+            captureSession.stopRunning()
+            captureSession.startRunning()
         }
     }
 
     // MARK: - Video reconfiguration
 
-    /// Reconfigure capture + encode for a new resolution / frame rate.
-    /// Safe to call while streaming; the Mac re-reads dimensions from
-    /// the metadata frame we re-send.
-    func applyVideoConfig(resolution: String, fps: Int) async {
-        let (preset, width, height): (AVCaptureSession.Preset, Int, Int) = {
+    /// Base (landscape) dims for a resolution name, then swapped when
+    /// the phone is held in portrait.
+    private func videoDims(resolution: String, portrait: Bool)
+        -> (preset: AVCaptureSession.Preset, width: Int, height: Int) {
+        let (preset, w, h): (AVCaptureSession.Preset, Int, Int) = {
             switch resolution {
             case "720p": return (.hd1280x720, 1280, 720)
             case "4K":   return (.hd4K3840x2160, 3840, 2160)
             default:     return (.hd1920x1080, 1920, 1080)
             }
         }()
+        return portrait ? (preset, h, w) : (preset, w, h)
+    }
+
+    /// Rebuild capture + encode for the current resolution/fps/
+    /// orientation. Safe to call while streaming; the Mac re-reads
+    /// dimensions from the metadata frame we re-send (and from SPS).
+    private func reconfigureVideo() async {
+        // Encoder is rebuilt below — the next frame takes a moment, so
+        // give the watchdog a warm-up window instead of the tight stall
+        // threshold.
+        lastVideoFrameAt = Date()
+        hasProducedVideoFrame = false
+        let config = videoDims(resolution: currentResolution, portrait: encoderIsPortrait)
         captureSession.beginConfiguration()
-        captureSession.sessionPreset = preset
+        captureSession.sessionPreset = config.preset
         captureSession.commitConfiguration()
 
-        let newEncoder = H264Encoder(width: Int32(width), height: Int32(height),
-                                     fps: fps, bitrate: bitrateFor(width: width, height: height, fps: fps))
+        let newEncoder = H264Encoder(width: Int32(config.width), height: Int32(config.height),
+                                     fps: currentFps,
+                                     bitrate: bitrateFor(width: config.width, height: config.height, fps: currentFps))
         do {
             try await newEncoder.start { [weak self] frame in
                 Task { @MainActor in self?.handleEncodedFrame(frame) }
@@ -338,18 +542,129 @@ final class CaptureEngine: ObservableObject {
             for output in captureSession.outputs {
                 if let video = output as? AVCaptureVideoDataOutput {
                     video.setSampleBufferDelegate(newEncoder, queue: queue)
+                    videoOutput = video
                 }
             }
             captureSession.commitConfiguration()
 
             metadata = IBStreamMetadata(deviceName: UIDevice.current.name,
-                                        width: width, height: height,
-                                        fps: fps, bitrateBps: bitrateFor(width: width, height: height, fps: fps))
+                                        width: config.width, height: config.height,
+                                        fps: currentFps,
+                                        bitrateBps: bitrateFor(width: config.width, height: config.height, fps: currentFps))
             if let connection, connection.state == .ready {
                 sendMetadata(on: connection)
             }
         } catch {
-            Self.log.error("applyVideoConfig failed: \(error, privacy: .public)")
+            Self.log.error("reconfigureVideo failed: \(error, privacy: .public)")
+        }
+    }
+
+    /// Reconfigure capture + encode for a new resolution / frame rate.
+    func applyVideoConfig(resolution: String, fps: Int) async {
+        currentResolution = resolution
+        currentFps = fps
+        await reconfigureVideo()
+    }
+
+    // MARK: - Orientation
+
+    /// The wire stream should be upright for however the user holds the
+    /// phone: portrait must arrive as portrait (1080×1920), not squashed
+    /// into the sensor-native landscape raster. We set the capture
+    /// connection's `videoRotationAngle` (hardware rotation) and, when
+    /// the aspect class flips, rebuild the encoder with swapped dims.
+    private func observeDeviceOrientation() {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+        orientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            let orientation = UIDevice.current.orientation
+            Task { @MainActor in self?.applyDeviceOrientation(orientation) }
+        }
+        applyDeviceOrientation(UIDevice.current.orientation)
+    }
+
+    /// Device orientation → capture rotation angle (back camera).
+    /// UIDeviceOrientation is mirrored against interface orientation:
+    /// device landscapeLeft = top edge points left = sensor-native (0°).
+    /// Returns nil for faceUp / faceDown / unknown — keep the last angle.
+    private static func rotationAngle(for orientation: UIDeviceOrientation) -> CGFloat? {
+        switch orientation {
+        case .portrait:           return 90
+        case .portraitUpsideDown: return 270
+        case .landscapeLeft:      return 0
+        case .landscapeRight:     return 180
+        default:                  return nil
+        }
+    }
+
+    private func applyDeviceOrientation(_ orientation: UIDeviceOrientation) {
+        guard let angle = Self.rotationAngle(for: orientation) else { return }
+        guard angle != currentRotationAngle else { return }
+        currentRotationAngle = angle
+        let portrait = angle == 90 || angle == 270
+
+        if let connection = videoOutput?.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+                Self.forensic("videoRotationAngle → \(Int(angle)) (portrait=\(portrait))")
+            } else {
+                Self.forensic("videoRotation \(Int(angle)) NOT supported on this connection/preset")
+            }
+        }
+        if portrait != encoderIsPortrait {
+            encoderIsPortrait = portrait
+            Task { await reconfigureVideo() }
+        }
+    }
+
+    // MARK: - Camera position
+
+    /// Flip between the front and back cameras (local UI button).
+    func toggleCamera() {
+        switchCamera(to: features.cameraPosition.toggled)
+    }
+
+    /// Switch the streaming camera. Safe while streaming — the session
+    /// swaps its video input in place and keeps the same output/encoder.
+    func switchCamera(to position: IBCameraPosition) {
+        let target: AVCaptureDevice.Position = position == .front ? .front : .back
+        guard target != currentCameraPosition else {
+            features.setCameraPosition(position)
+            return
+        }
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: target) else {
+            Self.log.error("no camera for position \(position.rawValue, privacy: .public)")
+            return
+        }
+        captureSession.beginConfiguration()
+        if let videoInput {
+            captureSession.removeInput(videoInput)
+        }
+        do {
+            let newInput = try AVCaptureDeviceInput(device: device)
+            if captureSession.canAddInput(newInput) {
+                captureSession.addInput(newInput)
+                self.videoInput = newInput
+                currentCameraPosition = target
+                features.setCameraPosition(position)
+                Self.log.info("camera switched to \(position.rawValue, privacy: .public)")
+            } else if let old = videoInput {
+                captureSession.addInput(old)
+                Self.log.error("cannot add \(position.rawValue, privacy: .public) camera input")
+            }
+        } catch {
+            if let old = videoInput { captureSession.addInput(old) }
+            Self.log.error("camera switch failed: \(error, privacy: .public)")
+        }
+        captureSession.commitConfiguration()
+        // Swapping the input creates a NEW capture connection, which
+        // resets the rotation angle — re-apply it or a camera switch
+        // silently returns the stream to landscape.
+        if let connection = videoOutput?.connection(with: .video),
+           connection.isVideoRotationAngleSupported(currentRotationAngle) {
+            connection.videoRotationAngle = currentRotationAngle
         }
     }
 
@@ -369,11 +684,29 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
-    private func configureCaptureSession() throws {
-        captureSession.beginConfiguration()
-        captureSession.sessionPreset = .hd1920x1080
+    /// Sendable hop for the non-Sendable AV objects produced by
+    /// `configureCaptureSession` on the capture queue.
+    private struct ConfigureOutcome: @unchecked Sendable {
+        let input: AVCaptureDeviceInput?
+        let output: AVCaptureVideoDataOutput?
+        let error: Error?
+    }
 
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+    /// Runs on the capture queue (never the main thread — the commit
+    /// blocks for several hundred ms). Returns the created input/output
+    /// so the caller can assign them on the main actor.
+    private nonisolated static func configureCaptureSession(
+        _ captureSession: AVCaptureSession,
+        preset: AVCaptureSession.Preset,
+        rotationAngle: CGFloat,
+        position: AVCaptureDevice.Position,
+        delegate: (any AVCaptureVideoDataOutputSampleBufferDelegate)?,
+        delegateQueue: DispatchQueue
+    ) throws -> (AVCaptureDeviceInput, AVCaptureVideoDataOutput) {
+        captureSession.beginConfiguration()
+        captureSession.sessionPreset = preset
+
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw NSError(domain: "iBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "No camera"])
         }
 
@@ -387,7 +720,7 @@ final class CaptureEngine: ObservableObject {
         videoOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         ]
-        videoOutput.setSampleBufferDelegate(encoder, queue: queue)
+        videoOutput.setSampleBufferDelegate(delegate, queue: delegateQueue)
 
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
@@ -401,7 +734,20 @@ final class CaptureEngine: ObservableObject {
         }
 
         captureSession.commitConfiguration()
-        captureSession.startRunning()
+
+        // Apply the hold orientation now so the very first frames come
+        // out upright (connection exists once the output is committed).
+        if let connection = videoOutput.connection(with: .video) {
+            if connection.isVideoRotationAngleSupported(rotationAngle) {
+                connection.videoRotationAngle = rotationAngle
+                Self.forensic("initial videoRotationAngle → \(Int(rotationAngle))")
+            } else {
+                Self.forensic("initial videoRotation \(Int(rotationAngle)) NOT supported")
+            }
+        }
+        // NOTE: startRunning is intentionally NOT called here — it blocks
+        // ~1 s. The caller starts the session on the capture queue.
+        return (videoInput, videoOutput)
     }
 
     // MARK: - Bonjour listener
@@ -876,6 +1222,10 @@ final class CaptureEngine: ObservableObject {
                 if let control = try? IBWire.decodeFeatureControl(frame) {
                     features.apply(control)
                 }
+            case .cameraCommand:
+                if let command = try? IBWire.decodeCameraCommand(frame) {
+                    switchCamera(to: command.position)
+                }
             case .ping:
                 broadcaster?.sendPingEcho(frame.payload)
             case .appList:
@@ -904,6 +1254,13 @@ final class CaptureEngine: ObservableObject {
     // MARK: - Feature state
 
     private func handleFeaturesChanged(_ snapshot: FeatureStateSnapshot) {
+        if snapshot.cameraOn && !wasCameraOn {
+            // Fresh grace period so the watchdog doesn't fire while the
+            // session spins back up after a deliberate camera toggle.
+            lastVideoFrameAt = Date()
+            hasProducedVideoFrame = false
+        }
+        wasCameraOn = snapshot.cameraOn
         broadcaster?.send(snapshot)
         syncMicrophone(snapshot.micOn && !snapshot.voiceOn)
     }
@@ -947,9 +1304,19 @@ final class CaptureEngine: ObservableObject {
         default: break
         }
         guard features.cameraOn else { return }
+        hasProducedVideoFrame = true
         guard let connection, connection.state == .ready else { return }
+        lastVideoFrameAt = Date()
         let encoded = IBWire.encode(frame: frame)
-        connection.send(content: encoded, completion: .contentProcessed { _ in })
+        connection.send(content: encoded, completion: .contentProcessed { [weak self] error in
+            if let error, let self {
+                Self.forensic("video send error after \(self.e2eSendOKCount) ok frames: \(error)")
+            }
+        })
+        e2eSendOKCount += 1
+        if e2eSendOKCount % 300 == 0 {
+            Self.forensic("frames sent to Mac: \(e2eSendOKCount)")
+        }
         if ProcessInfo.processInfo.environment["IBRIDGE_AUTOSTREAM"] == "1" {
             e2eFrameCount += 1
             e2eFrameBytes += encoded.count
@@ -960,6 +1327,8 @@ final class CaptureEngine: ObservableObject {
             }
         }
     }
+
+    private var e2eSendOKCount = 0
 }
 
 extension IBStreamMetadata {

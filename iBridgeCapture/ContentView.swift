@@ -37,7 +37,7 @@ struct ContentView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                surface
+                surface(topInset: geo.safeAreaInsets.top)
 
                 VStack {
                     topBar
@@ -48,16 +48,13 @@ struct ContentView: View {
 
                 statusBanner
 
-                // Keep the PiP's AVCaptureVideoPreviewLayer ALIVE while
-                // the camera is on and merely hide it on the full-screen
-                // camera surface. Tearing it down / rebuilding it on
-                // every trackpad↔camera switch attached the preview
-                // layer to the session each time, which hitched.
-                if engine.features.cameraOn && !demoMode {
-                    pip(in: geo.size)
-                        .opacity(showsPiP ? 1 : 0)
-                        .allowsHitTesting(showsPiP)
-                        .accessibilityHidden(!showsPiP)
+                // The PiP reparents the app's single shared preview view
+                // (engine.previewView) — the full-screen camera surface
+                // and the PiP never exist at the same time, so one
+                // AVCaptureVideoPreviewLayer serves both. No second layer:
+                // attaching one blocked the main thread ~9 s at cold start.
+                if showsPiP && !demoMode, let previewView = engine.previewView {
+                    pip(in: geo.size, view: previewView)
                 }
 
                 if voice.isRunning || voiceSentFlash || voiceErrorFlash {
@@ -317,17 +314,24 @@ struct ContentView: View {
     // MARK: - Surfaces
 
     @ViewBuilder
-    private var surface: some View {
+    private func surface(topInset: CGFloat) -> some View {
         switch engine.features.activeSurface {
         case .cameraPreview:
             if demoMode {
                 DemoCameraView()
             } else if engine.features.cameraOn {
-                // Purely visual — VoiceOver users control the camera
-                // from the dock toggle and the status pill.
-                CameraPreview(session: engine.captureSession)
-                    .ignoresSafeArea()
-                    .accessibilityHidden(true)
+                if engine.captureSessionReady, let previewView = engine.previewView {
+                    // Purely visual — VoiceOver users control the camera
+                    // from the dock toggle and the status pill.
+                    CameraPreview(view: previewView)
+                        .ignoresSafeArea()
+                        .accessibilityHidden(true)
+                        .overlay(alignment: .topTrailing) {
+                            flipCameraButton(topInset: topInset)
+                        }
+                } else {
+                    cameraStartingPlaceholder
+                }
             } else {
                 cameraOffPlaceholder
             }
@@ -335,6 +339,41 @@ struct ContentView: View {
             TouchpadScreen()
         case .keyboard:
             KeyboardScreen()
+        }
+    }
+
+    /// Camera flip. Styled identically to the top-bar icons
+    /// (`IBMaterial.bar` Liquid Glass chip) and parked one row BELOW the
+    /// floating top bar — the bar occupies safeArea.top + 16pt padding +
+    /// 44pt row, so a hardcoded 56pt top pad collided with it on
+    /// Dynamic Island phones.
+    private func flipCameraButton(topInset: CGFloat) -> some View {
+        Button {
+            engine.toggleCamera()
+        } label: {
+            topBarIcon("arrow.triangle.2.circlepath.camera")
+        }
+        .frame(width: 44, height: 44)
+        .contentShape(Circle())
+        .buttonStyle(.plain)
+        .padding(.top, topInset + 16 + 44 + 12)
+        .padding(.trailing, IBSpace.l.pt)
+        .accessibilityLabel("Switch camera")
+        .accessibilityHint("Flips between the front and back cameras")
+    }
+
+    /// Shown while the capture session is still starting (a cold
+    /// `startRunning()` can take several seconds). Deliberately NOT a
+    /// preview attached early — see `captureSessionReady`.
+    private var cameraStartingPlaceholder: some View {
+        VStack(spacing: IBSpace.l.pt) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white.opacity(0.8))
+            Text(IBLocale.Capture.cameraStarting)
+                .font(IBFont.eyebrowMono)
+                .ibEyebrowTracking()
+                .foregroundStyle(.white.opacity(0.7))
         }
     }
 
@@ -587,7 +626,7 @@ struct ContentView: View {
         engine.features.cameraOn && engine.features.activeSurface != .cameraPreview
     }
 
-    private func pip(in size: CGSize) -> some View {
+    private func pip(in size: CGSize, view: CameraPreview.PreviewView) -> some View {
         let liveOffset = clampedPiPOffset(
             CGSize(
                 width: pipOffset.width + pipTranslation.width,
@@ -595,7 +634,7 @@ struct ContentView: View {
             ),
             in: size
         )
-        return CameraPreview(session: engine.captureSession)
+        return CameraPreview(view: view)
             .frame(width: pipSize.width, height: pipSize.height)
             .clipShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
             .overlay {

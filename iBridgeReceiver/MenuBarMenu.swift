@@ -21,14 +21,27 @@ import iBridgeCore
 /// - **SF Symbols hierarchical** for variable visual weight.
 struct MenuBarMenu: View {
     @EnvironmentObject private var session: ReceiverSession
+    @EnvironmentObject private var setupStatus: SetupStatus
     @Environment(\.openWindow) private var openWindow
+    @AppStorage("ibridge.didFirstLaunch") private var didFirstLaunch: Bool = false
     @State private var showManualConnect = false
     @State private var manualAddress = ""
 
     var body: some View {
         VStack(spacing: 0) {
+            // Setup-incomplete nudge. Disappears once Accessibility is
+            // granted and the camera extension is active — the two gates
+            // without which the product doesn't work.
+            if didFirstLaunch && !setupStatus.isComplete {
+                finishSetupRow
+                Divider().opacity(0.4)
+            }
             header
             Divider().opacity(0.4)
+            if showsDevicePicker {
+                devicesSection
+                Divider().opacity(0.4)
+            }
             streamRow
             Divider().opacity(0.4)
             togglesSection
@@ -38,6 +51,10 @@ struct MenuBarMenu: View {
             footer
         }
         .frame(width: 320)
+        // Refreshing setup state on every popover open keeps the
+        // "Finish Setup…" row honest without an always-on poll. A flip
+        // during an open causes exactly one re-size, not a loop.
+        .onAppear { setupStatus.refresh() }
         .overlay {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
@@ -60,6 +77,23 @@ struct MenuBarMenu: View {
         let host = String(parts.first ?? "")
         let port = parts.count > 1 ? UInt16(parts[1]) : nil
         session.connectManually(host: host, port: port ?? 8765)
+    }
+
+    // MARK: - Finish Setup row
+
+    /// Reopens the setup assistant: clearing the first-launch flag makes
+    /// the root window swap MainWindowView for the wizard, then we just
+    /// bring that window forward.
+    private var finishSetupRow: some View {
+        ActionRow(icon: "checklist",
+                  title: LocalizedStringKey(IBLocale.Setup.finishSetup),
+                  shortcut: "",
+                  help: LocalizedStringKey(IBLocale.Setup.finishSetupHelp),
+                  action: {
+                      didFirstLaunch = false
+                      openWindowActivating(id: "root")
+                  })
+        .padding(.vertical, 4)
     }
 
     // MARK: - Header
@@ -91,7 +125,7 @@ struct MenuBarMenu: View {
             Image(systemName: "iphone.gen3")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            Text(session.discovered.first?.name ?? "—")
+            Text(session.state.phoneName ?? session.discovered.first?.name ?? "—")
                 .font(IBFont.bodySmall)
                 .foregroundStyle(.primary)
             Spacer()
@@ -233,6 +267,56 @@ struct MenuBarMenu: View {
         }
     }
 
+    // MARK: - Devices (bidirectional pairing)
+
+    /// Show the discovered-phone picker whenever we're not in a live or
+    /// in-flight session and there's at least one phone to pick. First
+    /// contact is explicit: the user taps Connect here, then approves
+    /// the pairing card on the iPhone.
+    private var showsDevicePicker: Bool {
+        if session.discovered.isEmpty { return false }
+        switch session.state {
+        case .streaming, .connecting, .handshaking, .awaitingApproval:
+            return false
+        case .searching, .error:
+            return true
+        }
+    }
+
+    private var devicesSection: some View {
+        VStack(spacing: 0) {
+            sectionHeader(LocalizedStringKey(IBLocale.Connection.devicesSection))
+            ForEach(session.discovered) { phone in
+                HStack(spacing: 10) {
+                    Image(systemName: "iphone.gen3")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 18, alignment: .center)
+                        .foregroundStyle(.primary)
+                    Text(phone.name)
+                        .font(IBFont.bodySmall)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if session.isPaired(phone) {
+                        Image(systemName: "checkmark.shield.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Color.accentColor)
+                            .help(Text(LocalizedStringKey(IBLocale.Connection.pairedBadge)))
+                    }
+                    Spacer()
+                    Button(LocalizedStringKey(IBLocale.Connection.connect)) {
+                        session.connectTo(phone)
+                    }
+                    .font(IBFont.bodySmall)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .frame(height: 28)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     // MARK: - Toggles
 
     private var togglesSection: some View {
@@ -293,6 +377,11 @@ struct MenuBarMenu: View {
                       help: "Verify camera, keyboard, trackpad and mic live",
                       action: { openWindowActivating(id: "test") },
                       keys: KeyboardShortcut("t"))
+            ActionRow(icon: "arrow.triangle.2.circlepath.camera",
+                      title: "Switch Camera",
+                      shortcut: "",
+                      help: "Flip the iPhone between its front and back cameras",
+                      action: { session.toggleCamera() })
             ActionRow(icon: session.isRecording ? "stop.circle.fill" : "record.circle",
                       title: LocalizedStringKey(session.isRecording
                                                 ? IBLocale.Record.stop
@@ -318,6 +407,13 @@ struct MenuBarMenu: View {
                       shortcut: "",
                       help: LocalizedStringKey(IBLocale.Connection.manualHint),
                       action: { showManualConnect = true })
+            if session.state.phoneName != nil {
+                ActionRow(icon: "xmark.circle",
+                          title: LocalizedStringKey(IBLocale.Connection.disconnect),
+                          shortcut: "",
+                          help: LocalizedStringKey(IBLocale.Connection.disconnect),
+                          action: { session.disconnect() })
+            }
             ActionRow(icon: "gear",
                       title: "Preferences…",
                       shortcut: "⌘,",

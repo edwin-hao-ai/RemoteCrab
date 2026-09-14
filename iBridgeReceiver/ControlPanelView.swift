@@ -304,7 +304,7 @@ struct ControlPanelView: View {
                     NSApp.activate()
                 }
                 Divider()
-                Button("Quit iBridge") { NSApp.terminate(nil) }
+                Button("Quit Familiar") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis")

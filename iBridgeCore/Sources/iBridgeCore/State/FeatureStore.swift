@@ -17,6 +17,9 @@ public final class FeatureStore {
     public private(set) var trackpadOn = true
     public private(set) var keyboardOn = true
 
+    /// Which physical camera is streaming (front/back).
+    public private(set) var cameraPosition: IBCameraPosition = .back
+
     /// Which interaction surface currently occupies the screen.
     /// Not broadcast-affecting on its own, but included in snapshots.
     public var activeSurface: Surface = .cameraPreview {
@@ -52,6 +55,13 @@ public final class FeatureStore {
         set(feature: control.feature, enabled: control.enabled)
     }
 
+    /// Record that the streaming camera changed position.
+    public func setCameraPosition(_ position: IBCameraPosition) {
+        guard cameraPosition != position else { return }
+        cameraPosition = position
+        notify()
+    }
+
     public func snapshot() -> FeatureStateSnapshot {
         FeatureStateSnapshot(
             cameraOn: cameraOn,
@@ -60,6 +70,7 @@ public final class FeatureStore {
             trackpadOn: trackpadOn,
             keyboardOn: keyboardOn,
             activeSurface: activeSurface,
+            cameraPosition: cameraPosition,
             timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)
         )
     }

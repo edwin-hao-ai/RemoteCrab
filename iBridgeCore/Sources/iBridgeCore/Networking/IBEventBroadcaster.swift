@@ -72,6 +72,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .textCommand) { try IBWire.encode(textCommand: command) }
     }
 
+    /// Mac → iPhone: switch the streaming camera.
+    public func send(_ command: IBCameraCommand) {
+        send(kind: .cameraCommand) { try IBWire.encode(cameraCommand: command) }
+    }
+
     /// Echo a ping payload back to the Mac verbatim (RTT measurement).
     public func sendPingEcho(_ payload: Data) {
         send(kind: .ping) { IBWire.encodeFrame(kind: .ping, payload: payload) }

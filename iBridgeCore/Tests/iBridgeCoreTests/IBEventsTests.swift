@@ -95,6 +95,22 @@ final class IBEventsTests: XCTestCase {
         XCTAssertNil(decoded.keycode)
     }
 
+    // MARK: - Camera command round-trip
+
+    func testCameraCommandRoundTrip() throws {
+        for position in IBCameraPosition.allCases {
+            let encoded = try IBWire.encode(cameraCommand: IBCameraCommand(position: position))
+            let parser = IBWire.Parser()
+            let frames = parser.append(encoded)
+            XCTAssertEqual(frames.count, 1)
+            XCTAssertEqual(frames[0].kind, .cameraCommand)
+            let decoded = try IBWire.decodeCameraCommand(frames[0])
+            XCTAssertEqual(decoded.position, position)
+        }
+        XCTAssertEqual(IBCameraPosition.back.toggled, .front)
+        XCTAssertEqual(IBCameraPosition.front.toggled, .back)
+    }
+
     // MARK: - AudioPacket round-trip
 
     func testAudioPacketRoundTrip() throws {

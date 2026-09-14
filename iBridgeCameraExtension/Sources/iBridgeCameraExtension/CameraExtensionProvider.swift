@@ -1,7 +1,6 @@
 import CoreMedia
 import CoreMediaIO
 import Foundation
-import IOKit
 import OSLog
 import iBridgeCore
 
@@ -11,12 +10,11 @@ private let logger = Logger(subsystem: "com.ibridge", category: "CameraExtension
 ///
 /// `CMIOExtensionProvider` is the entry point the system calls when an
 /// app (Zoom, Teams, Photo Booth, OBS, …) starts consuming the camera.
-/// We expose a single device backed by a single stream that forwards
-/// frames from the connected iPhone.
+/// We expose a single device with a source stream (to clients) and a
+/// sink stream (fed by the Familiar receiver app).
 final class CameraExtensionProvider: NSObject {
 
     private let deviceSource: CameraExtensionDevice
-    private let xpcListener: XPCFrameListener
 
     /// The live CMIO provider object handed to
     /// `CMIOExtensionProvider.startService(provider:)`.
@@ -24,7 +22,6 @@ final class CameraExtensionProvider: NSObject {
 
     override init() {
         self.deviceSource = CameraExtensionDevice()
-        self.xpcListener = XPCFrameListener(stream: deviceSource.streamSource)
         super.init()
         provider = CMIOExtensionProvider(source: self, clientQueue: nil)
         do {
@@ -32,7 +29,6 @@ final class CameraExtensionProvider: NSObject {
         } catch {
             logger.error("failed to add device: \(error.localizedDescription)")
         }
-        xpcListener.start()
     }
 }
 
@@ -41,8 +37,6 @@ final class CameraExtensionProvider: NSObject {
 extension CameraExtensionProvider: CMIOExtensionProviderSource {
 
     func connect(to client: CMIOExtensionClient) throws {
-        // Connections are short-lived and we don't keep per-client
-        // state beyond what the device already tracks.
     }
 
     func disconnect(from client: CMIOExtensionClient) {

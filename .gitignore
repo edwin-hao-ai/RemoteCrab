@@ -47,3 +47,6 @@ dist/
 # MDDock vault internals
 .mddock/
 *.zip
+
+# e2e run logs
+.e2e-logs/

@@ -117,6 +117,17 @@ public enum IBLocale {
         public static let startStreaming = IBL("Start streaming")
         public static let stopStreaming = IBL("Stop streaming")
         public static let starting = IBL("Starting…")
+
+        /// Devices section (bidirectional pairing): the Mac lists the
+        /// iPhones it discovered and connects only when the user picks
+        /// one — mirroring the iPhone's approval card.
+        public static let devicesSection = IBL("DEVICES")
+        public static let disconnect = IBL("Disconnect")
+        public static let pairedPhones = IBL("Paired iPhones")
+        public static let noPairedPhones = IBL("No paired iPhones yet")
+        public static let forget = IBL("Forget")
+        public static let pairedBadge = IBL("Paired — connects automatically")
+        public static let pairedPhonesFooter = IBL("Paired iPhones connect automatically when they appear on the network. Forget one to require approval again.")
     }
 
     /// Hold-to-talk voice card states.
@@ -139,6 +150,7 @@ public enum IBLocale {
     /// with `ibEyebrowTracking()`).
     public enum Capture {
         public static let cameraOff = IBL("CAMERA IS OFF")
+        public static let cameraStarting = IBL("STARTING CAMERA…")
         public static let turnCameraOn = IBL("TURN ON")
     }
 
@@ -209,6 +221,16 @@ public enum IBLocale {
         public static let sysexAwaitingApproval = IBL("Waiting for approval in System Settings")
         public static let sysexActive = IBL("Active")
         public static let sysexFailed = IBL("Activation failed")
+        public static let sysexRepairing = IBL("Re-registering…")
+
+        /// One-click camera-extension guide card.
+        public static let cameraExtensionTitle = IBL("Use your iPhone as a webcam")
+        public static let cameraExtensionGuide = IBL("Familiar installs a small camera extension so FaceTime, Zoom, Photo Booth, OBS and other apps can select “Familiar Camera”. macOS asks you to approve it once.")
+        public static let enableCameraExtension = IBL("Enable Camera Extension")
+        public static let openExtensions = IBL("Open System Settings")
+        public static let reRegister = IBL("Re-register")
+        public static let cameraExtensionActiveHint = IBL("Familiar Camera now appears in your apps' camera lists.")
+        public static let cameraExtensionGenericError = IBL("Couldn't set up the camera extension.")
     }
 
     public enum ModifierKey: String, CaseIterable, Identifiable {
@@ -255,6 +277,47 @@ public enum IBLocale {
         public static let install = IBL("Install Microphone Driver…")
         public static let remove = IBL("Remove")
         public static let footer = IBL("Installs a small System audio driver so Zoom, QuickTime, OBS and Dictation can pick “Familiar Microphone”. Needs one admin authorization; audio briefly restarts.")
+    }
+
+    /// Mac setup assistant (first-run wizard). Replaces the old
+    /// accessibility-only first-launch flow.
+    public enum Setup {
+        public static let title = IBL("Setup Assistant")
+        /// Menu bar row shown while setup is incomplete.
+        public static let finishSetup = IBL("Finish Setup…")
+        public static let finishSetupHelp = IBL("Complete Accessibility and camera extension setup")
+        /// Preferences button that brings the wizard back.
+        public static let reopenWizard = IBL("Reopen Setup Assistant…")
+
+        public static let stepWelcome = IBL("Welcome")
+        public static let stepAccessibility = IBL("Accessibility")
+        public static let stepCamera = IBL("Virtual Camera")
+        public static let stepMicrophone = IBL("Virtual Microphone")
+        public static let stepDone = IBL("All Set")
+
+        public static let welcomeBody = IBL("Familiar turns your iPhone into a camera, microphone, trackpad and keyboard for this Mac. This short setup grants what macOS needs.")
+        public static let welcomeHint = IBL("Also install Familiar on your iPhone from the App Store — both devices must be on the same WiFi.")
+        public static let begin = IBL("Begin Setup")
+
+        public static let accessibilityWhy = IBL("Familiar drives your Mac's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work.")
+        public static let grantAccessibility = IBL("Grant Accessibility…")
+        public static let accessibilitySteps = IBL("If no prompt appears, open System Settings → Privacy & Security → Accessibility and turn on Familiar.")
+
+        public static let cameraWhy = IBL("A small camera extension lets FaceTime, Zoom, Photo Booth and other apps select “Familiar Camera”. macOS asks you to approve it once, then turn it on.")
+        public static let cameraActivateSteps = IBL("Click “Enable Camera Extension” below — macOS will ask you to approve the extension once.")
+        public static let cameraAwaiting = IBL("Waiting for approval — allow Familiar in System Settings → Privacy & Security.")
+        public static let cameraSteps = IBL("Open System Settings → General → Login Items & Extensions, then turn on Familiar under Camera Extensions.")
+        public static let cameraOptional = IBL("Optional — the trackpad and keyboard work without it.")
+
+        public static let microphoneOptional = IBL("Optional — without it, iPhone audio only plays through your Mac's speakers.")
+        public static let micPkgMissing = IBL("The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.")
+
+        public static let skipForNow = IBL("Skip for now")
+        public static let skipped = IBL("Skipped")
+        public static let pending = IBL("Not yet")
+
+        public static let doneBody = IBL("Open Familiar from the menu bar and connect your iPhone to start.")
+        public static let finish = IBL("Finish")
     }
 
     /// Offline demo mode (App Review can explore without a Mac).

@@ -23,6 +23,13 @@ typedef struct {
     int16_t samples[IB_RING_FRAMES * IB_RING_CHANNELS];
 } IBRing;
 
+/// Initialize a caller-owned (e.g. heap) ring in place. The HAL plug-in
+/// uses this: the sandboxed app can't reach a POSIX shm segment, so the
+/// ring lives inside coreaudiod and the app feeds it over loopback UDP
+/// (see MicSocketListener.c). `IBRingOpen` remains for non-sandboxed
+/// consumers that can share memory directly.
+void IBRingInit(IBRing *ring);
+
 /// Open (creating if needed) the per-user shared ring. Safe to call
 /// from either process. Returns NULL on failure.
 IBRing *IBRingOpen(void);

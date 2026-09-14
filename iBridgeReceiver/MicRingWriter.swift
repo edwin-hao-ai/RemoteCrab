@@ -1,33 +1,80 @@
 import Foundation
+import Network
 import os
 
-/// Writes the iPhone's microphone PCM into the POSIX shared-memory ring
-/// that `iBridgeMicrophone.driver` (running inside coreaudiod) reads.
-/// Thin wrapper over the C ring in `iBridgeMicDriver/` (Swift can't call
-/// the variadic `shm_open` directly).
+/// Sends the iPhone's microphone PCM to the `iBridgeMicrophone` HAL
+/// driver over loopback UDP (127.0.0.1:49182).
 ///
-/// No-op (nil) if the ring can't be opened — the driver then sees
-/// silence, and every other iBridge feature keeps working.
-final class MicRingWriter {
+/// Why not the POSIX shm ring anymore: the sandboxed app can't
+/// `shm_open` into coreaudiod's address space (the sandbox denies it),
+/// so the shared-memory design only produced silence. Loopback UDP is
+/// allowed by the app sandbox (`com.apple.security.network.client`),
+/// and the driver side (unsandboxed, inside coreaudiod) runs a small
+/// listener that writes each datagram into the ring the IO thread reads.
+///
+/// Datagrams carry raw mono Int16 host-endian PCM — sender and receiver
+/// are always the same machine, so there's no byte-order concern.
+///
+/// nil (and a silent device) when the driver isn't installed, keeping
+/// the "not installed = silence, everything else works" contract.
+final class MicRingWriter: @unchecked Sendable {
     private static let log = Logger(subsystem: "com.ibridge", category: "micring")
 
-    private let ring: UnsafeMutableRawPointer?
+    /// All NWConnection access is serialized on this queue, so `write`
+    /// is safe from any caller (the audio dispatch path is MainActor).
+    private let queue = DispatchQueue(label: "com.ibridge.micring")
+    private var connection: NWConnection?
 
     init?() {
-        guard let ring = IBMicRingOpen() else {
-            Self.log.error("mic ring unavailable (shm_open failed)")
+        // No point opening a socket when nothing is listening: without
+        // the HAL device installed the datagrams would go nowhere.
+        guard halMicDriverInstalled() else {
+            Self.log.info("mic driver not installed — virtual mic feed disabled")
             return nil
         }
-        self.ring = ring
+        start()
     }
 
-    /// Append mono Int16 frames; overwrites the oldest once full.
+    /// Ship mono Int16 frames; fire-and-forget (a dropped datagram is
+    /// just a 20 ms gap, and the ring zero-fills underruns anyway).
     func write(_ pcm: Data) {
-        guard let ring else { return }
-        let frames = pcm.count / MemoryLayout<Int16>.size
-        guard frames > 0 else { return }
-        pcm.withUnsafeBytes { raw in
-            IBMicRingWrite(ring, raw.bindMemory(to: Int16.self).baseAddress, Int64(frames))
+        guard !pcm.isEmpty else { return }
+        queue.async { [weak self] in
+            self?.connection?.send(content: pcm, completion: .idempotent)
         }
+    }
+
+    // MARK: - Connection lifecycle
+
+    private func start() {
+        let params = NWParameters.udp
+        // The feed must never leave loopback — it's raw PCM and the
+        // driver only binds 127.0.0.1 anyway.
+        params.requiredInterfaceType = .loopback
+        // Must match IB_MIC_UDP_PORT in iBridgeMicDriver/MicSocketListener.h.
+        let port = NWEndpoint.Port(rawValue: 49182)!
+        let conn = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: port,
+            using: params)
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .failed(let error):
+                // Typically "connection refused" ICMP when coreaudiod
+                // (re)started and the listener isn't bound yet. Retry
+                // slowly — sending on a failed connection drops silently.
+                Self.log.info("mic feed socket failed: \(error.localizedDescription, privacy: .public); retrying")
+                self.connection?.cancel()
+                self.connection = nil
+                self.queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    self?.start()
+                }
+            default:
+                break
+            }
+        }
+        conn.start(queue: queue)
+        connection = conn
     }
 }

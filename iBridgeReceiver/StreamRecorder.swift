@@ -223,7 +223,7 @@ final class StreamRecorder {
     }
 
     private static func recordingsDirectory() -> URL {
-        MacPaths.directory("Movies/iBridge")
+        MacPaths.directory("Movies/Familiar")
     }
 
     private static func stamp() -> String {

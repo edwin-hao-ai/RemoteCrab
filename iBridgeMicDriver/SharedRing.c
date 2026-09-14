@@ -2,9 +2,19 @@
 
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+void IBRingInit(IBRing *ring) {
+    if (!ring) return;
+    atomic_init(&ring->writeFrame, 0);
+    atomic_init(&ring->readFrame, 0);
+    ring->sampleRate = 48000;
+    ring->channels = IB_RING_CHANNELS;
+    memset(ring->samples, 0, sizeof ring->samples);
+}
 
 IBRing *IBRingOpen(void) {
     char name[64];

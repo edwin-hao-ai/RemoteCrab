@@ -218,14 +218,18 @@ final class H264Decoder: @unchecked Sendable {
     private var emittedAny = false
     private var emitCount = 0
 
+    /// Creating a `CIContext` is expensive (it spins up a render
+    /// pipeline); doing it per frame at 30 fps stalls the decode queue
+    /// and shows up as visible stutter. One context per decoder.
+    private lazy var ciContext = CIContext(options: [.cacheIntermediates: false])
+
     private func emit(imageBuffer: CVImageBuffer) {
         if !emittedAny {
             emittedAny = true
             Self.log.info("first frame decoded OK")
         }
         let ciImage = CIImage(cvPixelBuffer: imageBuffer)
-        let context = CIContext(options: nil)
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
         // Optional scene-luminance probe (every 5 s) that separates a
         // covered/dark camera from a decoder emitting black frames —
         // that ambiguity cost a full debugging session once. Read

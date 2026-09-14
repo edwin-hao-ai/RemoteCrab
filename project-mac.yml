@@ -29,9 +29,11 @@ targets:
       - path: iBridgeReceiver
         excludes:
           - "Info.plist"
-      # Shared-memory ring (C) so the app can feed the virtual mic.
-      - path: iBridgeMicDriver/SharedRing.c
-      - path: iBridgeMicDriver/MicRingBridge.c
+      # Embedded one-click installer for the virtual microphone,
+      # opened from the setup assistant / Preferences. Built by
+      # scripts/build-mic-driver-pkg.sh (dist/ is gitignored).
+      - path: dist/FamiliarMicrophone.pkg
+        buildPhase: resources
     resources: []
     dependencies:
       - package: iBridgeCore
@@ -76,7 +78,6 @@ targets:
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
-        SWIFT_OBJC_BRIDGING_HEADER: iBridgeReceiver/iBridgeReceiver-Bridging-Header.h
 
   # Camera Extension target — exposes iBridge as a virtual webcam
   # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM
@@ -100,7 +101,7 @@ targets:
       properties:
         CFBundleDisplayName: Familiar Camera
         CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "1"
+        CFBundleVersion: "6"
         CFBundlePackageType: SYSX
         CMIOExtension:
           CMIOExtensionMachServiceName: 5XNDF727Y6.com.ibridge.iBridgeReceiver.Camera

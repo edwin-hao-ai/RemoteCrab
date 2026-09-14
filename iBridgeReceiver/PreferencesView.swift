@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 import Combine
-import CoreAudio
 import SwiftUI
 import iBridgeCore
 
@@ -14,6 +13,7 @@ import iBridgeCore
 struct PreferencesView: View {
     @EnvironmentObject private var session: ReceiverSession
     @EnvironmentObject private var sysexManager: SystemExtensionManager
+    @EnvironmentObject private var setupStatus: SetupStatus
     @Environment(\.openWindow) private var openWindow
     @AppStorage("ibridge.resolution")     private var resolution: String = "1080p"
     @AppStorage("ibridge.frameRate")       private var frameRate: Int = 30
@@ -23,6 +23,9 @@ struct PreferencesView: View {
     @AppStorage("ibridge.autoReconnect")   private var autoReconnect: Bool = true
     @AppStorage("ibridge.didFirstLaunch")  private var didFirstLaunch: Bool = false
 
+    /// Local mirrors so this window reflects a permission the user
+    /// granted while it was already open (SetupStatus only polls while
+    /// the setup assistant is on screen).
     @State private var hasAccessibility: Bool = AXIsProcessTrusted()
     @State private var micDriverInstalled = false
     @State private var showMicPkgMissing = false
@@ -51,36 +54,15 @@ struct PreferencesView: View {
     }
 
     /// Is the HAL device present? (More reliable than checking the file
-    /// path, which the sandbox may hide.)
+    /// path, which the sandbox may hide.) Detection itself lives in
+    /// SetupStatus.swift so the setup assistant shares the same query.
     private func refreshMicDriverState() {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDevices,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr else { return }
-        let count = Int(size) / MemoryLayout<AudioObjectID>.size
-        var ids = [AudioObjectID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return }
-        micDriverInstalled = ids.contains { id in
-            var uidAddr = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceUID,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain)
-            var uid: CFString?
-            var uidSize = UInt32(MemoryLayout<CFString?>.size)
-            let status = withUnsafeMutablePointer(to: &uid) {
-                AudioObjectGetPropertyData(id, &uidAddr, 0, nil, &uidSize, $0)
-            }
-            return status == noErr && (uid as String?) == "com.ibridge.iBridgeMicrophone.device"
-        }
+        micDriverInstalled = halMicDriverInstalled()
     }
 
     /// One-click install: open the signed pkg shipped inside the app.
     private func installMicDriver() {
-        if let pkg = Bundle.main.url(forResource: "iBridgeMicrophone", withExtension: "pkg") {
+        if let pkg = Bundle.main.url(forResource: "FamiliarMicrophone", withExtension: "pkg") {
             NSWorkspace.shared.open(pkg)
         } else {
             showMicPkgMissing = true
@@ -106,6 +88,40 @@ struct PreferencesView: View {
                 Toggle("Auto-reconnect on connection loss", isOn: $autoReconnect)
             } header: {
                 Text(IBLocale.Settings.general)
+            }
+
+            Section {
+                if session.pairedPhones.isEmpty {
+                    Text(IBLocale.Connection.noPairedPhones)
+                        .font(IBFont.bodySmall)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(session.pairedPhones, id: \.self) { name in
+                        HStack {
+                            Image(systemName: "iphone.gen3")
+                                .foregroundStyle(.secondary)
+                            Text(name)
+                                .font(IBFont.bodySmall)
+                            Spacer()
+                            if session.state.phoneName == name {
+                                Button(IBLocale.Connection.disconnect) {
+                                    session.disconnect()
+                                }
+                                .controlSize(.small)
+                            }
+                            Button(IBLocale.Connection.forget) {
+                                session.forgetPhone(named: name)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+            } header: {
+                Text(IBLocale.Connection.pairedPhones)
+            } footer: {
+                Text(IBLocale.Connection.pairedPhonesFooter)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -147,9 +163,9 @@ struct PreferencesView: View {
                     .controlSize(.small)
                 }
 
-                Button(IBLocale.Settings.resetAccessibility) {
-                    // Reset the flag so the root window shows the
-                    // first-launch flow (which re-prompts) again.
+                Button(IBLocale.Setup.reopenWizard) {
+                    // Reset the flag so the root window shows the setup
+                    // assistant (which re-detects everything) again.
                     didFirstLaunch = false
                     openWindow(id: "root")
                     NSApp.activate()
@@ -172,6 +188,10 @@ struct PreferencesView: View {
                         }
                         .controlSize(.small)
                     }
+                    Button(IBLocale.Settings.reRegister) {
+                        sysexManager.repair()
+                    }
+                    .controlSize(.small)
                     Button(IBLocale.Settings.activate) {
                         sysexManager.activate()
                     }
@@ -185,7 +205,7 @@ struct PreferencesView: View {
             } header: {
                 Text(IBLocale.Settings.cameraExtension)
             } footer: {
-                Text("Lets other apps use your iPhone as a webcam. Runs from /Applications only.")
+                Text("Lets other apps use your iPhone as a webcam. Runs from /Applications only. Re-register after moving or updating the app.")
             }
         }
         .formStyle(.grouped)
@@ -288,45 +308,42 @@ struct PreferencesView: View {
 
     private var sysexStatusLabel: String {
         switch sysexManager.activationState {
+        case .unknown:          return IBLocale.Settings.sysexNotInstalled
         case .notInstalled:     return IBLocale.Settings.sysexNotInstalled
         case .awaitingApproval: return IBLocale.Settings.sysexAwaitingApproval
         case .active:           return IBLocale.Settings.sysexActive
+        case .repairing:        return IBLocale.Settings.sysexRepairing
         case .failed:           return IBLocale.Settings.sysexFailed
         }
     }
 
     private var sysexStatusIcon: String {
         switch sysexManager.activationState {
+        case .unknown:          return "circle"
         case .notInstalled:     return "circle"
         case .awaitingApproval: return "clock.badge.exclamationmark"
         case .active:           return "checkmark.circle.fill"
+        case .repairing:        return "arrow.triangle.2.circlepath"
         case .failed:           return "exclamationmark.triangle.fill"
         }
     }
 
     private var sysexStatusColor: Color {
         switch sysexManager.activationState {
+        case .unknown:          return .secondary
         case .notInstalled:     return .secondary
         case .awaitingApproval: return IBColor.warning
         case .active:           return IBColor.success
+        case .repairing:        return IBColor.accent
         case .failed:           return IBColor.error
         }
     }
 
     private func openAccessibilitySettings() {
-        if let url = URL(string:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        } else if let url = URL(string: "x-apple.systempreferences:") {
-            NSWorkspace.shared.open(url)
-        }
+        SetupStatus.openAccessibilitySettings()
     }
 
     private func openExtensionSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
-            NSWorkspace.shared.open(url)
-        } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") {
-            NSWorkspace.shared.open(url)
-        }
+        SetupStatus.openExtensionSettings()
     }
 }
