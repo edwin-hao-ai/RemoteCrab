@@ -703,6 +703,23 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     Verified bit-exact by a standalone harness (socket → ring → read,
     48000 frames). `IBRingOpen` is kept for non-sandboxed consumers but
     is no longer used by the app.
+    **Loading gotchas that cost a day (all silent — no log, no crash
+    report, device just never appears):** (a) the HAL plug-in binary
+    must be **Developer ID Application** signed (coreaudiod library
+    validation refuses Apple Development); (b) `Info.plist` must carry
+    `CFBundleExecutable` — without it CFBundle can't locate the binary
+    and coreaudiod skips the bundle entirely; (c) the driver struct's
+    first field must be the interface **pointer**
+    (`AudioServerPlugInDriverInterface *mInterfacePointer`), not the
+    interface struct by value — `AudioServerPlugInDriverRef` is a
+    pointer-to-pointer, so a by-value first field reads as a NULL
+    vtable and the very first host call segfaults. Debug path when a
+    driver "installs but never appears": dlopen harness
+    (`dlopen` + `dlsym` factory + `Initialize`) reproduces load-time
+    crashes outside coreaudiod; compare against a working driver in
+    `/Library/Audio/Plug-Ins/HAL` (Teams/Lark/TFF load fine).
+    The pkg's postinstall `killall coreaudiod` makes installs take
+    effect immediately.
 20. **Personal Hotspot breaks Bonjour — ship a direct-IP fallback.**
     When the Mac's WiFi is the iPhone's hotspot (Mac gets 172.20.10.x,
     phone is always the gateway 172.20.10.1), mDNS multicast does not

@@ -51,8 +51,8 @@ static const AudioStreamBasicDescription kIBStreamFormat = {
 // MARK: - Driver object
 
 typedef struct {
-    AudioServerPlugInDriverInterface mInterface; // MUST be first
-    AudioServerPlugInDriverInterface *mInterfacePointer;
+    AudioServerPlugInDriverInterface *mInterfacePointer; // MUST be first: the ref is an interface-pointer-pointer
+    AudioServerPlugInDriverInterface mInterface;
     UInt32 mRefCount;
     AudioObjectID mDeviceObjectID;
     IBRing *mRing;
