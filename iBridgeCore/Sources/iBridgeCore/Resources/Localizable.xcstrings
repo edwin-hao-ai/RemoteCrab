@@ -3349,6 +3349,22 @@
           }
         }
       }
+    },
+    "iPhone (direct link)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone (direct link)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone（直连）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

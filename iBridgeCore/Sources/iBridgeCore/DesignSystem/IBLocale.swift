@@ -128,6 +128,9 @@ public enum IBLocale {
         public static let forget = IBL("Forget")
         public static let pairedBadge = IBL("Paired — connects automatically")
         public static let pairedPhonesFooter = IBL("Paired iPhones connect automatically when they appear on the network. Forget one to require approval again.")
+        /// Display name for a phone reached via the direct-IP fallback
+        /// (Bonjour blocked) before its real name is known.
+        public static let directPhone = IBL("iPhone (direct link)")
     }
 
     /// Hold-to-talk voice card states.

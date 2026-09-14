@@ -133,6 +133,10 @@ final class ReceiverSession: ObservableObject {
     /// doesn't hammer it — replaced by a single slow retry + manual.
     private var suppressReconnect = false
     private var slowRetryTask: Task<Void, Never>?
+    /// Bonjour-empty fallback loop: direct-dials candidate IPs when
+    /// multicast discovery yields nothing (Personal Hotspot, client
+    /// isolation, some VPNs all break mDNS while plain TCP still works).
+    private var fallbackTask: Task<Void, Never>?
 
     private struct IncomingFile {
         let id: String
@@ -412,6 +416,7 @@ final class ReceiverSession: ObservableObject {
                 self?.handleDiscovered(phones)
             }
         }
+        startFallbackLoop()
     }
 
     /// Mac → iPhone: toggle a feature remotely. No-op when disconnected.
@@ -501,6 +506,134 @@ final class ReceiverSession: ObservableObject {
         connect(to: phone)
     }
 
+    // MARK: - Direct-connect fallback (Bonjour blocked)
+
+    /// While Bonjour reports an empty network, periodically probe
+    /// candidate IPs with a short-timeout TCP dial and connect to the
+    /// first one that answers. Only runs in the idle `.searching` state
+    /// — never over a live connection, after a manual disconnect, or
+    /// while a busy/denied backoff is in effect.
+    private func startFallbackLoop() {
+        fallbackTask?.cancel()
+        fallbackTask = Task { [weak self] in
+            // Bonjour answers in under a second on healthy networks;
+            // give it a head start before dialing blindly.
+            try? await Task.sleep(for: .seconds(5))
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.connection == nil, self.discovered.isEmpty,
+                   !self.autoConnectSuppressed, !self.suppressReconnect,
+                   case .searching = self.state {
+                    await self.probeFallbackCandidates()
+                }
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+    }
+
+    /// IPs worth a direct dial, most specific first: the phone we last
+    /// connected to, then the Personal Hotspot gateway when this Mac is
+    /// on the iPhone's hotspot (172.20.10.0/28 — mDNS does not reach
+    /// hotspot clients, but the phone itself is always the gateway).
+    private func fallbackCandidates() -> [String] {
+        var out: [String] = []
+        if let last = UserDefaults.standard.string(forKey: "ibridge.lastPhoneIP") {
+            out.append(last)
+        }
+        if Self.localIPv4InHotspotSubnet() {
+            out.append("172.20.10.1")
+        }
+        var seen = Set<String>()
+        return out.filter { seen.insert($0).inserted }
+    }
+
+    private func probeFallbackCandidates() async {
+        let port: UInt16 = 8765
+        for host in fallbackCandidates() {
+            if Task.isCancelled || connection != nil { return }
+            guard await Self.probeReachable(host: host, port: port) else { continue }
+            let name = Self.phoneNameByIP[host] ?? IBLocale.Connection.directPhone
+            Self.log.info("Bonjour empty; direct-connecting to \(host, privacy: .public)")
+            connect(to: DiscoveredPhone(id: "direct:\(host):\(port)",
+                                        name: name,
+                                        endpoint: host, port: port,
+                                        serviceEndpoint: nil))
+            return
+        }
+    }
+
+    /// Short-timeout TCP dial used by the fallback — 2.5 s instead of
+    /// the system default (~75 s) so a stale last-known IP costs one
+    /// probe cycle, not a minute of "connecting".
+    private static func probeReachable(host: String, port: UInt16) async -> Bool {
+        guard let nwPort = NWEndpoint.Port(rawValue: port) else { return false }
+        return await withCheckedContinuation { cont in
+            final class Box: @unchecked Sendable { var resumed = false }
+            let box = Box()
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+            let finish: @Sendable (Bool) -> Void = { ok in
+                guard !box.resumed else { return }
+                box.resumed = true
+                conn.cancel()
+                cont.resume(returning: ok)
+            }
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(true)
+                case .failed: finish(false)
+                default: break
+                }
+            }
+            conn.start(queue: .global())
+            Task {
+                try? await Task.sleep(for: .milliseconds(2500))
+                finish(false)
+            }
+        }
+    }
+
+    /// True when any local interface holds an iPhone Personal Hotspot
+    /// address (172.20.10.0/28 is Apple's fixed hotspot subnet).
+    private static func localIPv4InHotspotSubnet() -> Bool {
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return false }
+        defer { freeifaddrs(ifaddr) }
+        var found = false
+        for iface in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let addr = iface.pointee.ifa_addr
+            guard let addr, addr.pointee.sa_family == UInt8(AF_INET) else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(addr, socklen_t(addr.pointee.sa_len), &host,
+                           socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                let ip = String(cString: host)
+                if ip.hasPrefix("172.20.10.") && ip != "172.20.10.1" { found = true }
+            }
+        }
+        return found
+    }
+
+    /// IP → last known display name, so a direct link can show the
+    /// phone's real name (and reuse its pairing token key).
+    private static var phoneNameByIP: [String: String] {
+        UserDefaults.standard.dictionary(forKey: "ibridge.phoneNameByIP") as? [String: String] ?? [:]
+    }
+
+    /// Remember the phone's resolved IPv4 + name on every successful
+    /// TCP connect, Bonjour or direct — Bonjour connections are how the
+    /// IP is learned in the first place.
+    private func persistLastPhoneEndpoint(_ conn: NWConnection) {
+        guard let remote = conn.currentPath?.remoteEndpoint,
+              case .hostPort(let host, _) = remote,
+              case .ipv4(let addr) = host else { return }
+        let ip = "\(addr)"
+        UserDefaults.standard.set(ip, forKey: "ibridge.lastPhoneIP")
+        if let name = connectedPhoneName {
+            var map = Self.phoneNameByIP
+            map[ip] = name
+            UserDefaults.standard.set(map, forKey: "ibridge.phoneNameByIP")
+        }
+    }
+
     private func connect(to phone: DiscoveredPhone) {
         connection?.cancel()
         connection = nil
@@ -542,7 +675,10 @@ final class ReceiverSession: ObservableObject {
         case .ready:
             // TCP is up but we are NOT the session owner yet: identify
             // ourselves and wait for the iPhone's ownership decision.
-            if let connection { sendClientHello(on: connection) }
+            if let connection {
+                sendClientHello(on: connection)
+                persistLastPhoneEndpoint(connection)
+            }
             if let name = currentPhoneName() {
                 state = .handshaking(name: name)
             }

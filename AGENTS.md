@@ -702,6 +702,31 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     Verified bit-exact by a standalone harness (socket → ring → read,
     48000 frames). `IBRingOpen` is kept for non-sandboxed consumers but
     is no longer used by the app.
+20. **Personal Hotspot breaks Bonjour — ship a direct-IP fallback.**
+    When the Mac's WiFi is the iPhone's hotspot (Mac gets 172.20.10.x,
+    phone is always the gateway 172.20.10.1), mDNS multicast does not
+    reach hotspot clients: `dns-sd -B _ibridge._tcp` shows NOTHING even
+    though the phone's listener is up and `nc -z 172.20.10.1 8765`
+    succeeds. Same story with AP client isolation and some VPNs.
+    Symptoms read as "connects slowly / never connects". Diagnosis
+    order: check the Mac is NOT on a VPN (`ps aux | grep -i clash/surge/
+    wireguard…`, utun interfaces without IPv4 addrs are Apple's idle
+    system tunnels, harmless) → `nc` the phone's gateway IP to prove
+    TCP works → then it's multicast. Fix (2026-09-14): the receiver
+    runs a fallback loop (`ReceiverSession.startFallbackLoop`) — after
+    5 s of empty Bonjour in `.searching` it probes the last-connected
+    IP (`ibridge.lastPhoneIP`, persisted from every successful connect's
+    `currentPath.remoteEndpoint`) and the hotspot gateway with a 2.5 s
+    dial, then connects directly. Direct-link token reuse keys the
+    token store by the mapped name (`ibridge.phoneNameByIP`), so
+    pairing survives. Verified live on hotspot: Bonjour found the phone
+    anyway in one run (multicast is *flaky*, not deterministically
+    dead), so treat this as a fallback, not a replacement.
+    Related: the iPhone app dies/suspends within ~a minute when the
+    phone locks or the app backgrounds — every "the Mac can't find the
+    phone" report should first check the phone's screen is ON with the
+    app foregrounded (devicectl `--console` launch ties app lifetime to
+    the console session; killing it kills the app).
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):

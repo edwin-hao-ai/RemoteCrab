@@ -20,7 +20,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE="${IBRIDGE_DEVICE:-866A1921-B588-59D5-A1B7-B266103B2E49}"
 TEAM="${IBRIDGE_TEAM:-5XNDF727Y6}"
 BUNDLE_IOS="com.ibridge.iBridgeCapture"
-DD_MAC="$HOME/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/iBridgeReceiver.app"
+DD_MAC="$HOME/Library/Developer/Xcode/DerivedData/iBridgeReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/Familiar.app"
 DD_IOS="$HOME/Library/Developer/Xcode/DerivedData/iBridgeCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphoneos/iBridgeCapture.app"
 LOG=/tmp/ibridge-e2e.log
 
@@ -49,8 +49,8 @@ xcodebuild -project "$ROOT/iBridgeCapture.xcodeproj" -scheme iBridgeCapture -con
   DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/ibridge-e2e-iosbuild.log 2>&1 || { echo "  ios build failed"; exit 1; }
 
 echo "[3/5] deploy + install"
-pkill -9 -f iBridgeReceiver 2>/dev/null; sleep 1
-rm -rf /Applications/iBridgeReceiver.app && ditto "$DD_MAC" /Applications/iBridgeReceiver.app
+pkill -9 -x Familiar 2>/dev/null; sleep 1
+rm -rf /Applications/Familiar.app && ditto "$DD_MAC" /Applications/Familiar.app
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1
 
 echo "[4/5] run"
@@ -60,7 +60,7 @@ disown 2>/dev/null || true
 sleep 1
 # TextEdit is the app-switcher target + the typing target.
 open -a TextEdit; sleep 1
-env IBRIDGE_E2E_RECORD=1 /Applications/iBridgeReceiver.app/Contents/MacOS/iBridgeReceiver >/dev/null 2>&1 &
+env IBRIDGE_E2E_RECORD=1 /Applications/Familiar.app/Contents/MacOS/Familiar >/dev/null 2>&1 &
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
@@ -80,7 +80,7 @@ check "receiving file"                    "file offer received"
 check "file saved"                        "file saved + Finder revealed"
 check "clipboard received from iPhone"    "clipboard iPhone → Mac"
 check "activated app"                     "app switch (activateApp)"
-check "recording saved"                   "recording written to ~/Movies/iBridge"
+check "recording saved"                   "recording written to ~/Movies/Familiar"
 
 echo
 echo "== $pass passed, $fail failed =="
