@@ -149,7 +149,12 @@ static HRESULT iBridge_QueryInterface(void *inDriver, REFIID inUUID, LPVOID *out
     // driver whose first field is mInterfacePointer). Hand it back
     // as-is: returning &driver->mInterface here makes the host read the
     // struct's reserved NULL slot as the vtable and crash.
+    // MUST AddRef: the host (get_asp_interface) Releases the factory's
+    // initial reference right after QueryInterface — without this bump
+    // the driver is freed before first use and the host calls AddRef on
+    // a dangling pointer (SIGSEGV reading vtable+0x10).
     *outInterface = inDriver;
+    iBridge_AddRef(inDriver);
     return S_OK;
 }
 static ULONG iBridge_AddRef(void *inDriver) {
