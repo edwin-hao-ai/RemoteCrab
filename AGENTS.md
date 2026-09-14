@@ -340,8 +340,9 @@ app targets. Runs in < 30 seconds. **Always run before committing.**
 builds + deploys both apps, launches the iPhone headlessly with every
 `IBRIDGE_E2E_*` flag, and asserts the receiver-log markers (handshake,
 video, audio, touch, key, file transfer, clipboard, app switch,
-recording). Needs an unlocked, connected iPhone. 10/10 green as of
-2026-09-13.
+recording). Needs an unlocked, connected iPhone with the screen kept
+on (a locked phone suspends the app mid-run and everything fails).
+10/10 green as of 2026-09-14.
 
 ---
 

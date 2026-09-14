@@ -1266,6 +1266,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func syncMicrophone(_ enabled: Bool) {
+        FileHandle.standardError.write("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)\n".data(using: .utf8)!)
         if enabled {
             if audioEncoder == nil {
                 audioEncoder = MicrophoneEncoder()
