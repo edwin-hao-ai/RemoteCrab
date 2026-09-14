@@ -19,9 +19,25 @@
 #include <stdlib.h>
 #include <string.h>
 #include <mach/mach_time.h>
+#include <os/log.h>
 
 #include "SharedRing.h"
 #include "MicSocketListener.h"
+
+// The driver service gives no feedback when a device silently fails to
+// publish — os_log is the only channel (log stream --predicate
+// 'subsystem == "com.ibridge.micdriver"').
+static os_log_t iblog(void) {
+    static os_log_t log;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ log = os_log_create("com.ibridge.micdriver", "driver"); });
+    return log;
+}
+#define IBLOG(...) os_log(iblog(), __VA_ARGS__)
+static void logSel(const char *fn, AudioObjectID obj, AudioObjectPropertySelector sel, OSStatus st) {
+    char c[5] = { (char)(sel >> 24), (char)(sel >> 16), (char)(sel >> 8), (char)sel, 0 };
+    IBLOG("%{public}s obj=%u sel=%{public}s st=%d", fn, obj, c, (int)st);
+}
 
 // MARK: - Object IDs
 
@@ -134,6 +150,7 @@ void *iBridgeMicrophone_Create(CFAllocatorRef inAllocator, CFUUIDRef inRequested
     driver->mRing = (IBRing *)calloc(1, sizeof(IBRing));
     IBRingInit(driver->mRing);
     driver->mListener = IBMicSocketListenerStart(driver->mRing);
+    IBLOG("factory create driver=%{public}p listener=%{public}p", driver, (void *)driver->mListener);
     mach_timebase_info_data_t tb;
     mach_timebase_info(&tb);
     double hostPerFrame = ((double)NSEC_PER_SEC / kIB_SampleRate) * (double)tb.denom / (double)tb.numer;
@@ -177,6 +194,7 @@ static ULONG iBridge_Release(void *inDriver) {
 
 static OSStatus iBridge_Initialize(AudioServerPlugInDriverRef inDriver, AudioServerPlugInHostRef inHost) {
     (void)inDriver; (void)inHost;
+    IBLOG("Initialize");
     return kAudioHardwareNoError;
 }
 
@@ -186,14 +204,17 @@ static OSStatus iBridge_CreateDevice(AudioServerPlugInDriverRef inDriver, CFDict
     iBridgeDriver *driver = (iBridgeDriver *)inDriver;
     driver->mDeviceObjectID = kObjectID_Device;
     *outDeviceObjectID = kObjectID_Device;
+    IBLOG("CreateDevice -> %u", kObjectID_Device);
     return kAudioHardwareNoError;
 }
 static OSStatus iBridge_DestroyDevice(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID) {
     (void)inDriver; (void)inDeviceObjectID;
+    IBLOG("DestroyDevice %u", inDeviceObjectID);
     return kAudioHardwareNoError;
 }
 static OSStatus iBridge_AddDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo) {
     (void)inDriver; (void)inDeviceObjectID; (void)inClientInfo;
+    IBLOG("AddDeviceClient dev=%u", inDeviceObjectID);
     return kAudioHardwareNoError;
 }
 static OSStatus iBridge_RemoveDeviceClient(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, const AudioServerPlugInClientInfo *inClientInfo) {
@@ -214,16 +235,15 @@ static OSStatus iBridge_AbortDeviceConfigurationChange(AudioServerPlugInDriverRe
 static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddress *addr) {
     switch (objectID) {
         case kObjectID_PlugIn:
-            return addr->mSelector == kAudioObjectPropertyManufacturer ||
+            return addr->mSelector == kAudioObjectPropertyName ||
+                   addr->mSelector == kAudioObjectPropertyManufacturer ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
-                   addr->mSelector == kAudioPlugInPropertyBundleID ||
-                   addr->mSelector == kAudioObjectPropertyCustomPropertyInfoList;
+                   addr->mSelector == kAudioPlugInPropertyBundleID;
         case kObjectID_Device:
             return addr->mSelector == kAudioObjectPropertyName ||
                    addr->mSelector == kAudioObjectPropertyManufacturer ||
                    addr->mSelector == kAudioObjectPropertyOwnedObjects ||
                    addr->mSelector == kAudioObjectPropertyControlList ||
-                   addr->mSelector == kAudioObjectPropertyCustomPropertyInfoList ||
                    addr->mSelector == kAudioDevicePropertyDeviceUID ||
                    addr->mSelector == kAudioDevicePropertyModelUID ||
                    addr->mSelector == kAudioDevicePropertyTransportType ||
@@ -235,11 +255,9 @@ static Boolean hasAddress(AudioObjectID objectID, const AudioObjectPropertyAddre
                    addr->mSelector == kAudioDevicePropertyDeviceCanBeDefaultSystemDevice ||
                    addr->mSelector == kAudioDevicePropertyLatency ||
                    addr->mSelector == kAudioDevicePropertyStreams ||
-                   addr->mSelector == kAudioObjectPropertyControlList ||
                    addr->mSelector == kAudioDevicePropertySafetyOffset ||
                    addr->mSelector == kAudioDevicePropertyNominalSampleRate ||
                    addr->mSelector == kAudioDevicePropertyAvailableNominalSampleRates ||
-                   addr->mSelector == kAudioDevicePropertyIcon ||
                    addr->mSelector == kAudioDevicePropertyIsHidden ||
                    addr->mSelector == kAudioDevicePropertyPreferredChannelsForStereo ||
                    addr->mSelector == kAudioDevicePropertyPreferredChannelLayout;
@@ -283,6 +301,8 @@ static UInt32 propSize(AudioObjectID objectID, const AudioObjectPropertyAddress 
         case kAudioPlugInPropertyBundleID:
             return sizeof(CFStringRef);
         case kAudioDevicePropertyStreams:
+            return sizeof(AudioObjectID);
+        case kAudioDevicePropertyRelatedDevices:
             return sizeof(AudioObjectID);
         case kAudioDevicePropertyTransportType:
         case kAudioDevicePropertyClockDomain:
@@ -343,6 +363,16 @@ static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddres
             if (objectID == kObjectID_Device) { AudioObjectID v = kObjectID_Stream_Input; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
             *outDataSize = 0; return kAudioHardwareNoError;
         case kAudioDevicePropertyStreams: { AudioObjectID v = kObjectID_Stream_Input; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyRelatedDevices: { AudioObjectID v = kObjectID_Device; PUT(AudioObjectID, v); return kAudioHardwareNoError; }
+        case kAudioDevicePropertyPreferredChannelLayout: {
+            UInt32 need = (UInt32)(offsetof(AudioChannelLayout, mChannelDescriptions) + sizeof(AudioChannelDescription));
+            if (inDataSize < need) return kAudioHardwareBadPropertySizeError;
+            AudioChannelLayout *acl = (AudioChannelLayout *)outData;
+            memset(acl, 0, need);
+            acl->mChannelLayoutTag = kAudioChannelLayoutTag_Mono;
+            acl->mNumberChannelDescriptions = 1;
+            acl->mChannelDescriptions[0].mChannelLabel = kAudioChannelLabel_Mono;
+            *outDataSize = need; return kAudioHardwareNoError; }
         case kAudioObjectPropertyControlList: *outDataSize = 0; return kAudioHardwareNoError;
         case kAudioDevicePropertyTransportType: { UInt32 v = kAudioDeviceTransportTypeVirtual; PUT(UInt32, v); return kAudioHardwareNoError; }
         case kAudioDevicePropertyClockDomain: { UInt32 v = 0; PUT(UInt32, v); return kAudioHardwareNoError; }
@@ -375,15 +405,17 @@ static OSStatus fillProp(AudioObjectID objectID, const AudioObjectPropertyAddres
 
 static OSStatus iBridge_GetPropertyDataSize(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 *outDataSize) {
     (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
-    if (!hasAddress(inObjectID, inAddress)) return kAudioHardwareUnknownPropertyError;
+    if (!hasAddress(inObjectID, inAddress)) { logSel("GetPropertyDataSize", inObjectID, inAddress->mSelector, kAudioHardwareUnknownPropertyError); return kAudioHardwareUnknownPropertyError; }
     *outDataSize = propSize(inObjectID, inAddress);
     return kAudioHardwareNoError;
 }
 
 static OSStatus iBridge_GetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, UInt32 *outDataSize, void *outData) {
     (void)inDriver; (void)inClientProcessID; (void)inQualifierDataSize; (void)inQualifierData;
-    if (!hasAddress(inObjectID, inAddress)) return kAudioHardwareUnknownPropertyError;
-    return fillProp(inObjectID, inAddress, inDataSize, outDataSize, outData);
+    if (!hasAddress(inObjectID, inAddress)) { logSel("GetPropertyData", inObjectID, inAddress->mSelector, kAudioHardwareUnknownPropertyError); return kAudioHardwareUnknownPropertyError; }
+    OSStatus st = fillProp(inObjectID, inAddress, inDataSize, outDataSize, outData);
+    if (st != kAudioHardwareNoError) logSel("GetPropertyData", inObjectID, inAddress->mSelector, st);
+    return st;
 }
 
 static OSStatus iBridge_SetPropertyData(AudioServerPlugInDriverRef inDriver, AudioObjectID inObjectID, pid_t inClientProcessID, const AudioObjectPropertyAddress *inAddress, UInt32 inQualifierDataSize, const void *inQualifierData, UInt32 inDataSize, const void *inData) {
@@ -399,6 +431,7 @@ static OSStatus iBridge_StartIO(AudioServerPlugInDriverRef inDriver, AudioObject
     driver->mRunning = true;
     driver->mIOCount = 0;
     driver->mAnchorHostTime = mach_absolute_time();
+    IBLOG("StartIO");
     return kAudioHardwareNoError;
 }
 static OSStatus iBridge_StopIO(AudioServerPlugInDriverRef inDriver, AudioObjectID inDeviceObjectID, UInt32 inClientID) {
