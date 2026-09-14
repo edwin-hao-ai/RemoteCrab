@@ -1,21 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <!-- Monochrome, transparent-background glyph of the RemoteCrab
-       "monitor buddy" mark, for the macOS menu bar as a TEMPLATE image
+       cyber-crab mark, for the macOS menu bar as a TEMPLATE image
        (macOS tints it for light/dark automatically). -->
   <g fill="none" stroke="#000000" stroke-width="66" stroke-linecap="round" stroke-linejoin="round">
-    <!-- monitor frame -->
-    <rect x="300" y="352" width="424" height="330" rx="86"/>
-    <!-- antenna -->
-    <line x1="512" y1="352" x2="512" y2="262"/>
-    <path d="M 568 206 A 68 68 0 0 1 626 268"/>
-    <path d="M 456 206 A 68 68 0 0 0 398 268"/>
-    <!-- stand -->
-    <path d="M 470 682 L 470 744 L 408 786"/>
-    <path d="M 554 682 L 554 744 L 616 786"/>
-    <line x1="408" y1="786" x2="616" y2="786"/>
+    <!-- carapace dome -->
+    <path d="M 262 604 A 250 230 0 0 1 762 604"/>
+    <!-- eye stalks -->
+    <path d="M 452 428 L 438 330"/>
+    <path d="M 572 428 L 586 330"/>
+    <!-- claws -->
+    <path d="M 262 442 A 98 98 0 1 0 266 578"/>
+    <path d="M 762 442 A 98 98 0 1 1 758 578"/>
+    <!-- legs -->
+    <path d="M 376 652 L 320 736"/>
+    <path d="M 482 664 L 448 752"/>
+    <path d="M 648 652 L 704 736"/>
+    <path d="M 542 664 L 576 752"/>
   </g>
-  <!-- antenna tip + eyes -->
-  <circle cx="512" cy="252" r="30" fill="#000000"/>
-  <circle cx="430" cy="502" r="34" fill="#000000"/>
-  <circle cx="594" cy="502" r="34" fill="#000000"/>
+  <g fill="#000000">
+    <circle cx="434" cy="278" r="46"/>
+    <circle cx="590" cy="278" r="46"/>
+  </g>
 </svg>

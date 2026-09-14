@@ -6,15 +6,15 @@ Usage:
     python3 scripts/generate-ios-app-icons.py path/to/source-1024.png
 
 If no source is provided, renders the master SVG
-(`assets/app-icon-liquid.svg` — the Liquid Glass "monitor buddy"
+(`assets/app-icon-liquid.svg` — the Liquid Glass cyber-crab
 mascot) to `assets/source-1024-ios.png` via rsvg-convert, then
 generates all the AppIcon sizes into
 `RemoteCrabCapture/Assets.xcassets/AppIcon.appiconset/`.
 
-Design language: a friendly glass monitor character (the "monitor
-buddy") with glowing cyan eyes and a signal antenna, rendered as
-stacked Liquid Glass layers over a deep navy background with
-refracted ambient light blobs. The SVG master is hand-drawn and
+Design language: a friendly glass cyber-crab character with glowing
+cyan eyes on stalks, pincer claws and jointed mechanical legs,
+rendered as stacked Liquid Glass layers over a deep navy background
+with refracted ambient light blobs. The SVG master is hand-drawn and
 fully original — see docs/superpowers/specs/2026-09-10-liquid-glass-icon-design.md.
 """
 from __future__ import annotations
