@@ -1,12 +1,23 @@
 import Foundation
 
-/// Unconditional forensic log for live debugging on device.
+/// Forensic log for live debugging on device.
 /// Writes each line to BOTH stderr (visible via
 /// `devicectl device process launch --console`, which is flaky) and a
 /// file in the app container's Documents dir (reliably pullable via
 /// `devicectl device copy from --domain-type appDataContainer`).
-/// Created to hunt the silent-video-stop bug; safe to remove afterwards.
+/// Created to hunt the silent-video-stop bug.
+///
+/// Gated: always on in DEBUG builds; in release builds only when
+/// launched with REMOTECRAB_FORENSIC=1. All entry points no-op when
+/// disabled, so production pays nothing for it.
 enum Forensic {
+    static let enabled: Bool = {
+        #if DEBUG
+        return true
+        #else
+        return ProcessInfo.processInfo.environment["REMOTECRAB_FORENSIC"] == "1"
+        #endif
+    }()
     // ISO8601DateFormatter isn't Sendable; all access is serialized by
     // `lock` below.
     nonisolated(unsafe) private static let formatter = ISO8601DateFormatter()
@@ -17,11 +28,13 @@ enum Forensic {
 
     /// Start a fresh log (called once at app startup).
     static func reset() {
+        guard enabled else { return }
         try? FileManager.default.removeItem(at: fileURL)
         log("=== forensic log start ===")
     }
 
     static func log(_ message: String) {
+        guard enabled else { return }
         lock.lock()
         defer { lock.unlock() }
         let line = "\(formatter.string(from: Date())) \(message)\n"
@@ -46,7 +59,7 @@ enum Forensic {
         nonisolated(unsafe) private static var timer: DispatchSourceTimer?
 
         static func start() {
-            guard timer == nil else { return }
+            guard enabled, timer == nil else { return }
             let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "com.remotecrab.stall-monitor"))
             t.schedule(deadline: .now() + 1, repeating: 0.5)
             t.setEventHandler {

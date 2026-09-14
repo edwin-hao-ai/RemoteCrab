@@ -6,7 +6,6 @@
       <stop offset="1" stop-color="#05070F"/>
     </linearGradient>
 
-    <!-- ambient light blobs that the glass refracts -->
     <filter id="blurAmb" x="-60%" y="-60%" width="220%" height="220%">
       <feGaussianBlur stdDeviation="70"/>
     </filter>
@@ -26,131 +25,107 @@
       <feGaussianBlur stdDeviation="24"/>
     </filter>
 
-    <linearGradient id="eyeGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#8FE9FC"/>
-      <stop offset="1" stop-color="#2FA8DE"/>
+    <!-- coral crab gradient -->
+    <linearGradient id="shellGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8A5C"/>
+      <stop offset="0.5" stop-color="#F95F3C"/>
+      <stop offset="1" stop-color="#E8432D"/>
     </linearGradient>
     <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.24"/>
-      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.06"/>
       <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </linearGradient>
 
     <clipPath id="shellClip">
-      <rect x="292" y="420" width="440" height="232" rx="116"/>
+      <rect x="297" y="430" width="430" height="270" rx="130"/>
     </clipPath>
   </defs>
 
   <!-- ======================= background ======================= -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- ambient blobs (also reused blurred inside the glass) -->
   <g id="ambience">
     <circle cx="300" cy="270" r="240" fill="#2AA9E0" opacity="0.5" filter="url(#blurAmb)"/>
     <circle cx="750" cy="770" r="270" fill="#6C4BD9" opacity="0.45" filter="url(#blurAmb)"/>
     <circle cx="820" cy="240" r="160" fill="#1E6FB8" opacity="0.4" filter="url(#blurAmb)"/>
+    <circle cx="240" cy="780" r="180" fill="#F95F3C" opacity="0.22" filter="url(#blurAmb)"/>
   </g>
 
   <!-- ground shadow -->
-  <ellipse cx="512" cy="790" rx="220" ry="20" fill="#000000" opacity="0.45" filter="url(#blur24)"/>
+  <ellipse cx="512" cy="812" rx="230" ry="20" fill="#000000" opacity="0.45" filter="url(#blur24)"/>
 
-  <!-- ======================= stubby legs (behind shell) ======================= -->
-  <g fill="none" stroke-linecap="round">
-    <path d="M 360 632 L 318 686 L 292 724" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
-    <path d="M 430 642 L 396 700 L 372 736" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
-    <path d="M 495 648 L 468 706 L 448 740" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
-    <path d="M 664 632 L 706 686 L 732 724" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
-    <path d="M 594 642 L 628 700 L 652 736" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
-    <path d="M 529 648 L 556 706 L 576 740" stroke="#A9C6E2" stroke-opacity="0.4" stroke-width="24"/>
+  <!-- ======================= stubby legs ======================= -->
+  <g fill="none" stroke="#D94735" stroke-width="26" stroke-linecap="round">
+    <path d="M 388 682 L 350 748"/>
+    <path d="M 474 692 L 456 762"/>
+    <path d="M 636 682 L 674 748"/>
+    <path d="M 550 692 L 568 762"/>
   </g>
-  <!-- glowing mechanical knee joints -->
+  <!-- cyan mechanical knee joints (the cyber hint) -->
   <g fill="#4CC9F0">
-    <circle cx="318" cy="686" r="13" opacity="0.9"/>
-    <circle cx="396" cy="700" r="13" opacity="0.9"/>
-    <circle cx="468" cy="706" r="13" opacity="0.9"/>
-    <circle cx="706" cy="686" r="13" opacity="0.9"/>
-    <circle cx="628" cy="700" r="13" opacity="0.9"/>
-    <circle cx="556" cy="706" r="13" opacity="0.9"/>
+    <circle cx="369" cy="715" r="10"/>
+    <circle cx="465" cy="727" r="10"/>
+    <circle cx="655" cy="715" r="10"/>
+    <circle cx="559" cy="727" r="10"/>
   </g>
   <g fill="#FFFFFF" opacity="0.75">
-    <circle cx="315" cy="683" r="4.5"/>
-    <circle cx="393" cy="697" r="4.5"/>
-    <circle cx="465" cy="703" r="4.5"/>
-    <circle cx="703" cy="683" r="4.5"/>
-    <circle cx="625" cy="697" r="4.5"/>
-    <circle cx="553" cy="703" r="4.5"/>
+    <circle cx="366" cy="712" r="3.5"/>
+    <circle cx="462" cy="724" r="3.5"/>
+    <circle cx="652" cy="712" r="3.5"/>
+    <circle cx="556" cy="724" r="3.5"/>
   </g>
 
-  <!-- ======================= pincer claws ======================= -->
-  <!-- left -->
-  <path d="M 330 590 C 285 606 262 592 248 566" fill="none" stroke="#A9C6E2" stroke-opacity="0.45" stroke-width="32" stroke-linecap="round"/>
-  <path d="M 236 462 A 66 66 0 1 0 240 562" fill="none" stroke="#A9C6E2" stroke-opacity="0.5" stroke-width="46" stroke-linecap="round"/>
-  <path d="M 236 462 A 66 66 0 1 0 240 562" fill="none" stroke="#7BDFF2" stroke-opacity="0.7" stroke-width="8" stroke-linecap="round" filter="url(#blur4)"/>
-  <path d="M 238 466 L 270 496" fill="none" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="28" stroke-linecap="round"/>
-  <path d="M 242 558 L 274 530" fill="none" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="28" stroke-linecap="round"/>
-  <!-- right -->
-  <path d="M 694 590 C 739 606 762 592 776 566" fill="none" stroke="#A9C6E2" stroke-opacity="0.45" stroke-width="32" stroke-linecap="round"/>
-  <path d="M 788 462 A 66 66 0 1 1 784 562" fill="none" stroke="#A9C6E2" stroke-opacity="0.5" stroke-width="46" stroke-linecap="round"/>
-  <path d="M 788 462 A 66 66 0 1 1 784 562" fill="none" stroke="#7BDFF2" stroke-opacity="0.7" stroke-width="8" stroke-linecap="round" filter="url(#blur4)"/>
-  <path d="M 786 466 L 754 496" fill="none" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="28" stroke-linecap="round"/>
-  <path d="M 782 558 L 750 530" fill="none" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="28" stroke-linecap="round"/>
-
-  <!-- ======================= eye stalks + big cute eyes ======================= -->
-  <g fill="none" stroke-linecap="round">
-    <path d="M 460 428 C 452 392 447 372 444 356" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="19"/>
-    <path d="M 564 428 C 572 392 577 372 580 356" stroke="#A9C6E2" stroke-opacity="0.55" stroke-width="19"/>
+  <!-- ======================= raised pincer claws ======================= -->
+  <!-- arms -->
+  <g fill="none" stroke="url(#shellGrad)" stroke-width="42" stroke-linecap="round">
+    <path d="M 330 520 C 285 505 258 478 244 440"/>
+    <path d="M 694 520 C 739 505 766 478 780 440"/>
   </g>
-  <circle cx="457" cy="420" r="10" fill="#7BDFF2" opacity="0.8"/>
-  <circle cx="567" cy="420" r="10" fill="#7BDFF2" opacity="0.8"/>
-  <!-- eye bloom -->
-  <circle cx="438" cy="314" r="52" fill="#4CC9F0" opacity="0.4" filter="url(#blur16)"/>
-  <circle cx="586" cy="314" r="52" fill="#4CC9F0" opacity="0.4" filter="url(#blur16)"/>
-  <!-- big eyes, double highlights -->
-  <circle cx="438" cy="314" r="34" fill="url(#eyeGrad)"/>
-  <circle cx="586" cy="314" r="34" fill="url(#eyeGrad)"/>
-  <circle cx="449" cy="302" r="10" fill="#FFFFFF" opacity="0.95"/>
-  <circle cx="597" cy="302" r="10" fill="#FFFFFF" opacity="0.95"/>
-  <circle cx="428" cy="324" r="4" fill="#FFFFFF" opacity="0.7"/>
-  <circle cx="576" cy="324" r="4" fill="#FFFFFF" opacity="0.7"/>
+  <!-- left pincer (Pac-Man bite toward the top middle) -->
+  <path d="M 222 378 L 228 304 A 74 74 0 1 0 294 359 Z" fill="url(#shellGrad)"/>
+  <!-- right pincer -->
+  <path d="M 802 378 L 796 304 A 74 74 0 1 1 730 359 Z" fill="url(#shellGrad)"/>
+  <!-- claw speculars -->
+  <path d="M 178 330 A 62 62 0 0 1 214 306" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="7" stroke-linecap="round" filter="url(#blur4)"/>
+  <path d="M 846 330 A 62 62 0 0 0 810 306" fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="7" stroke-linecap="round" filter="url(#blur4)"/>
 
-  <!-- ======================= liquid glass carapace ======================= -->
+  <!-- ======================= glass carapace ======================= -->
   <g clip-path="url(#shellClip)">
-    <!-- refracted background through the glass -->
-    <use href="#ambience" filter="url(#blurGlass)" opacity="0.85"/>
-    <!-- frost layer -->
-    <rect x="292" y="420" width="440" height="232" fill="#BFD8EE" opacity="0.16"/>
+    <rect x="297" y="430" width="430" height="270" fill="url(#shellGrad)"/>
+    <!-- refracted ambience through the tinted glass -->
+    <use href="#ambience" filter="url(#blurGlass)" opacity="0.22"/>
+    <!-- frost -->
+    <rect x="297" y="430" width="430" height="270" fill="#FFFFFF" opacity="0.08"/>
     <!-- diagonal sheen -->
-    <polygon points="292,420 570,420 400,652 292,652" fill="url(#sheen)"/>
-    <!-- bottom inner shadow + cyan inner glow -->
-    <rect x="292" y="600" width="440" height="52" fill="#000000" opacity="0.2" filter="url(#blur16)"/>
-    <ellipse cx="512" cy="652" rx="190" ry="26" fill="#4CC9F0" opacity="0.14" filter="url(#blur16)"/>
+    <polygon points="297,430 565,430 405,700 297,700" fill="url(#sheen)"/>
+    <!-- bottom inner shadow -->
+    <rect x="297" y="636" width="430" height="64" fill="#7A1408" opacity="0.25" filter="url(#blur16)"/>
   </g>
-  <!-- shell edge: specular top + soft rim -->
-  <rect x="292" y="420" width="440" height="232" rx="116" fill="none" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
-  <path d="M 396 427 L 628 427" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="5" stroke-linecap="round" filter="url(#blur4)"/>
-  <path d="M 396 427 L 628 427" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="2" stroke-linecap="round"/>
-  <path d="M 302 480 L 302 596" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
-  <path d="M 402 646 L 622 646" stroke="#7BDFF2" stroke-opacity="0.35" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
+  <!-- rim + specular -->
+  <rect x="297" y="430" width="430" height="270" rx="130" fill="none" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="3"/>
+  <path d="M 402 437 L 622 437" stroke="#FFFFFF" stroke-opacity="0.85" stroke-width="5" stroke-linecap="round" filter="url(#blur4)"/>
+  <path d="M 402 437 L 622 437" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 306 492 L 306 600" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
+  <!-- cyan neon bottom rim -->
+  <path d="M 412 694 L 612 694" stroke="#7BDFF2" stroke-opacity="0.4" stroke-width="4" stroke-linecap="round" filter="url(#blur4)"/>
 
   <!-- ======================= face ======================= -->
-  <!-- blush cheeks -->
-  <ellipse cx="372" cy="568" rx="28" ry="15" fill="#F2A0C0" opacity="0.3" filter="url(#blur8)"/>
-  <ellipse cx="652" cy="568" rx="28" ry="15" fill="#F2A0C0" opacity="0.3" filter="url(#blur8)"/>
-  <!-- smile -->
-  <path d="M 484 590 Q 512 614 540 590" stroke="#7BDFF2" stroke-width="15" fill="none" stroke-linecap="round" opacity="0.4" filter="url(#blur8)"/>
-  <path d="M 484 590 Q 512 614 540 590" stroke="#A5ECFA" stroke-width="13" fill="none" stroke-linecap="round"/>
+  <!-- big close-set dark eyes with double highlights -->
+  <circle cx="443" cy="510" r="42" fill="#0B1526"/>
+  <circle cx="581" cy="510" r="42" fill="#0B1526"/>
+  <circle cx="457" cy="494" r="14" fill="#FFFFFF"/>
+  <circle cx="595" cy="494" r="14" fill="#FFFFFF"/>
+  <circle cx="431" cy="524" r="5.5" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="569" cy="524" r="5.5" fill="#FFFFFF" opacity="0.8"/>
 
-  <!-- ======================= subtle neon circuitry ======================= -->
-  <g fill="none" stroke="#7BDFF2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M 344 498 L 392 498 L 416 522" stroke-width="7" stroke-opacity="0.26" filter="url(#blur8)"/>
-    <path d="M 344 498 L 392 498 L 416 522" stroke-width="5.5" stroke-opacity="0.8"/>
-  </g>
-  <circle cx="344" cy="498" r="7.5" fill="#7BDFF2"/>
-  <circle cx="416" cy="522" r="7.5" fill="#7BDFF2"/>
-  <circle cx="341" cy="495" r="2.5" fill="#FFFFFF" opacity="0.9"/>
-  <circle cx="672" cy="500" r="6" fill="#7BDFF2" opacity="0.85"/>
-  <circle cx="670" cy="498" r="2" fill="#FFFFFF" opacity="0.9"/>
+  <!-- blush -->
+  <ellipse cx="378" cy="566" rx="26" ry="14" fill="#FFB09A" opacity="0.6" filter="url(#blur8)"/>
+  <ellipse cx="646" cy="566" rx="26" ry="14" fill="#FFB09A" opacity="0.6" filter="url(#blur8)"/>
+
+  <!-- smile -->
+  <path d="M 488 585 Q 512 605 536 585" stroke="#0B1526" stroke-width="13" fill="none" stroke-linecap="round"/>
 
   <!-- tiny glass sparkle -->
-  <path d="M 684 434 L 690 451 L 707 457 L 690 463 L 684 480 L 678 463 L 661 457 L 678 451 Z" fill="#FFFFFF" opacity="0.75"/>
+  <path d="M 676 452 L 681 467 L 696 472 L 681 477 L 676 492 L 671 477 L 656 472 L 671 467 Z" fill="#FFFFFF" opacity="0.85"/>
 </svg>

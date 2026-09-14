@@ -20,8 +20,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE="${REMOTECRAB_DEVICE:-866A1921-B588-59D5-A1B7-B266103B2E49}"
 TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
 BUNDLE_IOS="com.ibridge.iBridgeCapture"
-DD_MAC="$HOME/Library/Developer/Xcode/DerivedData/RemoteCrabReceiver-dtnzehgyhpjbsdcawmkwuoeyeklw/Build/Products/Debug/RemoteCrab.app"
-DD_IOS="$HOME/Library/Developer/Xcode/DerivedData/RemoteCrabCapture-aymkqcqkjstibrffnhlnpvjamzuz/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
+DD_ROOT="$ROOT/.build/e2e-derived"
+DD_MAC="$DD_ROOT/Build/Products/Debug/RemoteCrab.app"
+DD_IOS="$DD_ROOT/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
 LOG=/tmp/remotecrab-e2e.log
 
 pass=0; fail=0
@@ -42,10 +43,10 @@ fi
 
 echo "[2/5] build (signed)"
 xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabReceiver -configuration Debug \
-  -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
+  -destination 'platform=macOS' -derivedDataPath "$DD_ROOT" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
   DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-e2e-macbuild.log 2>&1 || { echo "  mac build failed"; exit 1; }
 xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCapture -configuration Debug \
-  -destination "id=$DEVICE" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
+  -destination "id=$DEVICE" -derivedDataPath "$DD_ROOT" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
   DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-e2e-iosbuild.log 2>&1 || { echo "  ios build failed"; exit 1; }
 
 echo "[3/5] deploy + install"
