@@ -721,7 +721,14 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     `Core-Audio-Driver-Service.helper` host process (report in
     /Library/Logs/DiagnosticReports, stack in
     `init_driver_interface` at `ldr x8,[x8,#0x10]`) and the log only
-    shows "Loading server plug-in X…" with no "Done". Debug path when a
+    shows "Loading server plug-in X…" with no "Done". (e) **Build the
+    driver x86_64, not arm64**: macOS hosts each third-party driver in
+    an arch-matching `Core-Audio-Driver-Service.helper`; the arm64
+    helper is arm64e and calls the vtable with `blraaz` (pointer
+    authentication), which faults on a plain arm64 binary's unsigned
+    function pointers (SIGILL right after the "Loading" line). Every
+    shipping third-party driver (Teams/Lark/TFF/…) is x86_64 — the
+    x86_64 helper has no PAC. Debug path when a
     driver "installs but never appears": dlopen harness
     (`dlopen` + `dlsym` factory + `Initialize`) reproduces load-time
     crashes outside coreaudiod; compare against a working driver in

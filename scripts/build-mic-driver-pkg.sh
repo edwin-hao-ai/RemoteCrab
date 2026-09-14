@@ -27,9 +27,19 @@ DRIVER_NAME="iBridgeMicrophone.driver"
 OUT_DIR="$ROOT/dist"
 OUT="$OUT_DIR/FamiliarMicrophone.pkg"
 
-echo "== building $DRIVER_NAME (identity: $IDENTITY) =="
+echo "== building $DRIVER_NAME (identity: $IDENTITY, arch: x86_64) =="
+# x86_64 on purpose: macOS hosts each third-party driver in a
+# Core-Audio-Driver-Service.helper of matching architecture. The arm64
+# helper is arm64e and calls the driver's vtable with `blraaz` (pointer
+# authentication); a plain arm64 binary's vtable entries are unsigned,
+# so the authenticated call faults (SIGILL in init_driver_interface,
+# right after "Loading server plug-in X…" with no "Done"). Every
+# shipping third-party driver on this machine (Teams/Lark/TFF/…) is
+# x86_64 — the x86_64 helper has no PAC and just works. Rosetta is
+# present on every Apple Silicon Mac that has run any x86_64 app.
 xcodebuild -project "$ROOT/iBridgeReceiver.xcodeproj" -scheme iBridgeMicrophone \
   -configuration Release -destination 'platform=macOS' -derivedDataPath "$DERIVED" \
+  ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= \
   CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
   build >/tmp/ibridge-mic-pkg-build.log 2>&1 \
