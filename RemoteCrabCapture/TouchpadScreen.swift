@@ -29,6 +29,9 @@ struct TouchpadScreen: View {
     @State private var coachGeneration = 0
     @State private var airMouseActive = false
     @State private var wheelArmed = false
+    /// True while a double-tap-hold selection drag is armed; the
+    /// cursor preview shows a selection ring.
+    @State private var dragArmed = false
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "trackpad")
 
@@ -83,6 +86,11 @@ struct TouchpadScreen: View {
                         }
                     }
                     dismissCoach()
+                },
+                onDragArmedChange: { armed in
+                    withAnimation(IBAnimation.snappy) {
+                        dragArmed = armed
+                    }
                 }
             )
             .ignoresSafeArea()
@@ -173,6 +181,16 @@ struct TouchpadScreen: View {
                             Circle()
                                 .strokeBorder(Color.white.opacity(isPressed ? 0.6 : 0.25),
                                               lineWidth: 1.5)
+                        }
+                        .overlay {
+                            // Selection-mode ring: double-tap-hold drag
+                            // is armed — the Mac is selecting text now.
+                            if dragArmed {
+                                Circle()
+                                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                                    .frame(width: 76, height: 76)
+                                    .shadow(color: Color.accentColor.opacity(0.8), radius: 10)
+                            }
                         }
                         .position(
                             x: cursor.x * geo.size.width,

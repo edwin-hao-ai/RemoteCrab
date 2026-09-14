@@ -24,7 +24,11 @@ public final class CGEventInjector: InputInjector {
         case .up:
             post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .move:
-            let dx = Double(touch.dx) * Double(screenSize.width)
+            // Uniform-axis gain: the iPhone normalizes both axes by the
+            // same reference, so both are scaled by the screen HEIGHT
+            // here — using the width for dx made the same finger travel
+            // cover more physical pixels horizontally in portrait.
+            let dx = Double(touch.dx) * Double(screenSize.height)
             let dy = Double(touch.dy) * Double(screenSize.height)
             moveCursor(to: CGPoint(x: lastCursor.x + dx, y: lastCursor.y + dy))
             // Plain finger move = hover; while a drag is armed
@@ -93,8 +97,17 @@ public final class CGEventInjector: InputInjector {
     }
 
     private func post(type: CGEventType, at point: CGPoint, flags: CGEventFlags = []) {
+        // The button must match the event type — a rightMouseDown
+        // built with .left confuses apps that read the button field.
+        let button: CGMouseButton
+        switch type {
+        case .rightMouseDown, .rightMouseUp, .rightMouseDragged:
+            button = .right
+        default:
+            button = .left
+        }
         let event = CGEvent(mouseEventSource: nil, mouseType: type,
-                            mouseCursorPosition: point, mouseButton: .left)
+                            mouseCursorPosition: point, mouseButton: button)
         event?.flags = flags
         event?.post(tap: .cghidEventTap)
     }

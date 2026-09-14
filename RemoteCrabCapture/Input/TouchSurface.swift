@@ -17,6 +17,8 @@ final class TouchSurfaceUIView: UIView {
     var onEvent: ((TouchEvent) -> Void)?
     /// Cursor-preview callback: normalized 0...1 location + pressed flag.
     var onTouch: ((CGPoint, Bool) -> Void)?
+    /// Selection-mode (double-tap-hold drag) state, for host UI feedback.
+    var onDragArmedChange: ((Bool) -> Void)?
     /// Modifier bitmask bridged from the host's IBModifierBar state.
     var modifierMask: UInt8 = 0
     /// 1...5 pointer sensitivity, read by the host from @AppStorage.
@@ -146,12 +148,22 @@ final class TouchSurfaceUIView: UIView {
             // the tap recognizer, drags from double-tap-hold.
         case .changed:
             guard let last = lastDragLocation,
-                  bounds.width > 0, bounds.height > 0 else { return }
-            let rawDX = Float(location.x - last.x) / Float(bounds.width)
-            let rawDY = Float(location.y - last.y) / Float(bounds.height)
+                  uniformReference > 0 else { return }
+            // Uniform-axis mapping: BOTH axes are normalized by the
+            // same reference (the surface's long edge), so one point of
+            // finger travel moves the Mac cursor by the same distance
+            // horizontally and vertically. Per-axis normalization made
+            // portrait X ~3× more sensitive than Y (short axis mapped
+            // to the Mac's long axis) — the "方向感不一致" complaint.
+            let rawDX = Float(location.x - last.x) / Float(uniformReference)
+            let rawDY = Float(location.y - last.y) / Float(uniformReference)
             lastDragLocation = location
             onTouch?(normalize(location), true)
-            let (dx, dy) = TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity)
+            // Selection drags use the precision curve: low fixed gain,
+            // no acceleration boost, no momentum.
+            let (dx, dy) = dragArmed
+                ? TrackpadMath.selectionAccelerate(dx: rawDX, dy: rawDY)
+                : TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity)
             emit(phase: .move, at: location, dx: dx, dy: dy)
         case .ended, .cancelled, .failed:
             lastDragLocation = nil
@@ -241,9 +253,25 @@ final class TouchSurfaceUIView: UIView {
     private var lastDragLocation: CGPoint?
     private var lastTapTime: TimeInterval = 0
     private var lastTapLocation: CGPoint = .zero
-    private var dragArmed = false        // second tap held down
+    /// Second tap held down = selection drag. While armed the
+    /// two-finger scroll recognizer is disabled (a resting second
+    /// finger must not turn a text selection into a scroll) and the
+    /// host is notified for visual feedback.
+    private var dragArmed = false {
+        didSet {
+            guard dragArmed != oldValue else { return }
+            scrollPan.isEnabled = !dragArmed
+            onDragArmedChange?(dragArmed)
+        }
+    }
     private let doubleTapWindow: TimeInterval = 0.28
     private let doubleTapSlop: CGFloat = 30   // pt
+
+    /// Both pointer and scroll deltas are normalized by the surface's
+    /// long edge for BOTH axes — keeps the physical-to-cursor gain
+    /// axis-uniform in portrait and landscape alike (the Mac side
+    /// multiplies both axes by the screen height).
+    private var uniformReference: CGFloat { max(bounds.width, bounds.height) }
 
     // Pinch bookkeeping lives with the drag state (per-sequence).
     private var lastPinchScale: CGFloat = 1
@@ -455,12 +483,12 @@ final class TouchSurfaceUIView: UIView {
     // MARK: - Emit
 
     private func emitScroll(deltaPoints: CGPoint, momentum: Bool = false) {
-        guard bounds.width > 0, bounds.height > 0 else { return }
+        guard uniformReference > 0 else { return }
         emit(
             phase: .scroll,
             at: nil,
-            dx: Float(deltaPoints.x) / Float(bounds.width),
-            dy: Float(deltaPoints.y) / Float(bounds.height),
+            dx: Float(deltaPoints.x) / Float(uniformReference),
+            dy: Float(deltaPoints.y) / Float(uniformReference),
             momentum: momentum
         )
         tickScrollHaptics(deltaPoints: deltaPoints)
@@ -535,6 +563,7 @@ struct TouchSurface: UIViewRepresentable {
     var wheelArmed: Bool = false
     var onEvent: ((TouchEvent) -> Void)?
     var onTouch: ((CGPoint, Bool) -> Void)?
+    var onDragArmedChange: ((Bool) -> Void)?
 
     func makeUIView(context: Context) -> TouchSurfaceUIView {
         let view = TouchSurfaceUIView()
@@ -557,5 +586,6 @@ struct TouchSurface: UIViewRepresentable {
         view.wheelArmed = wheelArmed
         view.onEvent = onEvent
         view.onTouch = onTouch
+        view.onDragArmedChange = onDragArmedChange
     }
 }

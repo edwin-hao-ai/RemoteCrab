@@ -7,13 +7,25 @@ public enum TrackpadMath {
 
     /// Pointer acceleration: slow drags stay precise, fast flicks
     /// travel further. `sensitivity` is the 1...5 settings value.
+    /// `maxBoost` caps the speed multiplier — pass 0 for a constant
+    /// gain (precision work such as text selection).
     /// Input/output are normalized screen units (0...1 per axis).
-    public static func accelerate(dx: Float, dy: Float, sensitivity: Int) -> (dx: Float, dy: Float) {
+    public static func accelerate(dx: Float, dy: Float, sensitivity: Int,
+                                  maxBoost: Float = 2.0) -> (dx: Float, dy: Float) {
         let s = Float(max(1, min(5, sensitivity)))
         let baseGain: Float = 0.6 + 0.35 * (s - 1)   // 0.6 … 2.0
         let speed = sqrtf(dx * dx + dy * dy)
-        let boost: Float = 1 + min(speed * 6, 2.0)   // fast flicks up to 3×
+        let boost: Float = 1 + min(speed * 6, max(0, maxBoost))
         let gain = baseGain * boost
+        return (dx * gain, dy * gain)
+    }
+
+    /// Selection-drag curve (double-tap-hold text selection): a fixed,
+    /// low, boost-free gain. Selecting needs pixel-level control at
+    /// low speed — acceleration and momentum only overshoot the
+    /// selection boundary.
+    public static func selectionAccelerate(dx: Float, dy: Float) -> (dx: Float, dy: Float) {
+        let gain: Float = 0.55
         return (dx * gain, dy * gain)
     }
 
