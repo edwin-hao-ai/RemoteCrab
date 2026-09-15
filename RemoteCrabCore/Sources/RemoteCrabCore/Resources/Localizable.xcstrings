@@ -3585,6 +3585,40 @@
           }
         }
       }
+    },
+    "Granted? Restart RemoteCrab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Granted? Restart RemoteCrab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启？重启 RemoteCrab"
+          }
+        }
+      }
+    },
+    "macOS caches this permission per running app — if you already turned it on but the status won't update, restart RemoteCrab once and it will be detected.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS caches this permission per running app — if you already turned it on but the status won't update, restart RemoteCrab once and it will be detected."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 会按运行中的 App 缓存这项权限——如果你已经开启但状态没有更新，重启一次 RemoteCrab 即可被检测到。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -184,6 +184,7 @@ struct SetupAssistantView: View {
             bodyText(IBLocale.Setup.accessibilityWhy)
             if !setupStatus.hasAccessibility {
                 numberedHint(IBLocale.Setup.accessibilitySteps)
+                captionText(IBLocale.Setup.restartHint)
             }
 
         case .camera:
@@ -238,6 +239,9 @@ struct SetupAssistantView: View {
                     }
                     secondaryButton(IBLocale.Permission.openSystemSettings) {
                         SetupStatus.openAccessibilitySettings()
+                    }
+                    secondaryButton(IBLocale.Setup.restartToApply) {
+                        SetupStatus.relaunchApp()
                     }
                 }
             }

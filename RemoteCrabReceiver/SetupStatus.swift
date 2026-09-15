@@ -4,7 +4,10 @@ import Combine
 import CoreAudio
 import CoreMediaIO
 import Foundation
+import os
 import RemoteCrabCore
+
+private let log = Logger(subsystem: "com.remotecrab", category: "setup")
 
 /// Shared setup-state detection for the Mac receiver, used by the
 /// setup assistant wizard, the menu bar "Finish Setup…" row, and
@@ -72,6 +75,24 @@ final class SetupStatus: ObservableObject, @unchecked Sendable {
             "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
         ]
         _ = AXIsProcessTrustedWithOptions(opts)
+    }
+
+    /// Relaunches the app. Needed because macOS caches the Accessibility
+    /// (TCC) trust flag per running process: after the user grants it in
+    /// System Settings, `AXIsProcessTrusted()` in THIS process keeps
+    /// returning false until a fresh launch (real-device lesson #10).
+    static func relaunchApp() {
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL,
+                                           configuration: config) { app, error in
+            if let error {
+                log.error("relaunch failed: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            guard app != nil else { return }
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
     }
 
     static func openAccessibilitySettings() {

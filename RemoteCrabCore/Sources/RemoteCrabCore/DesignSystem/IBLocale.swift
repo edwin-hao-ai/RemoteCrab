@@ -310,6 +310,8 @@ public enum IBLocale {
         public static let accessibilityWhy = IBL("RemoteCrab drives your Mac's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work.")
         public static let grantAccessibility = IBL("Grant Accessibility…")
         public static let accessibilitySteps = IBL("If no prompt appears, open System Settings → Privacy & Security → Accessibility and turn on RemoteCrab.")
+        public static let restartToApply = IBL("Granted? Restart RemoteCrab")
+        public static let restartHint = IBL("macOS caches this permission per running app — if you already turned it on but the status won't update, restart RemoteCrab once and it will be detected.")
 
         public static let cameraWhy = IBL("A small camera extension lets FaceTime, Zoom, Photo Booth and other apps select “RemoteCrab Camera”. macOS asks you to approve it once, then turn it on.")
         public static let cameraActivateSteps = IBL("Click “Enable Camera Extension” below — macOS will ask you to approve the extension once.")
