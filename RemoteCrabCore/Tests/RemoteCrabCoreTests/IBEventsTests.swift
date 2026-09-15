@@ -147,6 +147,22 @@ final class IBEventsTests: XCTestCase {
         XCTAssertEqual(decoded.opusData, opus)
     }
 
+    func testLegacyAudioPacketWithoutCodecDecodesAsPCM() throws {
+        // Pre-Opus builds send no `codec` key at all; the receiver must
+        // keep treating those payloads as raw PCM.
+        let json = """
+        {"opusData":"\(Data([0x01, 0x02, 0x03]).base64EncodedString())",\
+        "sampleRate":48000,"channels":1,"timestampMicros":12345}
+        """
+        let packet = try JSONDecoder().decode(AudioPacket.self, from: Data(json.utf8))
+        XCTAssertEqual(packet.codec, AudioPacket.codecPCM)
+        XCTAssertEqual(packet.opusData, Data([0x01, 0x02, 0x03]))
+        XCTAssertEqual(packet.sampleRate, 48_000)
+
+        // ...and the memberwise init keeps defaulting to PCM.
+        XCTAssertEqual(AudioPacket(opusData: Data()).codec, AudioPacket.codecPCM)
+    }
+
     // MARK: - Mixed traffic
 
     func testMixedVideoAndEventsOverSameConnection() throws {

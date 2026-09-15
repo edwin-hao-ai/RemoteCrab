@@ -109,35 +109,46 @@ public struct KeyEvent: Codable, Sendable, Equatable {
     }
 }
 
-/// A single Opus-encoded audio frame from the iPhone microphone.
+/// A single audio frame from the iPhone microphone.
 ///
-/// `opusData` is one Opus packet (typically 20 ms at 48 kHz).
+/// `opusData` carries one Opus packet (typically 20 ms at 48 kHz) when
+/// `codec == "opus"`, or raw Int16 interleaved PCM when `codec == "pcm"`.
 /// `sampleRate` is included for clarity even though Opus is
 /// sample-rate-agnostic — it lets the receiver pick a matching
 /// playback graph.
 public struct AudioPacket: Codable, Sendable, Equatable {
 
+    /// Wire value for raw Int16 PCM payloads.
+    public static let codecPCM = "pcm"
+    /// Wire value for Opus payloads (AudioConverter, 48 kHz mono).
+    public static let codecOpus = "opus"
+
     public let opusData: Data
     public let sampleRate: Int
     public let channels: Int
     public let timestampMicros: UInt64
+    /// Payload format: "pcm" (legacy, default) or "opus". Older builds
+    /// omit the key entirely, so decoding must default to "pcm".
+    public let codec: String
 
     public init(
         opusData: Data,
         sampleRate: Int = 48_000,
         channels: Int = 1,
-        timestampMicros: UInt64 = 0
+        timestampMicros: UInt64 = 0,
+        codec: String = codecPCM
     ) {
         self.opusData = opusData
         self.sampleRate = sampleRate
         self.channels = channels
         self.timestampMicros = timestampMicros
+        self.codec = codec
     }
 
     // MARK: - Codable (Data is not Codable by default)
 
     private enum CodingKeys: String, CodingKey {
-        case opusData, sampleRate, channels, timestampMicros
+        case opusData, sampleRate, channels, timestampMicros, codec
     }
 
     public init(from decoder: Decoder) throws {
@@ -153,6 +164,7 @@ public struct AudioPacket: Codable, Sendable, Equatable {
         sampleRate = try c.decode(Int.self, forKey: .sampleRate)
         channels = try c.decode(Int.self, forKey: .channels)
         timestampMicros = try c.decode(UInt64.self, forKey: .timestampMicros)
+        codec = try c.decodeIfPresent(String.self, forKey: .codec) ?? Self.codecPCM
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -161,6 +173,7 @@ public struct AudioPacket: Codable, Sendable, Equatable {
         try c.encode(sampleRate, forKey: .sampleRate)
         try c.encode(channels, forKey: .channels)
         try c.encode(timestampMicros, forKey: .timestampMicros)
+        try c.encode(codec, forKey: .codec)
     }
 }
 

@@ -290,7 +290,7 @@ buffering. The parser refuses frames larger than 64 MiB
 |---|---|---|
 | Camera capture + H.264 encode | `CaptureEngine.swift`, `H264Encoder.swift` | 1080p @ 30 fps, hardware encode via VideoToolbox |
 | Bonjour publish | `CaptureEngine.swift` | `_remotecrab._tcp` service on `local.` |
-| Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms PCM packets (V0.3 → Opus). **Real-hardware gotcha**: the input node delivers Float32 non-interleaved, so `int16ChannelData` is nil on device — buffers must be converted to mono Int16; also requires an active `AVAudioSession` (`.playAndRecord`) before `engine.start()` or the tap never fires |
+| Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms Opus packets (`IBOpusEncoder`, 48 kHz mono 24 kbps; PCM fallback if the codec is unavailable). **Real-hardware gotcha**: the input node delivers Float32 non-interleaved, so `int16ChannelData` is nil on device — buffers must be converted to mono Int16; also requires an active `AVAudioSession` (`.playAndRecord`) before `engine.start()` or the tap never fires |
 | **Feature dock home (V0.3)** | `ContentView.swift`, `FeatureDock.swift` | Camera/mic = stream toggles, trackpad/keyboard = surfaces; draggable PiP preview |
 | **Feature state store (V0.3)** | `RemoteCrabCore/State/FeatureStore.swift` | `@Observable`, single source of truth, synced to Mac via `featureState` |
 | **Trackpad gesture engine (V0.3)** | `Input/TouchSurface.swift` | Drag (double-tap-hold), momentum scroll, pinch, accel curve, haptics, force right-click, 3-finger gestures. **Joystick-style relative positioning**: the Mac cursor never teleports — hover applies deltas, discrete events fire at the hover position; the on-screen dot springs back to center on lift and leaves a fading motion trail |
@@ -463,7 +463,6 @@ For new event types:
 | **Real iPhone + Mac end-to-end test** | ⏳ In progress (2026-09-11): app runs on device, Bonjour+TCP connect, 4 device-only bugs fixed; full checklist pending — see "Real-device lessons" below | 1 day |
 | **Camera extension user activation** | Sysex installed; user must enable the camera toggle in System Settings, then verify in Photo Booth/Zoom | 30 min |
 | **Virtual microphone (CoreAudio HAL plugin)** | Driver implemented (`RemoteCrabMicDriver/`): HAL `AudioServerPlugIn` reads an in-process SPSC ring fed over **loopback UDP 127.0.0.1:49182** (the sandbox blocks `shm_open`, so the original POSIX-shm design was silence-only; `MicSocketListener.c` runs the recv thread inside coreaudiod, app side is `MicRingWriter` → NWConnection). pkg is embedded in the app (`dist/RemoteCrabMicrophone.pkg` → `Contents/Resources`) — one-click install from the setup assistant / Preferences, one admin GUI auth. Remaining: user runs the installer once + verify in Zoom/QuickTime/Dictation. (The `RemoteCrabAudioExtension` AUv3 skeleton is a DAW-host plugin and will NOT show up as a system input — don't build on it for this.) | 30 min |
-| **Real Opus encoding** | Currently raw PCM, fine on WiFi but ~96 kbps per direction | 1 day (opustools SPM) |
 | **App Store metadata screenshots** | We have mockups in `screenshots/`, need real device captures for upload | 1 day |
 | **App Store review submission** | Upload via `release-ios.sh --all`, manual submit in browser | 1 hour |
 | **Crash reporting** | OSLog + 3rd-party (Sentry / Bugsnag) | 1 day |
@@ -473,7 +472,7 @@ For new event types:
 ### 🛣 Roadmap
 - ~~**V0.3** — bidirectional protocol, feature dock, trackpad engine, K3 keyboard, voice, labs, camera sysex~~ ✅
 - **V0.4** — Virtual microphone, real-device validation sprint
-- **V0.5** — Real Opus encoding, localization
+- **V0.5** — ~~Real Opus encoding~~ ✅ (2026-09-15, Apple AudioConverter, zero deps), localization
 - **V1.0** — Public App Store release
 - **V1.5** — Windows support (DirectShow virtual camera)
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog
@@ -913,10 +912,16 @@ Runbook for real-device testing:
 
 ### Why we kept raw PCM instead of Opus in V0.2
 Adding Opus meant adding a 3rd-party dependency (libopus) and 4-6
-hours of CMake / Swift Package plumbing. The wire format is already
-defined (`AudioPacket` with `opusData: Data`) so swapping in real
-Opus is a small change. The current raw PCM uses ~96 kbps per
-direction which is fine on WiFi.
+hours of CMake / Swift Package plumbing — so V0.2 shipped raw PCM.
+Opus finally landed (2026-09-15) without any dependency at all, via
+Apple's own `AudioConverter` Opus codec (`IBOpusCodec.swift`), which
+is why the "no libopus" trade-off below is now history: wire
+bandwidth dropped from ~1 Mbps of base64 PCM to ~35 kbps.
+**The one converter behavior that will bite you**: returning
+`noErr` + zero packets from the input proc finalizes the Opus
+converter PERMANENTLY (all later fills come back empty). The input
+proc must return a real error code when the current fill is out of
+data — see `kIBOpusInputDrained` in `IBOpusCodec.swift`.
 
 ### Why we use `@unchecked Sendable` liberally
 Swift 6 strict concurrency. We're a solo developer, the threads are

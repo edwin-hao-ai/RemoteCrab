@@ -35,6 +35,10 @@ final class ReceiverSession: ObservableObject {
     @Published private(set) var latestFrame: CGImage?
     private var videoFrameCount = 0
     private var audioPacketCount = 0
+    /// Lazily created on the first Opus packet; nil-decodable packets
+    /// (legacy senders) never touch it.
+    private var opusDecoder: IBOpusDecoder?
+    private var opusDropCount = 0
     private var touchEventCount = 0
     private var keyEventCount = 0
 
@@ -976,11 +980,36 @@ final class ReceiverSession: ObservableObject {
                 if let packet = try? IBWire.decodeAudio(frame) {
                     audioPacketCount += 1
                     if audioPacketCount == 1 || audioPacketCount % 100 == 0 {
-                        Self.log.info("audio packets received: \(self.audioPacketCount) (\(packet.opusData.count) B, \(packet.sampleRate) Hz x \(packet.channels) ch)")
+                        Self.log.info("audio packets received: \(self.audioPacketCount) (\(packet.opusData.count) B, \(packet.sampleRate) Hz x \(packet.channels) ch, codec=\(packet.codec, privacy: .public))")
                     }
-                    recorder.appendAudio(packet.opusData)
-                    micRing?.write(packet.opusData)
-                    audioPlayer.consume(packet)
+                    // Decode once, here, so every consumer (recorder,
+                    // virtual mic, speaker) keeps seeing plain PCM.
+                    var pcm = packet.opusData
+                    if packet.codec == AudioPacket.codecOpus {
+                        if opusDecoder == nil {
+                            opusDecoder = IBOpusDecoder(sampleRate: 48_000)
+                            if opusDecoder == nil {
+                                Self.log.error("opus decoder unavailable — opus packets will be dropped")
+                            }
+                        }
+                        guard let decoded = opusDecoder?.decode(packet: packet.opusData), !decoded.isEmpty else {
+                            opusDropCount += 1
+                            if opusDropCount == 1 || opusDropCount % 100 == 0 {
+                                Self.log.warning("opus decode failed, packets dropped: \(self.opusDropCount)")
+                            }
+                            break
+                        }
+                        pcm = decoded
+                    }
+                    let pcmPacket = AudioPacket(
+                        opusData: pcm,
+                        sampleRate: packet.sampleRate,
+                        channels: packet.channels,
+                        timestampMicros: packet.timestampMicros
+                    )
+                    recorder.appendAudio(pcm)
+                    micRing?.write(pcm)
+                    audioPlayer.consume(pcmPacket)
                 }
             case .featureControl:
                 // Mac → iPhone direction only; ignore if we ever receive one.
