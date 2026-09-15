@@ -12,7 +12,11 @@ public enum IBFont {
     // scales the whole app; macOS has no Dynamic Type, so the Mac
     // keeps the original fixed point sizes (Mac windows are sized to
     // them). The mono family below stays fixed on BOTH platforms:
-    // technical readouts live inside fixed-width capsules and pills.
+    // technical readouts live inside fixed-width capsules and pills —
+    // scaling them would re-trigger the MenuBarExtra re-size-on-
+    // content-change bug (AGENTS.md lesson #14), so this is a
+    // deliberate accessibility tradeoff (audited 2026-09-16), not an
+    // oversight.
     #if os(iOS)
 
     /// Top of the page. Used for the "Trackpad" hero label.

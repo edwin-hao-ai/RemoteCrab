@@ -93,7 +93,8 @@ struct CameraExtensionCard: View {
             Text(statusLabel)
                 .font(IBFont.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .truncationMode(.tail)
         }
     }
 

@@ -118,7 +118,7 @@ struct SetupAssistantView: View {
                 Text(s.title)
                     .font(IBFont.bodySmall)
                     .foregroundStyle(s == step ? .primary : .secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Spacer()
             }
             .padding(.horizontal, IBSpace.m.pt)

@@ -9,6 +9,7 @@ import RemoteCrabCore
 /// Mac cursor without leaving keyboard mode.
 struct KeyboardScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
 
     /// Lockable modifier state — locked modifiers ride on every
@@ -118,7 +119,9 @@ struct KeyboardScreen: View {
                  : committedText)
                 .font(IBFont.titleMedium)
                 .foregroundStyle(committedText.isEmpty ? .white.opacity(0.35) : .white)
-                .lineLimit(2)
+                // Accessibility text sizes get unlimited lines — two
+                // lines of AX5 text would clip mid-sentence.
+                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         }

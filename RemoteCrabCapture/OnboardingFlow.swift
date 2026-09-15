@@ -129,26 +129,35 @@ struct OnboardingPage: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 40)
+        // Scroll only when needed: at default text sizes the minHeight
+        // frame makes this layout identical to the old fixed one
+        // (hero expands to fill), at accessibility sizes the page
+        // scrolls instead of clipping the title/subtitle.
+        GeometryReader { geo in
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Spacer().frame(height: 40)
 
-            hero
-                .frame(maxHeight: .infinity)
+                    hero
+                        .frame(maxHeight: .infinity)
 
-            VStack(spacing: IBSpace.m.pt) {
-                Text(title)
-                    .font(IBFont.displayMedium)
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+                    VStack(spacing: IBSpace.m.pt) {
+                        Text(title)
+                            .font(IBFont.displayMedium)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
 
-                Text(subtitle)
-                    .font(IBFont.bodyMedium)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, IBSpace.xxl.pt)
-                    .fixedSize(horizontal: false, vertical: true)
+                        Text(subtitle)
+                            .font(IBFont.bodyMedium)
+                            .foregroundStyle(.white.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, IBSpace.xxl.pt)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.bottom, 40)
+                }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
-            .padding(.bottom, 40)
         }
     }
 
