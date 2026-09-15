@@ -30,7 +30,8 @@ public final class CGEventInjector: InputInjector {
             // cover more physical pixels horizontally in portrait.
             let dx = Double(touch.dx) * Double(screenSize.height)
             let dy = Double(touch.dy) * Double(screenSize.height)
-            moveCursor(to: CGPoint(x: lastCursor.x + dx, y: lastCursor.y + dy))
+            moveCursor(to: CGPoint(x: lastCursor.x + dx, y: lastCursor.y + dy),
+                       screenSize: screenSize)
             // Plain finger move = hover; while a drag is armed
             // (dragStart seen, no up yet) = left-drag.
             if isDragging {
@@ -89,10 +90,17 @@ public final class CGEventInjector: InputInjector {
     private var isDragging = false
     private var lastPhase: TouchEvent.Phase?
 
-    private func moveCursor(to point: CGPoint) {
-        lastCursor = point
+    private func moveCursor(to point: CGPoint, screenSize: CGSize) {
+        // Clamp the tracked position to the screen: the physical cursor
+        // can't leave the display, and an offscreen lastCursor posts
+        // events at meaningless coordinates (drags land nowhere).
+        // Clamping also makes the cursor position deterministic —
+        // enough negative deltas always reach (0,0).
+        let clamped = CGPoint(x: min(max(point.x, 0), screenSize.width - 1),
+                              y: min(max(point.y, 0), screenSize.height - 1))
+        lastCursor = clamped
         let move = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                           mouseCursorPosition: point, mouseButton: .left)
+                           mouseCursorPosition: clamped, mouseButton: .left)
         move?.post(tap: .cghidEventTap)
     }
 

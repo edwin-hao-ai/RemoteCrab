@@ -390,17 +390,25 @@ on (a locked phone suspends the app mid-run and everything fails).
 10/10 green as of 2026-09-14.
 
 `./scripts/e2e-simulator.sh` is the **no-device** subset (rewritten
-2026-09-15, 8/8 green): the simulator's Bonjour is invisible to the
+2026-09-15, 10/10 green): the simulator's Bonjour is invisible to the
 host, but its TCP listener IS reachable at `127.0.0.1:8765`, so the
 script seeds `remotecrab.lastPhoneIP=127.0.0.1` (restored afterwards)
 and lets the receiver's direct-IP fallback connect — exercising
 handshake + AUTOPAIR + token rekey, **Opus encode/decode live**, touch,
-key, file transfer, clipboard, app switch. Video + recording are
+key, file transfer, clipboard, app switch, plus **real drag
+verification**: the iPhone stages the cursor at an absolute point
+(`e2eStageCursor` — works because the injector clamps to screen
+bounds), signals via a clipboard marker, and the script moves a
+TextEdit window UNDER the cursor (window-drag assert via AX position;
+text-select assert via drag → ⌘C → pbpaste). Video + recording are
 skipped (no camera in the simulator). **Headless-launch trap:**
 `requestPermissions()` awaits the CAMERA prompt before the listener
 starts — grant camera AND microphone via `simctl privacy` first, or an
 untapped prompt deadlocks the launch (port 8765 never opens, zero
-logs, looks exactly like "Bonjour broken").
+logs, looks exactly like "Bonjour broken"). Focus trap #2: launching
+the sim app raises the Simulator window — re-activate TextEdit as
+soon as `sessionReply: accepted` appears, or the scripted keystrokes
+land in the wrong window.
 
 ---
 
@@ -931,7 +939,15 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     `dragStart` → `leftMouseDown` → `leftMouseDragged` → `leftMouseUp`
     (`CGEventInjector`). Mac trackpads don't have long-press drag, so
     keep both gestures; if either feels laggy on device, tune the
-    0.45 s / 12 pt constants, not the injection side.
+    0.45 s / 12 pt constants, not the injection side. **Also fixed the
+    same day**: `CGEventInjector.lastCursor` never clamped to the
+    screen, so it could drift off-display and post every later event
+    (including drags) at meaningless off-screen coordinates — the
+    cursor "lost" itself. `moveCursor` now clamps, which also makes
+    the position deterministic (enough up-left deltas always reach
+    (0,0) — the e2e drag staging relies on this). Verified live in the
+    simulator e2e: window title-bar drag moves the window; text
+    drag-select → ⌘C puts the selection on the clipboard.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -942,6 +958,10 @@ Headless e2e launch envs for the iOS app (via
 - `REMOTECRAB_E2E_INPUT=1` — 3 s after connect, send a scripted
   touch-move burst + the text `RemoteCrab-e2e-OK` (goes to whatever
   has Mac keyboard focus — point TextEdit at a scratch file first)
+- `REMOTECRAB_E2E_DRAG=1` — 6 s after connect, two scripted drags
+  (window move + text selection) with absolute cursor staging and
+  clipboard markers for the Mac-side orchestrator
+  (`scripts/e2e-simulator.sh` drives them)
 - `REMOTECRAB_E2E_MIC=1` — force the mic feature on without tapping
   the phone screen
 - `REMOTECRAB_E2E_AUTOPAIR=1` — auto-approve an unpaired Mac (skips the

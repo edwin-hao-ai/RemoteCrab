@@ -1000,6 +1000,9 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_INPUT"] == "1" {
             runE2EInputSequence()
         }
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_DRAG"] == "1" {
+            runE2EDragSequence()
+        }
         // E2E: send a generated file so the receive + Finder-reveal
         // path is verifiable from the receiver log.
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SEND_FILE"] == "1" {
@@ -1210,6 +1213,68 @@ final class CaptureEngine: ObservableObject {
             }
             self.sendKey(KeyEvent(action: .text, text: "RemoteCrab-e2e-OK"))
             Forensic.log("[e2e] input sequence sent")
+        }
+    }
+
+    /// Force the injector's cursor to an ABSOLUTE known point —
+    /// (0.3, 0.3) × Mac screen height. The Mac-side injector clamps
+    /// the cursor to screen bounds, so a long up-left burst always
+    /// lands at (0,0), and the fixed second burst lands exactly.
+    private func e2eStageCursor() async {
+        for _ in 0..<40 {
+            self.sendTouch(TouchEvent(phase: .move, dx: -0.05, dy: -0.05))
+            try? await Task.sleep(for: .milliseconds(15))
+        }
+        for _ in 0..<6 {
+            self.sendTouch(TouchEvent(phase: .move, dx: 0.05, dy: 0.05))
+            try? await Task.sleep(for: .milliseconds(15))
+        }
+    }
+
+    /// E2E drag self-test (REMOTECRAB_E2E_DRAG=1): two scripted left
+    /// drags. Before each, the cursor is staged at the ABSOLUTE point
+    /// (0.3H, 0.3H) and a clipboard marker tells the Mac-side script to
+    /// move the target window under it — the iPhone only sends relative
+    /// moves, so the stage has to come to the cursor. Phase 1 drags the
+    /// window by its title bar, phase 2 drag-selects text (⌘C check).
+    private func runE2EDragSequence() {
+        Task { @MainActor [weak self] in
+            // The input sequence occupies grant+3…5s; stay clear of it.
+            try? await Task.sleep(for: .seconds(6))
+            guard let self else { return }
+
+            // Phase 1 — window drag: +(0.12, 0.072) × Mac screen height.
+            await self.e2eStageCursor()
+            UIPasteboard.general.string = "e2e-drag1"
+            self.sendClipboard()
+            try? await Task.sleep(for: .seconds(2))
+            self.sendTouch(TouchEvent(phase: .dragStart, dx: 0, dy: 0))
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .milliseconds(90))
+                self.sendTouch(TouchEvent(phase: .move, dx: 0.02, dy: 0.012))
+            }
+            try? await Task.sleep(for: .milliseconds(90))
+            self.sendTouch(TouchEvent(phase: .up, dx: 0, dy: 0))
+            UIPasteboard.general.string = "e2e-drag1-done"
+            self.sendClipboard()
+
+            try? await Task.sleep(for: .seconds(2))
+
+            // Phase 2 — text selection: −0.15 × Mac screen height on x.
+            await self.e2eStageCursor()
+            UIPasteboard.general.string = "e2e-drag2"
+            self.sendClipboard()
+            try? await Task.sleep(for: .seconds(2))
+            self.sendTouch(TouchEvent(phase: .dragStart, dx: 0, dy: 0))
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .milliseconds(90))
+                self.sendTouch(TouchEvent(phase: .move, dx: -0.025, dy: 0))
+            }
+            try? await Task.sleep(for: .milliseconds(90))
+            self.sendTouch(TouchEvent(phase: .up, dx: 0, dy: 0))
+            UIPasteboard.general.string = "e2e-drag2-done"
+            self.sendClipboard()
+            Forensic.log("[e2e] drag sequence sent")
         }
     }
 
