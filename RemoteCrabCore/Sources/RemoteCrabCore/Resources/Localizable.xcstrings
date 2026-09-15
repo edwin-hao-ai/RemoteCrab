@@ -1,6 +1,91 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
+      }
+    },
+    "Couldn't set up the camera extension.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't set up the camera extension."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法设置相机扩展。"
+          }
+        }
+      }
+    },
+    "More": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多"
+          }
+        }
+      }
+    },
+    "Re-register": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-register"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新注册"
+          }
+        }
+      }
+    },
+    "Re-registering…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-registering…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重新注册…"
+          }
+        }
+      }
+    },
     "RemoteCrab": {
       "extractionState": "manual",
       "localizations": {
@@ -31,6 +116,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac 接收端"
+          }
+        }
+      }
+    },
+    "RemoteCrab Camera now appears in your apps' camera lists.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab Camera now appears in your apps' camera lists."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「RemoteCrab Camera」已出现在各 App 的相机列表中。"
           }
         }
       }
@@ -99,6 +201,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "连接中"
+          }
+        }
+      }
+    },
+    "RemoteCrab installs a small camera extension so FaceTime, Zoom, Photo Booth, OBS and other apps can select “RemoteCrab Camera”. macOS asks you to approve it once.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab installs a small camera extension so FaceTime, Zoom, Photo Booth, OBS and other apps can select “RemoteCrab Camera”. macOS asks you to approve it once."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab 会安装一个小型相机扩展，FaceTime、Zoom、Photo Booth、OBS 等 App 即可选择「RemoteCrab Camera」。macOS 会要求你批准一次。"
+          }
+        }
+      }
+    },
+    "Streaming": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推流中"
+          }
+        }
+      }
+    },
+    "Use your iPhone as a webcam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use your iPhone as a webcam"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把 iPhone 用作网络摄像头"
           }
         }
       }
