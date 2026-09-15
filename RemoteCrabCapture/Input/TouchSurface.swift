@@ -117,6 +117,7 @@ final class TouchSurfaceUIView: UIView {
         tap.numberOfTapsRequired = 1
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
+        tapRecognizer = tap
 
         let rightTap = UITapGestureRecognizer(target: self, action: #selector(handleRightTap(_:)))
         rightTap.numberOfTouchesRequired = 2
@@ -141,6 +142,24 @@ final class TouchSurfaceUIView: UIView {
                 Self.log.debug("dragStart (double-tap-hold)")
                 emit(phase: .dragStart, at: location)
                 if clickHaptics { heavyImpact.impactOccurred() }
+            } else {
+                // Long-press drag: finger down and STILL for a beat arms
+                // the same drag — the discoverable touch-screen pattern
+                // (double-tap-hold is Mac muscle memory; many users never
+                // find it). Cancelled by any real movement before the
+                // delay, so a resting finger is the only trigger.
+                pressOrigin = location
+                let hold = DispatchWorkItem { [weak self] in
+                    guard let self, !self.dragArmed,
+                          let current = self.lastDragLocation else { return }
+                    self.dragArmed = true
+                    Self.log.debug("dragStart (long-press)")
+                    self.emit(phase: .dragStart, at: current)
+                    if self.clickHaptics { self.heavyImpact.impactOccurred() }
+                }
+                longPressDragWork?.cancel()
+                longPressDragWork = hold
+                DispatchQueue.main.asyncAfter(deadline: .now() + longPressDragDelay, execute: hold)
             }
             // Plain touch-down emits nothing: on the Mac a .down posts a
             // real leftMouseDown, so every casual slide used to arrive as
@@ -150,6 +169,12 @@ final class TouchSurfaceUIView: UIView {
         case .changed:
             guard let last = lastDragLocation,
                   uniformReference > 0 else { return }
+            // Movement before the hold delay means "positioning the
+            // cursor", not "holding to drag" — drop the long-press arm.
+            if longPressDragWork != nil, let origin = pressOrigin,
+               hypot(location.x - origin.x, location.y - origin.y) > longPressDragSlop {
+                cancelLongPressDrag()
+            }
             // Uniform-axis mapping: BOTH axes are normalized by the
             // same reference (the surface's long edge), so one point of
             // finger travel moves the Mac cursor by the same distance
@@ -167,6 +192,7 @@ final class TouchSurfaceUIView: UIView {
                 : TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity)
             emit(phase: .move, at: location, dx: dx, dy: dy)
         case .ended, .cancelled, .failed:
+            cancelLongPressDrag()
             lastDragLocation = nil
             if dragArmed {
                 dragArmed = false
@@ -262,11 +288,27 @@ final class TouchSurfaceUIView: UIView {
         didSet {
             guard dragArmed != oldValue else { return }
             scrollPan.isEnabled = !dragArmed
+            // A drag's release must never land as a click on the Mac.
+            tapRecognizer?.isEnabled = !dragArmed
             onDragArmedChange?(dragArmed)
         }
     }
-    private let doubleTapWindow: TimeInterval = 0.28
+    private let doubleTapWindow: TimeInterval = 0.35
     private let doubleTapSlop: CGFloat = 30   // pt
+
+    // Long-press drag (press-and-hold still) — same drag, discoverable
+    // trigger. See handleSinglePan.
+    private var longPressDragWork: DispatchWorkItem?
+    private var pressOrigin: CGPoint?
+    private let longPressDragDelay: TimeInterval = 0.45
+    private let longPressDragSlop: CGFloat = 12  // pt of allowed jitter while holding
+    private weak var tapRecognizer: UITapGestureRecognizer?
+
+    private func cancelLongPressDrag() {
+        longPressDragWork?.cancel()
+        longPressDragWork = nil
+        pressOrigin = nil
+    }
 
     /// Both pointer and scroll deltas are normalized by the surface's
     /// long edge for BOTH axes — keeps the physical-to-cursor gain

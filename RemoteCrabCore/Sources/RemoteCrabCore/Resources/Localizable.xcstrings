@@ -1820,19 +1820,19 @@
         }
       }
     },
-    "Double-tap and hold to drag": {
+    "Hold still, or double-tap and hold, to drag": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Double-tap and hold to drag"
+            "value": "Hold still, or double-tap and hold, to drag"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "双击并按住以拖拽"
+            "value": "按住不动或双击后按住，即可拖拽"
           }
         }
       }
@@ -1905,19 +1905,19 @@
         }
       }
     },
-    "Video paused in the background — resumed now. Keep RemoteCrab on screen while streaming.": {
+    "Video stopped in the background — tap the camera icon to turn it back on.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Video paused in the background — resumed now. Keep RemoteCrab on screen while streaming."
+            "value": "Video stopped in the background — tap the camera icon to turn it back on."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "视频在后台会暂停，现已恢复。推流时请让 RemoteCrab 保持在前台。"
+            "value": "视频已在后台停止——点按相机图标重新开启。"
           }
         }
       }

@@ -176,9 +176,12 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
-            // iOS hard-stops camera capture in the background; tell the
-            // user why the Mac went dark and that it recovered.
-            if phase != .active, engine.features.cameraOn {
+            // Privacy rule: the camera NEVER resumes by itself. iOS
+            // hard-stops capture in the background anyway; on return the
+            // stream stays off until the user turns it back on from the
+            // dock — same opt-in philosophy as the launch default.
+            if phase == .background, engine.features.cameraOn {
+                engine.features.set(feature: .camera, enabled: false)
                 backgroundPausePending = true
             } else if phase == .active, backgroundPausePending {
                 backgroundPausePending = false
@@ -530,21 +533,15 @@ struct ContentView: View {
             return nil
         case .starting:
             // The iPhone is the TCP server: it can only wait for a Mac
-            // to dial in. Show the manual-connect escape hatch (own
-            // IP:port) as soon as the address is known — Bonjour is
-            // blocked on VPNs, hotspots and isolated networks, and
-            // "连接中" forever was the top user complaint.
-            let subtitle: String
-            if let ip = engine.localAddress {
-                let port = engine.listeningPort.map(String.init) ?? "8765"
-                subtitle = IBLocale.Error.manualConnectHint("\(ip):\(port)")
-            } else {
-                subtitle = IBLocale.Error.searchingHint
-            }
+            // to dial in. Keep the card clean — auto-connect (Bonjour +
+            // the direct-IP fallback on the Mac side) handles VPNs,
+            // hotspots and isolated networks; the manual Connect-by-IP
+            // escape hatch lives in the Mac's menu bar and the address
+            // stays visible in the connection details sheet.
             return StatusAlert(symbol: "antenna.radiowaves.left.and.right",
                                tint: IBColor.warning,
                                title: IBLocale.Error.waitingForMac,
-                               subtitle: subtitle)
+                               subtitle: IBLocale.Error.searchingHint)
         case .failed:
             return StatusAlert(symbol: "exclamationmark.triangle.fill",
                                tint: IBColor.error,
@@ -592,9 +589,8 @@ struct ContentView: View {
                                 .strokeBorder(alert.tint.opacity(0.35), lineWidth: 1)
                         }
                 }
-                // Title + the manual-connect subtitle are one spoken
-                // element — the IP:port hint is the escape hatch when
-                // Bonjour is blocked, so it must be heard, not skipped.
+                // Title + subtitle are one spoken element so VoiceOver
+                // reads the card as a single announcement.
                 .accessibilityElement(children: .combine)
             }
             .transition(.opacity.combined(with: .scale))

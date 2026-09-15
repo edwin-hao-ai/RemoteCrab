@@ -134,6 +134,7 @@ final class CaptureEngine: ObservableObject {
         didConfigure = true
         Forensic.reset()
         Forensic.MainStallMonitor.start()
+        Forensic.SelfShot.install()
         Self.forensic("startIfNeeded begin")
         Forensic.log("[e2e] startIfNeeded begin")
 

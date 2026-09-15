@@ -1,4 +1,18 @@
 import Foundation
+import UIKit
+
+/// Darwin-notification entry point for `Forensic.SelfShot` — must live
+/// at file scope because `CFNotificationCallback` is a C function
+/// pointer and cannot capture context.
+private func selfShotDarwinCallback(
+    _ center: CFNotificationCenter?,
+    _ observer: UnsafeMutableRawPointer?,
+    _ name: CFNotificationName?,
+    _ object: UnsafeRawPointer?,
+    _ userInfo: CFDictionary?
+) {
+    Forensic.SelfShot.capture()
+}
 
 /// Forensic log for live debugging on device.
 /// Writes each line to BOTH stderr (visible via
@@ -46,6 +60,62 @@ enum Forensic {
             try? handle.close()
         } else {
             try? data.write(to: fileURL)
+        }
+    }
+
+    /// On-demand screen dump for headless device debugging: legacy
+    /// `idevicescreenshot` is dead on modern iOS (no screenshotr service
+    /// without a personalized DDI), so the app shoots itself. Post the
+    /// Darwin notification from the Mac —
+    ///   xcrun devicectl device notification post --device <id> com.remotecrab.selfshot
+    /// — and the current window lands in Documents/selfshot-<stamp>.png,
+    /// pullable via `devicectl device copy from`.
+    enum SelfShot {
+        private static let notificationName = "com.remotecrab.selfshot"
+        nonisolated(unsafe) private static var installed = false
+
+        static func install() {
+            guard Forensic.enabled, !installed else { return }
+            installed = true
+            let callback: CFNotificationCallback = { center, observer, name, object, userInfo in
+                selfShotDarwinCallback(center, observer, name, object, userInfo)
+            }
+            CFNotificationCenterAddObserver(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                nil,
+                callback,
+                notificationName as CFString,
+                nil,
+                .deliverImmediately
+            )
+        }
+
+        /// Called from the Darwin-notification C callback (file scope —
+        /// C function pointers can't capture context).
+        fileprivate static func capture() {
+            DispatchQueue.main.async {
+                guard let scene = UIApplication.shared.connectedScenes
+                        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+                      let window = scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first
+                else {
+                    Forensic.log("[selfshot] no foreground window")
+                    return
+                }
+                let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+                let image = renderer.image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let stamp = Int(Date().timeIntervalSince1970)
+                let url = FileManager.default
+                    .urls(for: .documentDirectory, in: .userDomainMask)[0]
+                    .appendingPathComponent("selfshot-\(stamp).png")
+                do {
+                    try image.pngData()?.write(to: url)
+                    Forensic.log("[selfshot] saved \(url.lastPathComponent)")
+                } catch {
+                    Forensic.log("[selfshot] write failed: \(error)")
+                }
+            }
         }
     }
 

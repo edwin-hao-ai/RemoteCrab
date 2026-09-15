@@ -269,7 +269,7 @@ public enum IBLocale {
     /// First-run coach marks on the full-screen trackpad surface.
     public enum Coach {
         public static let dragMove = IBL("Drag to move the cursor")
-        public static let doubleTapHoldDrag = IBL("Double-tap and hold to drag")
+        public static let doubleTapHoldDrag = IBL("Hold still, or double-tap and hold, to drag")
         public static let twoFingerScrollRightClick = IBL("Two fingers to scroll or right-click")
         public static let accessibilitySummary = IBL("Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click")
     }
@@ -417,7 +417,7 @@ public enum IBLocale {
         public static func manualConnectHint(_ address: String) -> String {
             String(format: IBL("On the Mac: menu bar → RemoteCrab → Connect by IP → %@"), address)
         }
-        public static let resumedAfterBackground = IBL("Video paused in the background — resumed now. Keep RemoteCrab on screen while streaming.")
+        public static let resumedAfterBackground = IBL("Video stopped in the background — tap the camera icon to turn it back on.")
         public static let noMacFound = IBL("No Mac found on the WiFi network. Make sure RemoteCrab Receiver is running.")
         public static let bonjourFailed = IBL("Bonjour discovery failed. Check that both devices are on the same WiFi.")
         public static let connectionLost = IBL("Connection to Mac lost. Reconnecting…")
