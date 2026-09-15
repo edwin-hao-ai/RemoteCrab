@@ -59,6 +59,7 @@ final class TouchSurfaceUIView: UIView {
     private var singlePan: UIPanGestureRecognizer!
     private var scrollPan: UIPanGestureRecognizer!
     private var threePan: UIPanGestureRecognizer!
+    private var fourPan: UIPanGestureRecognizer!
     private var pinch: UIPinchGestureRecognizer!
 
     override init(frame: CGRect) {
@@ -107,6 +108,12 @@ final class TouchSurfaceUIView: UIView {
         threePan.cancelsTouchesInView = false
         addGestureRecognizer(threePan)
 
+        fourPan = UIPanGestureRecognizer(target: self, action: #selector(handleFourPan(_:)))
+        fourPan.minimumNumberOfTouches = 4
+        fourPan.maximumNumberOfTouches = 4
+        fourPan.cancelsTouchesInView = false
+        addGestureRecognizer(fourPan)
+
         pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
         pinch.cancelsTouchesInView = false
         pinch.delegate = self
@@ -136,30 +143,18 @@ final class TouchSurfaceUIView: UIView {
         case .began:
             lastDragLocation = location
             onTouch?(normalize(location), true)
+            if dragArmed {
+                // Already armed by the long-press state machine
+                // (touchesBegan) — this pan is the finger finally
+                // moving, which is exactly the drag's first motion.
+                break
+            }
             if Date().timeIntervalSince1970 - lastTapTime < doubleTapWindow
                 && hypot(location.x - lastTapLocation.x, location.y - lastTapLocation.y) < doubleTapSlop {
                 dragArmed = true
                 Self.log.debug("dragStart (double-tap-hold)")
                 emit(phase: .dragStart, at: location)
-                if clickHaptics { heavyImpact.impactOccurred() }
-            } else {
-                // Long-press drag: finger down and STILL for a beat arms
-                // the same drag — the discoverable touch-screen pattern
-                // (double-tap-hold is Mac muscle memory; many users never
-                // find it). Cancelled by any real movement before the
-                // delay, so a resting finger is the only trigger.
-                pressOrigin = location
-                let hold = DispatchWorkItem { [weak self] in
-                    guard let self, !self.dragArmed,
-                          let current = self.lastDragLocation else { return }
-                    self.dragArmed = true
-                    Self.log.debug("dragStart (long-press)")
-                    self.emit(phase: .dragStart, at: current)
-                    if self.clickHaptics { self.heavyImpact.impactOccurred() }
-                }
-                longPressDragWork?.cancel()
-                longPressDragWork = hold
-                DispatchQueue.main.asyncAfter(deadline: .now() + longPressDragDelay, execute: hold)
+                if clickHaptics { fire(heavyImpact) }
             }
             // Plain touch-down emits nothing: on the Mac a .down posts a
             // real leftMouseDown, so every casual slide used to arrive as
@@ -169,12 +164,6 @@ final class TouchSurfaceUIView: UIView {
         case .changed:
             guard let last = lastDragLocation,
                   uniformReference > 0 else { return }
-            // Movement before the hold delay means "positioning the
-            // cursor", not "holding to drag" — drop the long-press arm.
-            if longPressDragWork != nil, let origin = pressOrigin,
-               hypot(location.x - origin.x, location.y - origin.y) > longPressDragSlop {
-                cancelLongPressDrag()
-            }
             // Uniform-axis mapping: BOTH axes are normalized by the
             // same reference (the surface's long edge), so one point of
             // finger travel moves the Mac cursor by the same distance
@@ -197,7 +186,7 @@ final class TouchSurfaceUIView: UIView {
             if dragArmed {
                 dragArmed = false
                 emit(phase: .up, at: location)   // release the drag
-                if clickHaptics { lightImpact.impactOccurred() }
+                if clickHaptics { fire(lightImpact) }
             }
             onTouch?(normalize(location), false)
         default:
@@ -233,6 +222,21 @@ final class TouchSurfaceUIView: UIView {
         let dy: Float = abs(t.y) >= abs(t.x) ? (t.y > 0 ? -1 : 1) : 0
         Self.log.debug("threeFingerSwipe dx=\(dx, privacy: .public) dy=\(dy, privacy: .public)")
         emit(phase: .threeFingerSwipe, at: rec.location(in: self), dx: dx, dy: dy)
+        fire(mediumImpact)
+    }
+
+    /// Four-finger swipes emit the same phase as three-finger ones:
+    /// macOS maps both to the same Mission Control family (switch
+    /// Space, Mission Control, App Exposé) by default.
+    @objc private func handleFourPan(_ rec: UIPanGestureRecognizer) {
+        guard rec.state == .ended else { return }
+        let t = rec.translation(in: self)
+        guard hypot(t.x, t.y) > 60 else { return }
+        let dx: Float = abs(t.y) >= abs(t.x) ? 0 : (t.x > 0 ? 1 : -1)
+        let dy: Float = abs(t.y) >= abs(t.x) ? (t.y > 0 ? -1 : 1) : 0
+        Self.log.debug("fourFingerSwipe dx=\(dx, privacy: .public) dy=\(dy, privacy: .public)")
+        emit(phase: .threeFingerSwipe, at: rec.location(in: self), dx: dx, dy: dy)
+        fire(mediumImpact)
     }
 
     @objc private func handlePinch(_ rec: UIPinchGestureRecognizer) {
@@ -246,7 +250,7 @@ final class TouchSurfaceUIView: UIView {
             emit(phase: .pinch, at: rec.location(in: self), dx: delta)
             if !pinchBoundaryFired && abs(rec.scale - 1) > 0.5 {
                 pinchBoundaryFired = true
-                mediumImpact.impactOccurred()
+                fire(mediumImpact)
             }
         case .ended, .cancelled, .failed:
             lastPinchScale = 1
@@ -261,18 +265,19 @@ final class TouchSurfaceUIView: UIView {
         lastTapLocation = location
         onTouch?(normalize(location), false)
         emit(phase: .click, at: location)
-        if clickHaptics { mediumImpact.impactOccurred() }
+        if clickHaptics { fire(mediumImpact) }
     }
 
     @objc private func handleRightTap(_ rec: UITapGestureRecognizer) {
         let location = rec.location(in: self)
         emit(phase: .rightDown, at: location)
         emit(phase: .rightUp, at: location, timestampOffsetMicros: 1)
-        if clickHaptics { mediumImpact.impactOccurred() }
+        if clickHaptics { fire(mediumImpact) }
     }
 
     @objc private func handleThreeTap(_ rec: UITapGestureRecognizer) {
         emit(phase: .threeFingerTap, at: rec.location(in: self))
+        fire(mediumImpact)
     }
 
     // MARK: - Drag state machine
@@ -297,9 +302,13 @@ final class TouchSurfaceUIView: UIView {
     private let doubleTapSlop: CGFloat = 30   // pt
 
     // Long-press drag (press-and-hold still) — same drag, discoverable
-    // trigger. See handleSinglePan.
+    // trigger. The state machine lives in touchesBegan/Moved/Ended,
+    // NOT in the pan recognizer (a pan only begins on movement).
     private var longPressDragWork: DispatchWorkItem?
     private var pressOrigin: CGPoint?
+    /// Latest finger position while the hold is pending, so the armed
+    // drag starts where the finger actually is.
+    private var longPressCurrent: CGPoint?
     private let longPressDragDelay: TimeInterval = 0.45
     private let longPressDragSlop: CGFloat = 12  // pt of allowed jitter while holding
     private weak var tapRecognizer: UITapGestureRecognizer?
@@ -308,6 +317,7 @@ final class TouchSurfaceUIView: UIView {
         longPressDragWork?.cancel()
         longPressDragWork = nil
         pressOrigin = nil
+        longPressCurrent = nil
     }
 
     /// Both pointer and scroll deltas are normalized by the surface's
@@ -337,6 +347,31 @@ final class TouchSurfaceUIView: UIView {
             primaryTouch = touch
             forceClickFiredThisSequence = false
         }
+        // Long-press drag: ONE finger down and STILL arms the drag —
+        // the discoverable touch-screen pattern (double-tap-hold is Mac
+        // muscle memory; many users never find it). This MUST live in
+        // touchesBegan: a UIPanGestureRecognizer only reaches .began
+        // when the finger MOVES, so keying the hold timer off the pan
+        // made press-and-hold-still undetectable (the "can't select
+        // text" bug). Cancelled by any real movement before the delay.
+        if (event?.allTouches?.count ?? 0) > 1 {
+            // A second finger means scroll/pinch, never a hold.
+            cancelLongPressDrag()
+        } else if !dragArmed, let touch = touches.first {
+            pressOrigin = touch.location(in: self)
+            longPressCurrent = pressOrigin
+            let hold = DispatchWorkItem { [weak self] in
+                guard let self, !self.dragArmed, self.primaryTouch != nil,
+                      let at = self.longPressCurrent ?? self.pressOrigin else { return }
+                self.dragArmed = true
+                Self.log.debug("dragStart (long-press)")
+                self.emit(phase: .dragStart, at: at)
+                if self.clickHaptics { self.fire(self.heavyImpact) }
+            }
+            longPressDragWork?.cancel()
+            longPressDragWork = hold
+            DispatchQueue.main.asyncAfter(deadline: .now() + longPressDragDelay, execute: hold)
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -344,6 +379,15 @@ final class TouchSurfaceUIView: UIView {
         if wheelScrollEnabled && wheelArmed {
             handleWheelMove(touches)
             return
+        }
+        // Movement before the hold delay means "positioning the
+        // cursor", not "holding to drag" — drop the long-press arm.
+        if longPressDragWork != nil, let origin = pressOrigin, let touch = touches.first {
+            let point = touch.location(in: self)
+            longPressCurrent = point
+            if hypot(point.x - origin.x, point.y - origin.y) > longPressDragSlop {
+                cancelLongPressDrag()
+            }
         }
         guard !forceClickFiredThisSequence,
               let primary = primaryTouch,
@@ -353,11 +397,20 @@ final class TouchSurfaceUIView: UIView {
         forceClickFiredThisSequence = true
         Self.log.debug("forceClick majorRadius=\(primary.majorRadius, privacy: .public)")
         emit(phase: .forceClick, at: primary.location(in: self))
-        rigidImpact.impactOccurred()
+        fire(rigidImpact)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
+        cancelLongPressDrag()
+        // A long-press that armed while the finger was STILL never
+        // started the pan recognizer, so no .ended will release the
+        // drag — release it here or the Mac's button stays down.
+        if dragArmed, singlePan.state == .possible {
+            dragArmed = false
+            emit(phase: .up, at: touches.first?.location(in: self))
+            if clickHaptics { fire(lightImpact) }
+        }
         if let wheel = wheelTouch, touches.contains(wheel) {
             wheelTouch = nil
             wheelOrigin = nil
@@ -391,7 +444,7 @@ final class TouchSurfaceUIView: UIView {
     private func startAirMouse() {
         guard airMouseEnabled, motionManager.isDeviceMotionAvailable else { return }
         referenceAttitude = nil
-        mediumImpact.impactOccurred()
+        fire(mediumImpact)
         Self.log.debug("air mouse activated")
         motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
@@ -512,6 +565,13 @@ final class TouchSurfaceUIView: UIView {
         lightImpact.prepare()
         rigidImpact.prepare()
         selectionFeedback.prepare()
+    }
+
+    /// Generators go stale a few seconds after prepare(); re-arming
+    /// right before firing keeps the tap crisp instead of dropped.
+    private func fire(_ generator: UIImpactFeedbackGenerator) {
+        generator.prepare()
+        generator.impactOccurred()
     }
 
     private func tickScrollHaptics(deltaPoints: CGPoint) {

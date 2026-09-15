@@ -81,6 +81,11 @@ final class MicrophoneEncoder: @unchecked Sendable {
         isRunning = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        // Release the record session: while it stays active iOS
+        // suppresses ALL UIFeedbackGenerator haptics in the app (to
+        // keep vibration noise out of the recording), which killed
+        // trackpad haptics even after the mic was toggled off.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     // MARK: - PCM framing

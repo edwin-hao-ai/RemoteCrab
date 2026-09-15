@@ -935,19 +935,48 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     TouchSurface now also arms drag on **long-press** (0.45 s hold
     without moving, 12 pt tolerance; while armed, the tap recognizer
     is disabled so the release doesn't fire a click) and the
-    double-tap window is 0.35 s. Injection chain verified:
-    `dragStart` → `leftMouseDown` → `leftMouseDragged` → `leftMouseUp`
-    (`CGEventInjector`). Mac trackpads don't have long-press drag, so
-    keep both gestures; if either feels laggy on device, tune the
-    0.45 s / 12 pt constants, not the injection side. **Also fixed the
-    same day**: `CGEventInjector.lastCursor` never clamped to the
-    screen, so it could drift off-display and post every later event
-    (including drags) at meaningless off-screen coordinates — the
-    cursor "lost" itself. `moveCursor` now clamps, which also makes
-    the position deterministic (enough up-left deltas always reach
-    (0,0) — the e2e drag staging relies on this). Verified live in the
-    simulator e2e: window title-bar drag moves the window; text
-    drag-select → ⌘C puts the selection on the clipboard.
+    double-tap window is 0.35 s. **The long-press state machine must
+    live in `touchesBegan/Moved/Ended`, NOT in the pan recognizer** —
+    a `UIPanGestureRecognizer` only reaches `.began` when the finger
+    MOVES, so the first version (keyed off the pan's `.began`) could
+    never detect press-and-hold-still, and "long-press to select
+    text" was dead on arrival (second device report). Corollary guard:
+    a long-press that armed while the finger never moved leaves the
+    pan in `.possible`, so no `.ended` ever fires — `touchesEnded`
+    must release the drag itself when `singlePan.state == .possible`,
+    or the Mac's left button stays DOWN forever. Injection chain
+    verified: `dragStart` → `leftMouseDown` → `leftMouseDragged` →
+    `leftMouseUp` (`CGEventInjector`). Mac trackpads don't have
+    long-press drag, so keep both gestures; if either feels laggy on
+    device, tune the 0.45 s / 12 pt constants, not the injection side.
+    **Also fixed the same day**: `CGEventInjector.lastCursor` never
+    clamped to the screen, so it could drift off-display and post
+    every later event (including drags) at meaningless off-screen
+    coordinates — the cursor "lost" itself. `moveCursor` now clamps,
+    which also makes the position deterministic (enough up-left
+    deltas always reach (0,0) — the e2e drag staging relies on this).
+    Verified live in the simulator e2e: window title-bar drag moves
+    the window; text drag-select → ⌘C puts the selection on the
+    clipboard. Four-finger swipes emit `.threeFingerSwipe` (macOS
+    maps both to the same Mission Control family); haptics re-`prepare()`
+    right before firing (generators go stale) and now also fire on
+    3/4-finger swipes + three-finger tap.
+25. **An active record session suppresses ALL in-app haptics (2026-09-15).**
+    "No vibration anywhere on device" — iOS disables every
+    `UIFeedbackGenerator` in the app while an `AVAudioSession` in a
+    record-capable category is active (it keeps vibration noise out of
+    the recording; documented in community reports, not by Apple). Our
+    bug made it permanent: `MicrophoneEncoder.start()` did
+    `setCategory(.playAndRecord) + setActive(true)` but `stop()` never
+    called `setActive(false)`, so once the mic had run once (and e2e's
+    `REMOTECRAB_E2E_MIC=1` forces it on), the session stayed active
+    forever and trackpad haptics were dead even with the mic toggled
+    off. Fix: `MicrophoneEncoder.stop()` ends with
+    `setActive(false, options: .notifyOthersOnDeactivation)`
+    (`VoiceRecognizer` already did this correctly — it's the template).
+    **Hard platform limit that remains**: haptics are still suppressed
+    WHILE the mic is actually streaming — nothing an app can do about
+    that; don't file it as a bug.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
