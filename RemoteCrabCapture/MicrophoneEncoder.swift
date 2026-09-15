@@ -33,7 +33,7 @@ final class MicrophoneEncoder: @unchecked Sendable {
             try session.setActive(true)
         } catch {
             Self.log.error("audio session setup failed: \(error, privacy: .public)")
-            FileHandle.standardError.write("[e2e] mic session setup FAILED: \(error)\n".data(using: .utf8)!)
+            Forensic.log("[e2e] mic session setup FAILED: \(error)")
             return
         }
 
@@ -43,13 +43,13 @@ final class MicrophoneEncoder: @unchecked Sendable {
         let inputFormat = input.outputFormat(forBus: 0)
         sampleRate = inputFormat.sampleRate
         Self.log.info("mic input format: \(inputFormat.sampleRate) Hz x \(inputFormat.channelCount) ch")
-        FileHandle.standardError.write("[e2e] mic format: \(inputFormat.sampleRate) Hz x \(inputFormat.channelCount) ch\n".data(using: .utf8)!)
+        Forensic.log("[e2e] mic format: \(inputFormat.sampleRate) Hz x \(inputFormat.channelCount) ch")
 
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self, self.isRunning, let broadcaster = self.broadcaster else { return }
             if self.packetCount == 0 && self.pcmAccumulator.isEmpty {
-                FileHandle.standardError.write("[e2e] mic tap first buffer: \(buffer.frameLength) frames, int16=\(buffer.int16ChannelData != nil)\n".data(using: .utf8)!)
+                Forensic.log("[e2e] mic tap first buffer: \(buffer.frameLength) frames, int16=\(buffer.int16ChannelData != nil)")
             }
             self.handlePCM(buffer: buffer, broadcaster: broadcaster)
         }
@@ -57,10 +57,10 @@ final class MicrophoneEncoder: @unchecked Sendable {
         do {
             try engine.start()
             Self.log.info("mic engine started")
-            FileHandle.standardError.write("[e2e] mic engine started OK\n".data(using: .utf8)!)
+            Forensic.log("[e2e] mic engine started OK")
         } catch {
             Self.log.error("mic start failed: \(error, privacy: .public)")
-            FileHandle.standardError.write("[e2e] mic engine start FAILED: \(error)\n".data(using: .utf8)!)
+            Forensic.log("[e2e] mic engine start FAILED: \(error)")
             stop()
         }
     }

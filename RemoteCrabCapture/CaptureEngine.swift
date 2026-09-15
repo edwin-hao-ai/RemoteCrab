@@ -135,7 +135,7 @@ final class CaptureEngine: ObservableObject {
         Forensic.reset()
         Forensic.MainStallMonitor.start()
         Self.forensic("startIfNeeded begin")
-        FileHandle.standardError.write("[e2e] startIfNeeded begin\n".data(using: .utf8)!)
+        Forensic.log("[e2e] startIfNeeded begin")
 
         features.onChange = { [weak self] snapshot in
             self?.handleFeaturesChanged(snapshot)
@@ -314,12 +314,12 @@ final class CaptureEngine: ObservableObject {
     }
 
     func startStreaming() async {
-        FileHandle.standardError.write("[e2e] startStreaming called, isStreaming=\(isStreaming)\n".data(using: .utf8)!)
+        Forensic.log("[e2e] startStreaming called, isStreaming=\(isStreaming)")
         guard !isStreaming else { return }
         connectionState = .starting
         do {
             try startListener()
-            FileHandle.standardError.write("[e2e] listener started OK\n".data(using: .utf8)!)
+            Forensic.log("[e2e] listener started OK")
             isStreaming = true
             lastVideoFrameAt = Date()
             hasProducedVideoFrame = false
@@ -329,7 +329,7 @@ final class CaptureEngine: ObservableObject {
                 || ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1"
         } catch {
             Self.log.error("listener start failed: \(error, privacy: .public)")
-            FileHandle.standardError.write("[e2e] listener start FAILED: \(error)\n".data(using: .utf8)!)
+            Forensic.log("[e2e] listener start FAILED: \(error)")
             connectionState = .failed
         }
     }
@@ -818,12 +818,12 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func handleListenerState(_ state: NWListener.State) {
-        FileHandle.standardError.write("[e2e] listener state: \(state)\n".data(using: .utf8)!)
+        Forensic.log("[e2e] listener state: \(state)")
         switch state {
         case .ready:
             Self.log.info("listener ready")
             refreshNetworkInfo()
-            FileHandle.standardError.write("[e2e] listener port: \(String(describing: self.listener?.port))\n".data(using: .utf8)!)
+            Forensic.log("[e2e] listener port: \(String(describing: self.listener?.port))")
         case .failed(let error):
             Self.log.error("listener failed: \(error, privacy: .public)")
             connectionState = .failed
@@ -1016,7 +1016,7 @@ final class CaptureEngine: ObservableObject {
                 self?.requestMacApps()
                 try? await Task.sleep(for: .seconds(2))
                 self?.activateMacApp(id: target)
-                FileHandle.standardError.write("[e2e] switch requested: \(target)\n".data(using: .utf8)!)
+                Forensic.log("[e2e] switch requested: \(target)")
             }
         }
 
@@ -1109,7 +1109,7 @@ final class CaptureEngine: ObservableObject {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
         let offer = IBFileOffer(name: name, size: size)
-        FileHandle.standardError.write("[e2e] sendFile \(name) size=\(size)\n".data(using: .utf8)!)
+        Forensic.log("[e2e] sendFile \(name) size=\(size)")
         broadcaster?.send(offer)
         fileTransferProgress = 0
         lastFileAck = nil
@@ -1173,7 +1173,7 @@ final class CaptureEngine: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             self.sendKey(KeyEvent(action: .text, text: "RemoteCrab-e2e-OK"))
-            FileHandle.standardError.write("[e2e] input sequence sent\n".data(using: .utf8)!)
+            Forensic.log("[e2e] input sequence sent")
         }
     }
 
@@ -1271,7 +1271,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func syncMicrophone(_ enabled: Bool) {
-        FileHandle.standardError.write("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)\n".data(using: .utf8)!)
+        Forensic.log("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)")
         if enabled {
             if audioEncoder == nil {
                 audioEncoder = MicrophoneEncoder()
@@ -1327,9 +1327,7 @@ final class CaptureEngine: ObservableObject {
             e2eFrameCount += 1
             e2eFrameBytes += encoded.count
             if e2eFrameCount % 60 == 0 {
-                FileHandle.standardError.write(
-                    "[e2e] video frames sent: \(e2eFrameCount), bytes: \(e2eFrameBytes)\n"
-                        .data(using: .utf8)!)
+                Forensic.log("[e2e] video frames sent: \(e2eFrameCount), bytes: \(e2eFrameBytes)")
             }
         }
     }

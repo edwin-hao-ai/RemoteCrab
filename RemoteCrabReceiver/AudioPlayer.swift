@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import OSLog
 import RemoteCrabCore
 
 /// Plays PCM frames received over the wire through `AVAudioEngine`.
@@ -8,6 +9,8 @@ import RemoteCrabCore
 /// are queued and rendered through a source node connected to the
 /// output.
 final class AudioPlayer {
+
+    private static let log = Logger(subsystem: "com.remotecrab", category: "audio-player")
 
     private let engine = AVAudioEngine()
     private var sourceNode: AVAudioSourceNode?
@@ -59,9 +62,9 @@ final class AudioPlayer {
             try engine.start()
             sourceNode = node
             isStarted = true
-            print("[RemoteCrab] audio player started (output format: \(outputFormat))")
+            Self.log.info("audio player started (output format: \(outputFormat))")
         } catch {
-            print("[RemoteCrab] audio player start failed: \(error)")
+            Self.log.error("audio player start failed: \(error, privacy: .public)")
         }
     }
 
