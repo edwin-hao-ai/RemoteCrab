@@ -75,11 +75,11 @@ extension ReceiverSession.State {
     /// here — the user gets a friendly string instead.
     var message: LocalizedStringKey {
         switch self {
-        case .searching:                return "Looking for an iPhone on your WiFi…"
-        case .connecting(let name):     return "Connecting to \(name)…"
-        case .handshaking(let name):    return "Connecting to \(name)…"
+        case .searching:                return LocalizedStringKey(IBLocale.Preview.searching)
+        case .connecting(let name):     return LocalizedStringKey(IBLocale.Preview.connectingTo(name))
+        case .handshaking(let name):    return LocalizedStringKey(IBLocale.Preview.connectingTo(name))
         case .awaitingApproval:         return LocalizedStringKey(IBLocale.Error.awaitingApproval)
-        case .streaming(let name, _):   return "Streaming from \(name)"
+        case .streaming(let name, _):   return LocalizedStringKey(IBLocale.Preview.streamingFrom(name))
         case .error(let reason):        return LocalizedStringKey(reason)
         }
     }

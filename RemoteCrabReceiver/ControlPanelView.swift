@@ -45,7 +45,7 @@ struct ControlPanelView: View {
                 Text("RemoteCrab")
                     .font(IBFont.displayMedium)
                     .foregroundStyle(.white)
-                Text("Mac receiver")
+                Text(IBLocale.App.tagline)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.55))
                     .ibEyebrowTracking()
@@ -73,7 +73,7 @@ struct ControlPanelView: View {
     private var previewThumbnail: some View {
         ZStack {
             if let cg = session.latestFrame {
-                Image(cg, scale: 1, label: Text("Preview"))
+                Image(cg, scale: 1, label: Text(IBLocale.Preview.title))
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
@@ -86,7 +86,7 @@ struct ControlPanelView: View {
                     Image(systemName: "iphone.gen3.radiowaves.left.and.right")
                         .font(.system(size: 22))
                         .foregroundStyle(.white.opacity(0.3))
-                    Text("No preview")
+                    Text(IBLocale.Preview.noPreview)
                         .font(IBFont.caption)
                         .foregroundStyle(.white.opacity(0.4))
                 }
@@ -96,16 +96,16 @@ struct ControlPanelView: View {
 
     private var statsCard: some View {
         VStack(alignment: .leading, spacing: 4) {
-            statRow("Resolution",
+            statRow(LocalizedStringKey(IBLocale.Connection.resolution),
                     value: session.metadata?.resolutionLabel ?? "—",
                     sf: "rectangle")
-            statRow("Frame rate",
+            statRow(LocalizedStringKey(IBLocale.A11y.frameRate),
                     value: session.metadata.map { "\($0.fps) fps" } ?? "—",
                     sf: "speedometer")
-            statRow("Bitrate",
+            statRow(LocalizedStringKey(IBLocale.Connection.bitrate),
                     value: session.metadata.map { IBFormat.bitrate(bps: $0.bitrateBps) } ?? "—",
                     sf: "waveform")
-            statRow("Codec",
+            statRow(LocalizedStringKey(IBLocale.Preview.codecLabel),
                     value: session.metadata.map { $0.codec.uppercased() } ?? "—",
                     sf: "film")
         }
@@ -147,7 +147,7 @@ struct ControlPanelView: View {
     private var latencyCard: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("LATENCY")
+                Text(IBLocale.Preview.latencyTitle)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.55))
                     .ibEyebrowTracking()
@@ -269,7 +269,7 @@ struct ControlPanelView: View {
                 openWindow(id: "preview")
                 NSApp.activate()
             } label: {
-                Label("Preview", systemImage: "rectangle.on.rectangle")
+                Label(IBLocale.Preview.title, systemImage: "rectangle.on.rectangle")
                     .font(IBFont.bodyMedium)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -280,7 +280,7 @@ struct ControlPanelView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(Text("Open the live preview window"))
+            .help(Text(IBLocale.Preview.openHelp))
 
             Button {
                 openWindow(id: "test")
@@ -300,16 +300,16 @@ struct ControlPanelView: View {
                     }
             }
             .buttonStyle(.plain)
-            .help(Text("Connection Test"))
+            .help(Text(IBLocale.A11y.connectionTest))
             .accessibilityLabel(IBLocale.A11y.connectionTest)
 
             Menu {
-                Button("Open Preview Window") {
+                Button(LocalizedStringKey(IBLocale.MenuBar.openPreviewWindow)) {
                     openWindow(id: "preview")
                     NSApp.activate()
                 }
                 Divider()
-                Button("Quit RemoteCrab") { NSApp.terminate(nil) }
+                Button(LocalizedStringKey(IBLocale.App.quit)) { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             } label: {
                 Image(systemName: "ellipsis")

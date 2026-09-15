@@ -168,7 +168,7 @@ struct MenuBarMenu: View {
                         endPoint: .bottomTrailing
                     )
                     if let cg = session.latestFrame {
-                        Image(cg, scale: 1, label: Text("Preview"))
+                        Image(cg, scale: 1, label: Text(IBLocale.Preview.title))
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     }
@@ -322,31 +322,31 @@ struct MenuBarMenu: View {
     private var togglesSection: some View {
         let connected = session.featureState != nil
         return VStack(spacing: 0) {
-            sectionHeader("FEATURES")
+            sectionHeader(LocalizedStringKey(IBLocale.MenuBar.featuresSection))
             ToggleRow(icon: "camera.fill",
                       title: IBLocale.Mode.camera,
-                      subtitle: connected ? LocalizedStringKey("Live iPhone feed")
+                      subtitle: connected ? LocalizedStringKey(IBLocale.MenuBar.cameraSubtitle)
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.camera, \.cameraOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "mic.fill",
                       title: IBLocale.A11y.microphone,
-                      subtitle: connected ? LocalizedStringKey("Stream iPhone mic")
+                      subtitle: connected ? LocalizedStringKey(IBLocale.MenuBar.micSubtitle)
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.microphone, \.micOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
                       title: IBLocale.Mode.trackpad,
-                      subtitle: connected ? LocalizedStringKey("Control Mac cursor")
+                      subtitle: connected ? LocalizedStringKey(IBLocale.MenuBar.trackpadSubtitle)
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.trackpad, \.trackpadOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "keyboard",
                       title: IBLocale.Mode.keyboard,
-                      subtitle: connected ? LocalizedStringKey("Type on the Mac")
+                      subtitle: connected ? LocalizedStringKey(IBLocale.MenuBar.keyboardSubtitle)
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.keyboard, \.keyboardOn),
                       isEnabled: connected)
@@ -358,23 +358,23 @@ struct MenuBarMenu: View {
 
     private var actionsSection: some View {
         VStack(spacing: 0) {
-            sectionHeader("ACTIONS")
+            sectionHeader(LocalizedStringKey(IBLocale.MenuBar.actionsSection))
             ActionRow(icon: "rectangle.on.rectangle",
-                      title: "Open Control Panel",
+                      title: LocalizedStringKey(IBLocale.MenuBar.openControlPanel),
                       shortcut: "⌘P",
-                      help: "Show the floating control panel",
+                      help: LocalizedStringKey(IBLocale.MenuBar.openControlPanelHelp),
                       action: { openWindowActivating(id: "controls") },
                       keys: KeyboardShortcut("p"))
             ActionRow(icon: "macwindow",
-                      title: "Open Preview Window",
+                      title: LocalizedStringKey(IBLocale.MenuBar.openPreviewWindow),
                       shortcut: "⌘⇧P",
-                      help: "Show the live camera preview window",
+                      help: LocalizedStringKey(IBLocale.MenuBar.openPreviewWindowHelp),
                       action: { openWindowActivating(id: "preview") },
                       keys: KeyboardShortcut("p", modifiers: [.command, .shift]))
             ActionRow(icon: "checklist",
-                      title: "Connection Test",
+                      title: LocalizedStringKey(IBLocale.A11y.connectionTest),
                       shortcut: "⌘T",
-                      help: "Verify camera, keyboard, trackpad and mic live",
+                      help: LocalizedStringKey(IBLocale.MenuBar.connectionTestHelp),
                       action: { openWindowActivating(id: "test") },
                       keys: KeyboardShortcut("t"))
             ActionRow(icon: "arrow.triangle.2.circlepath.camera",
@@ -415,9 +415,9 @@ struct MenuBarMenu: View {
                           action: { session.disconnect() })
             }
             ActionRow(icon: "gear",
-                      title: "Preferences…",
+                      title: LocalizedStringKey(IBLocale.MenuBar.preferences),
                       shortcut: "⌘,",
-                      help: "Open RemoteCrab settings",
+                      help: LocalizedStringKey(IBLocale.MenuBar.preferencesHelp),
                       action: { openPreferences() },
                       keys: KeyboardShortcut(","))
             ActionRow(icon: "power",

@@ -87,7 +87,7 @@ struct KeyboardScreen: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .accessibilityHidden(true)
             Spacer()
-            Text("TYPING ON MAC")
+            Text(IBLocale.Keyboard.typingOnMac)
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.white.opacity(0.45))
                 .ibEyebrowTracking()
@@ -104,12 +104,12 @@ struct KeyboardScreen: View {
                 Image(systemName: "text.cursor")
                     .foregroundStyle(.white.opacity(0.5))
                     .accessibilityHidden(true)
-                Text("ON YOUR MAC")
+                Text(IBLocale.Keyboard.onYourMac)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.5))
                     .ibEyebrowTracking()
                 Spacer()
-                Text("\(committedText.count) chars")
+                Text(IBLocale.Keyboard.charCount(committedText.count))
                     .font(IBFont.monoMedium)
                     .foregroundStyle(.white.opacity(0.4))
             }
@@ -151,7 +151,7 @@ struct KeyboardScreen: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         .overlay {
-            Text("MINI TRACKPAD")
+            Text(IBLocale.A11y.miniTrackpad.uppercased())
                 .font(IBFont.caption)
                 .ibEyebrowTracking()
                 .foregroundStyle(.white.opacity(0.2))

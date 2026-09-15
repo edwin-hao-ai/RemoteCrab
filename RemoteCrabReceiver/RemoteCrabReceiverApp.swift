@@ -108,7 +108,7 @@ struct RemoteCrabReceiverApp: App {
 
         // Connection test window — four-quadrant live verification
         // of camera / keyboard / trackpad / mic channels.
-        Window("Connection Test", id: "test") {
+        Window(LocalizedStringKey(IBLocale.A11y.connectionTest), id: "test") {
             TestWindowView()
                 .environmentObject(session)
         }
@@ -166,10 +166,10 @@ private struct MainWindowView: View {
                 Image(systemName: "iphone.gen3.radiowaves.left.and.right")
                     .font(.system(size: 44, weight: .light))
                     .foregroundStyle(.white.opacity(0.8))
-                Text("RemoteCrab is running")
+                Text(IBLocale.App.running)
                     .font(IBFont.titleMedium)
                     .foregroundStyle(.white)
-                Text("Open the control panel from the menu bar icon.")
+                Text(IBLocale.App.runningHint)
                     .font(IBFont.caption)
                     .foregroundStyle(.white.opacity(0.55))
                     .multilineTextAlignment(.center)

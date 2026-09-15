@@ -216,7 +216,7 @@ struct PreferencesView: View {
     private var streamingTab: some View {
         Form {
             Section {
-                Picker("Resolution", selection: $resolution) {
+                Picker(IBLocale.Connection.resolution, selection: $resolution) {
                     ForEach(IBLocale.Settings.Resolution.allCases) { r in
                         Text(r.localizedLabel).tag(r.rawValue)
                     }
@@ -224,7 +224,7 @@ struct PreferencesView: View {
                 .accessibilityLabel(Text(verbatim: IBLocale.A11y.streamingResolution))
                 .accessibilityHint(Text(verbatim: IBLocale.A11y.streamingResolutionHint))
 
-                Picker("Frame rate", selection: $frameRate) {
+                Picker(IBLocale.A11y.frameRate, selection: $frameRate) {
                     ForEach(IBLocale.Settings.FrameRate.allCases) { fps in
                         Text(fps.localizedLabel).tag(fps.rawValue)
                     }

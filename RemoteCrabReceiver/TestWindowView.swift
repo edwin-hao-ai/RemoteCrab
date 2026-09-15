@@ -41,10 +41,10 @@ struct TestWindowView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Connection Test")
+                Text(IBLocale.A11y.connectionTest)
                     .font(IBFont.titleMedium)
                     .foregroundStyle(.white)
-                Text("LIVE INPUT VERIFICATION")
+                Text(IBLocale.TestWindow.subtitle)
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.55))
                     .ibEyebrowTracking()
@@ -57,10 +57,10 @@ struct TestWindowView: View {
     // MARK: - Camera quadrant
 
     private var cameraCard: some View {
-        quadrantCard(title: "CAMERA", icon: "camera.fill") {
+        quadrantCard(title: LocalizedStringKey(IBLocale.Mode.camera.uppercased()), icon: "camera.fill") {
             ZStack {
                 if let cg = session.latestFrame {
-                    Image(cg, scale: 1, label: Text("Live camera"))
+                    Image(cg, scale: 1, label: Text(IBLocale.A11y.liveCamera))
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
@@ -69,7 +69,7 @@ struct TestWindowView: View {
                         Image(systemName: "camera")
                             .font(.system(size: 20))
                             .foregroundStyle(.white.opacity(0.3))
-                        Text("No video")
+                        Text(IBLocale.TestWindow.noVideo)
                             .font(IBFont.caption)
                             .foregroundStyle(.white.opacity(0.4))
                     }
@@ -103,14 +103,14 @@ struct TestWindowView: View {
     // MARK: - Keyboard quadrant
 
     private var keyboardCard: some View {
-        quadrantCard(title: "KEYBOARD", icon: "keyboard") {
+        quadrantCard(title: LocalizedStringKey(IBLocale.Mode.keyboard.uppercased()), icon: "keyboard") {
             VStack(alignment: .leading, spacing: 8) {
                 lastKeyBadge
                 ScrollViewReader { proxy in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
                             if session.typedText.isEmpty {
-                                Text("Type on your iPhone keyboard…")
+                                Text(IBLocale.TestWindow.keyboardPlaceholder)
                                     .font(IBFont.caption)
                                     .foregroundStyle(.white.opacity(0.35))
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -179,7 +179,7 @@ struct TestWindowView: View {
                     }
             }
         } else {
-            Text("NO KEYS YET")
+            Text(IBLocale.TestWindow.noKeysYet)
                 .font(IBFont.eyebrowMono)
                 .foregroundStyle(.white.opacity(0.35))
                 .ibEyebrowTracking()
@@ -199,7 +199,7 @@ struct TestWindowView: View {
     // MARK: - Trackpad quadrant
 
     private var trackpadCard: some View {
-        quadrantCard(title: "TRACKPAD", icon: "hand.point.up.left.fill") {
+        quadrantCard(title: LocalizedStringKey(IBLocale.Mode.trackpad.uppercased()), icon: "hand.point.up.left.fill") {
             GeometryReader { geo in
                 TimelineView(.periodic(from: .now, by: 0.1)) { context in
                     let vis = session.touchVisual
@@ -214,7 +214,7 @@ struct TestWindowView: View {
                         if let vis {
                             trackpadContents(vis, size: geo.size, now: context.date)
                         } else {
-                            Text("Slide on the iPhone trackpad…")
+                            Text(IBLocale.TestWindow.trackpadPlaceholder)
                                 .font(IBFont.caption)
                                 .foregroundStyle(.white.opacity(0.35))
                         }
@@ -348,7 +348,7 @@ struct TestWindowView: View {
     // MARK: - Microphone quadrant
 
     private var micCard: some View {
-        quadrantCard(title: "MICROPHONE", icon: "mic.fill") {
+        quadrantCard(title: LocalizedStringKey(IBLocale.A11y.microphone.uppercased()), icon: "mic.fill") {
             VStack(spacing: 10) {
                 Spacer(minLength: 0)
                 HStack {
@@ -370,8 +370,8 @@ struct TestWindowView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text(session.monitoringMuted
-                          ? LocalizedStringKey("Speaker monitoring off — tap to hear the iPhone mic")
-                          : LocalizedStringKey("Speaker monitoring on — tap to mute (avoids echo)")))
+                          ? LocalizedStringKey(IBLocale.TestWindow.monitoringOffHelp)
+                          : LocalizedStringKey(IBLocale.TestWindow.monitoringOnHelp)))
                     .accessibilityLabel(IBLocale.A11y.speakerMonitoring)
                     .accessibilityValue(session.monitoringMuted ? IBLocale.A11y.off : IBLocale.A11y.on)
                     Spacer()

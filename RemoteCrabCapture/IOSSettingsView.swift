@@ -63,7 +63,7 @@ struct IOSSettingsView: View {
             }
             .accessibilityElement(children: .combine)
         } header: {
-            Text("Connection")
+            Text(IBLocale.Connection.info)
         } footer: {
             Text(IBLocale.Settings.connectionFooter)
         }
@@ -146,7 +146,7 @@ struct IOSSettingsView: View {
                 Task { await engine.applyVideoConfig(resolution: resolution, fps: new) }
             }
         } header: {
-            Text("Stream")
+            Text(IBLocale.Connection.streamSection)
         } footer: {
             Text(IBLocale.Settings.streamFooter)
         }
@@ -163,12 +163,12 @@ struct IOSSettingsView: View {
 
             Picker(IBLocale.Mode.trackpad, selection: $trackpadSens) {
                 ForEach(1...5, id: \.self) { i in
-                    Text("Sensitivity \(i)").tag(i)
+                    Text(IBLocale.Settings.sensitivity(i)).tag(i)
                 }
             }
             .accessibilityLabel(IBLocale.A11y.trackpadSensitivity)
 
-            Toggle("Keep screen on while streaming", isOn: $keepScreenOn)
+            Toggle(IBLocale.Settings.keepScreenOn, isOn: $keepScreenOn)
                 .accessibilityHint(IBLocale.A11y.keepScreenOnHint)
                 .onChange(of: keepScreenOn) { _, new in
                     if engine.isStreaming {
@@ -176,7 +176,7 @@ struct IOSSettingsView: View {
                     }
                 }
         } header: {
-            Text("Input")
+            Text(IBLocale.Settings.input)
         } footer: {
             Text(IBLocale.Settings.inputFooter)
         }
@@ -214,7 +214,7 @@ struct IOSSettingsView: View {
             }
 
             Link(destination: URL(string: "https://remotecrab.app/privacy")!) {
-                Label("Privacy Policy", systemImage: "hand.raised.fill")
+                Label(IBLocale.Settings.privacyPolicy, systemImage: "hand.raised.fill")
             }
             .accessibilityLabel(IBLocale.A11y.privacyPolicySafari)
 

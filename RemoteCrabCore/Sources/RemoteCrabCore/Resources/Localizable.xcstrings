@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "%lld chars": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld chars"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 字符"
+          }
+        }
+      }
+    },
     "A Mac wants to connect": {
       "extractionState": "manual",
       "localizations": {
@@ -31,6 +48,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "一个小型摄像头扩展让 FaceTime、Zoom、Photo Booth 等应用可以选择“RemoteCrab Camera”。macOS 会要求你批准一次，然后打开开关。"
+          }
+        }
+      }
+    },
+    "ACTIONS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ACTIONS"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
           }
         }
       }
@@ -817,6 +851,23 @@
         }
       }
     },
+    "Connecting to %@…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在连接 %@…"
+          }
+        }
+      }
+    },
     "Connection": {
       "extractionState": "manual",
       "localizations": {
@@ -846,7 +897,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接测试"
+            "value": "连接自检"
           }
         }
       }
@@ -949,6 +1000,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "继续"
+          }
+        }
+      }
+    },
+    "Control Mac cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Control Mac cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控制 Mac 光标"
           }
         }
       }
@@ -1361,6 +1429,23 @@
         }
       }
     },
+    "FEATURES": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FEATURES"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "功能"
+          }
+        }
+      }
+    },
     "File": {
       "extractionState": "manual",
       "localizations": {
@@ -1718,6 +1803,23 @@
         }
       }
     },
+    "Input": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入"
+          }
+        }
+      }
+    },
     "Install Microphone Driver…": {
       "extractionState": "manual",
       "localizations": {
@@ -1752,6 +1854,23 @@
         }
       }
     },
+    "Keep screen on while streaming": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep screen on while streaming"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推流时保持屏幕常亮"
+          }
+        }
+      }
+    },
     "Keyboard": {
       "extractionState": "manual",
       "localizations": {
@@ -1769,6 +1888,23 @@
         }
       }
     },
+    "LATENCY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LATENCY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "延迟"
+          }
+        }
+      }
+    },
     "LIVE": {
       "extractionState": "manual",
       "localizations": {
@@ -1782,6 +1918,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "直播中"
+          }
+        }
+      }
+    },
+    "LIVE INPUT VERIFICATION": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LIVE INPUT VERIFICATION"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时输入验证"
           }
         }
       }
@@ -1905,6 +2058,40 @@
         }
       }
     },
+    "Live camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live camera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时相机画面"
+          }
+        }
+      }
+    },
+    "Live iPhone feed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live iPhone feed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 实时画面"
+          }
+        }
+      }
+    },
     "Live iPhone feed to your Mac": {
       "extractionState": "manual",
       "localizations": {
@@ -1969,6 +2156,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "本地网络权限被拒绝。请在 iOS 设置 → 隐私 → 本地网络 中开启。"
+          }
+        }
+      }
+    },
+    "Looking for an iPhone on your WiFi…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Looking for an iPhone on your WiFi…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 WiFi 上搜索 iPhone…"
           }
         }
       }
@@ -2194,6 +2398,23 @@
         }
       }
     },
+    "NO KEYS YET": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NO KEYS YET"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无按键"
+          }
+        }
+      }
+    },
     "Network": {
       "extractionState": "manual",
       "localizations": {
@@ -2275,6 +2496,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "还没有已配对的 iPhone"
+          }
+        }
+      }
+    },
+    "No preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无预览"
+          }
+        }
+      }
+    },
+    "No video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No video"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无画面"
           }
         }
       }
@@ -2364,6 +2619,23 @@
         }
       }
     },
+    "ON YOUR MAC": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ON YOUR MAC"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在你的 Mac 上"
+          }
+        }
+      }
+    },
     "Off": {
       "extractionState": "manual",
       "localizations": {
@@ -2415,6 +2687,40 @@
         }
       }
     },
+    "Open Control Panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Control Panel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开控制面板"
+          }
+        }
+      }
+    },
+    "Open Preview Window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Preview Window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开预览窗口"
+          }
+        }
+      }
+    },
     "Open RemoteCrab at login": {
       "extractionState": "manual",
       "localizations": {
@@ -2445,6 +2751,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "从菜单栏打开 RemoteCrab，连接你的 iPhone 即可开始。"
+          }
+        }
+      }
+    },
+    "Open RemoteCrab settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open RemoteCrab settings"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开 RemoteCrab 设置"
           }
         }
       }
@@ -2496,6 +2819,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "登录时启动"
+          }
+        }
+      }
+    },
+    "Open the control panel from the menu bar icon.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the control panel from the menu bar icon."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从菜单栏图标打开控制面板。"
+          }
+        }
+      }
+    },
+    "Open the live preview window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the live preview window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开实时预览窗口"
           }
         }
       }
@@ -2670,6 +3027,23 @@
         }
       }
     },
+    "Preferences…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferences…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偏好设置…"
+          }
+        }
+      }
+    },
     "Preferred": {
       "extractionState": "manual",
       "localizations": {
@@ -2700,6 +3074,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "防止 iPhone 在流式会话期间自动锁定"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览"
+          }
+        }
+      }
+    },
+    "Privacy Policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策"
           }
         }
       }
@@ -3095,6 +3503,23 @@
         }
       }
     },
+    "RemoteCrab is running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab is running"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab 正在运行"
+          }
+        }
+      }
+    },
     "RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.": {
       "extractionState": "manual",
       "localizations": {
@@ -3417,6 +3842,23 @@
         }
       }
     },
+    "Sensitivity %lld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sensitivity %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "灵敏度 %lld"
+          }
+        }
+      }
+    },
     "Sent": {
       "extractionState": "manual",
       "localizations": {
@@ -3536,6 +3978,40 @@
         }
       }
     },
+    "Show the floating control panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the floating control panel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示浮动控制面板"
+          }
+        }
+      }
+    },
+    "Show the live camera preview window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the live camera preview window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示实时相机预览窗口"
+          }
+        }
+      }
+    },
     "Shows sample camera content so you can explore RemoteCrab without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.": {
       "extractionState": "manual",
       "localizations": {
@@ -3621,6 +4097,23 @@
         }
       }
     },
+    "Slide on the iPhone trackpad…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slide on the iPhone trackpad…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 触控板上滑动…"
+          }
+        }
+      }
+    },
     "Speaker monitoring": {
       "extractionState": "manual",
       "localizations": {
@@ -3634,6 +4127,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "扬声器监听"
+          }
+        }
+      }
+    },
+    "Speaker monitoring off — tap to hear the iPhone mic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker monitoring off — tap to hear the iPhone mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扬声器监听已关闭 —— 点按以收听 iPhone 麦克风"
+          }
+        }
+      }
+    },
+    "Speaker monitoring on — tap to mute (avoids echo)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker monitoring on — tap to mute (avoids echo)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扬声器监听已开启 —— 点按静音（避免回音）"
           }
         }
       }
@@ -3808,6 +4335,23 @@
         }
       }
     },
+    "Stream iPhone mic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream iPhone mic"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输 iPhone 麦克风"
+          }
+        }
+      }
+    },
     "Stream iPhone mic to Mac speakers": {
       "extractionState": "manual",
       "localizations": {
@@ -3893,6 +4437,23 @@
         }
       }
     },
+    "Streaming from %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming from %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在接收 %@ 的画面"
+          }
+        }
+      }
+    },
     "Streaming resolution": {
       "extractionState": "manual",
       "localizations": {
@@ -3974,6 +4535,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "开启"
+          }
+        }
+      }
+    },
+    "TYPING ON MAC": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TYPING ON MAC"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 Mac 上输入"
           }
         }
       }
@@ -4284,6 +4862,40 @@
         }
       }
     },
+    "Type on the Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type on the Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上输入"
+          }
+        }
+      }
+    },
+    "Type on your iPhone keyboard…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type on your iPhone keyboard…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 键盘上输入…"
+          }
+        }
+      }
+    },
     "Unpin": {
       "extractionState": "manual",
       "localizations": {
@@ -4314,6 +4926,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "把 iPhone 用作网络摄像头"
+          }
+        }
+      }
+    },
+    "Verify camera, keyboard, trackpad and mic live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify camera, keyboard, trackpad and mic live"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实时验证摄像头、键盘、触控板和麦克风"
           }
         }
       }

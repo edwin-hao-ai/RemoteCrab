@@ -28,6 +28,9 @@ public enum IBLocale {
         /// Overflow-menu button label.
         public static let more = IBL("More")
         public static let quit = IBL("Quit RemoteCrab")
+        /// Root-window "running" placeholder (Mac).
+        public static let running = IBL("RemoteCrab is running")
+        public static let runningHint = IBL("Open the control panel from the menu bar icon.")
     }
 
     public enum Status {
@@ -259,6 +262,14 @@ public enum IBLocale {
         public static let reRegister = IBL("Re-register")
         public static let cameraExtensionActiveHint = IBL("RemoteCrab Camera now appears in your apps' camera lists.")
         public static let cameraExtensionGenericError = IBL("Couldn't set up the camera extension.")
+
+        /// iOS settings input section.
+        public static let input = IBL("Input")
+        public static let keepScreenOn = IBL("Keep screen on while streaming")
+        public static func sensitivity(_ value: Int) -> String {
+            String(format: IBL("Sensitivity %lld"), value)
+        }
+        public static let privacyPolicy = IBL("Privacy Policy")
     }
 
     public enum ModifierKey: String, CaseIterable, Identifiable {
@@ -307,6 +318,20 @@ public enum IBLocale {
         public static let controlPanelTitle = IBL("RemoteCrab Control Panel")
         /// VoiceOver label for the live video image.
         public static let a11yPreview = IBL("iPhone preview")
+        /// Control-panel placeholder + actions.
+        public static let noPreview = IBL("No preview")
+        public static let title = IBL("Preview")
+        public static let openHelp = IBL("Open the live preview window")
+        /// Latency card eyebrow (rendered in caps).
+        public static let latencyTitle = IBL("LATENCY")
+        /// Preview-placeholder state messages (Mac).
+        public static let searching = IBL("Looking for an iPhone on your WiFi…")
+        public static func connectingTo(_ name: String) -> String {
+            String(format: IBL("Connecting to %@…"), name)
+        }
+        public static func streamingFrom(_ name: String) -> String {
+            String(format: IBL("Streaming from %@"), name)
+        }
     }
 
     /// Optional virtual-microphone HAL driver.
@@ -373,6 +398,12 @@ public enum IBLocale {
     /// Keyboard surface strings.
     public enum Keyboard {
         public static let startTyping = IBL("Start typing…")
+        /// Header + preview-card eyebrows (rendered in caps by design).
+        public static let typingOnMac = IBL("TYPING ON MAC")
+        public static let onYourMac = IBL("ON YOUR MAC")
+        public static func charCount(_ count: Int) -> String {
+            String(format: IBL("%lld chars"), count)
+        }
     }
 
     /// iPhone-side Mac app switcher.
@@ -552,5 +583,39 @@ public enum IBLocale {
         public static let recording = IBL("Recording")
         public static let connectionTest = IBL("Connection Test")
         public static let speakerMonitoring = IBL("Speaker monitoring")
+
+        // Mac test-window live camera image.
+        public static let liveCamera = IBL("Live camera")
+    }
+
+    /// Mac menu-bar popover: section headers, feature-toggle subtitles,
+    /// and action rows.
+    public enum MenuBar {
+        public static let featuresSection = IBL("FEATURES")
+        public static let actionsSection = IBL("ACTIONS")
+
+        public static let cameraSubtitle = IBL("Live iPhone feed")
+        public static let micSubtitle = IBL("Stream iPhone mic")
+        public static let trackpadSubtitle = IBL("Control Mac cursor")
+        public static let keyboardSubtitle = IBL("Type on the Mac")
+
+        public static let openControlPanel = IBL("Open Control Panel")
+        public static let openControlPanelHelp = IBL("Show the floating control panel")
+        public static let openPreviewWindow = IBL("Open Preview Window")
+        public static let openPreviewWindowHelp = IBL("Show the live camera preview window")
+        public static let connectionTestHelp = IBL("Verify camera, keyboard, trackpad and mic live")
+        public static let preferences = IBL("Preferences…")
+        public static let preferencesHelp = IBL("Open RemoteCrab settings")
+    }
+
+    /// Mac connection-test window (four-quadrant live verification).
+    public enum TestWindow {
+        public static let subtitle = IBL("LIVE INPUT VERIFICATION")
+        public static let noVideo = IBL("No video")
+        public static let keyboardPlaceholder = IBL("Type on your iPhone keyboard…")
+        public static let noKeysYet = IBL("NO KEYS YET")
+        public static let trackpadPlaceholder = IBL("Slide on the iPhone trackpad…")
+        public static let monitoringOffHelp = IBL("Speaker monitoring off — tap to hear the iPhone mic")
+        public static let monitoringOnHelp = IBL("Speaker monitoring on — tap to mute (avoids echo)")
     }
 }
