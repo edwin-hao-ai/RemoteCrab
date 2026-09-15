@@ -22,7 +22,7 @@ struct FeatureDock: View {
                 streamToggle(
                     icon: "video.fill",
                     isOn: features.cameraOn,
-                    label: features.cameraOn ? "Camera on. Tap to turn off." : "Camera off. Tap to turn on."
+                    label: IBLocale.Mode.camera
                 ) {
                     features.set(feature: .camera, enabled: !features.cameraOn)
                 }
@@ -30,7 +30,7 @@ struct FeatureDock: View {
                 streamToggle(
                     icon: "mic.fill",
                     isOn: features.micOn,
-                    label: features.micOn ? "Microphone on. Tap to turn off." : "Microphone off. Tap to turn on."
+                    label: IBLocale.A11y.microphone
                 ) {
                     features.set(feature: .microphone, enabled: !features.micOn)
                 }
@@ -38,13 +38,13 @@ struct FeatureDock: View {
                 surfaceButton(
                     icon: "hand.point.up.left.fill",
                     surface: .trackpad,
-                    label: "Trackpad"
+                    label: IBLocale.Mode.trackpad
                 )
 
                 surfaceButton(
                     icon: "keyboard",
                     surface: .keyboard,
-                    label: "Keyboard"
+                    label: IBLocale.Mode.keyboard
                 )
             }
             .padding(.horizontal, IBSpace.l.pt)
@@ -79,6 +79,8 @@ struct FeatureDock: View {
         }
         .buttonStyle(DockPressStyle())
         .accessibilityLabel(label)
+        .accessibilityValue(isOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
     private func surfaceButton(icon: String, surface: Surface, label: String) -> some View {
@@ -93,9 +95,8 @@ struct FeatureDock: View {
         }
         .buttonStyle(DockPressStyle())
         .accessibilityLabel(label)
-        .accessibilityHint(String(
-            format: NSLocalizedString("Shows the %@ surface", comment: ""),
-            label.lowercased()))
+        .accessibilityHint(IBLocale.A11y.showsSurface(label))
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
     /// Wide push-to-talk capsule floating above the dock. Kept
@@ -112,7 +113,7 @@ struct FeatureDock: View {
         }
         .foregroundStyle(voiceHeld ? .white : .white.opacity(0.75))
         .frame(maxWidth: .infinity)
-        .frame(height: 44)
+        .frame(minHeight: 44)
         .background {
             Capsule(style: .continuous)
                 .fill(voiceHeld ? IBColor.recording.opacity(0.85) : .white.opacity(0.10))
@@ -135,8 +136,8 @@ struct FeatureDock: View {
                     stopVoice()
                 }
         )
-        .accessibilityLabel(voiceHeld ? "Voice. Release to stop." : "Voice. Hold to talk.")
-        .accessibilityAction(named: "Toggle Voice Input") {
+        .accessibilityLabel(voiceHeld ? IBLocale.A11y.voiceReleaseToStop : IBLocale.A11y.voiceHoldToTalk)
+        .accessibilityAction(named: IBLocale.A11y.voiceToggle) {
             // VoiceOver double-tap can't express "release", so it toggles.
             if voiceHeld {
                 stopVoice()

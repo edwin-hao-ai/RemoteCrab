@@ -135,6 +135,13 @@ public enum IBLocale {
         /// Display name for a phone reached via the direct-IP fallback
         /// (Bonjour blocked) before its real name is known.
         public static let directPhone = IBL("iPhone (direct link)")
+
+        /// iOS connection-sheet Bonjour/stream readout labels.
+        public static let type = IBL("Service Type")
+        public static let domain = IBL("Domain")
+        public static let status = IBL("Status")
+        public static let resolution = IBL("Resolution")
+        public static let bitrate = IBL("Bitrate")
     }
 
     /// Hold-to-talk voice card states.
@@ -427,5 +434,77 @@ public enum IBLocale {
         public static let connectionDenied = IBL("The iPhone denied the connection")
         public static let awaitingApproval = IBL("Waiting for approval on the iPhone…")
         public static let retry = IBL("Retry")
+    }
+
+    /// Accessibility (VoiceOver) labels and hints. These are heard, not
+    /// seen, so they live apart from the visible-copy enums — every
+    /// `.accessibilityLabel` / `.accessibilityHint` in both apps must
+    /// come from here (or from an existing IBLocale value) rather than
+    /// a hardcoded literal, so Chinese users hear Chinese.
+    public enum A11y {
+        // Generic on/off state values for toggles and lockable keys.
+        public static let on = IBL("On")
+        public static let off = IBL("Off")
+
+        // iOS feature dock.
+        public static let microphone = IBL("Microphone")
+        public static func showsSurface(_ name: String) -> String {
+            String(format: IBL("Shows the %@ surface"), name)
+        }
+        public static let voiceReleaseToStop = IBL("Voice. Release to stop.")
+        public static let voiceHoldToTalk = IBL("Voice. Hold to talk.")
+        public static let voiceToggle = IBL("Toggle Voice Input")
+
+        // Touch surfaces (full-screen trackpad + keyboard mini trackpad).
+        public static let trackpadSurface = IBL("Trackpad surface")
+        public static let trackpadSurfaceHint = IBL("Touch directly to move the Mac cursor")
+        public static let miniTrackpad = IBL("Mini trackpad")
+
+        // iOS camera surface + PiP.
+        public static let switchCamera = IBL("Switch camera")
+        public static let switchCameraHint = IBL("Flips between the front and back cameras")
+        public static let cameraPreview = IBL("Camera preview")
+        public static let pipHint = IBL("Tap to show the camera full screen, drag to move")
+
+        // iOS hold-to-talk voice card.
+        public static let voiceInputError = IBL("Voice input error")
+        public static let dictationSent = IBL("Dictation sent")
+        public static let voiceInput = IBL("Voice input")
+
+        // iOS keyboard shortcut bar + modifier keys (shared with
+        // `IBModifierBar` in RemoteCrabCore).
+        public static let escapeKey = IBL("Escape key")
+        public static let tabKey = IBL("Tab key")
+        public static let leftArrowKey = IBL("Left arrow key")
+        public static let rightArrowKey = IBL("Right arrow key")
+        public static let controlKey = IBL("Control key")
+        public static let optionKey = IBL("Option key")
+        public static let commandKey = IBL("Command key")
+        public static let shiftKey = IBL("Shift key")
+
+        // Trackpad labs floating buttons.
+        public static let holdToActivate = IBL("Hold to activate")
+
+        // iOS settings.
+        public static let frameRate = IBL("Frame rate")
+        public static let trackpadSensitivity = IBL("Trackpad sensitivity")
+        public static let streamMicHint = IBL("Stream the iPhone microphone to your Mac")
+        public static let keepScreenOnHint = IBL("Prevents the iPhone from auto-locking during a streaming session")
+        public static let airMouseHint = IBL("Hold the floating button on the trackpad and tilt your iPhone to move the cursor")
+        public static let wheelScrollHint = IBL("Hold the edge button on the trackpad and draw circles to scroll")
+        public static let privacyPolicySafari = IBL("Privacy Policy (opens in Safari)")
+
+        // Mac preferences pickers.
+        public static let cameraPosition = IBL("Camera position")
+        public static let cameraPositionHint = IBL("Which iPhone camera to use as the live feed")
+        public static let streamingResolution = IBL("Streaming resolution")
+        public static let streamingResolutionHint = IBL("Higher resolutions use more WiFi bandwidth")
+        public static let streamingFrameRate = IBL("Streaming frame rate")
+        public static let micAudioQuality = IBL("Microphone audio quality")
+
+        // Mac chrome: menu bar extra, control panel, test window.
+        public static let recording = IBL("Recording")
+        public static let connectionTest = IBL("Connection Test")
+        public static let speakerMonitoring = IBL("Speaker monitoring")
     }
 }

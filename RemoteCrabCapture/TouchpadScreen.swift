@@ -108,13 +108,13 @@ struct TouchpadScreen: View {
                 if labWheelScroll || labAirMouse {
                     HStack {
                         if labWheelScroll {
-                            labButton(symbol: "dial.low", active: wheelArmed, label: "Wheel scrolling") {
+                            labButton(symbol: "dial.low", active: wheelArmed, label: IBLocale.Labs.wheelScroll) {
                                 wheelArmed = $0
                             }
                         }
                         Spacer()
                         if labAirMouse {
-                            labButton(symbol: "gyroscope", active: airMouseActive, label: "Air mouse") {
+                            labButton(symbol: "gyroscope", active: airMouseActive, label: IBLocale.Labs.airMouse) {
                                 airMouseActive = $0
                             }
                         }
@@ -239,7 +239,7 @@ struct TouchpadScreen: View {
                     .onEnded { _ in onHold(false) }
             )
             .accessibilityLabel(label)
-            .accessibilityHint("Hold to activate")
+            .accessibilityHint(IBLocale.A11y.holdToActivate)
             .accessibilityAddTraits(active ? .isSelected : [])
     }
 

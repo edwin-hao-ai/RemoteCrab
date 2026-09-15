@@ -217,10 +217,10 @@ struct ControlPanelView: View {
             }
             Divider().opacity(0.15)
             HStack {
-                badge("CAM", active: session.featureState?.cameraOn ?? false)
-                badge("MIC", active: session.featureState?.micOn ?? false)
-                badge("TPAD", active: session.featureState?.trackpadOn ?? false)
-                badge("KEY", active: session.featureState?.keyboardOn ?? false)
+                badge("CAM", name: IBLocale.Mode.camera, active: session.featureState?.cameraOn ?? false)
+                badge("MIC", name: IBLocale.A11y.microphone, active: session.featureState?.micOn ?? false)
+                badge("TPAD", name: IBLocale.Mode.trackpad, active: session.featureState?.trackpadOn ?? false)
+                badge("KEY", name: IBLocale.Mode.keyboard, active: session.featureState?.keyboardOn ?? false)
                 Spacer()
                 Text("V\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2")")
                     .font(IBFont.eyebrowMono)
@@ -239,7 +239,7 @@ struct ControlPanelView: View {
         }
     }
 
-    private func badge(_ label: String, active: Bool) -> some View {
+    private func badge(_ label: String, name: String, active: Bool) -> some View {
         Text(label)
             .font(IBFont.eyebrowMono)
             .foregroundStyle(active ? .white : .white.opacity(0.4))
@@ -255,6 +255,10 @@ struct ControlPanelView: View {
                                           lineWidth: 1)
                     }
             }
+            // The abbreviation alone reads as "CAM" and the on/off
+            // state was color-only — speak the full name + state.
+            .accessibilityLabel(name)
+            .accessibilityValue(active ? IBLocale.A11y.on : IBLocale.A11y.off)
     }
 
     // MARK: - Actions
@@ -297,6 +301,7 @@ struct ControlPanelView: View {
             }
             .buttonStyle(.plain)
             .help(Text("Connection Test"))
+            .accessibilityLabel(IBLocale.A11y.connectionTest)
 
             Menu {
                 Button("Open Preview Window") {
@@ -323,6 +328,7 @@ struct ControlPanelView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .accessibilityLabel(IBLocale.App.more)
         }
     }
 }

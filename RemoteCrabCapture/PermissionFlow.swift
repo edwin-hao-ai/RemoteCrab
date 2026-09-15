@@ -236,6 +236,7 @@ private struct PermissionCard: View {
                         .foregroundStyle(.white)
                 }
             }
+            .accessibilityHidden(true)
 
             Text(stage.title)
                 .font(IBFont.titleLarge)

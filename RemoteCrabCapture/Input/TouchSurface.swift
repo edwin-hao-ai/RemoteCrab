@@ -66,7 +66,8 @@ final class TouchSurfaceUIView: UIView {
         backgroundColor = .clear
         isMultipleTouchEnabled = true
         isAccessibilityElement = true
-        accessibilityLabel = "Trackpad surface"
+        accessibilityLabel = IBLocale.A11y.trackpadSurface
+        accessibilityHint = IBLocale.A11y.trackpadSurfaceHint
         accessibilityTraits = .allowsDirectInteraction
         installRecognizers()
         prepareHaptics()
@@ -553,6 +554,9 @@ extension TouchSurfaceUIView: UIGestureRecognizerDelegate {
 /// labs state behind.
 struct TouchSurface: UIViewRepresentable {
 
+    /// VoiceOver label override — the keyboard screen's mini trackpad
+    /// reads "Mini trackpad" instead of the full-screen default.
+    var label: String? = nil
     var modifierMask: UInt8 = 0
     var sensitivity: Int = 3
     var scrollTickHaptics: Bool = true
@@ -576,6 +580,9 @@ struct TouchSurface: UIViewRepresentable {
     }
 
     private func apply(to view: TouchSurfaceUIView) {
+        if let label {
+            view.accessibilityLabel = label
+        }
         view.modifierMask = modifierMask
         view.sensitivity = sensitivity
         view.scrollTickHaptics = scrollTickHaptics

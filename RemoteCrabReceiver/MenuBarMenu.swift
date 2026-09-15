@@ -324,28 +324,28 @@ struct MenuBarMenu: View {
         return VStack(spacing: 0) {
             sectionHeader("FEATURES")
             ToggleRow(icon: "camera.fill",
-                      title: "Camera",
+                      title: IBLocale.Mode.camera,
                       subtitle: connected ? LocalizedStringKey("Live iPhone feed")
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.camera, \.cameraOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "mic.fill",
-                      title: "Microphone",
+                      title: IBLocale.A11y.microphone,
                       subtitle: connected ? LocalizedStringKey("Stream iPhone mic")
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.microphone, \.micOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
-                      title: "Trackpad",
+                      title: IBLocale.Mode.trackpad,
                       subtitle: connected ? LocalizedStringKey("Control Mac cursor")
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.trackpad, \.trackpadOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "keyboard",
-                      title: "Keyboard",
+                      title: IBLocale.Mode.keyboard,
                       subtitle: connected ? LocalizedStringKey("Type on the Mac")
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.keyboard, \.keyboardOn),
@@ -508,7 +508,7 @@ struct MenuBarMenu: View {
 
 private struct ToggleRow: View {
     let icon: String
-    let title: LocalizedStringKey
+    let title: String
     let subtitle: LocalizedStringKey
     @Binding var isOn: Bool
     var isEnabled: Bool = true
@@ -534,6 +534,9 @@ private struct ToggleRow: View {
                 .controlSize(.small)
                 .labelsHidden()
                 .disabled(!isEnabled)
+                // The visible label is hidden from the switch itself,
+                // so without this VoiceOver only reads "switch, off".
+                .accessibilityLabel(title)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)

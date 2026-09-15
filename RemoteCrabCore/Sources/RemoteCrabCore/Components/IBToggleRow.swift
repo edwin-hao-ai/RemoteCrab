@@ -69,6 +69,11 @@ public struct IBToggleRow: View {
             .frame(width: 44, height: 26)
         }
         .buttonStyle(.plain)
+        // The self-drawn capsule is a bare Button: without these it
+        // announces nothing but "button" to VoiceOver.
+        .accessibilityLabel(label)
+        .accessibilityValue(isOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

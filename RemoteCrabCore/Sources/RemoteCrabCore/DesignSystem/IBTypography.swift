@@ -8,6 +8,38 @@ public enum IBFont {
 
     // MARK: - Display (SF Pro Display)
 
+    // iOS maps every token to a system Text Style so Dynamic Type
+    // scales the whole app; macOS has no Dynamic Type, so the Mac
+    // keeps the original fixed point sizes (Mac windows are sized to
+    // them). The mono family below stays fixed on BOTH platforms:
+    // technical readouts live inside fixed-width capsules and pills.
+    #if os(iOS)
+
+    /// Top of the page. Used for the "Trackpad" hero label.
+    public static let displayLarge = Font.system(.largeTitle, design: .default, weight: .semibold)
+        .leading(.tight)
+
+    /// Mid-page title. App icon style.
+    public static let displayMedium = Font.system(.title, design: .default, weight: .semibold)
+        .leading(.tight)
+
+    // MARK: - Headings (SF Pro Text)
+
+    public static let titleLarge  = Font.system(.title2, design: .default, weight: .semibold)
+    public static let titleMedium = Font.system(.headline, design: .default)
+    public static let titleSmall  = Font.system(.subheadline, design: .default, weight: .semibold)
+
+    // MARK: - Body
+
+    public static let bodyLarge  = Font.system(.body, design: .default)
+    public static let bodyMedium = Font.system(.callout, design: .default)
+    public static let bodySmall  = Font.system(.footnote, design: .default)
+
+    public static let caption = Font.system(.caption, design: .default)
+        .leading(.tight)
+
+    #else
+
     /// Top of the page. Used for the "Trackpad" hero label.
     public static let displayLarge = Font.system(size: 44, weight: .semibold, design: .default)
         .leading(.tight)
@@ -30,6 +62,8 @@ public enum IBFont {
 
     public static let caption = Font.system(size: 11, weight: .regular, design: .default)
         .leading(.tight)
+
+    #endif
 
     // MARK: - Mono (SF Mono)
 

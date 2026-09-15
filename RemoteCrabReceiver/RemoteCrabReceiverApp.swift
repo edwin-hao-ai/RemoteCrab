@@ -139,12 +139,18 @@ struct RemoteCrabReceiverApp: App {
             // is still answerable at a glance.
             // No session.start() here — ReceiverSession.init already
             // starts Bonjour browsing, and start() is idempotent.
-            if session.isRecording {
-                Image(systemName: "record.circle.fill")
-            } else {
-                Image("MenuBarIcon")
-                    .renderingMode(.template)
+            Group {
+                if session.isRecording {
+                    Image(systemName: "record.circle.fill")
+                } else {
+                    Image("MenuBarIcon")
+                        .renderingMode(.template)
+                }
             }
+            // Without a label VoiceOver reads the raw asset name
+            // ("MenuBarIcon"); the recording state rides as the value.
+            .accessibilityLabel(IBLocale.App.name)
+            .accessibilityValue(session.isRecording ? IBLocale.A11y.recording : "")
         }
         .menuBarExtraStyle(.window)
     }

@@ -48,17 +48,17 @@ public struct IBModifierBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(accessibilityLabel(for: modifier))
-                .accessibilityValue(activeModifiers.contains(modifier) ? "On" : "Off")
+                .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
             }
         }
     }
 
     private func accessibilityLabel(for modifier: Modifier) -> String {
         switch modifier {
-        case .control: return "Control key"
-        case .option:  return "Option key"
-        case .command: return "Command key"
-        case .shift:   return "Shift key"
+        case .control: return IBLocale.A11y.controlKey
+        case .option:  return IBLocale.A11y.optionKey
+        case .command: return IBLocale.A11y.commandKey
+        case .shift:   return IBLocale.A11y.shiftKey
         }
     }
 

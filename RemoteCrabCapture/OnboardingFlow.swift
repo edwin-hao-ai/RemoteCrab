@@ -230,6 +230,7 @@ private struct HeroIllustration: View {
                     .font(.system(size: 60, weight: .light))
                     .foregroundStyle(.white)
             }
+            .accessibilityHidden(true)
         }
         .frame(height: 320)
         .onAppear {
@@ -269,6 +270,7 @@ private struct PermissionsIllustration: View {
                     Circle().fill(Color.accentColor.opacity(0.18))
                         .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 1))
                 }
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(IBFont.bodyMedium.weight(.semibold))
@@ -281,6 +283,7 @@ private struct PermissionsIllustration: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 14))
                 .foregroundStyle(.white.opacity(0.6))
+                .accessibilityHidden(true)
         }
         .padding(14)
         .background {
@@ -318,6 +321,7 @@ private struct PairMacIllustration: View {
                         .overlay(RoundedRectangle(cornerRadius: 24)
                             .strokeBorder(.white.opacity(0.12), lineWidth: 1))
                 }
+                .accessibilityHidden(true)
             Text(label)
                 .font(IBFont.titleMedium)
                 .foregroundStyle(.white)
@@ -345,6 +349,7 @@ private struct PairMacIllustration: View {
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(.white.opacity(0.6))
                 .rotationEffect(.degrees(dotPhase * 360))
+                .accessibilityHidden(true)
         }
         .onAppear {
             withAnimation(.linear(duration: 3).repeatForever(autoreverses: false)) {

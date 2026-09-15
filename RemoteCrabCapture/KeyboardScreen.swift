@@ -85,6 +85,7 @@ struct KeyboardScreen: View {
         HStack {
             Image(systemName: "keyboard")
                 .foregroundStyle(.white.opacity(0.7))
+                .accessibilityHidden(true)
             Spacer()
             Text("TYPING ON MAC")
                 .font(IBFont.eyebrowMono)
@@ -102,6 +103,7 @@ struct KeyboardScreen: View {
             HStack {
                 Image(systemName: "text.cursor")
                     .foregroundStyle(.white.opacity(0.5))
+                    .accessibilityHidden(true)
                 Text("ON YOUR MAC")
                     .font(IBFont.eyebrowMono)
                     .foregroundStyle(.white.opacity(0.5))
@@ -130,6 +132,7 @@ struct KeyboardScreen: View {
 
     private var miniTrackpad: some View {
         TouchSurface(
+            label: IBLocale.A11y.miniTrackpad,
             modifierMask: modifierMask,
             sensitivity: trackpadSens,
             onEvent: { engine.sendTouch($0) }
@@ -164,14 +167,14 @@ struct KeyboardScreen: View {
         // 375pt screen, so scrolling keeps every key ≥44pt wide.
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                shortcutKey(text: "esc", accessibility: "Escape key", keycode: 53)
-                shortcutKey(text: "tab", accessibility: "Tab key", keycode: 48)
+                shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
+                shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
                 modifierKey(.control)
                 modifierKey(.option)
                 modifierKey(.command)
                 modifierKey(.shift)
-                shortcutKey(symbol: "arrow.left", accessibility: "Left arrow key", keycode: 123)
-                shortcutKey(symbol: "arrow.right", accessibility: "Right arrow key", keycode: 124)
+                shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
+                shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
                 // App / window switching — borrowed from WhisPrompt's
                 // window wheel and the Codex Micro macropad's "jump to
                 // app" keys, mapped onto macOS's native shortcuts.
@@ -240,15 +243,15 @@ struct KeyboardScreen: View {
         }
         .buttonStyle(ShortcutKeyStyle())
         .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
-        .accessibilityValue(locked ? "On" : "Off")
+        .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
     }
 
     private func modifierAccessibilityLabel(for modifier: IBModifierBar.Modifier) -> String {
         switch modifier {
-        case .control: return "Control key"
-        case .option:  return "Option key"
-        case .command: return "Command key"
-        case .shift:   return "Shift key"
+        case .control: return IBLocale.A11y.controlKey
+        case .option:  return IBLocale.A11y.optionKey
+        case .command: return IBLocale.A11y.commandKey
+        case .shift:   return IBLocale.A11y.shiftKey
         }
     }
 

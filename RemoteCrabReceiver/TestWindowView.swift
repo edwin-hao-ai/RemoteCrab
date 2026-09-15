@@ -372,6 +372,8 @@ struct TestWindowView: View {
                     .help(Text(session.monitoringMuted
                           ? LocalizedStringKey("Speaker monitoring off — tap to hear the iPhone mic")
                           : LocalizedStringKey("Speaker monitoring on — tap to mute (avoids echo)")))
+                    .accessibilityLabel(IBLocale.A11y.speakerMonitoring)
+                    .accessibilityValue(session.monitoringMuted ? IBLocale.A11y.off : IBLocale.A11y.on)
                     Spacer()
                     Text(String(format: "%3.0f%%", session.micLevel * 100))
                         .font(IBFont.monoMedium)

@@ -50,7 +50,7 @@ public struct IBKeyboardKey: View {
                 .font(font)
                 .foregroundStyle(textColor)
                 .frame(maxWidth: .infinity)
-                .frame(height: 42)
+                .frame(minHeight: 42)
                 .background(background)
                 .overlay {
                     RoundedRectangle(cornerRadius: IBRadius.s.pt + 2, style: .continuous)

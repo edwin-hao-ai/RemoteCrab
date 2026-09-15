@@ -68,6 +68,7 @@ struct CameraExtensionCard: View {
             Image(systemName: statusIcon)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(statusColor)
+                .accessibilityHidden(true)
             Text(statusLabel)
                 .font(IBFont.caption)
                 .foregroundStyle(.secondary)

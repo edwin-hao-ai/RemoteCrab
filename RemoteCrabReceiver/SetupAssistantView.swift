@@ -105,28 +105,35 @@ struct SetupAssistantView: View {
     }
 
     private func sidebarRow(_ s: SetupStep) -> some View {
-        HStack(spacing: IBSpace.s.pt) {
-            Image(systemName: sidebarIcon(s))
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(sidebarColor(s))
-                .frame(width: 16, alignment: .center)
-            Text(s.title)
-                .font(IBFont.bodySmall)
-                .foregroundStyle(s == step ? .primary : .secondary)
-                .lineLimit(1)
-            Spacer()
-        }
-        .padding(.horizontal, IBSpace.m.pt)
-        .padding(.vertical, 6)
-        .background {
-            if s == step {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(0.08))
-                    .padding(.horizontal, IBSpace.xs.pt)
+        // A real Button, not onTapGesture: VoiceOver and full keyboard
+        // access must be able to jump between steps.
+        Button {
+            step = s
+        } label: {
+            HStack(spacing: IBSpace.s.pt) {
+                Image(systemName: sidebarIcon(s))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(sidebarColor(s))
+                    .frame(width: 16, alignment: .center)
+                Text(s.title)
+                    .font(IBFont.bodySmall)
+                    .foregroundStyle(s == step ? .primary : .secondary)
+                    .lineLimit(1)
+                Spacer()
             }
+            .padding(.horizontal, IBSpace.m.pt)
+            .padding(.vertical, 6)
+            .background {
+                if s == step {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                        .padding(.horizontal, IBSpace.xs.pt)
+                }
+            }
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture { step = s }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(s == step ? .isSelected : [])
     }
 
     private func sidebarIcon(_ s: SetupStep) -> String {
@@ -371,6 +378,7 @@ struct SetupAssistantView: View {
             Image(systemName: done ? "checkmark.circle.fill" : "circle.dashed")
                 .font(.system(size: 13))
                 .foregroundStyle(done ? IBColor.success : IBColor.warning)
+                .accessibilityHidden(true)
             Text(done ? doneText : pendingText)
                 .font(IBFont.bodySmall)
                 .foregroundStyle(.primary)

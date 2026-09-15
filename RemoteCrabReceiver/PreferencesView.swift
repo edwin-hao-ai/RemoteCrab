@@ -79,8 +79,8 @@ struct PreferencesView: View {
                         Text(pos.localizedLabel).tag(pos.rawValue)
                     }
                 }
-                .accessibilityLabel(Text("Camera position"))
-                .accessibilityHint(Text("Which iPhone camera to use as the live feed"))
+                .accessibilityLabel(Text(verbatim: IBLocale.A11y.cameraPosition))
+                .accessibilityHint(Text(verbatim: IBLocale.A11y.cameraPositionHint))
 
                 Toggle(IBLocale.Settings.openAtLogin, isOn: $launchAtLogin)
                     .accessibilityHint(IBLocale.Settings.launchAtLoginDescription)
@@ -221,22 +221,22 @@ struct PreferencesView: View {
                         Text(r.localizedLabel).tag(r.rawValue)
                     }
                 }
-                .accessibilityLabel(Text("Streaming resolution"))
-                .accessibilityHint(Text("Higher resolutions use more WiFi bandwidth"))
+                .accessibilityLabel(Text(verbatim: IBLocale.A11y.streamingResolution))
+                .accessibilityHint(Text(verbatim: IBLocale.A11y.streamingResolutionHint))
 
                 Picker("Frame rate", selection: $frameRate) {
                     ForEach(IBLocale.Settings.FrameRate.allCases) { fps in
                         Text(fps.localizedLabel).tag(fps.rawValue)
                     }
                 }
-                .accessibilityLabel(Text("Streaming frame rate"))
+                .accessibilityLabel(Text(verbatim: IBLocale.A11y.streamingFrameRate))
 
                 Picker("Audio quality", selection: $audioQuality) {
                     ForEach(IBLocale.Settings.AudioQuality.allCases) { q in
                         Text(q.localizedLabel).tag(q.rawValue)
                     }
                 }
-                .accessibilityLabel(Text("Microphone audio quality"))
+                .accessibilityLabel(Text(verbatim: IBLocale.A11y.micAudioQuality))
             } header: {
                 Text(IBLocale.Settings.streaming)
             } footer: {

@@ -59,7 +59,7 @@ struct IOSSettingsView: View {
                 Circle()
                     .fill(connectionColor)
                     .frame(width: 8, height: 8)
-                    .accessibilityLabel(connectionLabel)
+                    .accessibilityHidden(true)
             }
             .accessibilityElement(children: .combine)
         } header: {
@@ -141,7 +141,7 @@ struct IOSSettingsView: View {
                     Text(fps.localizedLabel).tag(fps.rawValue)
                 }
             }
-            .accessibilityLabel("Frame rate")
+            .accessibilityLabel(IBLocale.A11y.frameRate)
             .onChange(of: frameRate) { _, new in
                 Task { await engine.applyVideoConfig(resolution: resolution, fps: new) }
             }
@@ -159,17 +159,17 @@ struct IOSSettingsView: View {
                 set: { engine.features.set(feature: .microphone, enabled: $0) }
             ))
                 .accessibilityLabel(engine.features.micOn ? IBLocale.Mic.on : IBLocale.Mic.off)
-                .accessibilityHint("Stream the iPhone microphone to your Mac")
+                .accessibilityHint(IBLocale.A11y.streamMicHint)
 
             Picker(IBLocale.Mode.trackpad, selection: $trackpadSens) {
                 ForEach(1...5, id: \.self) { i in
                     Text("Sensitivity \(i)").tag(i)
                 }
             }
-            .accessibilityLabel("Trackpad sensitivity")
+            .accessibilityLabel(IBLocale.A11y.trackpadSensitivity)
 
             Toggle("Keep screen on while streaming", isOn: $keepScreenOn)
-                .accessibilityHint("Prevents the iPhone from auto-locking during a streaming session")
+                .accessibilityHint(IBLocale.A11y.keepScreenOnHint)
                 .onChange(of: keepScreenOn) { _, new in
                     if engine.isStreaming {
                         UIApplication.shared.isIdleTimerDisabled = new
@@ -185,9 +185,9 @@ struct IOSSettingsView: View {
     private var labsSection: some View {
         Section {
             Toggle(IBLocale.Labs.airMouse, isOn: $labAirMouse)
-                .accessibilityHint("Hold the floating button on the trackpad and tilt your iPhone to move the cursor")
+                .accessibilityHint(IBLocale.A11y.airMouseHint)
             Toggle(IBLocale.Labs.wheelScroll, isOn: $labWheelScroll)
-                .accessibilityHint("Hold the edge button on the trackpad and draw circles to scroll")
+                .accessibilityHint(IBLocale.A11y.wheelScrollHint)
         } header: {
             Text(IBLocale.Labs.title)
         } footer: {
@@ -216,7 +216,7 @@ struct IOSSettingsView: View {
             Link(destination: URL(string: "https://remotecrab.app/privacy")!) {
                 Label("Privacy Policy", systemImage: "hand.raised.fill")
             }
-            .accessibilityLabel("Privacy Policy (opens in Safari)")
+            .accessibilityLabel(IBLocale.A11y.privacyPolicySafari)
 
             Button {
                 UserDefaults.standard.set(false, forKey: "remotecrab.didOnboard")

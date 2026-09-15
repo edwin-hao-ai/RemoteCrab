@@ -201,6 +201,16 @@ struct ContentView: View {
                 voice.clearError()
             }
         }
+        .onChange(of: engine.connectionState) { _, _ in
+            // The centered alert card is visual-only by default; a
+            // VoiceOver user would sit on "等待中" forever without
+            // knowing why. Announce the alert the moment it appears.
+            guard let alert = currentAlert else { return }
+            let message = [alert.title, alert.subtitle]
+                .compactMap { $0 }
+                .joined(separator: ". ")
+            AccessibilityNotification.Announcement(message).post()
+        }
         .task {
             await engine.startIfNeeded()
             // E2E test mode: REMOTECRAB_AUTOSTREAM=1 starts streaming
@@ -227,6 +237,7 @@ struct ContentView: View {
             Image(systemName: "laptopcomputer.and.iphone")
                 .font(.system(size: 30, weight: .light))
                 .foregroundStyle(.white)
+                .accessibilityHidden(true)
             Text(IBLocale.Pairing.requestTitle)
                 .font(IBFont.bodyMedium.weight(.semibold))
                 .foregroundStyle(.white)
@@ -295,6 +306,7 @@ struct ContentView: View {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.9))
+                    .accessibilityHidden(true)
                 Text(text)
                     .font(IBFont.caption)
                     .foregroundStyle(.white)
@@ -358,8 +370,8 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .padding(.top, topInset + 16 + 44 + 12)
         .padding(.trailing, IBSpace.l.pt)
-        .accessibilityLabel("Switch camera")
-        .accessibilityHint("Flips between the front and back cameras")
+        .accessibilityLabel(IBLocale.A11y.switchCamera)
+        .accessibilityHint(IBLocale.A11y.switchCameraHint)
     }
 
     /// Shown while the capture session is still starting (a cold
@@ -382,6 +394,7 @@ struct ContentView: View {
             Image(systemName: "video.slash")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(.white.opacity(0.5))
+                .accessibilityHidden(true)
             Text(IBLocale.Capture.cameraOff)
                 .font(IBFont.eyebrowMono)
                 .ibEyebrowTracking()
@@ -402,7 +415,7 @@ struct ContentView: View {
                     .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Turn camera on")
+            .accessibilityLabel(IBLocale.Capture.turnCameraOn)
         }
     }
 
@@ -557,6 +570,7 @@ struct ContentView: View {
                 Image(systemName: alert.symbol)
                     .font(.system(size: 28, weight: .light))
                     .foregroundStyle(alert.tint)
+                    .accessibilityHidden(true)
                 Text(alert.title)
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
@@ -578,6 +592,10 @@ struct ContentView: View {
                                 .strokeBorder(alert.tint.opacity(0.35), lineWidth: 1)
                         }
                 }
+                // Title + the manual-connect subtitle are one spoken
+                // element — the IP:port hint is the escape hatch when
+                // Bonjour is blocked, so it must be heard, not skipped.
+                .accessibilityElement(children: .combine)
             }
             .transition(.opacity.combined(with: .scale))
         }
@@ -619,10 +637,10 @@ struct ContentView: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(voiceErrorFlash
-                            ? "Voice input error. \(voice.lastError ?? "")"
+                            ? "\(IBLocale.A11y.voiceInputError). \(voice.lastError ?? "")"
                             : (voiceSentFlash
-                               ? "Dictation sent"
-                               : "Voice input. \(voice.partialText.isEmpty ? "Listening" : voice.partialText)"))
+                               ? IBLocale.A11y.dictationSent
+                               : "\(IBLocale.A11y.voiceInput). \(voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)"))
     }
 
     /// Dock top is ~134pt from the bottom; on the trackpad the ⌃⌥⌘⇧
@@ -666,8 +684,16 @@ struct ContentView: View {
                     }
                 }
             )
-            .accessibilityLabel("Camera preview")
-            .accessibilityHint("Tap to show the camera full screen, drag to move")
+            .accessibilityLabel(IBLocale.A11y.cameraPreview)
+            .accessibilityHint(IBLocale.A11y.pipHint)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(.default) {
+                // VoiceOver double-tap: same as the TapGesture — go to
+                // the full-screen camera surface.
+                withAnimation(IBAnimation.snappy) {
+                    engine.features.activeSurface = .cameraPreview
+                }
+            }
     }
 
     private func pipDrag(in size: CGSize) -> some Gesture {
@@ -720,24 +746,24 @@ private struct ConnectionSheet: View {
                     LabeledContent(IBLocale.Connection.address) {
                         monoValue(connectionAddressText)
                     }
-                    LabeledContent("Type") { monoValue(IBServiceType.tcp) }
-                    LabeledContent("Domain") { monoValue(IBServiceType.domain) }
-                    LabeledContent("Status") {
+                    LabeledContent(IBLocale.Connection.type) { monoValue(IBServiceType.tcp) }
+                    LabeledContent(IBLocale.Connection.domain) { monoValue(IBServiceType.domain) }
+                    LabeledContent(IBLocale.Connection.status) {
                         Text(connectionLabel)
                             .foregroundStyle(connectionColor)
                     }
                 }
                 Section(IBLocale.Connection.streamSection) {
-                    LabeledContent("Resolution") {
+                    LabeledContent(IBLocale.Connection.resolution) {
                         monoValue("\(engine.metadata.width)×\(engine.metadata.height)")
                     }
                     LabeledContent("FPS") {
                         monoValue(IBLocale.Preview.frameRate(engine.metadata.fps))
                     }
-                    LabeledContent("Bitrate") {
+                    LabeledContent(IBLocale.Connection.bitrate) {
                         monoValue(IBLocale.Preview.bitrate(engine.metadata.bitrateBps / 1_000_000))
                     }
-                    LabeledContent("Codec") {
+                    LabeledContent(IBLocale.Preview.codecLabel) {
                         monoValue(engine.metadata.codec.uppercased())
                     }
                 }
@@ -769,7 +795,7 @@ private struct ConnectionSheet: View {
             .navigationTitle("RemoteCrab")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button(IBLocale.Settings.done) { dismiss() }
                 }
             }
         }
