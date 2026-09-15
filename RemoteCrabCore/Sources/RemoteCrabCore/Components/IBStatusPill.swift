@@ -80,13 +80,13 @@ public struct IBStatusPill: View {
         switch status {
         case .connected(let ms):
             if let ms {
-                return "Connection \(status.label), latency \(ms) milliseconds"
+                return IBLocale.A11y.statusConnectedLatency(status.label, ms)
             }
-            return "Connection \(status.label)"
+            return IBLocale.A11y.statusPlain(status.label)
         case .disconnected(let reason):
-            return "Connection \(status.label). \(reason)"
+            return IBLocale.A11y.statusDisconnected(status.label, reason)
         case .reconnecting, .idle, .searching, .connecting:
-            return "Connection \(status.label)"
+            return IBLocale.A11y.statusPlain(status.label)
         }
     }
 

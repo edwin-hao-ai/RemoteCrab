@@ -49,7 +49,7 @@ struct PreferencesView: View {
         .alert(IBLocale.MicDriver.install, isPresented: $showMicPkgMissing) {
             Button(IBLocale.Settings.done, role: .cancel) {}
         } message: {
-            Text("The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.")
+            Text(IBLocale.Setup.micPkgMissing)
         }
     }
 
@@ -205,7 +205,7 @@ struct PreferencesView: View {
             } header: {
                 Text(IBLocale.Settings.cameraExtension)
             } footer: {
-                Text("Lets other apps use your iPhone as a webcam. Runs from /Applications only. Re-register after moving or updating the app.")
+                Text(IBLocale.Settings.cameraExtensionFooter)
             }
         }
         .formStyle(.grouped)

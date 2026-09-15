@@ -659,7 +659,10 @@ below were invisible to the simulator and to `./scripts/test.sh`:
    UI silently stays English. Type helper params as `LocalizedStringKey`;
    for non-`Text` uses go through `String(localized:bundle:.module)`.
    Also `.help("…")` / `.accessibilityLabel("…")` literals can resolve
-   verbatim — wrap in `Text("…")`.
+   verbatim — wrap in `Text("…")`. Corollary (2026-09-15): two catalog
+   keys that differ ONLY BY CASE ("Switch Camera" vs "Switch camera")
+   collide in Xcode's GeneratedStringSymbols and fail the build —
+   reuse the existing key instead of adding a case-variant.
 9. **The black video scare was a covered camera, not the decoder.**
    `CaptureEngine` streams the `.back` camera; a phone face-down on a
    desk is perfectly black. To tell "lens covered" from "decoder emits

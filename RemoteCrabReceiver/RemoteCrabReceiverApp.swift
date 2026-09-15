@@ -85,7 +85,7 @@ struct RemoteCrabReceiverApp: App {
         .defaultPosition(.center)
 
         // Preview window.
-        Window("RemoteCrab Preview", id: "preview") {
+        Window(LocalizedStringKey(IBLocale.Preview.windowTitle), id: "preview") {
             PreviewWindow()
                 .environmentObject(session)
                 .frame(minWidth: 640, minHeight: 400)
@@ -96,7 +96,7 @@ struct RemoteCrabReceiverApp: App {
 
         // Floating control panel. The 380×620 size is the single source
         // of truth — ControlPanelView fills whatever it is given.
-        Window("RemoteCrab Control Panel", id: "controls") {
+        Window(LocalizedStringKey(IBLocale.Preview.controlPanelTitle), id: "controls") {
             ControlPanelView()
                 .environmentObject(session)
                 .frame(width: 380, height: 620)

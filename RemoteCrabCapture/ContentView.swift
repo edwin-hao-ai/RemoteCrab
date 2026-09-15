@@ -621,7 +621,7 @@ struct ContentView: View {
                 .foregroundStyle(voiceErrorFlash ? IBColor.error : (voiceSentFlash ? IBColor.success : IBColor.recording))
                 .symbolEffect(.pulse, isActive: voice.isRunning)
             Text(voiceErrorFlash
-                 ? (voice.lastError ?? "Voice input stopped")
+                 ? IBLocale.Voice.stopped
                  : (voiceSentFlash
                     ? IBLocale.Voice.sent
                     : (voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)))

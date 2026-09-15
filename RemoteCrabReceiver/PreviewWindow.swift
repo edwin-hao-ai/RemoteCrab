@@ -13,7 +13,7 @@ struct PreviewWindow: View {
             Color.black.ignoresSafeArea()
 
             if let cgImage = session.latestFrame {
-                Image(cgImage, scale: 1, label: Text("iPhone preview"))
+                Image(cgImage, scale: 1, label: Text(IBLocale.Preview.a11yPreview))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             } else {
@@ -30,7 +30,7 @@ struct PreviewWindow: View {
                 }
             }
         }
-        .navigationTitle("RemoteCrab Preview")
+        .navigationTitle(IBLocale.Preview.windowTitle)
     }
 
     @ViewBuilder

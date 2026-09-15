@@ -247,14 +247,14 @@ private struct PermissionsIllustration: View {
     var body: some View {
         VStack(spacing: 18) {
             permissionCard(icon: "camera.fill",
-                           title: "Camera",
-                           description: "Live iPhone feed to your Mac")
+                           title: IBLocale.Onboarding.permCameraTitle,
+                           description: IBLocale.Onboarding.permCameraDesc)
             permissionCard(icon: "mic.fill",
-                           title: "Microphone",
-                           description: "Stream iPhone mic to Mac speakers")
+                           title: IBLocale.Onboarding.permMicTitle,
+                           description: IBLocale.Onboarding.permMicDesc)
             permissionCard(icon: "wifi",
-                           title: "Local Network",
-                           description: "Discover & connect to your Mac")
+                           title: IBLocale.Onboarding.permNetworkTitle,
+                           description: IBLocale.Onboarding.permNetworkDesc)
         }
         .padding(.horizontal, IBSpace.xxl.pt)
         .frame(height: 320)

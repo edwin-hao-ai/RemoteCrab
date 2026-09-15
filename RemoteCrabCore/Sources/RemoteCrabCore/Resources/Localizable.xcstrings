@@ -885,6 +885,57 @@
         }
       }
     },
+    "Connection: %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接:%@"
+          }
+        }
+      }
+    },
+    "Connection: %@, latency %d ms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection: %@, latency %d ms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接:%@,延迟 %d 毫秒"
+          }
+        }
+      }
+    },
+    "Connection: %@. %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection: %@. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接:%@。%@"
+          }
+        }
+      }
+    },
     "Continue": {
       "extractionState": "manual",
       "localizations": {
@@ -1102,6 +1153,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "断开连接"
+          }
+        }
+      }
+    },
+    "Discover & connect to your Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discover & connect to your Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发现并连接你的 Mac"
           }
         }
       }
@@ -1803,6 +1871,23 @@
         }
       }
     },
+    "Lets other apps use your iPhone as a webcam. Runs from /Applications only. Re-register after moving or updating the app.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets other apps use your iPhone as a webcam. Runs from /Applications only. Re-register after moving or updating the app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让其他 App 把 iPhone 用作摄像头。应用只能从 /Applications 运行。移动或更新应用后需要重新注册。"
+          }
+        }
+      }
+    },
     "Listening…": {
       "extractionState": "manual",
       "localizations": {
@@ -1816,6 +1901,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在聆听…"
+          }
+        }
+      }
+    },
+    "Live iPhone feed to your Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live iPhone feed to your Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 画面实时传到 Mac"
+          }
+        }
+      }
+    },
+    "Local Network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Network"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地网络"
           }
         }
       }
@@ -2857,6 +2976,23 @@
         }
       }
     },
+    "RemoteCrab Control Panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab Control Panel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab 控制面板"
+          }
+        }
+      }
+    },
     "RemoteCrab Microphone is installed.": {
       "extractionState": "manual",
       "localizations": {
@@ -2870,6 +3006,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "「RemoteCrab Microphone」已安装。"
+          }
+        }
+      }
+    },
+    "RemoteCrab Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab Preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab 预览"
           }
         }
       }
@@ -3655,6 +3808,23 @@
         }
       }
     },
+    "Stream iPhone mic to Mac speakers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream iPhone mic to Mac speakers"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 麦克风串流到 Mac 扬声器"
+          }
+        }
+      }
+    },
     "Stream the iPhone microphone to your Mac": {
       "extractionState": "manual",
       "localizations": {
@@ -4267,6 +4437,23 @@
         }
       }
     },
+    "Voice input stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice input stopped"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音输入已停止"
+          }
+        }
+      }
+    },
     "Voice. Hold to talk.": {
       "extractionState": "manual",
       "localizations": {
@@ -4500,6 +4687,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "iPhone（直连）"
+          }
+        }
+      }
+    },
+    "iPhone preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 预览画面"
           }
         }
       }

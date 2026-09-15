@@ -378,9 +378,9 @@ struct MenuBarMenu: View {
                       action: { openWindowActivating(id: "test") },
                       keys: KeyboardShortcut("t"))
             ActionRow(icon: "arrow.triangle.2.circlepath.camera",
-                      title: "Switch Camera",
+                      title: LocalizedStringKey(IBLocale.A11y.switchCamera),
                       shortcut: "",
-                      help: "Flip the iPhone between its front and back cameras",
+                      help: LocalizedStringKey(IBLocale.A11y.switchCameraHint),
                       action: { session.toggleCamera() })
             ActionRow(icon: session.isRecording ? "stop.circle.fill" : "record.circle",
                       title: LocalizedStringKey(session.isRecording

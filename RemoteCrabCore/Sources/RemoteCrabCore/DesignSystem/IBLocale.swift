@@ -92,6 +92,14 @@ public enum IBLocale {
         public static let allowAndConnect = IBL("Allow Permissions & Connect")
         /// Pair-page illustration: both devices must share a network.
         public static let sameWiFi = IBL("Same WiFi")
+
+        /// Permissions-page illustration cards.
+        public static let permCameraTitle = IBL("Camera")
+        public static let permCameraDesc = IBL("Live iPhone feed to your Mac")
+        public static let permMicTitle = IBL("Microphone")
+        public static let permMicDesc = IBL("Stream iPhone mic to Mac speakers")
+        public static let permNetworkTitle = IBL("Local Network")
+        public static let permNetworkDesc = IBL("Discover & connect to your Mac")
     }
 
     public enum Mode {
@@ -150,6 +158,9 @@ public enum IBLocale {
         public static let sent = IBL("Sent")
         public static let holdToTalk = IBL("Hold to talk")
         public static let releaseToSend = IBL("Release to send")
+        /// Voice card error state. The raw recognizer error goes to
+        // os_log, never to the UI.
+        public static let stopped = IBL("Voice input stopped")
     }
 
     /// Settings → Labs (experimental gestures, default off).
@@ -180,6 +191,8 @@ public enum IBLocale {
         public static let accessibility = IBL("Accessibility")
         public static let permissions = IBL("Permissions")
         public static let replayOnboarding = IBL("Replay Onboarding")
+        /// Camera-extension section footer (Preferences).
+        public static let cameraExtensionFooter = IBL("Lets other apps use your iPhone as a webcam. Runs from /Applications only. Re-register after moving or updating the app.")
 
         public enum Resolution: String, CaseIterable, Identifiable {
             case p720  = "720p"
@@ -289,6 +302,11 @@ public enum IBLocale {
         public static func latency(_ ms: Int) -> String { "\(ms) ms" }
         public static let codec = "H.264"
         public static let codecLabel = IBL("Codec")
+        /// Mac window titles (title bar + Window menu).
+        public static let windowTitle = IBL("RemoteCrab Preview")
+        public static let controlPanelTitle = IBL("RemoteCrab Control Panel")
+        /// VoiceOver label for the live video image.
+        public static let a11yPreview = IBL("iPhone preview")
     }
 
     /// Optional virtual-microphone HAL driver.
@@ -486,6 +504,18 @@ public enum IBLocale {
         public static let voiceInputError = IBL("Voice input error")
         public static let dictationSent = IBL("Dictation sent")
         public static let voiceInput = IBL("Voice input")
+
+        // Connection status pill — read on every surface (iOS top bar,
+        // Mac popover, control panel, preview, test window).
+        public static func statusPlain(_ label: String) -> String {
+            String(format: IBL("Connection: %@"), label)
+        }
+        public static func statusConnectedLatency(_ label: String, _ ms: Int) -> String {
+            String(format: IBL("Connection: %@, latency %d ms"), label, ms)
+        }
+        public static func statusDisconnected(_ label: String, _ reason: String) -> String {
+            String(format: IBL("Connection: %@. %@"), label, reason)
+        }
 
         // iOS keyboard shortcut bar + modifier keys (shared with
         // `IBModifierBar` in RemoteCrabCore).
