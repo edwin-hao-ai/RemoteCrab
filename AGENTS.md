@@ -461,14 +461,13 @@ For new event types:
 ### ❌ Still needed for V1.0 release (real production)
 | Item | Why | Estimate |
 |---|---|---|
-| **Real iPhone + Mac end-to-end test** | ⏳ In progress (2026-09-11): app runs on device, Bonjour+TCP connect, 4 device-only bugs fixed; full checklist pending — see "Real-device lessons" below | 1 day |
-| **Camera extension user activation** | Sysex installed; user must enable the camera toggle in System Settings, then verify in Photo Booth/Zoom | 30 min |
 | **Virtual microphone (CoreAudio HAL plugin)** | Driver implemented (`RemoteCrabMicDriver/`): HAL `AudioServerPlugIn` reads an in-process SPSC ring fed over **loopback UDP 127.0.0.1:49182** (the sandbox blocks `shm_open`, so the original POSIX-shm design was silence-only; `MicSocketListener.c` runs the recv thread inside coreaudiod, app side is `MicRingWriter` → NWConnection). pkg is embedded in the app (`dist/RemoteCrabMicrophone.pkg` → `Contents/Resources`) — one-click install from the setup assistant / Preferences, one admin GUI auth. Remaining: user runs the installer once + verify in Zoom/QuickTime/Dictation. (The `RemoteCrabAudioExtension` AUv3 skeleton is a DAW-host plugin and will NOT show up as a system input — don't build on it for this.) | 30 min |
-| **App Store metadata screenshots** | We have mockups in `screenshots/`, need real device captures for upload | 1 day |
-| **App Store review submission** | Upload via `release-ios.sh --all`, manual submit in browser | 1 hour |
+| **App Store review submission** | Metadata + screenshots uploaded to ASC app 6811599153 (en-US + zh-Hans, 2026-09-15 — note: screenshots are simulator captures, swap for real-device ones if review complains). Upload build via `release-ios.sh --all`, manual submit in browser | 1 hour |
 | **Crash reporting** | OSLog + 3rd-party (Sentry / Bugsnag) | 1 day |
-| **VoiceOver / Dynamic Type** | Accessibility (voice button + dock have labels; full audit pending) | 1-2 days |
-| **Localization** | `.xcstrings` exists; coach marks are Chinese, rest English — needs a pass | 1 day |
+| **VoiceOver / Dynamic Type — device pass** | Core batch done (2026-09-15, commit 0849338: IBFont → Text Styles on iOS, `IBLocale.A11y` 42 keys bilingual, PiP/ToggleRow/menubar-icon/sidebar/status-card blockers fixed, decorative icons hidden). Remaining: real-device VoiceOver walkthrough (verify #9 Announcement timing, #4 PiP double-tap), pill dynamicTypeSize cap evaluation (#19), keyboard preview lineLimit (#20), onboarding scroll-ification at AX sizes (#21) | 1 day |
+| **iOS-initiated Mac selection** | Today the Mac dials and the iPhone approves; letting the iPhone browse/pick a Mac is an architecture change (iOS-side browser + persisted targets) | 2-3 days |
+
+Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user approved, device publishes), Opus encoding (ed49e8a), localization pass, ASC metadata + screenshots, trackpad pass (two-finger right-click / orientation mapping / drag-select feel), camera off by default, connection-stability fixes.
 
 ### 🛣 Roadmap
 - ~~**V0.3** — bidirectional protocol, feature dock, trackpad engine, K3 keyboard, voice, labs, camera sysex~~ ✅
