@@ -4418,6 +4418,108 @@
           }
         }
       }
+    },
+    "Choose a Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 Mac"
+          }
+        }
+      }
+    },
+    "Connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接"
+          }
+        }
+      }
+    },
+    "Preferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferred"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选定"
+          }
+        }
+      }
+    },
+    "Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu bar.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu bar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待 %@——如果它没有自动重连，请在它的菜单栏里点“重试”。"
+          }
+        }
+      }
+    },
+    "Cancel Preference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Preference"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消优先"
+          }
+        }
+      }
+    },
+    "Several Macs are on this network. Pick one — it takes over on its next connect; others see \"busy\".": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Several Macs are on this network. Pick one — it takes over on its next connect; others see \"busy\"."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个网络里有多台 Mac。选择一台——它会在下次连接时接管；其他 Mac 会看到自己“被占用”。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

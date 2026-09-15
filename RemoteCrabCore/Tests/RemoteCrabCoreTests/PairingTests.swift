@@ -97,6 +97,52 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(decision, .accept)
     }
 
+    // MARK: - Policy (preferred Mac)
+
+    func testPreferredMacWithTokenIsAccepted() {
+        let macB = pairedMac(id: "mac-2", name: "Mac B", token: "tok-b")
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac B", id: "mac-2", token: "tok-b"),
+            paired: [pairedMac(), macB],
+            owner: nil,
+            preferred: macB
+        )
+        XCTAssertEqual(decision, .accept)
+    }
+
+    func testOtherPairedMacWhilePreferredIsBusy() {
+        let macB = pairedMac(id: "mac-2", name: "Mac B", token: "tok-b")
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac A", id: "mac-1", token: "tok"),
+            paired: [pairedMac(), macB],
+            owner: nil,
+            preferred: macB
+        )
+        XCTAssertEqual(decision, .busy(ownerName: "Mac B"))
+    }
+
+    func testUnknownMacWhilePreferredIsBusyNotPending() {
+        let macB = pairedMac(id: "mac-2", name: "Mac B", token: "tok-b")
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Stranger", id: "mac-9"),
+            paired: [pairedMac(), macB],
+            owner: nil,
+            preferred: macB
+        )
+        XCTAssertEqual(decision, .busy(ownerName: "Mac B"))
+    }
+
+    func testPreferredMacWithoutTokenStillGetsPrompt() {
+        let macB = pairedMac(id: "mac-2", name: "Mac B", token: "tok-b")
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac B", id: "mac-2", token: nil),
+            paired: [pairedMac(), macB],
+            owner: nil,
+            preferred: macB
+        )
+        XCTAssertEqual(decision, .pending)
+    }
+
     // MARK: - Store
 
     private func freshStore() -> MacPairingStore {
@@ -141,5 +187,41 @@ final class PairingTests: XCTestCase {
 
         store.forget(id: "mac-1")
         XCTAssertEqual(store.paired.map(\.id), ["mac-2"])
+    }
+
+    // MARK: - Store (preferred Mac)
+
+    func testPreferredPersistsAndExpires() {
+        let store = freshStore()
+        store.pair(IBClientHello(name: "Mac A", id: "mac-1"))
+        XCTAssertNil(store.preferred)
+
+        store.setPreferred(id: "mac-1")
+        XCTAssertEqual(store.preferredId, "mac-1")
+        XCTAssertEqual(store.preferred?.name, "Mac A")
+
+        // Stale preference is treated as no preference.
+        store.setPreferred(id: "mac-1", at: Date().addingTimeInterval(-MacPairingStore.preferredTTL - 1))
+        XCTAssertNil(store.preferredId)
+        XCTAssertNil(store.preferred)
+
+        store.setPreferred(id: "mac-1")
+        store.clearPreferred()
+        XCTAssertNil(store.preferredId)
+    }
+
+    func testForgetClearsPreferenceForThatMac() {
+        let store = freshStore()
+        store.pair(IBClientHello(name: "Mac A", id: "mac-1"))
+        store.setPreferred(id: "mac-1")
+        store.forget(id: "mac-1")
+        XCTAssertNil(store.preferredId)
+    }
+
+    func testPreferredForUnpairedIdResolvesToNil() {
+        let store = freshStore()
+        store.setPreferred(id: "mac-9")
+        XCTAssertEqual(store.preferredId, "mac-9")
+        XCTAssertNil(store.preferred)
     }
 }

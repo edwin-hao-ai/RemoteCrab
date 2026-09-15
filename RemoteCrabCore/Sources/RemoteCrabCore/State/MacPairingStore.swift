@@ -35,15 +35,26 @@ public enum PairingPolicy {
     ///   - hello: the Mac's identity handshake.
     ///   - paired: every Mac the user has approved so far.
     ///   - owner: the Mac currently owning the session, if any.
+    ///   - preferred: the Mac the user just picked on the iPhone, if
+    ///     any. While a preference is outstanding, every *other* Mac —
+    ///     paired or not — is answered `busy` so the preferred Mac can
+    ///     take over on its next connect ("holding the door").
     public static func decide(
         hello: IBClientHello,
         paired: [PairedMac],
-        owner: PairedMac?
+        owner: PairedMac?,
+        preferred: PairedMac? = nil
     ) -> PairingDecision {
         // A different Mac is already being served — even a paired one
         // must wait for the owner to release the session.
         if let owner, owner.id != hello.id {
             return .busy(ownerName: owner.name)
+        }
+        // A preference is outstanding and this isn't the chosen Mac —
+        // hold the door (even for a paired Mac with a valid token) so
+        // the preferred Mac can take over on its next connect.
+        if let preferred, preferred.id != hello.id {
+            return .busy(ownerName: preferred.name)
         }
         // Owner reconnecting, or a fresh connection from a known Mac:
         // only auto-accept when the token proves identity.
@@ -65,13 +76,47 @@ public final class MacPairingStore {
 
     private let defaults: UserDefaults
     private let key: String
+    private let preferredIdKey: String
+    private let preferredAtKey: String
 
     public private(set) var paired: [PairedMac]
 
     public init(defaults: UserDefaults = .standard, key: String = "remotecrab.ios.pairedMacs") {
         self.defaults = defaults
         self.key = key
+        self.preferredIdKey = key + ".preferredId"
+        self.preferredAtKey = key + ".preferredAt"
         self.paired = Self.load(from: defaults, key: key)
+    }
+
+    /// How long a "switch to this Mac" preference stays armed. After
+    /// that the door opens again — the user may have changed their mind
+    /// or the preferred Mac may simply be off.
+    public static let preferredTTL: TimeInterval = 10 * 60
+
+    /// The id of the Mac the user picked in the iOS Mac picker, if the
+    /// preference is still fresh.
+    public var preferredId: String? {
+        guard let id = defaults.string(forKey: preferredIdKey) else { return nil }
+        let at = defaults.object(forKey: preferredAtKey) as? Date ?? .distantPast
+        guard Date().timeIntervalSince(at) < Self.preferredTTL else { return nil }
+        return id
+    }
+
+    /// The preferred Mac's record (so the policy can name it in `busy`).
+    public var preferred: PairedMac? {
+        guard let id = preferredId else { return nil }
+        return paired.first(where: { $0.id == id })
+    }
+
+    public func setPreferred(id: String, at: Date = Date()) {
+        defaults.set(id, forKey: preferredIdKey)
+        defaults.set(at, forKey: preferredAtKey)
+    }
+
+    public func clearPreferred() {
+        defaults.removeObject(forKey: preferredIdKey)
+        defaults.removeObject(forKey: preferredAtKey)
     }
 
     /// Approve a Mac. Re-pairing an existing id keeps its token and
@@ -91,6 +136,7 @@ public final class MacPairingStore {
 
     public func forget(id: String) {
         paired.removeAll { $0.id == id }
+        if preferredId == id { clearPreferred() }
         save()
     }
 
@@ -102,6 +148,7 @@ public final class MacPairingStore {
 
     public func removeAll() {
         paired = []
+        clearPreferred()
         save()
     }
 

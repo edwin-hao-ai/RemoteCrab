@@ -401,6 +401,15 @@ public enum IBLocale {
         public static let disconnect = IBL("Disconnect")
         public static let nonePaired = IBL("No Macs paired yet. Pair one from its connection request.")
         public static let forget = IBL("Forget")
+        // iOS Mac picker (several Macs on one network).
+        public static let macPickerTitle = IBL("Choose a Mac")
+        public static let connectedNow = IBL("Connected")
+        public static let waitingBadge = IBL("Preferred")
+        public static func waitingForPreferred(_ name: String) -> String {
+            String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu bar."), name)
+        }
+        public static let cancelPreferred = IBL("Cancel Preference")
+        public static let pickerFooter = IBL("Several Macs are on this network. Pick one — it takes over on its next connect; others see \"busy\".")
     }
 
     public enum Error {

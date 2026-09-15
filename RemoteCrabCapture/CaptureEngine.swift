@@ -47,8 +47,13 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var pairedMacs: [PairedMac] = []
     /// Name of a Mac waiting for the user's approval, if any.
     @Published private(set) var pendingMacName: String?
+    /// The Mac the user picked in the Mac picker — it takes over on its
+    /// next connect while others are answered "busy".
+    @Published private(set) var preferredMac: PairedMac?
     /// Name of the Mac currently owning the session, if any.
     @Published private(set) var connectedMacName: String?
+    /// Stable id of the owning Mac (matches `PairedMac.id`).
+    @Published private(set) var connectedMacId: String?
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
     /// Fixed listening port (for manual "connect by IP" when Bonjour is
@@ -908,7 +913,8 @@ final class CaptureEngine: ObservableObject {
             replyBusy(on: conn, ownerName: pendingMacName ?? "another Mac")
             return
         }
-        let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil)
+        let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
+                                            preferred: pairingStore.preferred)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         switch decision {
@@ -953,9 +959,16 @@ final class CaptureEngine: ObservableObject {
         pendingHello = nil
         pendingMacName = nil
 
+        // The preferred Mac arrived — the switch is done, open the door.
+        if let mac, mac.id == pairingStore.preferredId {
+            pairingStore.clearPreferred()
+            refreshPairedMacs()
+        }
+
         ownerMac = mac
         connection = conn
         connectedMacName = mac?.name ?? "Mac (legacy)"
+        connectedMacId = mac?.id
         connectionState = .connected
         Self.log.info("session granted to \(self.connectedMacName ?? "?", privacy: .public)")
 
@@ -1087,6 +1100,27 @@ final class CaptureEngine: ObservableObject {
         refreshPairedMacs()
     }
 
+    /// Mark a paired Mac as the one this iPhone should serve. If a
+    /// different Mac currently owns the session it is dropped; until
+    /// the chosen Mac reconnects, every other Mac is answered "busy".
+    func setPreferredMac(id: String) {
+        // Already serving this Mac — a preference would just hold the
+        // door against everyone else until it expires.
+        guard ownerMac?.id != id else { return }
+        pairingStore.setPreferred(id: id)
+        refreshPairedMacs()
+        if ownerMac != nil {
+            disconnectCurrentMac()
+        }
+    }
+
+    /// Cancel an outstanding preference — the next Mac to ask gets the
+    /// normal pairing treatment again.
+    func clearPreferredMac() {
+        pairingStore.clearPreferred()
+        refreshPairedMacs()
+    }
+
     // MARK: - App switcher
 
     /// Ask the Mac for a fresh running-app list.
@@ -1159,6 +1193,7 @@ final class CaptureEngine: ObservableObject {
 
     private func refreshPairedMacs() {
         pairedMacs = pairingStore.paired
+        preferredMac = pairingStore.preferred
     }
 
     /// E2E self-test: right after connect, emit a scripted touch-move
@@ -1202,6 +1237,7 @@ final class CaptureEngine: ObservableObject {
         connection = nil
         ownerMac = nil
         connectedMacName = nil
+        connectedMacId = nil
     }
 
     // MARK: - Receiving (Mac → iPhone control)

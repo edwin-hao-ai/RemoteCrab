@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var showConnectionSheet = false
     @State private var showSettings = false
     @State private var showAppSwitcher = false
+    @State private var showMacPicker = false
     @State private var showSendDialog = false
     @State private var showFileImporter = false
     @State private var showPhotoPicker = false
@@ -95,6 +96,11 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAppSwitcher) {
             AppSwitcherView()
+                .environmentObject(engine)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showMacPicker) {
+            MacPickerView()
                 .environmentObject(engine)
                 .presentationDetents([.medium, .large])
         }
@@ -468,6 +474,9 @@ struct ContentView: View {
             Menu {
                 Button { showAppSwitcher = true } label: {
                     Label(IBLocale.Switcher.title, systemImage: "square.grid.2x2")
+                }
+                Button { showMacPicker = true } label: {
+                    Label(IBLocale.Pairing.macPickerTitle, systemImage: "laptopcomputer.and.iphone")
                 }
                 Button { showSendDialog = true } label: {
                     Label(IBLocale.Transfer.sendTitle, systemImage: "square.and.arrow.up")
