@@ -12,6 +12,25 @@ import RemoteCrabCore
 struct CameraExtensionCard: View {
     @EnvironmentObject private var sysexManager: SystemExtensionManager
 
+    /// Ground truth, polled while the card is alive: is the CMIO device
+    /// actually published? The extension's callbacks only fire for
+    /// requests THIS process submitted, so toggling the camera in System
+    /// Settings never updates `activationState` — the wizard already
+    /// detects via the device list, and the card must not tell a
+    /// different story.
+    @State private var deviceVisible = false
+    private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    /// What the card displays: the real device list wins over the
+    /// request-callback state whenever the camera is actually there.
+    private var displayedState: SystemExtensionManager.ActivationState {
+        deviceVisible ? .active : sysexManager.activationState
+    }
+
+    private func refreshDevice() {
+        deviceVisible = cmioDevice(uid: IBCameraDevice.uid) != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
@@ -58,6 +77,8 @@ struct CameraExtensionCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(IBColor.borderRegular, lineWidth: 1)
         }
+        .onAppear { refreshDevice() }
+        .onReceive(poll) { _ in refreshDevice() }
     }
 
     // MARK: - Pieces
@@ -78,7 +99,7 @@ struct CameraExtensionCard: View {
 
     @ViewBuilder
     private var primaryAction: some View {
-        switch sysexManager.activationState {
+        switch displayedState {
         case .awaitingApproval:
             Button(IBLocale.Settings.openExtensions) { openExtensionSettings() }
                 .controlSize(.small)
@@ -111,7 +132,7 @@ struct CameraExtensionCard: View {
     // MARK: - State mapping
 
     private var statusLabel: String {
-        switch sysexManager.activationState {
+        switch displayedState {
         case .unknown, .notInstalled: return IBLocale.Settings.sysexNotInstalled
         case .awaitingApproval:       return IBLocale.Settings.sysexAwaitingApproval
         case .active:                 return IBLocale.Settings.cameraExtensionActiveHint
@@ -121,7 +142,7 @@ struct CameraExtensionCard: View {
     }
 
     private var statusIcon: String {
-        switch sysexManager.activationState {
+        switch displayedState {
         case .unknown, .notInstalled: return "circle"
         case .awaitingApproval:       return "clock.badge.exclamationmark"
         case .active:                 return "checkmark.circle.fill"
@@ -131,7 +152,7 @@ struct CameraExtensionCard: View {
     }
 
     private var statusColor: Color {
-        switch sysexManager.activationState {
+        switch displayedState {
         case .unknown, .notInstalled: return IBColor.textTertiary
         case .awaitingApproval:       return IBColor.warning
         case .active:                 return IBColor.success
