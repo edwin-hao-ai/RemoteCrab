@@ -24,3 +24,12 @@
 - Mac 挂 fake-ip VPN:Bonjour 走 WiFi 死；api.appstoreconnect.apple.com TLS 被杀（python monkeypatch getaddrinfo 走 DoH 1.1.1.1 绕过）
 - 部署：签名构建 derivedDataPath .build/e2e-derived + `rm -rf /Applications/RemoteCrab.app && ditto`;xcodegen 改完 yml 要重跑（test.sh 不自带 xcodegen)
 - xcstrings 编辑姿势：python OrderedDict 追加 + json.dump(ensure_ascii=False, indent=2) + 末尾换行，diff 干净
+
+## 追记（当晚）：模拟器 e2e + 拖拽实测（a75ef34 / e597d18）
+
+- `e2e-simulator.sh` 重写为断言式 e2e（127.0.0.1 直连回退），10/10 绿。两个坑：① headless 启动前必须 simctl privacy 预授权 camera+mic——requestPermissions() 在监听启动前 await 相机弹窗，无人点即死锁（端口不开、零日志，症状和 Bonjour 坏了一样）;② sim 应用启动会把 Simulator 窗口抬到前台抢走键盘焦点——看到 sessionReply: accepted 立即 osascript activate TextEdit。
+- **Opus 首次活体验证**:opus encoder ready (48kHz mono 24kbps)，收发两侧 codec=opus。
+- **拖拽端到端实测通过**:iPhone dragStart/move/up → Mac leftMouseDown/Dragged/Up → TextEdit 窗口真的被拖动（AX 位置断言）、文字真的被拖选（⌘C → pbpaste 断言）。
+- **CGEventInjector 真 bug 修复**:lastCursor 从不 clamp 到屏幕内，漂移出屏后所有后续事件（含拖拽）都投在屏外坐标——这可能就是真机"拖拽不了"的注入端原因之一。clamp 后位置确定性，e2e 用"左上爆发位移 → (0,0) → 定量爆发 → (0.3H,0.3H)"做绝对 staging。
+- 编排技巧：iPhone 只发相对位移，所以"舞台向光标移动"（脚本用 AppleScript 把窗口挪到已知光标点下），剪贴板 marker 做相位同步（poll pbpaste）。文本行用 AX text area 实测（窗口头部约 100pt，不是猜的）。
+- 仍未验：长按 0.45s/12pt 手势手感（真机）、视频/录制（模拟器无摄像头）。
