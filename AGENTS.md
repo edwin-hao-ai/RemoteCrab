@@ -389,6 +389,19 @@ recording). Needs an unlocked, connected iPhone with the screen kept
 on (a locked phone suspends the app mid-run and everything fails).
 10/10 green as of 2026-09-14.
 
+`./scripts/e2e-simulator.sh` is the **no-device** subset (rewritten
+2026-09-15, 8/8 green): the simulator's Bonjour is invisible to the
+host, but its TCP listener IS reachable at `127.0.0.1:8765`, so the
+script seeds `remotecrab.lastPhoneIP=127.0.0.1` (restored afterwards)
+and lets the receiver's direct-IP fallback connect — exercising
+handshake + AUTOPAIR + token rekey, **Opus encode/decode live**, touch,
+key, file transfer, clipboard, app switch. Video + recording are
+skipped (no camera in the simulator). **Headless-launch trap:**
+`requestPermissions()` awaits the CAMERA prompt before the listener
+starts — grant camera AND microphone via `simctl privacy` first, or an
+untapped prompt deadlocks the launch (port 8765 never opens, zero
+logs, looks exactly like "Bonjour broken").
+
 ---
 
 ## Build & run

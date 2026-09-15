@@ -1,155 +1,142 @@
 #!/usr/bin/env bash
 #
-# End-to-end simulator launch: rebuild + install + run with auto-stream.
+# RemoteCrab SIMULATOR end-to-end test.
 #
-# This is the "one command to verify the iOS side works" workflow.
-# It:
-#   1. Builds the RemoteCrabCapture.app for the iPhone 17 Pro simulator
-#      (or the first booted iOS 26 simulator it finds).
-#   2. Reinstalls the app on the simulator.
-#   3. Grants the required permissions (camera, microphone).
-#   4. Launches the app with REMOTECRAB_AUTO_START=1 (skips onboarding,
-#      auto-starts streaming).
-#   5. Captures screenshots showing the iOS side in its streaming state.
+# The simulator's Bonjour service is invisible to the host Mac's
+# NWBrowser (see AGENTS.md real-device lesson 11), but the simulator
+# shares the host network stack, so the iOS app's TCP listener is
+# reachable at 127.0.0.1:8765. This script points the receiver's
+# direct-IP fallback at 127.0.0.1 (remotecrab.lastPhoneIP) and lets
+# the normal fallback loop connect — no product code changes.
 #
-# To complete the full e2e you also need:
-#   • RemoteCrabReceiver running on the host Mac
-#   • Both on the same WiFi (Bonjour discovery)
-#   • A real iPhone (when the simulator can't be used)
+# What this verifies (receiver-log markers, same as e2e-device.sh):
+#   handshake, audio (Opus encode path!), touch, key, file transfer,
+#   clipboard, app switch.
+# What it CANNOT verify: video frames (simulator has no camera),
+# recording (needs video), Bonjour discovery, pairing prompts.
 #
-# Usage:
-#     ./scripts/e2e-simulator.sh                    # default iPhone 17 Pro
-#     ./scripts/e2e-simulator.sh [simulator-udid]   # specific sim
-
-set -euo pipefail
+# Usage:  ./scripts/e2e-simulator.sh [simulator-udid]
+#
+set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-OUTPUT_DIR="$ROOT/screenshots/e2e-demo"
+TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
+BUNDLE_IOS="com.ibridge.iBridgeCapture"
+DD_ROOT="$ROOT/.build/e2e-derived"
+DD_MAC="$DD_ROOT/Build/Products/Debug/RemoteCrab.app"
+DD_SIM="$ROOT/.build/e2e-sim-derived"
+LOG=/tmp/remotecrab-e2e-sim.log
+RECEIVER_DOMAIN="com.remotecrab.RemoteCrabReceiver"
 
-# Pick a simulator
+pass=0; fail=0
+check() { # check <marker> <label>
+  if grep -aq "$1" "$LOG"; then
+    printf '  \033[32m✓\033[0m %s\n' "$2"; pass=$((pass+1))
+  else
+    printf '  \033[31m✗\033[0m %s  (missing: %s)\n' "$2" "$1"; fail=$((fail+1))
+  fi
+}
+
+echo "== RemoteCrab simulator e2e =="
+
+# --- [1/6] pick a simulator -------------------------------------------------
+echo "[1/6] simulator"
 if [[ $# -ge 1 ]]; then
-    SIM="$1"
+  SIM="$1"
 else
-    SIM=$(xcrun simctl list devices booted 2>/dev/null \
-        | grep -E 'iPhone.*Booted' | head -1 \
-        | grep -oE '[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}')
-    if [[ -z "$SIM" ]]; then
-        # Boot the iPhone 17 Pro if nothing is running
-        SIM="0EA997E8-16AE-4C20-9974-33628087E7E8"
-        xcrun simctl bootstatus "$SIM" -b 2>&1 | tail -1
-    fi
+  SIM=$(xcrun simctl list devices booted 2>/dev/null \
+      | grep -E 'iPhone.*Booted' | head -1 \
+      | grep -oE '[A-F0-9-]{36}' || true)
+  if [[ -z "${SIM:-}" ]]; then
+    SIM=$(xcrun simctl list devices available 2>/dev/null \
+        | grep -E 'iPhone' | head -1 \
+        | grep -oE '[A-F0-9-]{36}' || true)
+  fi
 fi
+[[ -z "${SIM:-}" ]] && { echo "  no iPhone simulator found"; exit 2; }
+xcrun simctl boot "$SIM" 2>/dev/null || true
+xcrun simctl bootstatus "$SIM" -b >/dev/null 2>&1
+echo "  using $SIM"
 
-mkdir -p "$OUTPUT_DIR"
-APP_PATH="$ROOT/RemoteCrabCapture.xcodeproj"
-APP_NAME="RemoteCrabCapture"
+# --- [2/6] builds -----------------------------------------------------------
+echo "[2/6] build (receiver signed, iOS app for simulator)"
+xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabReceiver -configuration Debug \
+  -destination 'platform=macOS' -derivedDataPath "$DD_ROOT" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
+  DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-e2e-sim-macbuild.log 2>&1 \
+  || { echo "  mac build failed (see /tmp/remotecrab-e2e-sim-macbuild.log)"; exit 1; }
+xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCapture -configuration Debug \
+  -destination "id=$SIM" -derivedDataPath "$DD_SIM" build CODE_SIGNING_ALLOWED=NO \
+  >/tmp/remotecrab-e2e-sim-iosbuild.log 2>&1 \
+  || { echo "  ios build failed (see /tmp/remotecrab-e2e-sim-iosbuild.log)"; exit 1; }
+APP_SIM=$(find "$DD_SIM" -name "RemoteCrabCapture.app" -path "*Debug-iphonesimulator*" | head -1)
+[[ -z "$APP_SIM" ]] && { echo "  simulator .app not found"; exit 1; }
 
-echo "═══════════════════════════════════════════════════════"
-echo "  RemoteCrab simulator e2e"
-echo "═══════════════════════════════════════════════════════"
-echo "Simulator:  $SIM"
-echo "App path:   $APP_PATH"
-echo "Output:     $OUTPUT_DIR"
-echo ""
-
-# 1. Build
-echo "→ Building RemoteCrabCapture for simulator..."
-cd "$ROOT"
-xcodebuild \
-    -project RemoteCrabCapture.xcodeproj \
-    -scheme RemoteCrabCapture \
-    -destination "id=$SIM" \
-    -configuration Debug \
-    build \
-    CODE_SIGNING_ALLOWED=YES \
-    DEVELOPMENT_TEAM=DDG3CJL762 2>&1 | tail -1
-echo ""
-
-# 2. Locate built .app
-APP=$(find ~/Library/Developer/Xcode/DerivedData \
-    -name "RemoteCrabCapture.app" -path "*Debug-iphonesimulator*" 2>/dev/null | head -1)
-if [[ -z "$APP" ]]; then
-    echo "❌ Build didn't produce $APP_NAME.app"
-    exit 1
-fi
-echo "→ Built: $APP"
-
-# 3. Reinstall (replacing any previous version)
-echo ""
-echo "→ Reinstalling..."
-xcrun simctl terminate "$SIM" com.ibridge.iBridgeCapture 2>/dev/null || true
-xcrun simctl uninstall "$SIM" com.ibridge.iBridgeCapture 2>/dev/null || true
-xcrun simctl install "$SIM" "$APP" 2>&1 | tail -1
-
-# 4. Grant permissions
-echo ""
-echo "→ Granting permissions..."
+# --- [3/6] deploy -----------------------------------------------------------
+echo "[3/6] deploy + install"
+pkill -9 -x RemoteCrab 2>/dev/null; sleep 1
+rm -rf /Applications/RemoteCrab.app && ditto "$DD_MAC" /Applications/RemoteCrab.app
+xcrun simctl terminate "$SIM" "$BUNDLE_IOS" 2>/dev/null || true
+xcrun simctl uninstall "$SIM" "$BUNDLE_IOS" 2>/dev/null || true
+xcrun simctl install "$SIM" "$APP_SIM" >/dev/null
+# Grant BOTH camera and microphone: requestPermissions() awaits the
+# camera prompt before the listener starts — an untapped prompt in the
+# simulator deadlocks the whole launch (port 8765 never opens).
 for p in camera microphone; do
-    xcrun simctl privacy "$SIM" grant "$p" com.ibridge.iBridgeCapture 2>&1 | tail -1
+  xcrun simctl privacy "$SIM" grant "$p" "$BUNDLE_IOS" 2>/dev/null || true
 done
 
-# 5. Launch with auto-start
-echo ""
-echo "→ Launching with REMOTECRAB_AUTO_START=1..."
-# Per simctl help: "If you want to set environment variables in the
-# resulting environment, set them in the calling environment with a
-# SIMCTL_CHILD_ prefix."
-SIMCTL_CHILD_REMOTECRAB_AUTO_START=1 xcrun simctl launch \
-    "$SIM" com.ibridge.iBridgeCapture 2>&1 | tail -1
+# Point the receiver's direct-IP fallback at the simulator. The old
+# value is restored at the end so the real phone's fallback still works.
+OLD_IP=$(defaults read "$RECEIVER_DOMAIN" remotecrab.lastPhoneIP 2>/dev/null || echo "")
+defaults write "$RECEIVER_DOMAIN" remotecrab.lastPhoneIP "127.0.0.1"
 
-# 6. Wait + capture
-echo ""
-echo "→ Waiting 6s for auto-stream to start..."
-sleep 6
-SHOT="$OUTPUT_DIR/01_sim_autostart.png"
-xcrun simctl io "$SIM" screenshot "$SHOT" 2>&1 | tail -1
-echo ""
+# --- [4/6] run --------------------------------------------------------------
+echo "[4/6] run"
+pkill -f "log stream --predicate" 2>/dev/null
+nohup log stream --predicate 'subsystem == "com.remotecrab"' --info --style compact > "$LOG" 2>&1 &
+disown 2>/dev/null || true
+sleep 1
+# TextEdit is the typing target + the app-switcher target.
+open -a TextEdit; sleep 1
+/Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
+disown 2>/dev/null || true
+sleep 3
+SIMCTL_CHILD_REMOTECRAB_AUTO_START=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_AUTOPAIR=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_MIC=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_INPUT=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_SEND_FILE=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_CLIPBOARD=1 \
+SIMCTL_CHILD_REMOTECRAB_E2E_SWITCH="com.apple.TextEdit" \
+  xcrun simctl launch "$SIM" "$BUNDLE_IOS" >/dev/null
+echo "  waiting 30s for the scripted run (fallback probes after ~5s)…"
+sleep 30
+pkill -f "log stream --predicate" 2>/dev/null
 
-# 7. Tap the streaming button (in case auto-start didn't work)
-#    to manually trigger the e2e
-SHOT2="$OUTPUT_DIR/02_sim_after_tap.png"
-xcrun simctl io "$SIM" screenshot "$SHOT2" 2>&1 | tail -1
+# --- [5/6] assertions -------------------------------------------------------
+echo "[5/6] assertions"
+check "sessionReply: accepted"            "iPhone accepted the Mac (handshake via 127.0.0.1)"
+check "audio packets received:"           "audio packets received (Opus encode path)"
+check "touch events received:"            "touch injection path"
+check "key events received:"              "key injection path"
+check "receiving file"                    "file offer received"
+check "file saved"                        "file saved + Finder revealed"
+check "clipboard received from iPhone"    "clipboard iPhone → Mac"
+check "activated app"                     "app switch (activateApp)"
+echo "  -- skipped vs device e2e: video frames, recording (no camera in simulator)"
 
-# 8. Generate summary
-cat > "$OUTPUT_DIR/SUMMARY.txt" <<EOF
-RemoteCrab simulator e2e
-═══════════════════════════
+# --- [6/6] cleanup ----------------------------------------------------------
+echo "[6/6] cleanup"
+if [[ -n "$OLD_IP" ]]; then
+  defaults write "$RECEIVER_DOMAIN" remotecrab.lastPhoneIP "$OLD_IP"
+else
+  defaults delete "$RECEIVER_DOMAIN" remotecrab.lastPhoneIP 2>/dev/null || true
+fi
+pkill -9 -x RemoteCrab 2>/dev/null
+xcrun simctl terminate "$SIM" "$BUNDLE_IOS" 2>/dev/null || true
+echo "  receiver stopped — relaunch it from /Applications/RemoteCrab.app when needed"
 
-This run executed:
-  • Built RemoteCrabCapture.app for iPhone 17 Pro simulator
-    (iOS 17+ deployment target, Liquid Glass fallback path)
-  • Granted camera + microphone permissions
-  • Launched with REMOTECRAB_AUTO_START=1 to skip onboarding and
-    auto-start streaming
-
-Screenshots:
-  $SHOT
-  $SHOT2
-
-To complete the full e2e (live frames on the Mac):
-  1. In Xcode, open RemoteCrabReceiver.xcodeproj and Run on "My Mac".
-  2. Watch the Mac menu bar for the RemoteCrab icon. Click → Open
-     Control Panel / Open Preview Window.
-  3. The simulator's RemoteCrabCapture will start streaming to the
-     Mac over Bonjour.
-  4. The Mac should show "CONNECTED" in the status pill with
-     a green dot.
-
-For real iPhone 14 (iOS 18) testing:
-  1. In Xcode, open RemoteCrabCapture.xcodeproj.
-  2. Set scheme to your iPhone.
-  3. ⌘R — Xcode will install on the device.
-  4. Grant camera/mic/local-network permissions.
-  5. Tap the big red button to start streaming.
-
-EOF
-
-echo "═══════════════════════════════════════════════════════"
-echo "  ✓ e2e simulator run complete"
-echo "═══════════════════════════════════════════════════════"
-echo ""
-echo "Screenshots:"
-echo "  $SHOT"
-echo "  $SHOT2"
-echo "Summary:"
-echo "  $OUTPUT_DIR/SUMMARY.txt"
+echo
+echo "== $pass passed, $fail failed =="
+echo "log: $LOG"
+exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
