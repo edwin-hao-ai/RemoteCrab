@@ -90,7 +90,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 49 automated tests (see below)
+│   ├── Tests/                    # 94 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -339,6 +339,18 @@ it. Now ownership is explicit:
   offers manual Retry (+ one 30 s slow retry).
 - **Legacy fallback**: no `clientHello` within 3 s → admit first-come, so
   an old Mac isn't bricked during the upgrade window.
+- **iOS Mac picker (2026-09-15)**: top-bar overflow menu → "Choose a Mac"
+  (`MacPickerView`) lists the live session + the paired allow-list.
+  Tapping a Mac arms a **preference** (`MacPairingStore.setPreferred`,
+  10-minute TTL): the current owner is dropped, and while the preference
+  is outstanding `PairingPolicy.decide` answers every OTHER Mac —
+  paired-with-token or stranger — `busy(preferred.name)` ("holding the
+  door"), so the chosen Mac takes over on its next connect (its own
+  auto-retry, or menu-bar Retry). `grant()` clears the preference when
+  the chosen Mac arrives; picking the already-connected Mac is a no-op;
+  `forget`/`removeAll` clear a dangling preference. The Mac that got
+  dropped backs off to manual Retry on `busy`, which is exactly the
+  backpressure the switch needs.
 - **Test flag**: `REMOTECRAB_E2E_AUTOPAIR=1` auto-approves pending Macs for
   headless runs (mirrors `REMOTECRAB_E2E_MIC` / `REMOTECRAB_E2E_INPUT`).
 
@@ -346,16 +358,16 @@ it. Now ownership is explicit:
 
 ## Tests
 
-87 tests in `RemoteCrabCore/Tests/`, all pass:
+94 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── IBWireTests.swift                  (14)  wire protocol round-trip, partial frames, oversized guard
-├── IBEventsTests.swift                (11)  TouchEvent / KeyEvent / AudioPacket / feature frames round-trip
-├── FeatureStoreTests.swift             (4)  feature state set/apply/snapshot
-├── TrackpadMathTests.swift             (6)  accel curve + momentum decay
+├── IBEventsTests.swift                (13)  TouchEvent / KeyEvent / AudioPacket / feature frames round-trip
+├── FeatureStoreTests.swift             (6)  feature state set/apply/snapshot
+├── TrackpadMathTests.swift             (9)  accel curve + momentum decay
 ├── TextDiffTests.swift                 (6)  IME text diffing → KeyEvent sequences
-├── PairingTests.swift                 (12)  clientHello/sessionReply round-trip, ownership policy, allow-list store
+├── PairingTests.swift                 (19)  clientHello/sessionReply round-trip, ownership policy, preferred-Mac, allow-list store
 ├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
 ├── AppSwitcherWireTests.swift          (3)  appList / appListRequest / activateApp round-trip
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
@@ -385,7 +397,7 @@ on (a locked phone suspends the app mid-run and everything fails).
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 49 tests + both apps build
+./scripts/test.sh                    # 94 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -436,7 +448,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 87 automated tests passing
+- 94 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -873,6 +885,40 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     surface already had a "CAMERA IS OFF / TURN ON" placeholder, so no
     new UI was needed. Headless e2e opts back in explicitly:
     `REMOTECRAB_AUTOSTREAM=1` sets the camera feature on connect.
+    **Backgrounding also turns the camera OFF now** — returning from
+    the background used to silently resume streaming (a privacy
+    surprise: the user covered the lens / walked away and the Mac kept
+    watching). On `.background` the engine sets the camera feature off
+    and broadcasts `featureState`; back in the foreground the surface
+    shows the OFF placeholder + a hint to tap the dock icon
+    (`IBLocale.Error.resumedAfterBackground`). Mic keeps flowing in the
+    background by design (`UIBackgroundModes: audio`).
+23. **A stale speculative direct-IP dial starved Bonjour (fixed 2026-09-15).**
+    Symptom: e2e went 0/10 — the receiver sat in `preparing` for 75 s
+    and ignored the phone's perfectly good Bonjour record. The fallback
+    loop dials the last-known IP speculatively; when that IP is stale
+    (phone changed networks) the TCP connect hangs in `preparing` for
+    the full NWConnection timeout, and `handleDiscovered` refused to
+    preempt a connection already "in progress". Two guards:
+    (a) a Bonjour discovery of a PAIRED phone preempts a still-
+    `.connecting` speculative dial; (b) any direct dial that isn't
+    `ready` within 8 s (`directDialTimeoutTask`) is abandoned so the
+    next discovery/fallback cycle gets a turn. Lesson: a speculative
+    connection must always be preemptible by a discovered one, and
+    every speculative path needs its own timeout shorter than the
+    platform default.
+24. **Long-press drag + a wider double-tap window (2026-09-15).**
+    "Can't drag windows or select text" — the only drag gesture was
+    double-tap-hold (Mac muscle memory) with a 0.28 s second-tap
+    window, too tight to hit reliably, so drags decayed into scrolls.
+    TouchSurface now also arms drag on **long-press** (0.45 s hold
+    without moving, 12 pt tolerance; while armed, the tap recognizer
+    is disabled so the release doesn't fire a click) and the
+    double-tap window is 0.35 s. Injection chain verified:
+    `dragStart` → `leftMouseDown` → `leftMouseDragged` → `leftMouseUp`
+    (`CGEventInjector`). Mac trackpads don't have long-press drag, so
+    keep both gestures; if either feels laggy on device, tune the
+    0.45 s / 12 pt constants, not the injection side.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -962,4 +1008,4 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-12 by opencode (real-device e2e verified end-to-end: video/audio/keyboard/mouse all confirmed on iPhone 14 — the old "black video" was a covered rear camera; zh-Hans system-language localization via an RemoteCrabCore String Catalog; multi-Mac pairing (`clientHello`/`sessionReply`, TOFU + token, busy/backoff); 62 tests green)_
+_Last updated: 2026-09-15 by kimi (Opus via Apple AudioConverter — 94 tests green; camera off by default + off on background; long-press drag; connection deadlock guards; iOS "Choose a Mac" picker with preferred-Mac hold-the-door policy; accessibility pass; setup-assistant relaunch button)_
