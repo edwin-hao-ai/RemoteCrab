@@ -137,6 +137,10 @@ final class ReceiverSession: ObservableObject {
     /// doesn't hammer it — replaced by a single slow retry + manual.
     private var suppressReconnect = false
     private var slowRetryTask: Task<Void, Never>?
+    /// Abandons a direct-IP dial that hasn't reached `.ready` in 8 s —
+    /// a stale address otherwise sits in `preparing` for the full ~75 s
+    /// TCP timeout and blocks the healthy Bonjour path.
+    private var directDialTimeoutTask: Task<Void, Never>?
     /// Bonjour-empty fallback loop: direct-dials candidate IPs when
     /// multicast discovery yields nothing (Personal Hotspot, client
     /// isolation, some VPNs all break mDNS while plain TCP still works).
@@ -459,13 +463,23 @@ final class ReceiverSession: ObservableObject {
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
         Self.log.info("discovered \(phones.count, privacy: .public) phone(s); connection==nil: \(self.connection == nil, privacy: .public)")
-        guard connection == nil, !autoConnectSuppressed else { return }
+        guard !autoConnectSuppressed else { return }
         // Bidirectional pairing: the Mac never connects to an iPhone it
         // hasn't paired with — the user picks one from the Devices list
         // and the iPhone shows its approval card. A phone this Mac holds
         // a token for was approved on both sides already, so it may
         // connect on sight (this is also the reconnect-after-drop path).
-        if let phone = phones.first(where: { tokenStore[$0.name] != nil }) {
+        guard let phone = phones.first(where: { tokenStore[$0.name] != nil }) else { return }
+        if connection == nil {
+            connect(to: phone)
+        } else if case .connecting = state {
+            // A paired phone just appeared on Bonjour while a SPECULATIVE
+            // dial (e.g. a stale last-known-IP direct link) is still in
+            // `preparing` — a dead route can sit there for ~75 s of TCP
+            // timeout and would otherwise block the healthy path forever.
+            // The discovered phone is real; the in-flight attempt is only
+            // a guess, so the guess loses.
+            Self.log.info("paired phone discovered while an unready dial is in flight — switching to Bonjour")
             connect(to: phone)
         }
     }
@@ -684,10 +698,28 @@ final class ReceiverSession: ObservableObject {
         conn.start(queue: .global())
         connection = conn
         connectedPhoneName = phone.name
+
+        // A direct-IP dial to a stale address can sit in `preparing`
+        // for the full TCP timeout (~75 s). Give up much sooner — the
+        // fallback loop and Bonjour keep running, so abandoning just
+        // costs one probe cycle.
+        directDialTimeoutTask?.cancel()
+        if phone.serviceEndpoint == nil {
+            directDialTimeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                guard let self, !Task.isCancelled,
+                      let conn = self.connection, self.connectedIsDirect,
+                      case .connecting = self.state else { return }
+                Self.log.info("direct dial to \(phone.endpoint, privacy: .public) not ready after 8s — abandoning")
+                conn.cancel()
+            }
+        }
     }
 
     private func handleConnectionState(_ newState: NWConnection.State) {
         Self.log.info("connection state: \(String(describing: newState), privacy: .public)")
+        directDialTimeoutTask?.cancel()
+        directDialTimeoutTask = nil
         switch newState {
         case .ready:
             // TCP is up but we are NOT the session owner yet: identify
