@@ -110,7 +110,7 @@ struct IOSSettingsView: View {
     private var connectionLabel: String {
         switch engine.connectionState {
         case .connected: return IBLocale.Status.live
-        case .starting: return IBLocale.Status.connecting
+        case .starting: return IBLocale.Status.waiting
         case .failed: return IBLocale.Status.offline
         case .idle: return IBLocale.Status.ready
         }

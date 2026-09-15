@@ -516,10 +516,22 @@ struct ContentView: View {
         case .connected, .idle:
             return nil
         case .starting:
+            // The iPhone is the TCP server: it can only wait for a Mac
+            // to dial in. Show the manual-connect escape hatch (own
+            // IP:port) as soon as the address is known — Bonjour is
+            // blocked on VPNs, hotspots and isolated networks, and
+            // "连接中" forever was the top user complaint.
+            let subtitle: String
+            if let ip = engine.localAddress {
+                let port = engine.listeningPort.map(String.init) ?? "8765"
+                subtitle = IBLocale.Error.manualConnectHint("\(ip):\(port)")
+            } else {
+                subtitle = IBLocale.Error.searchingHint
+            }
             return StatusAlert(symbol: "antenna.radiowaves.left.and.right",
                                tint: IBColor.warning,
-                               title: IBLocale.Status.connecting,
-                               subtitle: IBLocale.Error.searchingHint)
+                               title: IBLocale.Error.waitingForMac,
+                               subtitle: subtitle)
         case .failed:
             return StatusAlert(symbol: "exclamationmark.triangle.fill",
                                tint: IBColor.error,
@@ -772,7 +784,7 @@ private struct ConnectionSheet: View {
     private var connectionLabel: String {
         switch engine.connectionState {
         case .idle:      return IBLocale.Status.ready
-        case .starting:  return IBLocale.Status.connecting
+        case .starting:  return IBLocale.Status.waiting
         case .connected: return IBLocale.Status.live
         case .failed:    return IBLocale.Status.offline
         }

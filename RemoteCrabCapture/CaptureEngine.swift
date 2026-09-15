@@ -977,6 +977,11 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MIC"] == "1", !features.micOn {
             features.set(feature: .microphone, enabled: true)
         }
+        // E2E asserts on live video; the product default is camera-off,
+        // so headless runs opt back in explicitly.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1", !features.cameraOn {
+            features.set(feature: .camera, enabled: true)
+        }
         syncMicrophone(features.micOn && !features.voiceOn)
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_INPUT"] == "1" {
             runE2EInputSequence()

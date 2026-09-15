@@ -847,6 +847,33 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     phone" report should first check the phone's screen is ON with the
     app foregrounded (devicectl `--console` launch ties app lifetime to
     the console session; killing it kills the app).
+21. **"iPhone stuck on 连接中" was three stacked bugs (fixed 2026-09-15).**
+    The iPhone is the TCP *server* — it can only wait for a Mac to dial
+    in, so every connection failure presents as a permanent "connecting"
+    card. Root causes: (a) the waiting card said 连接中 with zero
+    actionable info; (b) the fallback loop only probed when Bonjour was
+    TOTALLY empty — a stale or unpaired discovery record (e.g. a
+    simulator that once advertised) suppressed direct-IP dialing
+    forever, a deadlock on VPN'd Macs; (c) direct connections keyed
+    the pairing token by a placeholder name ("iPhone (direct link)"),
+    so `clientHello` went out tokenless (`paired: false`) and the phone
+    demanded a fresh approval tap on EVERY reconnect. Fixes: the
+    waiting card now says 「等待 Mac 连接」 and shows the phone's own
+    `IP:port` + the Mac menu-bar manual-connect path
+    (`IBLocale.Error.waitingForMac` / `manualConnectHint`, pill says
+    「等待中」); the fallback probes whenever no DISCOVERED-AND-PAIRED
+    phone exists; and `ReceiverSession.rekeyDirectConnection` moves the
+    token under the real service name (`RemoteCrab — <deviceName>`,
+    learned from the metadata frame) and updates `phoneNameByIP`, so
+    the next direct dial is `paired: true` and reconnects silently.
+22. **The camera is OFF by default (2026-09-15).** Users may only want
+    the mic, the trackpad, or voice typing — streaming video on launch
+    was the surprising default. `FeatureStore.cameraOn = false`; the
+    local preview still runs, nothing is SENT until the dock toggle
+    (`handleEncodedFrame` guards on `features.cameraOn`). The camera
+    surface already had a "CAMERA IS OFF / TURN ON" placeholder, so no
+    new UI was needed. Headless e2e opts back in explicitly:
+    `REMOTECRAB_AUTOSTREAM=1` sets the camera feature on connect.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):

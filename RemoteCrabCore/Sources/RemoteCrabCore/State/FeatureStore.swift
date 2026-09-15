@@ -11,7 +11,12 @@ import Foundation
 @MainActor
 public final class FeatureStore {
 
-    public private(set) var cameraOn = true
+    /// Camera starts OFF: streaming video on launch is the surprising
+    /// default. Many users only want the mic, the trackpad, or voice
+    /// typing, so every stream is opt-in from the feature dock (the
+    /// local preview keeps running either way — nothing is SENT until
+    /// the user turns the camera on).
+    public private(set) var cameraOn = false
     public private(set) var micOn = false
     public private(set) var voiceOn = false
     public private(set) var trackpadOn = true

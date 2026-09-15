@@ -4,9 +4,11 @@ import XCTest
 @MainActor
 final class FeatureStoreTests: XCTestCase {
 
-    func testDefaultsMatchV02Behavior() {
+    func testDefaultsMatchV05Behavior() {
         let store = FeatureStore()
-        XCTAssertTrue(store.cameraOn)
+        // Camera is opt-in since V0.5: users may only want the mic,
+        // trackpad, or voice — nothing streams until they choose.
+        XCTAssertFalse(store.cameraOn)
         XCTAssertFalse(store.micOn)
         XCTAssertFalse(store.voiceOn)
         XCTAssertTrue(store.trackpadOn)

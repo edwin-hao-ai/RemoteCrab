@@ -33,6 +33,10 @@ public enum IBLocale {
     public enum Status {
         public static let looking = IBL("LOOKING")
         public static let connecting = IBL("CONNECTING")
+        /// Listener is up and healthy, simply no Mac has dialed in yet —
+        /// distinct from "connecting" so a long wait doesn't read as
+        /// a stuck progress state.
+        public static let waiting = IBL("WAITING")
         public static let live = IBL("LIVE")
         public static let offline = IBL("OFFLINE")
         public static let reconnecting = IBL("RECONNECTING")
@@ -395,6 +399,15 @@ public enum IBLocale {
         public static let noMicPermission = IBL("Microphone permission denied. Enable in iOS Settings → Privacy → Microphone.")
         public static let noLocalNetwork = IBL("Local network permission denied. Enable in iOS Settings → Privacy → Local Network.")
         public static let searchingHint = IBL("Looking for your Mac on the same WiFi…")
+        /// Title of the idle/waiting card: the iPhone is the TCP server,
+        /// so it can only WAIT for a Mac — "connecting" misleads.
+        public static let waitingForMac = IBL("Waiting for your Mac")
+        /// Waiting-card subtitle once the WiFi address is known: gives
+        /// the user the manual-connect escape hatch when Bonjour is
+        /// blocked (VPN, client isolation, hotspot).
+        public static func manualConnectHint(_ address: String) -> String {
+            String(format: IBL("On the Mac: menu bar → RemoteCrab → Connect by IP → %@"), address)
+        }
         public static let resumedAfterBackground = IBL("Video paused in the background — resumed now. Keep RemoteCrab on screen while streaming.")
         public static let noMacFound = IBL("No Mac found on the WiFi network. Make sure RemoteCrab Receiver is running.")
         public static let bonjourFailed = IBL("Bonjour discovery failed. Check that both devices are on the same WiFi.")

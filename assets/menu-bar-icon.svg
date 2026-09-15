@@ -1,11 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="140 260 760 550">
   <!-- Monochrome, transparent-background glyph of the RemoteCrab
        coral-crab mark, for the macOS menu bar as a TEMPLATE image
        (macOS tints it for light/dark automatically; the eye holes
-       stay transparent so the face reads at 18 pt). -->
+       stay transparent so the face reads at 20 pt). The viewBox is
+       cropped to the glyph bounds so the crab fills the frame. -->
   <defs>
     <mask id="face">
-      <rect width="1024" height="1024" fill="#FFFFFF"/>
+      <rect x="140" y="260" width="760" height="550" fill="#FFFFFF"/>
       <circle cx="443" cy="540" r="46" fill="#000000"/>
       <circle cx="581" cy="540" r="46" fill="#000000"/>
     </mask>

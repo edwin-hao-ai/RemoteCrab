@@ -137,6 +137,12 @@ final class ReceiverSession: ObservableObject {
     /// multicast discovery yields nothing (Personal Hotspot, client
     /// isolation, some VPNs all break mDNS while plain TCP still works).
     private var fallbackTask: Task<Void, Never>?
+    /// True when the live connection was dialed by IP (fallback/manual)
+    /// rather than via a Bonjour service endpoint — such connections
+    /// learn the phone's real service name only from its metadata.
+    private var connectedIsDirect = false
+    /// The IPv4 we dialed on a direct connection (for the name map).
+    private var connectedDirectIP: String?
 
     private struct IncomingFile {
         let id: String
@@ -521,9 +527,14 @@ final class ReceiverSession: ObservableObject {
             try? await Task.sleep(for: .seconds(5))
             while !Task.isCancelled {
                 guard let self else { return }
-                if self.connection == nil, self.discovered.isEmpty,
+                if self.connection == nil,
                    !self.autoConnectSuppressed, !self.suppressReconnect,
-                   case .searching = self.state {
+                   case .searching = self.state,
+                   // "Empty" for fallback purposes means: nothing we
+                   // could auto-connect to. A stale or unpaired Bonjour
+                   // record must not suppress the direct-IP probe —
+                   // that was the "iPhone stuck on 连接中" deadlock.
+                   !self.discovered.contains(where: { self.tokenStore[$0.name] != nil }) {
                     await self.probeFallbackCandidates()
                 }
                 try? await Task.sleep(for: .seconds(10))
@@ -643,6 +654,8 @@ final class ReceiverSession: ObservableObject {
         slowRetryTask = nil
         currentTokenKey = phone.name
         lastAttemptedPhoneName = phone.name
+        connectedIsDirect = phone.serviceEndpoint == nil
+        connectedDirectIP = phone.serviceEndpoint == nil ? phone.endpoint : nil
 
         state = .connecting(name: phone.name)
         Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
@@ -860,6 +873,8 @@ final class ReceiverSession: ObservableObject {
         metadata = nil
         latestFrame = nil
         latencyHistory = []
+        connectedIsDirect = false
+        connectedDirectIP = nil
         typedText = ""
         lastKey = nil
         touchVisual = nil
@@ -1027,9 +1042,40 @@ final class ReceiverSession: ObservableObject {
             metadata = decoded
             if let sps = decoded.sps { decoder.feedSPS(sps) }
             if let pps = decoded.pps { decoder.feedPPS(pps) }
+            rekeyDirectConnection(realDeviceName: decoded.deviceName)
         } catch {
             Self.log.error("metadata decode failed: \(error, privacy: .public)")
         }
+    }
+
+    /// A direct-IP connection starts out keyed by a placeholder name
+    /// ("iPhone (direct link)" or "host:port"), so its clientHello goes
+    /// out WITHOUT the pairing token and the phone demands approval on
+    /// every single reconnect. The metadata frame carries the device's
+    /// real name — rebuild the Bonjour service name from it, move the
+    /// token under that key, and teach the IP→name map, so the next
+    /// direct dial is `paired: true` and reconnects silently.
+    private func rekeyDirectConnection(realDeviceName: String) {
+        guard connectedIsDirect, !realDeviceName.isEmpty else { return }
+        let realName = "RemoteCrab — \(realDeviceName)"
+        guard currentTokenKey != realName else { return }
+        if let oldKey = currentTokenKey, let token = tokenStore[oldKey] {
+            tokenStore.removeValue(forKey: oldKey)
+            tokenStore[realName] = token
+            saveTokens()
+        }
+        if let ip = connectedDirectIP {
+            var map = Self.phoneNameByIP
+            map[ip] = realName
+            UserDefaults.standard.set(map, forKey: "remotecrab.phoneNameByIP")
+        }
+        currentTokenKey = realName
+        connectedPhoneName = realName
+        lastAttemptedPhoneName = realName
+        if case .streaming = state {
+            state = .streaming(name: realName, latencyMs: latencyHistory.last ?? 0)
+        }
+        Self.log.info("direct connection identified as \(realName, privacy: .public) — token re-keyed")
     }
 }
 

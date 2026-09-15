@@ -22,17 +22,8 @@
   "screenshots": {
     "iphone67": [
       "01-onboarding-hero",
-      "02-permissions",
-      "03-camera-streaming",
       "04-trackpad",
-      "05-keyboard",
-      "06-mac-menu"
-    ],
-    "ipad129": [
-      "01-onboarding-hero",
-      "02-permissions",
-      "03-camera-streaming",
-      "04-trackpad"
+      "05-keyboard"
     ]
   },
   "screenshotTitles": {
