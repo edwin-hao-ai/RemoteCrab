@@ -346,7 +346,7 @@ it. Now ownership is explicit:
 
 ## Tests
 
-74 tests in `RemoteCrabCore/Tests/`, all pass:
+87 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
@@ -361,6 +361,7 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
 ├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
 ├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
+├── IBOpusCodecTests.swift              (6)  Opus encode/decode round-trip, garbage packets, rate guard
 ├── BonjourEndToEndTests.swift          (2)  Bonjour discover + TCP round-trip with bit-exact payload
 ├── EventPipelineEndToEndTests.swift    (6)  sender → TCP → parser → InputInjector
 ```
@@ -435,7 +436,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 49 automated tests passing
+- 87 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
