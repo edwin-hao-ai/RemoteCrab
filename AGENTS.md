@@ -977,6 +977,26 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     **Hard platform limit that remains**: haptics are still suppressed
     WHILE the mic is actually streaming — nothing an app can do about
     that; don't file it as a bug.
+26. **Drag clutch: lifting mid-drag must not end the drag (2026-09-15).**
+    "Can't select a big block of text" — a relative-position drag ends
+    the moment the finger runs out of screen, so selections were
+    capped at ~one screenful. The clutch (macOS three-finger-drag
+    behavior): on a mid-drag finger lift the Mac's left button stays
+    DOWN for 0.8 s (`clutchWindow`); one finger back down continues
+    the SAME drag (the pan re-begins against the still-armed state,
+    no second `dragStart`), and the cursor dot springing back to
+    center on lift is exactly what makes finger repositioning
+    ergonomic. Three guards that matter: (a) a SECOND finger landing
+    during the window ends the drag immediately — the user moved on
+    to scroll/pinch; (b) `touchesCancelled` (gesture stolen by the
+    system) also releases immediately, no grace period; (c) the view
+    leaving the window calls `endDragNow` or the Mac's button is
+    stranded down. Feedback: a selection-haptic tick on clutch start
+    (a still-held button is invisible on a touchscreen) and a hint
+    pill via `onClutchChange`. Companion discoverability: ⇧+click to
+    extend a selection worked end-to-end all along (modifier mask →
+    mouse event flags) but nobody knew — locking ⇧ on the trackpad's
+    modifier bar now shows a "tap start, tap end" hint pill.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):

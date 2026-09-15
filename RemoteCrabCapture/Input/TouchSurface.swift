@@ -19,6 +19,10 @@ final class TouchSurfaceUIView: UIView {
     var onTouch: ((CGPoint, Bool) -> Void)?
     /// Selection-mode (double-tap-hold drag) state, for host UI feedback.
     var onDragArmedChange: ((Bool) -> Void)?
+    /// Clutch state: finger lifted mid-drag but the Mac's button is
+    /// still DOWN, waiting for the finger to come back. Host shows a
+    /// "keep dragging" hint.
+    var onClutchChange: ((Bool) -> Void)?
     /// Modifier bitmask bridged from the host's IBModifierBar state.
     var modifierMask: UInt8 = 0
     /// 1...5 pointer sensitivity, read by the host from @AppStorage.
@@ -82,6 +86,9 @@ final class TouchSurfaceUIView: UIView {
         super.willMove(toWindow: newWindow)
         if newWindow == nil {
             stopMomentum()
+            // Leaving the window mid-drag must not strand the Mac's
+            // left button down.
+            endDragNow(at: nil)
             airMouseActive = false
             wheelArmed = false
         }
@@ -184,9 +191,14 @@ final class TouchSurfaceUIView: UIView {
             cancelLongPressDrag()
             lastDragLocation = nil
             if dragArmed {
-                dragArmed = false
-                emit(phase: .up, at: location)   // release the drag
-                if clickHaptics { fire(lightImpact) }
+                if rec.state == .ended {
+                    // Finger lifted mid-drag: clutch instead of
+                    // releasing, so the drag can continue after the
+                    // user repositions their finger.
+                    startClutch(at: location)
+                } else {
+                    endDragNow(at: location)
+                }
             }
             onTouch?(normalize(location), false)
         default:
@@ -320,6 +332,71 @@ final class TouchSurfaceUIView: UIView {
         longPressCurrent = nil
     }
 
+    // MARK: - Drag clutch (lift-and-continue)
+
+    /// macOS three-finger-drag style clutch: lifting the finger mid-drag
+    /// keeps the Mac's left button DOWN for `clutchWindow`, so the user
+    /// can reposition their finger (the cursor dot springs back to
+    /// center on lift — the joystick convention) and continue the SAME
+    /// selection. Without this, selecting more than one screenful of
+    /// text was impossible: the drag ended the moment the finger ran
+    /// out of surface. One finger back down continues; a second finger
+    /// or the timeout ends the drag for real.
+    private var clutchWork: DispatchWorkItem?
+    private var clutching = false
+    private let clutchWindow: TimeInterval = 0.8
+
+    private func startClutch(at location: CGPoint?) {
+        clutchWork?.cancel()
+        if !clutching {
+            clutching = true
+            onClutchChange?(true)
+            // Subtle tick: "the button is still held — you're free to
+            // lift and reposition". Without feedback the still-down
+            // state is invisible on a touchscreen.
+            selectionFeedback.prepare()
+            selectionFeedback.selectionChanged()
+        }
+        Self.log.debug("drag clutch started")
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.clutching else { return }
+            self.endDragNow(at: nil)
+        }
+        clutchWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + clutchWindow, execute: work)
+    }
+
+    /// Finger came back down during the clutch window: the drag
+    /// continues. A second finger means the user moved on to
+    /// scroll/pinch — end the drag instead.
+    private func resolveClutchOnTouchDown(touchCount: Int, at location: CGPoint?) {
+        guard clutching else { return }
+        clutchWork?.cancel()
+        clutchWork = nil
+        clutching = false
+        onClutchChange?(false)
+        if touchCount > 1 {
+            endDragNow(at: location)
+        }
+        // Single finger: dragArmed stays true; the pan recognizer's
+        // next .began sees the armed state and resumes drag motion
+        // without re-emitting dragStart.
+    }
+
+    private func endDragNow(at location: CGPoint?) {
+        clutchWork?.cancel()
+        clutchWork = nil
+        if clutching {
+            clutching = false
+            onClutchChange?(false)
+        }
+        guard dragArmed else { return }
+        dragArmed = false
+        Self.log.debug("dragEnd")
+        emit(phase: .up, at: location)
+        if clickHaptics { fire(lightImpact) }
+    }
+
     /// Both pointer and scroll deltas are normalized by the surface's
     /// long edge for BOTH axes — keeps the physical-to-cursor gain
     /// axis-uniform in portrait and landscape alike (the Mac side
@@ -338,6 +415,12 @@ final class TouchSurfaceUIView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
         stopMomentum()
+        // A finger landing during the clutch window either continues
+        // the drag (one finger) or ends it (second finger = scroll).
+        resolveClutchOnTouchDown(
+            touchCount: event?.allTouches?.count ?? touches.count,
+            at: touches.first?.location(in: self)
+        )
         if wheelScrollEnabled && wheelArmed, let touch = touches.first {
             wheelOrigin = touch.location(in: self)
             wheelTouch = touch
@@ -406,10 +489,10 @@ final class TouchSurfaceUIView: UIView {
         // A long-press that armed while the finger was STILL never
         // started the pan recognizer, so no .ended will release the
         // drag — release it here or the Mac's button stays down.
-        if dragArmed, singlePan.state == .possible {
-            dragArmed = false
-            emit(phase: .up, at: touches.first?.location(in: self))
-            if clickHaptics { fire(lightImpact) }
+        // Same clutch rule as a pan-ending lift: give the user the
+        // reposition window before letting go of the button.
+        if dragArmed, singlePan.state == .possible, !clutching {
+            startClutch(at: touches.first?.location(in: self))
         }
         if let wheel = wheelTouch, touches.contains(wheel) {
             wheelTouch = nil
@@ -425,6 +508,9 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
+        // A system cancel (gesture stolen, interruption) releases the
+        // drag immediately — no clutch grace period.
+        endDragNow(at: touches.first?.location(in: self))
         touchesEnded(touches, with: event)
     }
 
@@ -670,6 +756,7 @@ struct TouchSurface: UIViewRepresentable {
     var onEvent: ((TouchEvent) -> Void)?
     var onTouch: ((CGPoint, Bool) -> Void)?
     var onDragArmedChange: ((Bool) -> Void)?
+    var onClutchChange: ((Bool) -> Void)?
 
     func makeUIView(context: Context) -> TouchSurfaceUIView {
         let view = TouchSurfaceUIView()
@@ -696,5 +783,6 @@ struct TouchSurface: UIViewRepresentable {
         view.onEvent = onEvent
         view.onTouch = onTouch
         view.onDragArmedChange = onDragArmedChange
+        view.onClutchChange = onClutchChange
     }
 }

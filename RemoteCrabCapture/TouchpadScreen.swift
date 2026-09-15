@@ -32,6 +32,10 @@ struct TouchpadScreen: View {
     /// True while a double-tap-hold selection drag is armed; the
     /// cursor preview shows a selection ring.
     @State private var dragArmed = false
+    /// True while the drag clutch holds the Mac's button down after a
+    /// mid-drag finger lift; a hint pill tells the user they can
+    /// reposition and continue.
+    @State private var clutching = false
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "trackpad")
 
@@ -91,6 +95,11 @@ struct TouchpadScreen: View {
                     withAnimation(IBAnimation.snappy) {
                         dragArmed = armed
                     }
+                },
+                onClutchChange: { active in
+                    withAnimation(IBAnimation.snappy) {
+                        clutching = active
+                    }
                 }
             )
             .ignoresSafeArea()
@@ -120,6 +129,15 @@ struct TouchpadScreen: View {
                         }
                     }
                     .padding(.bottom, IBSpace.m.pt)
+                }
+                if clutching {
+                    hintPill(symbol: "hand.raised", text: IBLocale.Trackpad.clutchContinue)
+                        .transition(.opacity)
+                        .padding(.bottom, IBSpace.s.pt)
+                } else if modifiers.contains(.shift) {
+                    hintPill(symbol: "shift", text: IBLocale.Trackpad.shiftSelect)
+                        .transition(.opacity)
+                        .padding(.bottom, IBSpace.s.pt)
                 }
                 IBModifierBar(activeModifiers: $modifiers)
                     .padding(.bottom, dockClearance)
@@ -277,6 +295,25 @@ struct TouchpadScreen: View {
                 .foregroundStyle(.white)
             Spacer()
         }
+    }
+
+    /// Compact glass capsule for in-context hints (clutch active,
+    /// ⇧ locked). Non-interactive: touches fall through to the surface.
+    private func hintPill(symbol: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+            Text(text)
+                .font(IBFont.caption)
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background {
+            IBMaterial.glass(in: Capsule())
+        }
+        .allowsHitTesting(false)
     }
 
     private func maybeShowCoach() {

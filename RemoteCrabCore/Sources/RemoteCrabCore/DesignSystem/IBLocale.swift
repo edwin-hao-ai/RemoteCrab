@@ -274,6 +274,13 @@ public enum IBLocale {
         public static let accessibilitySummary = IBL("Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click")
     }
 
+    /// In-context trackpad hints: shown while the drag clutch is
+    /// holding, and while ⇧ is locked on the modifier bar.
+    public enum Trackpad {
+        public static let clutchContinue = IBL("Dragging — lift to reposition your finger, touch down to continue")
+        public static let shiftSelect = IBL("⇧ locked — tap the start, then tap the end, to select everything in between")
+    }
+
     public enum Preview {
         public static let live = IBL("LIVE")
         public static func resolution(_ label: String) -> String { label }
