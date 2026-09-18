@@ -34,8 +34,8 @@ source: cli
 1. 手感三件套:离合器续拖、⇧ 锁定点按选区、麦克风关闭后的震动
 2. 设置 → Replay Onboarding 扫一眼三页(D 类改动后)
 
-## 下阶段主线(用户已拿到 new-session prompt)
-ASC 上架素材:叙事性截图(iPhone+iPad,真机采集+PIL 合成,讲"旧 iPhone 变 Mac 摄像头/麦克风/触控板"的故事)+ 中英双语元数据,appId 6811599153,scripts/release-ios.sh + ios-app-store-metadata.py。注意:工作区有别的 session 的 ASC 半成品(ios-screenshots/、scripts/capture-asc-raw.sh、scripts/ios-metadata.json 改动),未提交,勿误删。
+## ASC 上架素材(2026-09-16 已由并行 session 完成,更正此前"下阶段主线"的说法)
+32 张叙事截图(en-US+zh-Hans × iPhone 6.7 + iPad 12.9 各 8)+ 双语元数据已推送到 ASC,appId 6811599153 version 1.0 处于 PREPARE_FOR_SUBMISSION,**submit for review 由用户手动操作**。详情见 memory "2026-09-16 ASC 上架素材完成" 与 "2026-09-16 Bonjour \032 转义 bug"。素材 pipeline 脚本(capture-asc-raw.sh / compose-asc-screenshots.py / ios-app-store-subtitle.py 等)和 ios-screenshots/ 产物在工作区未提交,属 ASC session 的工作,勿动;原始素材在 build/asc-raw/(git 不跟踪,删了要重采)。
 
 ## 更远的 P2
-iOS 端主动选 Mac(架构改动);TestWindow 相位标签英文(低);sysex 错误显示系统英文(留作诊断)。
+iOS 端主动选 Mac(架构改动);TestWindow 相位标签英文(低);sysex 错误显示系统英文(留作诊断);iPhone 6.5" 截图槽(交给 ASC 自动缩放)。
