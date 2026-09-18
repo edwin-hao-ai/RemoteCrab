@@ -1,55 +1,82 @@
 {
-  "_comment": "RemoteCrab App Store Connect metadata. Replace 'appId' with your real Apple Developer app record ID after you create it at https://appstoreconnect.apple.com. The bundleId must match Info.plist CFBundleIdentifier.",
+  "_comment": "RemoteCrab App Store Connect metadata. appId 6811599153 is the live ASC app record; bundleId com.ibridge.iBridgeCapture is immutable (bound to the app record).",
   "appId": "6811599153",
   "bundleId": "com.ibridge.iBridgeCapture",
   "platform": "IOS",
   "locales": {
     "en-US": {
-      "description": "RemoteCrab turns your iPhone or iPad into a high-quality camera, microphone, trackpad and keyboard for your Mac — over your local WiFi, with no subscription and no cloud.\n\nCAMERA\nUse your iPhone's camera as a Mac webcam. 1080p at 30 fps with hardware H.264 encoding. The Mac sees RemoteCrab Camera as a standard UVC / CoreMediaIO device in Zoom, Teams, FaceTime, Photo Booth and OBS.\n\nMICROPHONE\nStream your iPhone's microphone to your Mac. Useful when the Mac's built-in mic is far away or noisy.\n\nTRACKPAD\nUse the iPhone screen as a wireless trackpad. Single-finger drag, tap, two-finger scroll, two-finger right-click — and ⌃⌥⌘⇧ modifier keys.\n\nKEYBOARD\nType on the iPhone and the text appears wherever the cursor is on the Mac. ⌘C / ⌘V / ⌘Z all work as you'd expect.\n\nSETUP\n1. Open RemoteCrab Receiver on your Mac.\n2. Open RemoteCrab on your iPhone.\n3. Tap the big button on iPhone. The two devices find each other automatically over Bonjour.\n\nPRIVACY\nRemoteCrab is local-first. Your video, audio, and keystrokes never leave your WiFi. We don't run a server, we don't collect analytics, and there's no account to create.",
-      "keywords": "webcam,microphone,trackpad,keyboard,iphone webcam,mac camera,video,zoom,obs,continuity",
+      "description": "RemoteCrab turns your iPhone or iPad into a camera, microphone, trackpad and keyboard for your Mac — over your local WiFi. No cloud, no account, no subscription, no analytics. Your video, audio and keystrokes never leave your network.\n\nWHY YOU'LL LOVE IT\n• No camera on your desktop Mac? A spare iPhone becomes a crisp 1080p webcam — pick “RemoteCrab Camera” in Zoom, Teams, FaceTime or OBS.\n• Long meeting? Control the Mac hooked up to your TV from the couch with a full trackpad: drag, two-finger scroll, right-click, three-finger gestures and ⌃⌥⌘⇧ modifiers.\n• Mac mic too far away or too noisy? Your iPhone is a wireless microphone — and hold-to-talk turns your voice into text on the Mac.\n• Type with the keyboard you already know — full Chinese IME and dictation work — and watch text land at the Mac's cursor.\n\nFEATURES\n• Camera: 1080p at 30 fps, hardware H.264 encoding. Appears as a standard camera in every Mac app after installing the bundled virtual camera component.\n• Microphone: real-time streaming; a one-click virtual mic driver makes it available system-wide.\n• Trackpad: smooth acceleration curve, momentum scrolling, drag, pinch, three-finger gestures, haptics.\n• Keyboard: system IME, shortcut bar (⌘C ⌘V ⌘Z ⌘⇥), mini trackpad.\n• Hold to talk: on-device speech recognition types into the Mac.\n• Clipboard: send the clipboard either way with one tap.\n• Files: send photos & files straight to your Mac — they land in Downloads and reveal in Finder.\n• App switcher: tap an app on your iPhone to bring it to the front on your Mac.\n\nPRIVACY\nRemoteCrab is local-first: no server, no account, no analytics, no in-app purchases, no subscription. Everything stays on your own WiFi.\n\nGETTING STARTED\nRemoteCrab requires the free RemoteCrab Receiver for Mac (link inside the app). Open both, they find each other automatically, tap once to pair.",
+      "keywords": "webcam,microphone,trackpad,keyboard,remote camera,mac webcam,virtual camera,mic,continuity",
       "marketingUrl": "https://remotecrab.app",
       "supportUrl": "https://remotecrab.app/support",
-      "promotionalText": "Your iPhone is a Mac peripheral. Camera, mic, trackpad, and keyboard — over WiFi, fully local."
+      "promotionalText": "Your iPhone is the peripheral your Mac is missing — camera, mic, trackpad & keyboard over local WiFi. No cloud, no account, no subscription."
     },
     "zh-Hans": {
-      "description": "RemoteCrab 把你的 iPhone 或 iPad 变成 Mac 的高清摄像头、麦克风、触控板和键盘 —— 通过本地 WiFi，无需订阅，无需云端。\n\n摄像头\n把 iPhone 的摄像头当 Mac 摄像头用。1080p 30 fps，硬件 H.264 编码。Mac 端在 Zoom、Teams、FaceTime、Photo Booth、OBS 里直接选「RemoteCrab Camera」就能看到画面。\n\n麦克风\n把 iPhone 的麦克风串流到 Mac。当 Mac 内置麦克风离得远或环境嘈杂时尤其有用。\n\n触控板\n把 iPhone 屏幕当无线触控板。单指拖动、单击、双指滚动、双指右键，配合 ⌃⌥⌘⇧ 修饰键。\n\n键盘\n在 iPhone 上打字，文本直接出现在 Mac 鼠标光标处。⌘C / ⌘V / ⌘Z 全部正常工作。\n\n使用步骤\n1. 在 Mac 上打开 RemoteCrab Receiver。\n2. 在 iPhone 上打开 RemoteCrab。\n3. 点 iPhone 上的大圆按钮。两台设备通过 Bonjour 自动找到彼此。\n\n隐私\nRemoteCrab 是本地优先的。视频、音频、键盘事件全部留在你的 WiFi 里。我们不跑服务器、不收集数据、不需要注册账户。",
-      "keywords": "摄像头,麦克风,触控板,键盘,接力,Mac 摄像头,iPhone 摄像头,视频,办公,远程办公,Zoom,OBS",
+      "description": "RemoteCrab 把你的 iPhone / iPad 变成 Mac 的摄像头、麦克风、触控板和键盘——全部通过本地 WiFi 直连。没有云端、没有账号、没有订阅、没有数据分析。你的画面、声音和按键，永远不离开你的局域网。\n\n【这些场景，你可能正需要它】\n• 台式 Mac 没有摄像头？旧 iPhone 就是一枚 1080p 高清摄像头，在 Zoom、Teams、FaceTime、OBS 里直接选择「RemoteCrab Camera」。\n• 会议太长？躺在沙发上用完整触控板控制接电视的 Mac：拖动、双指滚动、右键、三指手势、⌃⌥⌘⇧ 修饰键。\n• Mac 麦克风太远太吵？iPhone 就是一支无线麦克风——按住说话，语音还能实时变成 Mac 上的文字。\n• 用你最熟悉的输入法打字——中文、听写都支持——文字直接出现在 Mac 光标处。\n\n【功能】\n• 摄像头：1080p 30fps，硬件 H.264 编码；安装随附的虚拟摄像头组件后，在任何 Mac App 里作为标准摄像头出现。\n• 麦克风：实时串流；一键安装虚拟麦克风驱动后全系统可用。\n• 触控板：顺滑加速曲线、惯性滚动、拖拽、双指缩放、三指手势、触觉反馈。\n• 键盘：系统输入法、快捷键条（⌘C ⌘V ⌘Z ⌘⇥）、迷你触控板。\n• 按住说话：端侧语音识别，说话直接变成 Mac 上的文字。\n• 剪贴板：两端剪贴板一键互发。\n• 文件：照片和文件直发 Mac，自动存入下载文件夹并在 Finder 中显示。\n• App 切换：在 iPhone 上点一下，Mac 上对应 App 立即置前。\n\n【隐私】\nRemoteCrab 是纯本地应用：不跑服务器、不需要账号、不收集任何数据、没有内购和订阅。一切都在你自己的 WiFi 里。\n\n【开始使用】\n需要搭配免费的 Mac 端 RemoteCrab Receiver（App 内有获取链接）。两端打开后自动发现，点一下即可配对。",
+      "keywords": "摄像头,麦克风,触控板,键盘,视频会议,网络摄像头,无线鼠标,遥控,直播,办公",
       "marketingUrl": "https://remotecrab.app",
       "supportUrl": "https://remotecrab.app/support",
-      "promotionalText": "你的 iPhone 就是 Mac 的外设。摄像头、麦克风、触控板、键盘 —— 全部本地 WiFi。"
+      "promotionalText": "你的 iPhone 就是 Mac 最好的外设：摄像头、麦克风、触控板、键盘，本地 WiFi 直连，无云无订阅。"
     }
+  },
+  "subtitles": {
+    "en-US": "Mac camera, mic & trackpad",
+    "zh-Hans": "iPhone 变 Mac 的摄像头与触控板"
   },
   "screenshots": {
     "iphone67": [
-      "01-onboarding-hero",
+      "01-concept",
+      "02-camera",
+      "03-mic",
       "04-trackpad",
-      "05-keyboard"
+      "05-keyboard",
+      "06-voice",
+      "07-files",
+      "08-privacy"
+    ],
+    "ipad129": [
+      "01-concept",
+      "02-camera",
+      "03-mic",
+      "04-trackpad",
+      "05-keyboard",
+      "06-voice",
+      "07-files",
+      "08-privacy"
     ]
   },
   "screenshotTitles": {
-    "01-onboarding-hero": {
-      "en-US": "Your iPhone is a Mac peripheral",
-      "zh-Hans": "你的 iPhone 就是 Mac 的外设"
+    "01-concept": {
+      "en-US": "Your iPhone is your Mac's camera, mic, trackpad & keyboard",
+      "zh-Hans": "你的 iPhone,Mac 的摄像头·麦克风·触控板·键盘"
     },
-    "02-permissions": {
-      "en-US": "Camera, mic, and WiFi — three permissions, one tap each",
-      "zh-Hans": "相机、麦克风、WiFi —— 三个权限，一键搞定"
+    "02-camera": {
+      "en-US": "Turn a spare iPhone into a 1080p webcam",
+      "zh-Hans": "旧 iPhone,变身高清会议摄像头"
     },
-    "03-camera-streaming": {
-      "en-US": "Live iPhone feed in any Mac app — Zoom, Teams, OBS, FaceTime",
-      "zh-Hans": "iPhone 实时画面在 Mac 任何 App 里 —— Zoom、Teams、OBS、FaceTime"
+    "03-mic": {
+      "en-US": "A wireless microphone for your Mac",
+      "zh-Hans": "iPhone 就是 Mac 的无线麦克风"
     },
     "04-trackpad": {
-      "en-US": "Drive the Mac cursor from your iPhone",
-      "zh-Hans": "用 iPhone 操作 Mac 光标"
+      "en-US": "Control your Mac from the couch",
+      "zh-Hans": "躺在沙发上,控制那台 Mac"
     },
     "05-keyboard": {
-      "en-US": "Type on the iPhone, see text on the Mac",
-      "zh-Hans": "iPhone 上打字，Mac 上出字"
+      "en-US": "Type on iPhone, text lands on Mac",
+      "zh-Hans": "手机上打字,Mac 上出字"
     },
-    "06-mac-menu": {
-      "en-US": "Floating control panel + menu bar — no Dock icon",
-      "zh-Hans": "悬浮控制面板 + 菜单栏 —— 不占 Dock"
+    "06-voice": {
+      "en-US": "Hold to talk — your Mac types",
+      "zh-Hans": "按住说话,Mac 替你打字"
+    },
+    "07-files": {
+      "en-US": "Files & clipboard flow between devices",
+      "zh-Hans": "文件和剪贴板,两台设备自由穿梭"
+    },
+    "08-privacy": {
+      "en-US": "100% local. No account. No cloud. No subscription.",
+      "zh-Hans": "纯本地。无账号。无云。无订阅。"
     }
   }
 }

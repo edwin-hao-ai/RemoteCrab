@@ -495,7 +495,7 @@ For new event types:
 | Item | Why | Estimate |
 |---|---|---|
 | **Virtual microphone (CoreAudio HAL plugin)** | Driver implemented (`RemoteCrabMicDriver/`): HAL `AudioServerPlugIn` reads an in-process SPSC ring fed over **loopback UDP 127.0.0.1:49182** (the sandbox blocks `shm_open`, so the original POSIX-shm design was silence-only; `MicSocketListener.c` runs the recv thread inside coreaudiod, app side is `MicRingWriter` → NWConnection). pkg is embedded in the app (`dist/RemoteCrabMicrophone.pkg` → `Contents/Resources`) — one-click install from the setup assistant / Preferences, one admin GUI auth. Remaining: user runs the installer once + verify in Zoom/QuickTime/Dictation. (The `RemoteCrabAudioExtension` AUv3 skeleton is a DAW-host plugin and will NOT show up as a system input — don't build on it for this.) | 30 min |
-| **App Store review submission** | Metadata + screenshots uploaded to ASC app 6811599153 (en-US + zh-Hans, 2026-09-15 — note: screenshots are simulator captures, swap for real-device ones if review complains). Upload build via `release-ios.sh --all`, manual submit in browser | 1 hour |
+| **App Store review submission** | Metadata + 32 narrative screenshots uploaded to ASC app 6811599153 (en-US + zh-Hans × iPhone 6.9" + iPad 13", all COMPLETE 2026-09-16 — simulator-UI composites via `scripts/capture-asc-raw.sh` + `compose-asc-screenshots.py`; swap for real-device ones if review complains). Subtitle + description + keywords + promo text pushed and read back. Upload build via `release-ios.sh --all`, manual submit in browser | 1 hour |
 | **Crash reporting** | OSLog + 3rd-party (Sentry / Bugsnag) | 1 day |
 | **VoiceOver / Dynamic Type — device pass** | Core batch done (2026-09-15, commit 0849338: IBFont → Text Styles on iOS, `IBLocale.A11y` 42 keys bilingual, PiP/ToggleRow/menubar-icon/sidebar/status-card blockers fixed, decorative icons hidden). Remaining: real-device VoiceOver walkthrough (verify #9 Announcement timing, #4 PiP double-tap), pill dynamicTypeSize cap evaluation (#19), keyboard preview lineLimit (#20), onboarding scroll-ification at AX sizes (#21) | 1 day |
 | **iOS-initiated Mac selection** | Today the Mac dials and the iPhone approves; letting the iPhone browse/pick a Mac is an architecture change (iOS-side browser + persisted targets) | 2-3 days |
@@ -1000,6 +1000,37 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     extend a selection worked end-to-end all along (modifier mask →
     mouse event flags) but nobody knew — locking ⇧ on the trackpad's
     modifier bar now shows a "tap start, tap end" hint pill.
+27. **Simulator TCC grants for the camera do not survive a sim reboot, and
+    a wedged CoreSimulatorService makes every `simctl` call hang
+    (2026-09-16).** Three stacked traps hit while capturing ASC
+    screenshots headlessly: (a) an adhoc CI build's camera grant is reset
+    to denied by tccd's boot-time re-validation (microphone survives —
+    camera is the one that flips), and while tccd's in-memory state
+    disagrees with TCC.db, even a successful `simctl privacy grant`
+    still leaves the app showing the camera prompt, which deadlocks the
+    headless launch exactly like lesson 11's trap. (b) When
+    `simctl privacy/terminate/launch` ALL hang, CoreSimulatorService is
+    wedged — `killall com.apple.CoreSimulator.CoreSimulatorService` (user
+    level, no sudo) fixes it, but reboots any booted sims. (c)
+    `xcrun simctl bootstatus -b` can block forever on a loaded machine —
+    poll `simctl list devices | grep Booted` instead. The reliable
+    recovery order: restart CoreSimulatorService → boot → `simctl
+    privacy grant camera/microphone` → if the prompt STILL appears, open
+    the Simulator.app window for the UDID and tap 允许 once with
+    `cliclick` (window pos/size via AppleScript System Events; content
+    area = window minus the 28pt title bar, scaled to device pixels) —
+    then do NOT reboot the sim again. Also: a full disk makes the
+    simulator silently shut down and can wipe installed app containers
+    (`get_app_container` → No such file); reinstalling from
+    `.build/ci-derived-data` works but wipes TCC again.
+28. **Bonjour endpoint description strings escape bytes as `\DDD`
+    (2026-09-16).** `"\(result.endpoint)"` for a service endpoint is a
+    display string like `RemoteCrab\032-\032iPhone…._remotecrab._tcp.local`
+    (`\032` = space, em dash = `\226\128\148`). Never show it raw — use
+    `DiscoveredPhone.displayEndpoint` (decimal-escape → UTF-8 decoder in
+    `ReceiverSession.swift`). `phone.endpoint` on a Bonjour-discovered
+    phone is display-only (dialing goes through `serviceEndpoint`); on a
+    direct-link phone it's the IP.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -1093,4 +1124,4 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-15 by kimi (Opus via Apple AudioConverter — 94 tests green; camera off by default + off on background; long-press drag; connection deadlock guards; iOS "Choose a Mac" picker with preferred-Mac hold-the-door policy; accessibility pass; setup-assistant relaunch button)_
+_Last updated: 2026-09-16 by kimi (ASC assets done: 32 narrative screenshots en-US+zh-Hans × iPhone 6.9"+iPad 13" all COMPLETE on app 6811599153, bilingual metadata/subtitle pushed — ready for manual submit; Bonjour `\DDD` display fix shipped to /Applications; lessons 27-28)_
