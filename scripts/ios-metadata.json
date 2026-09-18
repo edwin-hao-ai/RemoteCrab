@@ -7,15 +7,15 @@
     "en-US": {
       "description": "RemoteCrab turns your iPhone or iPad into a camera, microphone, trackpad and keyboard for your Mac — over your local WiFi. No cloud, no account, no subscription, no analytics. Your video, audio and keystrokes never leave your network.\n\nWHY YOU'LL LOVE IT\n• No camera on your desktop Mac? A spare iPhone becomes a crisp 1080p webcam — pick “RemoteCrab Camera” in Zoom, Teams, FaceTime or OBS.\n• Long meeting? Control the Mac hooked up to your TV from the couch with a full trackpad: drag, two-finger scroll, right-click, three-finger gestures and ⌃⌥⌘⇧ modifiers.\n• Mac mic too far away or too noisy? Your iPhone is a wireless microphone — and hold-to-talk turns your voice into text on the Mac.\n• Type with the keyboard you already know — full Chinese IME and dictation work — and watch text land at the Mac's cursor.\n\nFEATURES\n• Camera: 1080p at 30 fps, hardware H.264 encoding. Appears as a standard camera in every Mac app after installing the bundled virtual camera component.\n• Microphone: real-time streaming; a one-click virtual mic driver makes it available system-wide.\n• Trackpad: smooth acceleration curve, momentum scrolling, drag, pinch, three-finger gestures, haptics.\n• Keyboard: system IME, shortcut bar (⌘C ⌘V ⌘Z ⌘⇥), mini trackpad.\n• Hold to talk: on-device speech recognition types into the Mac.\n• Clipboard: send the clipboard either way with one tap.\n• Files: send photos & files straight to your Mac — they land in Downloads and reveal in Finder.\n• App switcher: tap an app on your iPhone to bring it to the front on your Mac.\n\nPRIVACY\nRemoteCrab is local-first: no server, no account, no analytics, no in-app purchases, no subscription. Everything stays on your own WiFi.\n\nGETTING STARTED\nRemoteCrab requires the free RemoteCrab Receiver for Mac (link inside the app). Open both, they find each other automatically, tap once to pair.",
       "keywords": "webcam,microphone,trackpad,keyboard,remote camera,mac webcam,virtual camera,mic,continuity",
-      "marketingUrl": "https://remotecrab.app",
-      "supportUrl": "https://remotecrab.app/support",
+      "marketingUrl": "https://vgoapp.com/remotecrab/",
+      "supportUrl": "https://vgoapp.com/remotecrab/",
       "promotionalText": "Your iPhone is the peripheral your Mac is missing — camera, mic, trackpad & keyboard over local WiFi. No cloud, no account, no subscription."
     },
     "zh-Hans": {
       "description": "RemoteCrab 把你的 iPhone / iPad 变成 Mac 的摄像头、麦克风、触控板和键盘——全部通过本地 WiFi 直连。没有云端、没有账号、没有订阅、没有数据分析。你的画面、声音和按键，永远不离开你的局域网。\n\n【这些场景，你可能正需要它】\n• 台式 Mac 没有摄像头？旧 iPhone 就是一枚 1080p 高清摄像头，在 Zoom、Teams、FaceTime、OBS 里直接选择「RemoteCrab Camera」。\n• 会议太长？躺在沙发上用完整触控板控制接电视的 Mac：拖动、双指滚动、右键、三指手势、⌃⌥⌘⇧ 修饰键。\n• Mac 麦克风太远太吵？iPhone 就是一支无线麦克风——按住说话，语音还能实时变成 Mac 上的文字。\n• 用你最熟悉的输入法打字——中文、听写都支持——文字直接出现在 Mac 光标处。\n\n【功能】\n• 摄像头：1080p 30fps，硬件 H.264 编码；安装随附的虚拟摄像头组件后，在任何 Mac App 里作为标准摄像头出现。\n• 麦克风：实时串流；一键安装虚拟麦克风驱动后全系统可用。\n• 触控板：顺滑加速曲线、惯性滚动、拖拽、双指缩放、三指手势、触觉反馈。\n• 键盘：系统输入法、快捷键条（⌘C ⌘V ⌘Z ⌘⇥）、迷你触控板。\n• 按住说话：端侧语音识别，说话直接变成 Mac 上的文字。\n• 剪贴板：两端剪贴板一键互发。\n• 文件：照片和文件直发 Mac，自动存入下载文件夹并在 Finder 中显示。\n• App 切换：在 iPhone 上点一下，Mac 上对应 App 立即置前。\n\n【隐私】\nRemoteCrab 是纯本地应用：不跑服务器、不需要账号、不收集任何数据、没有内购和订阅。一切都在你自己的 WiFi 里。\n\n【开始使用】\n需要搭配免费的 Mac 端 RemoteCrab Receiver（App 内有获取链接）。两端打开后自动发现，点一下即可配对。",
       "keywords": "摄像头,麦克风,触控板,键盘,视频会议,网络摄像头,无线鼠标,遥控,直播,办公",
-      "marketingUrl": "https://remotecrab.app",
-      "supportUrl": "https://remotecrab.app/support",
+      "marketingUrl": "https://vgoapp.com/remotecrab/",
+      "supportUrl": "https://vgoapp.com/remotecrab/",
       "promotionalText": "你的 iPhone 就是 Mac 最好的外设：摄像头、麦克风、触控板、键盘，本地 WiFi 直连，无云无订阅。"
     }
   },

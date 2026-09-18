@@ -42,6 +42,7 @@ xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabMicro
   ARCHS=x86_64 ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= \
   CODE_SIGN_IDENTITY="$IDENTITY" DEVELOPMENT_TEAM="$TEAM" \
+  OTHER_CODE_SIGN_FLAGS="--timestamp" \
   build >/tmp/remotecrab-mic-pkg-build.log 2>&1 \
   || { echo "build failed — see /tmp/remotecrab-mic-pkg-build.log"; exit 1; }
 

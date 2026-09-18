@@ -79,5 +79,5 @@ be reflected by a new "Last updated" date at the top.
 
 ## Contact
 
-If you have questions about this policy, contact us at
-[privacy@remotecrab.app](mailto:privacy@remotecrab.app).
+If you have questions about this policy, contact us on GitHub at
+[github.com/edwin-hao-ai/RemoteCrab](https://github.com/edwin-hao-ai/RemoteCrab).

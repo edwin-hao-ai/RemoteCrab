@@ -53,7 +53,7 @@ targets:
       path: RemoteCrabReceiver/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab
-        CFBundleShortVersionString: "0.2"
+        CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
@@ -100,8 +100,8 @@ targets:
       path: RemoteCrabCameraExtension/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab Camera
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "7"
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "8"
         CFBundlePackageType: SYSX
         CMIOExtension:
           CMIOExtensionMachServiceName: 5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera
@@ -134,8 +134,8 @@ targets:
       path: RemoteCrabMicDriver/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab Microphone
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
         CFBundlePackageType: BNDL
         CFPlugInFactories:
           "5B8E6A1C-9C4D-4E3F-9A1B-3D2E4F5A6B7C": RemoteCrabMicrophone_Create
@@ -168,8 +168,8 @@ targets:
       path: RemoteCrabAudioExtension/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab Microphone
-        CFBundleShortVersionString: "0.2"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.audiounit
           NSExtensionPrincipalClass: RemoteCrabAudioFactory

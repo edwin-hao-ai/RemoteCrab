@@ -270,6 +270,8 @@ public enum IBLocale {
             String(format: IBL("Sensitivity %lld"), value)
         }
         public static let privacyPolicy = IBL("Privacy Policy")
+        /// About-section link to the Mac receiver download page (vgoapp.com).
+        public static let downloadMac = IBL("Download for Mac")
     }
 
     public enum ModifierKey: String, CaseIterable, Identifiable {

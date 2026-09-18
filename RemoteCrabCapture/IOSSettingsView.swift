@@ -213,7 +213,12 @@ struct IOSSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Link(destination: URL(string: "https://remotecrab.app/privacy")!) {
+            Link(destination: URL(string: "https://vgoapp.com/remotecrab/")!) {
+                Label(IBLocale.Settings.downloadMac, systemImage: "arrow.down.circle")
+            }
+            .accessibilityLabel(IBLocale.Settings.downloadMac)
+
+            Link(destination: URL(string: "https://vgoapp.com/remotecrab/privacy/")!) {
                 Label(IBLocale.Settings.privacyPolicy, systemImage: "hand.raised.fill")
             }
             .accessibilityLabel(IBLocale.A11y.privacyPolicySafari)

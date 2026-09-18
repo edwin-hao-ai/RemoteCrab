@@ -3112,6 +3112,23 @@
         }
       }
     },
+    "Download for Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download for Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载 Mac 版"
+          }
+        }
+      }
+    },
     "Privacy Policy (opens in Safari)": {
       "extractionState": "manual",
       "localizations": {
