@@ -1177,6 +1177,34 @@ struct DiscoveredPhone: Identifiable, Equatable {
     static func == (lhs: DiscoveredPhone, rhs: DiscoveredPhone) -> Bool {
         lhs.id == rhs.id
     }
+
+    /// Display-safe endpoint string. Bonjour endpoint descriptions escape
+    /// non-alphanumeric bytes as `\DDD` (decimal) — e.g. a space shows up
+    /// as `\032` — so decode them back to UTF-8 before showing the string
+    /// in the UI. Direct-IP endpoints contain no escapes and pass through.
+    var displayEndpoint: String {
+        Self.unescapingBonjourEscapes(endpoint)
+    }
+
+    static func unescapingBonjourEscapes(_ s: String) -> String {
+        guard s.contains("\\") else { return s }
+        var out = Data()
+        out.reserveCapacity(s.utf8.count)
+        var i = s.startIndex
+        while i < s.endIndex {
+            if s[i] == "\\",
+               let j = s.index(i, offsetBy: 1, limitedBy: s.endIndex),
+               let k = s.index(j, offsetBy: 3, limitedBy: s.endIndex),
+               let byte = UInt8(s[j..<k]) {
+                out.append(byte)
+                i = k
+            } else {
+                out.append(contentsOf: s[i].utf8)
+                i = s.index(after: i)
+            }
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
 }
 
 extension ReceiverSession.State {

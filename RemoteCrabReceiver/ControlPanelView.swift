@@ -210,7 +210,7 @@ struct ControlPanelView: View {
                     .foregroundStyle(.white)
                 Spacer()
                 if let phone = session.discovered.first {
-                    Text(phone.endpoint)
+                    Text(phone.displayEndpoint)
                         .font(IBFont.monoSmall)
                         .foregroundStyle(.white.opacity(0.5))
                 }
