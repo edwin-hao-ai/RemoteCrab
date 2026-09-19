@@ -1,17 +1,26 @@
 import AppKit
 import CoreGraphics
 import ScreenCaptureKit
+import os
 import RemoteCrabCore
 
-/// Enumerates the Mac's on-screen windows and, when macOS has granted
-/// Screen Recording, captures a downsampled JPEG of each. Feeds the
-/// iPhone's full-screen window picker.
+/// Enumerates the Mac's windows and, when macOS has granted Screen
+/// Recording, captures a downsampled JPEG of each. Feeds the iPhone's
+/// full-screen window picker.
 ///
-/// Main-actor isolated on purpose: `CGWindowListCopyWindowInfo` and the
-/// per-window JPEG encoding are cheap, while the expensive capture is an
-/// `async` ScreenCaptureKit call that suspends without blocking the UI.
+/// The window list comes from ScreenCaptureKit itself rather than
+/// `CGWindowListCopyWindowInfo`: the two disagree (`CGWindowList` can
+/// report a single window while `SCShareableContent` sees dozens), and
+/// enumerating from ScreenCaptureKit guarantees every listed window has a
+/// matching, capturable `SCWindow`.
+///
+/// Main-actor isolated on purpose: the per-window JPEG encoding is cheap,
+/// while the expensive capture is an `async` call that suspends without
+/// blocking the UI.
 @MainActor
 enum WindowCapture {
+
+    private static let log = Logger(subsystem: "com.remotecrab", category: "windowcapture")
 
     /// True when macOS has granted this app Screen Recording.
     static var isAuthorized: Bool { CGPreflightScreenCaptureAccess() }
@@ -21,17 +30,6 @@ enum WindowCapture {
     @discardableResult
     static func requestAccess() -> Bool { CGRequestScreenCaptureAccess() }
 
-    private struct RawWindow {
-        let id: String
-        let appId: String
-        let appName: String
-        let title: String
-        let isActive: Bool
-        let width: Double
-        let height: Double
-        let windowNumber: Int
-    }
-
     /// Build the list the iPhone renders. Falls back to one app-level
     /// entry per running app when Screen Recording is not granted (window
     /// titles and pixels are unreadable without it).
@@ -39,25 +37,56 @@ enum WindowCapture {
         guard isAuthorized else {
             return IBWindowList(windows: appLevelEntries(), canCapture: false)
         }
-        let raw = enumerate()
-        let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        var windows: [IBWindowInfo] = []
-        windows.reserveCapacity(min(raw.count, maxWindows))
-        for rawWindow in raw.prefix(maxWindows) {
-            var jpeg: Data?
-            if let content,
-               let scWindow = content.windows.first(where: { $0.windowID == CGWindowID(rawWindow.windowNumber) }) {
-                jpeg = await capture(scWindow, maxWidth: maxWidth)
-            }
-            windows.append(IBWindowInfo(id: rawWindow.id,
-                                        appId: rawWindow.appId,
-                                        appName: rawWindow.appName,
-                                        title: rawWindow.title,
-                                        isActive: rawWindow.isActive,
-                                        width: rawWindow.width,
-                                        height: rawWindow.height,
-                                        snapshotJPEG: jpeg))
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true) else {
+            log.error("SCShareableContent failed; degrading to app list")
+            return IBWindowList(windows: appLevelEntries(), canCapture: false)
         }
+
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var activeMarked = false
+        var windows: [IBWindowInfo] = []
+
+        for scWindow in content.windows {
+            guard scWindow.windowLayer == 0,
+                  scWindow.isOnScreen,
+                  let owner = scWindow.owningApplication,
+                  owner.processID != myPID,
+                  let running = NSRunningApplication(processIdentifier: owner.processID),
+                  running.activationPolicy == .regular,
+                  scWindow.frame.width >= 160, scWindow.frame.height >= 120 else { continue }
+
+            let bundleID = owner.bundleIdentifier.isEmpty ? "pid:\(owner.processID)" : owner.bundleIdentifier
+            var isActive = false
+            if !activeMarked, owner.processID == frontPID {
+                isActive = true
+                activeMarked = true
+            }
+            let jpeg = await capture(scWindow, maxWidth: maxWidth)
+            // Only surface windows we can actually show a picture of, so
+            // every card in the picker is real — no icon-only placeholders.
+            guard let jpeg else { continue }
+            windows.append(IBWindowInfo(id: "\(owner.processID):\(scWindow.windowID)",
+                                        appId: bundleID,
+                                        appName: owner.applicationName,
+                                        title: scWindow.title ?? "",
+                                        isActive: isActive,
+                                        width: Double(scWindow.frame.width),
+                                        height: Double(scWindow.frame.height),
+                                        snapshotJPEG: jpeg))
+            if windows.count >= maxWindows { break }
+        }
+
+        // The active window first, then grouped by app / title — SC gives
+        // no z-order, so this is the best ordering available.
+        windows.sort { lhs, rhs in
+            if lhs.isActive != rhs.isActive { return lhs.isActive }
+            if lhs.appName != rhs.appName { return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending }
+            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+        }
+
+        let previews = windows.filter { $0.snapshotJPEG != nil }.count
+        log.info("window list: \(windows.count, privacy: .public) windows from \(content.windows.count, privacy: .public) SC windows, \(previews, privacy: .public) with previews")
         return IBWindowList(windows: windows, canCapture: true)
     }
 
@@ -73,59 +102,29 @@ enum WindowCapture {
             .sorted { $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
     }
 
-    /// Normal application windows, front-to-back. Skips the menu bar,
-    /// dock, tooltips and tiny helper windows (layer != 0 or too small).
-    private static func enumerate() -> [RawWindow] {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
-        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return []
-        }
-        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        var activeMarked = false
-        var windows: [RawWindow] = []
-        for info in list {
-            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let number = info[kCGWindowNumber as String] as? Int,
-                  let app = NSRunningApplication(processIdentifier: pid),
-                  app.activationPolicy == .regular,
-                  let bounds = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-            let width = Double(bounds["Width"] ?? 0)
-            let height = Double(bounds["Height"] ?? 0)
-            guard width >= 160, height >= 120 else { continue }
-            let title = (info[kCGWindowName as String] as? String) ?? ""
-            let bundleID = app.bundleIdentifier ?? "pid:\(pid)"
-            // The first window of the frontmost app is the key window.
-            var isActive = false
-            if !activeMarked, pid == frontPID {
-                isActive = true
-                activeMarked = true
-            }
-            windows.append(RawWindow(id: "\(pid):\(number)",
-                                     appId: bundleID,
-                                     appName: app.localizedName ?? bundleID,
-                                     title: title,
-                                     isActive: isActive,
-                                     width: width,
-                                     height: height,
-                                     windowNumber: number))
-        }
-        return windows
+    /// Capture a single window (even if occluded) and encode it as a
+    /// downsampled JPEG. ScreenCaptureKit intermittently fails to start
+    /// the stream for a window (`-3811`), so retry once before giving up.
+    private static func capture(_ window: SCWindow, maxWidth: CGFloat) async -> Data? {
+        if let data = await attemptCapture(window, maxWidth: maxWidth) { return data }
+        try? await Task.sleep(for: .milliseconds(150))
+        return await attemptCapture(window, maxWidth: maxWidth)
     }
 
-    /// Capture a single window (even if occluded) and encode it as a
-    /// downsampled JPEG.
-    private static func capture(_ window: SCWindow, maxWidth: CGFloat) async -> Data? {
+    private static func attemptCapture(_ window: SCWindow, maxWidth: CGFloat) async -> Data? {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
         let scale = min(1, maxWidth / max(1, window.frame.width))
         config.width = max(1, Int(window.frame.width * scale))
         config.height = max(1, Int(window.frame.height * scale))
         config.showsCursor = false
-        guard let image = try? await SCScreenshotManager.captureImage(contentFilter: filter,
-                                                                      configuration: config) else {
+        do {
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            return NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.6])
+        } catch {
+            let name = window.owningApplication?.applicationName ?? "?"
+            log.error("captureImage failed (\(name, privacy: .public) — \(window.title ?? "", privacy: .public)): \(String(describing: error), privacy: .public)")
             return nil
         }
-        return NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.6])
     }
 }

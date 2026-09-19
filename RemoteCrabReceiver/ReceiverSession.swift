@@ -189,6 +189,21 @@ final class ReceiverSession: ObservableObject {
         Self.log.info("accessibility trusted: \(AXIsProcessTrusted(), privacy: .public)")
         start()
 
+        // Debug: dump the window-capture result and exit. Lets a human (or
+        // a script) verify the picker's data without a paired iPhone.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_DEBUG_WINDOW_DUMP"] == "1" {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                let list = await WindowCapture.buildList()
+                let previews = list.windows.filter { $0.snapshotJPEG != nil }.count
+                Self.log.info("WINDOW DUMP: canCapture=\(list.canCapture, privacy: .public) total=\(list.windows.count, privacy: .public) previews=\(previews, privacy: .public)")
+                for window in list.windows {
+                    Self.log.info("WINDOW DUMP: \(window.appName, privacy: .public) | \(window.title, privacy: .public) | \(Int(window.width), privacy: .public)x\(Int(window.height), privacy: .public) | jpeg=\(window.snapshotJPEG?.count ?? 0, privacy: .public)B")
+                }
+                exit(0)
+            }
+        }
+
         // Keep the iPhone's app switcher in sync with launches,
         // terminations and frontmost changes.
         let workspaceCenter = NSWorkspace.shared.notificationCenter
@@ -257,7 +272,8 @@ final class ReceiverSession: ObservableObject {
             let list = await WindowCapture.buildList()
             guard let self, self.sessionGranted,
                   let connection = self.connection, connection.state == .ready else { return }
-            Self.log.info("published \(list.windows.count, privacy: .public) windows (canCapture=\(list.canCapture, privacy: .public))")
+            let previews = list.windows.filter { $0.snapshotJPEG != nil }.count
+            Self.log.info("published \(list.windows.count, privacy: .public) windows (\(previews, privacy: .public) with previews, canCapture=\(list.canCapture, privacy: .public))")
             if let data = try? IBWire.encode(windowList: list) {
                 connection.send(content: data, completion: .contentProcessed { _ in })
             }

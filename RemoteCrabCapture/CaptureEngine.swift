@@ -1050,6 +1050,16 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[e2e] switch requested: \(target)")
             }
         }
+        // E2E: request the window list so the Mac's capture path is
+        // verifiable from its log ("published N windows (M with previews…)").
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_WINDOWS"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(4))
+                self?.requestMacApps()
+                self?.requestMacWindows()
+                Forensic.log("[e2e] window list requested")
+            }
+        }
 
         parser.reset()
         startReceiving(from: conn)
