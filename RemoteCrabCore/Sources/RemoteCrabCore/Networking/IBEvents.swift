@@ -327,12 +327,17 @@ public struct IBAppInfo: Codable, Sendable, Equatable, Identifiable {
     public let name: String
     public let pid: Int32
     public let isActive: Bool
+    /// 128 px PNG of the app's icon. Only populated when the iPhone
+    /// explicitly asks (`.appListRequest`); background refreshes omit it
+    /// and the iPhone keeps its own cache, so switching apps stays cheap.
+    public let iconPNG: Data?
 
-    public init(id: String, name: String, pid: Int32, isActive: Bool) {
+    public init(id: String, name: String, pid: Int32, isActive: Bool, iconPNG: Data? = nil) {
         self.id = id
         self.name = name
         self.pid = pid
         self.isActive = isActive
+        self.iconPNG = iconPNG
     }
 }
 
@@ -351,6 +356,19 @@ public struct IBAppListRequest: Codable, Sendable, Equatable {
 public struct IBActivateApp: Codable, Sendable, Equatable {
     public let id: String
     public init(id: String) { self.id = id }
+}
+
+/// iPhone → Mac: quit the identified app (kind 0x16). `force` uses
+/// `NSRunningApplication.forceTerminate()` (SIGKILL-equivalent), which
+/// cannot prompt and will lose unsaved work; the graceful path asks the
+/// app to quit like ⌘Q does.
+public struct IBQuitApp: Codable, Sendable, Equatable {
+    public let id: String
+    public let force: Bool
+    public init(id: String, force: Bool = false) {
+        self.id = id
+        self.force = force
+    }
 }
 
 // MARK: - File transfer (iPhone → Mac)

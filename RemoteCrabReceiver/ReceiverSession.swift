@@ -49,6 +49,10 @@ final class ReceiverSession: ObservableObject {
 
     /// Running regular apps published to the iPhone's app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
+    /// Rasterized icon PNGs keyed by app id (bundle id or `pid:<n>`).
+    /// Filled lazily when the iPhone asks for icons; icons never change
+    /// while an app is running, so this is process-lifetime cached.
+    private var iconCache: [String: Data] = [:]
 
     /// Last file received from the iPhone (menu bar → Show in Finder).
     @Published private(set) var lastReceivedFileURL: URL?
@@ -197,8 +201,11 @@ final class ReceiverSession: ObservableObject {
     // MARK: - App switcher (Mac → iPhone)
 
     /// Send the current regular-app list to the iPhone. No-op unless a
-    /// session owner is established.
-    func publishMacApps() {
+    /// session owner is established. `includeIcons` is true only when the
+    /// iPhone explicitly asked (switcher opened / refreshed) — icon PNGs
+    /// are the expensive part of the frame, so automatic refreshes omit
+    /// them and the iPhone reuses its own cache.
+    func publishMacApps(includeIcons: Bool = false) {
         guard sessionGranted, let connection, connection.state == .ready else { return }
         let apps = NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular }
@@ -207,29 +214,64 @@ final class ReceiverSession: ObservableObject {
                 return IBAppInfo(id: bid,
                                  name: app.localizedName ?? bid,
                                  pid: app.processIdentifier,
-                                 isActive: app.isActive)
+                                 isActive: app.isActive,
+                                 iconPNG: includeIcons ? iconPNG(for: app, key: bid) : nil)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         macApps = apps
-        Self.log.info("published \(apps.count, privacy: .public) apps to iPhone")
+        Self.log.info("published \(apps.count, privacy: .public) apps to iPhone (icons: \(includeIcons, privacy: .public))")
         if let data = try? IBWire.encode(appList: IBAppList(apps: apps)) {
             connection.send(content: data, completion: .contentProcessed { _ in })
         }
     }
 
-    private func activateApp(id: String) {
-        let app: NSRunningApplication?
-        if id.hasPrefix("pid:"), let pid = Int32(id.dropFirst(4)) {
-            app = NSRunningApplication(processIdentifier: pid_t(pid))
-        } else {
-            app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first
+    /// Rasterize an app icon to a 128 px PNG once and cache it by id.
+    private func iconPNG(for app: NSRunningApplication, key: String) -> Data? {
+        if let cached = iconCache[key] { return cached }
+        guard let image = app.icon else { return nil }
+        let side: CGFloat = 128
+        let resized = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
         }
-        guard let app else {
+        guard let tiff = resized.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        iconCache[key] = png
+        return png
+    }
+
+    /// Resolve an app by bundle id, or `pid:<n>` when it has no bundle id.
+    private func resolveApp(id: String) -> NSRunningApplication? {
+        if id.hasPrefix("pid:"), let pid = Int32(id.dropFirst(4)) {
+            return NSRunningApplication(processIdentifier: pid_t(pid))
+        }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id).first
+    }
+
+    private func activateApp(id: String) {
+        guard let app = resolveApp(id: id) else {
             Self.log.info("activateApp: not running (\(id, privacy: .public))")
             return
         }
         app.activate()
         Self.log.info("activated app \(app.localizedName ?? id, privacy: .public)")
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            self?.publishMacApps()
+        }
+    }
+
+    /// Quit the identified app. Graceful by default — the app may raise a
+    /// save sheet on the Mac (invisible from the iPhone) — or immediate
+    /// when `force` is set, which can lose unsaved work.
+    private func quitApp(id: String, force: Bool) {
+        guard let app = resolveApp(id: id) else {
+            Self.log.info("quitApp: not running (\(id, privacy: .public))")
+            return
+        }
+        let requested = force ? app.forceTerminate() : app.terminate()
+        Self.log.info("quitApp \(app.localizedName ?? id, privacy: .public) force=\(force, privacy: .public) accepted=\(requested, privacy: .public)")
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             self?.publishMacApps()
@@ -1067,10 +1109,14 @@ final class ReceiverSession: ObservableObject {
                     state = .streaming(name: name, latencyMs: rttMs)
                 }
             case .appListRequest:
-                publishMacApps()
+                publishMacApps(includeIcons: true)
             case .activateApp:
                 if let request = try? IBWire.decodeActivateApp(frame) {
                     activateApp(id: request.id)
+                }
+            case .quitApp:
+                if let request = try? IBWire.decodeQuitApp(frame) {
+                    quitApp(id: request.id, force: request.force)
                 }
             case .fileOffer:
                 if let offer = try? IBWire.decodeFileOffer(frame) {

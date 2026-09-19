@@ -416,6 +416,15 @@ public enum IBLocale {
         public static let pin = IBL("Pin")
         public static let unpin = IBL("Unpin")
         public static let active = IBL("Active")
+        public static let pinnedSection = IBL("Pinned")
+        public static let allAppsSection = IBL("All Apps")
+        public static let quit = IBL("Quit")
+        public static let forceQuit = IBL("Force Quit")
+        public static let forceQuitConfirmTitle = IBL("Force Quit App?")
+        public static let forceQuitConfirmMessage = IBL("This immediately ends the app on the Mac. Unsaved changes will be lost.")
+        public static func quitStillRunning(_ name: String) -> String {
+            String(format: IBL("If “%@” is still open, it may be waiting for a save confirmation on the Mac."), name)
+        }
         public static let hint = IBL("Switch to a running app on the Mac")
         public static let chordAppSwitcher = IBL("Switch apps")
         public static let chordCycleWindows = IBL("Cycle windows")

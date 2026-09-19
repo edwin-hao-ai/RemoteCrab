@@ -358,6 +358,125 @@
         }
       }
     },
+    "All Apps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All Apps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有应用"
+          }
+        }
+      }
+    },
+    "Force Quit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Quit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制退出"
+          }
+        }
+      }
+    },
+    "Force Quit App?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Quit App?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "强制退出应用？"
+          }
+        }
+      }
+    },
+    "If “%@” is still open, it may be waiting for a save confirmation on the Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If “%@” is still open, it may be waiting for a save confirmation on the Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果「%@」仍未退出，可能正在等待 Mac 上的保存确认。"
+          }
+        }
+      }
+    },
+    "Pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已固定"
+          }
+        }
+      }
+    },
+    "Quit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出"
+          }
+        }
+      }
+    },
+    "This immediately ends the app on the Mac. Unsaved changes will be lost.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This immediately ends the app on the Mac. Unsaved changes will be lost."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会立即结束 Mac 上的该应用，未保存的内容将丢失。"
+          }
+        }
+      }
+    },
     "Audio": {
       "extractionState": "manual",
       "localizations": {

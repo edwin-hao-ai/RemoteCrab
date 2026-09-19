@@ -56,6 +56,11 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var connectedMacId: String?
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
+    /// Decoded app icons keyed by app id. Merged from `appList` frames
+    /// that carry `iconPNG`; kept across refreshes because background
+    /// publishes omit icons (only an explicit switcher request fetches
+    /// them).
+    @Published private(set) var macAppIcons: [String: UIImage] = [:]
     /// Fixed listening port (for manual "connect by IP" when Bonjour is
     /// blocked) + this device's WiFi address, shown in the connection sheet.
     @Published private(set) var listeningPort: UInt16?
@@ -1136,6 +1141,12 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBActivateApp(id: id))
     }
 
+    /// Quit a Mac app. Graceful by default (the app may show a save sheet
+    /// on the Mac); `force` terminates immediately and can lose work.
+    func quitMacApp(id: String, force: Bool) {
+        broadcaster?.send(IBQuitApp(id: id, force: force))
+    }
+
     // MARK: - File transfer
 
     /// Stream a file to the Mac (offer → chunks → complete). Safe to
@@ -1338,6 +1349,11 @@ final class CaptureEngine: ObservableObject {
             case .appList:
                 if let list = try? IBWire.decodeAppList(frame) {
                     macApps = list.apps
+                    for app in list.apps where app.iconPNG != nil {
+                        if let data = app.iconPNG, let image = UIImage(data: data) {
+                            macAppIcons[app.id] = image
+                        }
+                    }
                 }
             case .clipboardSet:
                 if let clip = try? IBWire.decodeClipboard(frame) {

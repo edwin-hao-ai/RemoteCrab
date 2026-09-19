@@ -44,6 +44,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .activateApp) { try IBWire.encode(activateApp: activate) }
     }
 
+    /// iOS → Mac: quit an app (graceful, or forced when `force` is true).
+    public func send(_ quit: IBQuitApp) {
+        send(kind: .quitApp) { try IBWire.encode(quitApp: quit) }
+    }
+
     /// iOS → Mac: offer a file, then stream chunks, then complete.
     public func send(_ offer: IBFileOffer) {
         send(kind: .fileOffer) { try IBWire.encode(fileOffer: offer) }

@@ -40,6 +40,7 @@ public enum IBWire {
         case clipboardSet  = 0x13    // JSON IBClipboard (either direction)
         case textCommand   = 0x14    // JSON IBTextCommandMessage (iPhone → Mac)
         case cameraCommand = 0x15    // JSON IBCameraCommand (Mac → iPhone)
+        case quitApp       = 0x16    // JSON IBQuitApp (iPhone → Mac)
     }
 
     // MARK: - Encoding
@@ -162,6 +163,11 @@ public enum IBWire {
     /// Encode a camera-switch command (Mac → iPhone).
     public static func encode(cameraCommand: IBCameraCommand) throws -> Data {
         encodeFrame(kind: .cameraCommand, payload: try JSONEncoder().encode(cameraCommand))
+    }
+
+    /// Encode a quit-app request (iPhone → Mac).
+    public static func encode(quitApp: IBQuitApp) throws -> Data {
+        encodeFrame(kind: .quitApp, payload: try JSONEncoder().encode(quitApp))
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -319,6 +325,11 @@ public enum IBWire {
     /// Decode a `.cameraCommand` frame's payload.
     public static func decodeCameraCommand(_ frame: Frame) throws -> IBCameraCommand {
         try JSONDecoder().decode(IBCameraCommand.self, from: frame.payload)
+    }
+
+    /// Decode a `.quitApp` frame's payload.
+    public static func decodeQuitApp(_ frame: Frame) throws -> IBQuitApp {
+        try JSONDecoder().decode(IBQuitApp.self, from: frame.payload)
     }
 
     /// Decode a `.ping` frame's payload into the sender timestamp.
