@@ -27,7 +27,9 @@ public final class FeatureStore {
 
     /// Which interaction surface currently occupies the screen.
     /// Not broadcast-affecting on its own, but included in snapshots.
-    public var activeSurface: Surface = .cameraPreview {
+    /// Starts on the trackpad — the most-used surface — rather than the
+    /// (now off-by-default) camera preview.
+    public var activeSurface: Surface = .trackpad {
         didSet {
             if activeSurface != oldValue { notify() }
         }

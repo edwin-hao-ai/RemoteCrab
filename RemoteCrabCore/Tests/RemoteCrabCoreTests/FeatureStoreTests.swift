@@ -13,7 +13,8 @@ final class FeatureStoreTests: XCTestCase {
         XCTAssertFalse(store.voiceOn)
         XCTAssertTrue(store.trackpadOn)
         XCTAssertTrue(store.keyboardOn)
-        XCTAssertEqual(store.activeSurface, .cameraPreview)
+        // The trackpad is the default surface now, not the camera preview.
+        XCTAssertEqual(store.activeSurface, .trackpad)
     }
 
     func testSetFeatureFlipsAndNotifies() {
