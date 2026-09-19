@@ -56,12 +56,38 @@ struct TouchpadScreen: View {
         return mask
     }
 
-    /// One-shot Delete (Backspace, keycode 51) with any locked
-    /// modifiers — lets a trackpad user fix a typo in place.
-    private func sendDelete() {
+    /// A one-shot key (down + up) carrying any locked modifiers.
+    private func sendKeyTap(_ keycode: UInt16) {
         let mask = modifierMask
-        engine.sendKey(KeyEvent(action: .down, keycode: 51, modifiers: mask))
-        engine.sendKey(KeyEvent(action: .up, keycode: 51, modifiers: mask))
+        engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: mask))
+        engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: mask))
+    }
+
+    /// A compact key button styled like the modifier bar (comma, period,
+    /// delete, return — the keys you reach for while navigating).
+    private func quickKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16) -> some View {
+        Button {
+            sendKeyTap(keycode)
+        } label: {
+            Group {
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 18, weight: .medium))
+                } else {
+                    Text(text ?? "").font(.system(size: 17, weight: .medium))
+                }
+            }
+            .frame(width: 48, height: 48)
+            .foregroundStyle(IBColor.textPrimary)
+            .background {
+                IBMaterial.glass(
+                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
+                    tint: IBColor.accent,
+                    interactive: true
+                )
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibility)
     }
 
     var body: some View {
@@ -147,27 +173,16 @@ struct TouchpadScreen: View {
                         .transition(.opacity)
                         .padding(.bottom, IBSpace.s.pt)
                 }
-                HStack(spacing: IBSpace.s.pt) {
-                    IBModifierBar(activeModifiers: $modifiers)
-                    // One-shot Delete so a typo can be fixed without
+                VStack(spacing: IBSpace.s.pt) {
+                    // Common typing keys — fix a typo or commit without
                     // leaving the trackpad surface.
-                    Button {
-                        sendDelete()
-                    } label: {
-                        Image(systemName: "delete.left")
-                            .font(.system(size: 18, weight: .medium))
-                            .frame(width: 48, height: 48)
-                            .foregroundStyle(IBColor.textPrimary)
-                            .background {
-                                IBMaterial.glass(
-                                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
-                                    tint: IBColor.accent,
-                                    interactive: true
-                                )
-                            }
+                    HStack(spacing: IBSpace.s.pt) {
+                        quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+                        quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
+                        quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
+                        quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(IBLocale.A11y.deleteKey)
+                    IBModifierBar(activeModifiers: $modifiers)
                 }
                 .padding(.bottom, dockClearance)
             }

@@ -1531,6 +1531,27 @@
         }
       }
     },
+    "Comma key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Comma key" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "逗号键" } }
+      }
+    },
+    "Period key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Period key" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "句号键" } }
+      }
+    },
+    "Return key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Return key" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "回车键" } }
+      }
+    },
     "Delete key": {
       "extractionState": "manual",
       "localizations": {
