@@ -461,6 +461,25 @@ For new event types:
 
 ## State of the world (V0.3 — Sept 2026)
 
+### 🚀 V1.0 release — submitted for review 2026-09-19 (current)
+- iOS 1.0 build **2026091802** uploaded to ASC app 6811599153, attached to
+  version 1.0 and to the TestFlight **Internal** group (`IN_BETA_TESTING`);
+  `scripts/ios-app-store-testflight.py` manages groups/builds/attach.
+- Mac 1.0 (Developer ID, notarized + stapled): `dist/RemoteCrab-1.0.dmg`,
+  produced by `scripts/release-mac.sh 1.0`; live at
+  `vgoapp.com/downloads/RemoteCrab.dmg`.
+- Domain switched `remotecrab.app` → **`vgoapp.com/remotecrab/`** (product
+  page + `/remotecrab/privacy/`), deployed via `VGOAPP/scripts/deploy.sh`.
+- The iOS app now links users to the Mac download: onboarding pair page, the
+  "Waiting for your Mac" card, and Settings (all via `RemoteCrabLinks`).
+- App Review notes written (Demo Mode path, Mac app download, permissions,
+  privacy) + demo video `vgoapp.com/downloads/RemoteCrab-demo.mp4`
+  (recorded by `scripts/demo-video.sh`).
+- **Left for the human**: set the App Store privacy-policy URL in the ASC
+  browser (`privacyPolicyUrl` is not exposed by the API). The version is
+  `WAITING_FOR_REVIEW`. If review asks for a real-camera demo, record the
+  iPhone screen and re-stitch with `scripts/demo-video.sh`.
+
 ### ✅ Done
 - Camera / Mic / Touchpad / Keyboard end-to-end
 - **V0.3: bidirectional protocol** — Mac toggles iPhone features (`featureControl`), state sync (`featureState`), real RTT (`ping`)
@@ -1032,6 +1051,100 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     phone is display-only (dialing goes through `serviceEndpoint`); on a
     direct-link phone it's the IP.
 
+29. **Mac Developer ID signing + notarization goes through a hand-rolled
+    re-sign, NOT `xcodebuild -exportArchive` (2026-09-19).** The export
+    step dies with `Cloud signing permission error` — our Asc API key
+    lacks "cloud-managed distribution certificates" access (an
+    Admin/Account-Holder grant, or a different key). What works:
+    `archive` (automatic / Apple Development is fine) → copy the `.app`
+    out of the archive → re-sign every nested binary by hand with
+    `codesign --force --options runtime --timestamp --sign "Developer ID
+    Application: Beijing VGO Co;Ltd (5XNDF727Y6)"` (SystemExtensions →
+    PlugIns/appex → the app) → delete `Contents/embedded.provisionprofile`
+    (a Developer ID app must not carry a development profile) → notarize +
+    `stapler staple`. **No Developer ID provisioning profile is needed** —
+    the sysex `com.apple.developer.system-extension.install` and app-group
+    entitlements are not profile-backed for Developer ID (verified: app +
+    DMG both `spctl` → "accepted, Notarized Developer ID"). All of this is
+    `scripts/release-mac.sh <version>`. Notary creds live in
+    `~/.config/mddock/production.env` (APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID).
+
+30. **The embedded virtual-mic pkg is the only thing that fails
+    notarization (2026-09-19).** notarytool rejects (a) the HAL driver for
+    a missing secure timestamp — fixed by passing
+    `OTHER_CODE_SIGN_FLAGS="--timestamp"` to xcodebuild in
+    `scripts/build-mic-driver-pkg.sh`, and (b) the pkg itself for being
+    unsigned — it must be `productsign --sign "Developer ID Installer:
+    Beijing VGO Co;Ltd (5XNDF727Y6)"`. **The first `productsign` pops a GUI
+    keychain password prompt** (key `diiformac`); the user clicks "Always
+    Allow" once. `codesign` with the Developer ID *Application* key does
+    not prompt (that key was already authorized). Sequence: sign driver →
+    pkgbuild → productsign → notarize + staple pkg → copy into the app's
+    `Contents/Resources/` → re-sign + notarize the app → DMG → sign +
+    notarize + staple DMG.
+
+31. **`xcodegen generate` rewrites each app's Info.plist wholesale from
+    `project-ios.yml` / `project-mac.yml` (2026-09-19).** Editing only
+    `RemoteCrabCapture/Info.plist` (version, `ITSAppUsesNonExemptEncryption`)
+    is silently reverted on the next `xcodegen` — the previous release's
+    `1.0 / 2026091801` lived only in the plist because no one regenerated.
+    Version, `CFBundleVersion` and `ITSAppUsesNonExemptEncryption` must all
+    live in the YAML; regenerate before archiving.
+
+32. **App Review notes are mandatory for this app, and the API can write
+    them mid-review (2026-09-19).** The iOS app's headline value needs the
+    companion Mac app, which is NOT on the Mac App Store, so a reviewer on
+    an iPhone just sees "Waiting for your Mac" → likely 2.1 Completeness.
+    Fill **App Review Information → Notes** with: how to preview via Demo
+    Mode without a Mac, where to get the Mac app, permission rationale, and
+    a **demo-video URL**. `appStoreReviewDetails` accepts a PATCH even while
+    the version is `WAITING_FOR_REVIEW` (the ASCClient in
+    `scripts/ios-app-store-testflight.py` does it). Note the App Store
+    **`privacyPolicyUrl` is not exposed by the ASC API** (`appInfos` has no
+    such attribute) — it has to be set in the browser.
+
+33. **iOS "where do I get the Mac app" + one URL source (2026-09-19).**
+    `RemoteCrabCore.State.RemoteCrabLinks` is the single source for
+    productPage / macDownload / privacyPolicy / github, all under
+    `vgoapp.com/remotecrab/`. The onboarding pair page and the
+    "Waiting for your Mac" card both carry a tappable "Download for Mac"
+    button. The domain moved from `remotecrab.app` → `vgoapp.com/remotecrab`
+    (ASC marketing/support URLs updated too). Never hard-code a brand URL
+    in a view again.
+
+34. **Demo videos: macOS cannot record a physical iPhone's screen from the
+    CLI (2026-09-19).** `simctl io recordVideo` only does Simulator, and it
+    **stops early for no clear reason** (measured 30 s of a 50 s run, and
+    8 s of a 29 s run); QuickTime's device recording is GUI + a TCC prompt
+    and hangs scripts. What works (`scripts/demo-video.sh`): lay the
+    Simulator window and the Mac receiver's connection self-check window
+    side by side on the desktop → one `screencapture -V <secs>` of the
+    whole screen → ffmpeg crops each window and `hstack`s them with a title.
+    `screencapture` records at 2x (1440×900 pt → 2880×1800 px) so crop
+    coords must be doubled. The Simulator has no camera, so the camera tile
+    stays empty — say so honestly in the review notes.
+
+35. **How vgoapp.com is deployed (2026-09-19).** The VGO studio site is a
+    Vite SPA (`~/VGOAPP`) served by MDDock's Caddy from the VPS
+    `/var/www/vgoapp` (`MDDock/crates/mddock-cloud/deploy/Caddyfile`).
+    `/remotecrab/` (product page) and `/remotecrab/privacy/` (privacy
+    policy) are **multi-entry static pages**
+    (`vite.config.ts` → `build.rollupOptions.input`), so no Caddy changes
+    are needed. Publish with `VGOAPP/scripts/deploy.sh` (build + rsync
+    `dist/`; optional `DMG=` uploads into `downloads/`, which is excluded
+    from `--delete`). VPS: `root@158.247.219.230`, key
+    `~/MDDock/certs/mddock-vps-root`. **scp/rsync intermittently fail with
+    "Connection closed"** (looks like fail2ban); `cat file | ssh … 'cat >
+    remote'` is more reliable.
+
+36. **The "background microphone" was never actually enabled
+    (2026-09-19 — corrects the old claim in this file).**
+    `UIBackgroundModes` exists nowhere in `project-ios.yml`, any
+    Info.plist, or git history; so iOS suspends the app on background and
+    mic streaming stops. This accidentally removes a 2.5.4 background-mode
+    review risk. To enable it, add `UIBackgroundModes: [audio]` to
+    `project-ios.yml` and be ready to justify it to Apple.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1124,4 +1237,6 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-16 by kimi (ASC assets done: 32 narrative screenshots en-US+zh-Hans × iPhone 6.9"+iPad 13" all COMPLETE on app 6811599153, bilingual metadata/subtitle pushed — ready for manual submit; Bonjour `\DDD` display fix shipped to /Applications; lessons 27-28)_
+_Last updated: 2026-09-19 (V1.0 SUBMITTED: iOS build 2026091802 → version 1.0 + TestFlight Internal; Mac 1.0 Developer ID notarized DMG via `scripts/release-mac.sh`; domain → `vgoapp.com/remotecrab/`; iOS download links + App Review notes + demo video; lessons 29-36 added. Remaining human step: ASC privacy-policy URL in the browser.)_
+
+_Previous: 2026-09-16 by kimi (ASC assets: 32 narrative screenshots en-US+zh-Hans × iPhone 6.9"+iPad 13" all COMPLETE on app 6811599153, bilingual metadata/subtitle pushed; Bonjour `\DDD` display fix shipped to /Applications; lessons 27-28)._
