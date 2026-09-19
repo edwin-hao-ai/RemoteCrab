@@ -153,6 +153,14 @@ struct OnboardingPage: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, IBSpace.xxl.pt)
                             .fixedSize(horizontal: false, vertical: true)
+
+                        // The pair page tells the user to install the Mac
+                        // receiver — give them an actual way to get it
+                        // instead of only naming it.
+                        if kind == .pairMac {
+                            macDownloadLink
+                                .padding(.top, IBSpace.s.pt)
+                        }
                     }
                     .padding(.bottom, 40)
                 }
@@ -178,6 +186,30 @@ struct OnboardingPage: View {
         case .pairMac:
             return IBLocale.Onboarding.pairBody
         }
+    }
+
+    /// Tappable download for the Mac receiver, shown on the pair page.
+    private var macDownloadLink: some View {
+        Link(destination: URL(string: RemoteCrabLinks.productPage)!) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                Text(IBLocale.Settings.downloadMac)
+                    .font(IBFont.bodyMedium.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .frame(minHeight: 44)
+            .background {
+                Capsule()
+                    .fill(.white.opacity(0.08))
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 1))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(IBLocale.Settings.downloadMac)
     }
 
     @ViewBuilder

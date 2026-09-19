@@ -37,8 +37,12 @@ targets:
       path: RemoteCrabCapture/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2026091321"
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "2026091802"
+        # Apple export compliance: the app uses HTTPS only. Kept here (not
+        # only in the checked-in plist) because xcodegen rewrites the plist
+        # from these properties on every `xcodegen generate`.
+        ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
         # xcodegen rewrites Info.plist from these properties alone —
         # keep CFBundleLocalizations here or regeneration drops it.

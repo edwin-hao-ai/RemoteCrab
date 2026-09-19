@@ -533,6 +533,8 @@ struct ContentView: View {
         let tint: Color
         let title: String
         let subtitle: String?
+        var linkTitle: String? = nil
+        var linkURL: String? = nil
     }
 
     /// Non-nil only for states worth surfacing; connected/idle are silent.
@@ -547,10 +549,14 @@ struct ContentView: View {
             // hotspots and isolated networks; the manual Connect-by-IP
             // escape hatch lives in the Mac's menu bar and the address
             // stays visible in the connection details sheet.
+            // Also offer the Mac receiver download: "waiting for your Mac"
+            // is usually "the Mac app isn't installed/running yet".
             return StatusAlert(symbol: "antenna.radiowaves.left.and.right",
                                tint: IBColor.warning,
                                title: IBLocale.Error.waitingForMac,
-                               subtitle: IBLocale.Error.searchingHint)
+                               subtitle: IBLocale.Error.searchingHint,
+                               linkTitle: IBLocale.Settings.downloadMac,
+                               linkURL: RemoteCrabLinks.productPage)
         case .failed:
             return StatusAlert(symbol: "exclamationmark.triangle.fill",
                                tint: IBColor.error,
@@ -586,6 +592,27 @@ struct ContentView: View {
                         .foregroundStyle(.white.opacity(0.72))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if let linkTitle = alert.linkTitle,
+                   let linkURL = alert.linkURL,
+                   let url = URL(string: linkURL) {
+                    Link(destination: url) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.down.circle")
+                            Text(linkTitle)
+                        }
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .frame(minHeight: 44)
+                        .background {
+                            Capsule().fill(Color.accentColor.opacity(0.9))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(linkTitle)
+                    .padding(.top, 4)
                 }
             }
             .padding(20)

@@ -213,12 +213,12 @@ struct IOSSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Link(destination: URL(string: "https://vgoapp.com/remotecrab/")!) {
+            Link(destination: URL(string: RemoteCrabLinks.productPage)!) {
                 Label(IBLocale.Settings.downloadMac, systemImage: "arrow.down.circle")
             }
             .accessibilityLabel(IBLocale.Settings.downloadMac)
 
-            Link(destination: URL(string: "https://vgoapp.com/remotecrab/privacy/")!) {
+            Link(destination: URL(string: RemoteCrabLinks.privacyPolicy)!) {
                 Label(IBLocale.Settings.privacyPolicy, systemImage: "hand.raised.fill")
             }
             .accessibilityLabel(IBLocale.A11y.privacyPolicySafari)
