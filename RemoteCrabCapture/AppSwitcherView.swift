@@ -87,12 +87,13 @@ struct AppSwitcherView: View {
     @ViewBuilder
     private func card(_ window: IBWindowInfo) -> some View {
         Button {
-            engine.activateMacApp(id: window.appId)
+            engine.activateMacApp(id: window.appId,
+                                  windowTitle: window.title.isEmpty ? nil : window.title)
             dismiss()
         } label: {
             cardBody(window)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableCardStyle())
         .contextMenu {
             Button {
                 togglePin(window.appId)
@@ -112,8 +113,8 @@ struct AppSwitcherView: View {
                 Label(IBLocale.Switcher.forceQuit, systemImage: "bolt.fill")
             }
         }
-        .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(window.title.isEmpty ? window.appName : "\(window.appName), \(window.title)"))
+        .accessibilityAddTraits(.isButton)
     }
 
     private func cardBody(_ window: IBWindowInfo) -> some View {
@@ -249,5 +250,16 @@ private struct AppIconTile: View {
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+}
+
+/// Tap feedback for a window card. `.plain` gave no pressed state, so a
+/// tap felt like it did nothing (especially when the switch was slow).
+private struct PressableCardStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

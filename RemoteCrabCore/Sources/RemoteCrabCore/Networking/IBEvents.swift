@@ -353,9 +353,16 @@ public struct IBAppListRequest: Codable, Sendable, Equatable {
 }
 
 /// iPhone → Mac: bring the identified app to the front (kind 0x0E).
+/// `windowTitle`, when set, names the specific window to raise (the app
+/// is activated too) so the window picker can bring the tapped window
+/// forward rather than just its app.
 public struct IBActivateApp: Codable, Sendable, Equatable {
     public let id: String
-    public init(id: String) { self.id = id }
+    public let windowTitle: String?
+    public init(id: String, windowTitle: String? = nil) {
+        self.id = id
+        self.windowTitle = windowTitle
+    }
 }
 
 /// iPhone → Mac: quit the identified app (kind 0x16). `force` uses

@@ -1175,9 +1175,10 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBWindowListRequest())
     }
 
-    /// Bring a Mac app to the front.
-    func activateMacApp(id: String) {
-        broadcaster?.send(IBActivateApp(id: id))
+    /// Bring a Mac app to the front, and optionally raise one specific
+    /// window of it (matches the picked window card).
+    func activateMacApp(id: String, windowTitle: String? = nil) {
+        broadcaster?.send(IBActivateApp(id: id, windowTitle: windowTitle))
     }
 
     /// Quit a Mac app. Graceful by default (the app may show a save sheet

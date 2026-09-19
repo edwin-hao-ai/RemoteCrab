@@ -288,17 +288,47 @@ final class ReceiverSession: ObservableObject {
         return NSRunningApplication.runningApplications(withBundleIdentifier: id).first
     }
 
-    private func activateApp(id: String) {
+    private func activateApp(id: String, windowTitle: String?) {
         guard let app = resolveApp(id: id) else {
             Self.log.info("activateApp: not running (\(id, privacy: .public))")
             return
         }
-        app.activate()
-        Self.log.info("activated app \(app.localizedName ?? id, privacy: .public)")
+        let pid = app.processIdentifier
+        app.activate(options: [.activateAllWindows])
+        if let windowTitle, !windowTitle.isEmpty {
+            raiseWindow(pid: pid, title: windowTitle)
+        }
+        Self.log.info("activated app \(app.localizedName ?? id, privacy: .public) window=\(windowTitle ?? "-", privacy: .public)")
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             self?.publishMacApps()
         }
+    }
+
+    /// Bring one window of `pid` to the front — un-minimizing it first —
+    /// via Accessibility, matched by title. Plain app activation can't
+    /// surface a specific (possibly minimized/behind) window, which read
+    /// as "the picker can't switch me there".
+    private func raiseWindow(pid: pid_t, title: String) {
+        let axApp = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success,
+              let windows = value as? [AXUIElement] else {
+            Self.log.info("raiseWindow: no AX windows for pid \(pid, privacy: .public)")
+            return
+        }
+        for window in windows {
+            var titleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+            guard ((titleRef as? String) ?? "") == title else { continue }
+            AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+            AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            Self.log.info("raised window \(title, privacy: .public)")
+            return
+        }
+        Self.log.info("raiseWindow: no AX title match for \(title, privacy: .public)")
     }
 
     /// Quit the identified app. Graceful by default — the app may raise a
@@ -1151,7 +1181,7 @@ final class ReceiverSession: ObservableObject {
                 publishMacApps(includeIcons: true)
             case .activateApp:
                 if let request = try? IBWire.decodeActivateApp(frame) {
-                    activateApp(id: request.id)
+                    activateApp(id: request.id, windowTitle: request.windowTitle)
                 }
             case .quitApp:
                 if let request = try? IBWire.decodeQuitApp(frame) {
