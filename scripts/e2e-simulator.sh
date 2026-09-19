@@ -98,11 +98,20 @@ disown 2>/dev/null || true
 sleep 1
 
 # TextEdit is the typing target + the drag stage. Force a deterministic
-# state: no restored windows, one fresh document in front.
-osascript -e 'tell application "TextEdit" to activate' \
-          -e 'tell application "System Events" to tell process "TextEdit" to keystroke "w" using {command down, option down}' \
-          -e 'tell application "TextEdit" to make new document' >/dev/null 2>&1
-sleep 1
+# state: one fresh document in front. Close existing documents through
+# AppleScript, NOT a ⌘⌥W keystroke — that keystroke races the following
+# `make new document` and can close the document it just created, which
+# leaves the run with no typing/drag target (the 2026-09-19 failure:
+# window moved (0,0), doc ''). Verify the document exists, fail fast.
+osascript -e 'tell application "TextEdit" to activate' >/dev/null 2>&1
+osascript -e 'tell application "TextEdit" to close every document saving no' >/dev/null 2>&1 || true
+sleep 0.5
+osascript -e 'tell application "TextEdit" to make new document' >/dev/null 2>&1 || true
+sleep 0.5
+if [[ "$(osascript -e 'tell application "TextEdit" to count documents' 2>/dev/null || echo 0)" -lt 1 ]]; then
+  echo "  TextEdit setup failed: no document open"
+  exit 1
+fi
 SAVED_CLIP=$(pbpaste 2>/dev/null || true)
 
 # Cursor warp helper (CGWarpMouseCursorPosition needs no permission).
