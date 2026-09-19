@@ -56,6 +56,14 @@ struct TouchpadScreen: View {
         return mask
     }
 
+    /// One-shot Delete (Backspace, keycode 51) with any locked
+    /// modifiers — lets a trackpad user fix a typo in place.
+    private func sendDelete() {
+        let mask = modifierMask
+        engine.sendKey(KeyEvent(action: .down, keycode: 51, modifiers: mask))
+        engine.sendKey(KeyEvent(action: .up, keycode: 51, modifiers: mask))
+    }
+
     var body: some View {
         ZStack {
             // Subtle background — dark with a hint of color, so the
@@ -139,8 +147,29 @@ struct TouchpadScreen: View {
                         .transition(.opacity)
                         .padding(.bottom, IBSpace.s.pt)
                 }
-                IBModifierBar(activeModifiers: $modifiers)
-                    .padding(.bottom, dockClearance)
+                HStack(spacing: IBSpace.s.pt) {
+                    IBModifierBar(activeModifiers: $modifiers)
+                    // One-shot Delete so a typo can be fixed without
+                    // leaving the trackpad surface.
+                    Button {
+                        sendDelete()
+                    } label: {
+                        Image(systemName: "delete.left")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 48, height: 48)
+                            .foregroundStyle(IBColor.textPrimary)
+                            .background {
+                                IBMaterial.glass(
+                                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
+                                    tint: IBColor.accent,
+                                    interactive: true
+                                )
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(IBLocale.A11y.deleteKey)
+                }
+                .padding(.bottom, dockClearance)
             }
             .padding(.horizontal, IBSpace.xl.pt)
         }

@@ -63,9 +63,6 @@ enum WindowCapture {
                 activeMarked = true
             }
             let jpeg = await capture(scWindow, maxWidth: maxWidth)
-            // Only surface windows we can actually show a picture of, so
-            // every card in the picker is real — no icon-only placeholders.
-            guard let jpeg else { continue }
             windows.append(IBWindowInfo(id: "\(owner.processID):\(scWindow.windowID)",
                                         appId: bundleID,
                                         appName: owner.applicationName,
@@ -77,11 +74,18 @@ enum WindowCapture {
             if windows.count >= maxWindows { break }
         }
 
-        // The active window first, then grouped by app / title — SC gives
-        // no z-order, so this is the best ordering available.
+        // Active first, then windows with a real preview, then grouped by
+        // app / title — SC gives no z-order, so this is the best ordering
+        // available. Windows macOS won't render (minimized/hidden) still
+        // appear, just without a picture, so the picker is never empty.
         windows.sort { lhs, rhs in
             if lhs.isActive != rhs.isActive { return lhs.isActive }
-            if lhs.appName != rhs.appName { return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending }
+            let lhsHasPreview = lhs.snapshotJPEG != nil
+            let rhsHasPreview = rhs.snapshotJPEG != nil
+            if lhsHasPreview != rhsHasPreview { return lhsHasPreview }
+            if lhs.appName != rhs.appName {
+                return lhs.appName.localizedCaseInsensitiveCompare(rhs.appName) == .orderedAscending
+            }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
 

@@ -172,6 +172,7 @@ struct KeyboardScreen: View {
             HStack(spacing: 6) {
                 shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
                 shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
+                shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                 modifierKey(.control)
                 modifierKey(.option)
                 modifierKey(.command)

@@ -564,6 +564,7 @@ public enum IBLocale {
         // `IBModifierBar` in RemoteCrabCore).
         public static let escapeKey = IBL("Escape key")
         public static let tabKey = IBL("Tab key")
+        public static let deleteKey = IBL("Delete key")
         public static let leftArrowKey = IBL("Left arrow key")
         public static let rightArrowKey = IBL("Right arrow key")
         public static let controlKey = IBL("Control key")

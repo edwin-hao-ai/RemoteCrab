@@ -454,27 +454,21 @@ struct ContentView: View {
             }
             Spacer()
 
-            // The camera-preview exit is contextual and stays direct.
-            if engine.features.activeSurface == .cameraPreview {
-                Button {
-                    withAnimation(IBAnimation.snappy) {
-                        engine.features.activeSurface = .trackpad
-                    }
-                } label: {
-                    topBarIcon("xmark")
-                }
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .buttonStyle(.plain)
-                .accessibilityLabel(IBLocale.Settings.done)
+            // App switching is a top-level action now — it used to hide
+            // behind the overflow menu. The old camera-preview "X" is
+            // gone: the dock switches surfaces, so the exit button was
+            // dead weight (the camera is off by default anyway).
+            Button { showAppSwitcher = true } label: {
+                topBarIcon("square.grid.2x2")
             }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .buttonStyle(.plain)
+            .accessibilityLabel(IBLocale.Switcher.title)
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.
             Menu {
-                Button { showAppSwitcher = true } label: {
-                    Label(IBLocale.Switcher.title, systemImage: "square.grid.2x2")
-                }
                 Button { showMacPicker = true } label: {
                     Label(IBLocale.Pairing.macPickerTitle, systemImage: "laptopcomputer.and.iphone")
                 }
