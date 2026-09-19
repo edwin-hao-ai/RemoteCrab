@@ -799,6 +799,7 @@ final class CaptureEngine: ObservableObject {
         }
         listener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor in
+                Forensic.log("[hs] new connection accepted")
                 self?.accept(connection: connection)
             }
         }
@@ -862,11 +863,10 @@ final class CaptureEngine: ObservableObject {
     /// close the newcomer without disturbing the owner — that is the
     /// fix for multiple Macs fighting over one iPhone.
     private func accept(connection newConnection: NWConnection) {
-        if connection != nil {
-            replyBusy(on: newConnection, ownerName: connectedMacName ?? "another Mac")
-            return
-        }
-        // Supersede any candidate that hasn't finished handshaking.
+        Forensic.log("[hs] accept ownerSet=\(connection != nil) pendingSet=\(pendingConnection != nil)")
+        // Read the hello before deciding anything: a Mac that reconnected
+        // after its socket dropped must be allowed to reclaim its own
+        // session, and we can only tell that from the hello's id.
         if let pendingConnection, pendingConnection !== newConnection {
             pendingConnection.cancel()
         }
@@ -921,7 +921,21 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func handleHello(_ hello: IBClientHello, on conn: NWConnection, token: UUID) {
-        guard handshakeToken == token, connection == nil else { return }
+        Forensic.log("[hs] hello id=\(hello.id) ownerSet=\(connection != nil) sameToken=\(handshakeToken == token)")
+        guard handshakeToken == token else { return }
+        if let existing = connection, existing !== conn {
+            // A different Mac while someone owns the session keeps the
+            // owner. But the SAME Mac reconnecting (its old socket died,
+            // possibly without us noticing) takes its session back — and
+            // a dead-but-still-"ready" owner never blocks anyone.
+            let sameMac = (connectedMacId != nil && connectedMacId == hello.id)
+            if existing.state == .ready && !sameMac {
+                replyBusy(on: conn, ownerName: connectedMacName ?? "another Mac")
+                return
+            }
+            existing.cancel()
+            clearOwner()
+        }
         // A second Mac showed up while the first was mid-handshake.
         if pendingConnection != nil && pendingConnection !== conn {
             replyBusy(on: conn, ownerName: pendingMacName ?? "another Mac")
@@ -1091,6 +1105,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func sendSessionReply(_ reply: IBSessionReply, on conn: NWConnection) {
+        Forensic.log("[hs] sendSessionReply \(String(describing: reply.result))")
         guard let data = try? IBWire.encode(sessionReply: reply) else { return }
         conn.send(content: data, completion: .contentProcessed { _ in })
     }
@@ -1350,8 +1365,18 @@ final class CaptureEngine: ObservableObject {
                     self.handleInbound(data)
                 }
             }
-            if error != nil { return }
-            if !isComplete && self.connection != nil {
+            if error != nil || isComplete {
+                // The Mac went away. Clear the owner here rather than
+                // hoping the state handler fires, so a stale `connection`
+                // can't silently swallow the next Mac's clientHello.
+                Task { @MainActor in
+                    guard self.connection === connection else { return }
+                    self.connectionState = .idle
+                    self.clearOwner()
+                }
+                return
+            }
+            if self.connection != nil {
                 self.startReceiving(from: connection)
             }
         }
