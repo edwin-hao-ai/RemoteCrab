@@ -371,6 +371,63 @@ public struct IBQuitApp: Codable, Sendable, Equatable {
     }
 }
 
+/// One switchable Mac window, surfaced on the iPhone's full-screen
+/// window picker. `id` is `"<pid>:<windowNumber>"`; `appId` matches
+/// `IBAppInfo.id` so the iPhone can look up the app icon it already has.
+///
+/// When macOS has not granted Screen Recording, the Mac can't read other
+/// apps' window titles or pixels, so it degrades to one entry per *app*
+/// (`title` empty, no snapshot) — see `IBWindowList.canCapture`.
+public struct IBWindowInfo: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let appId: String
+    public let appName: String
+    public let title: String
+    public let isActive: Bool
+    /// Window content size in points, used to lay out the card (and its
+    /// icon placeholder) at the right aspect before the snapshot arrives.
+    public let width: Double
+    public let height: Double
+    /// Downsampled JPEG of the window, present only when the Mac is
+    /// allowed to capture and this is a real (not app-level) entry.
+    public let snapshotJPEG: Data?
+
+    public init(id: String,
+                appId: String,
+                appName: String,
+                title: String,
+                isActive: Bool,
+                width: Double = 0,
+                height: Double = 0,
+                snapshotJPEG: Data? = nil) {
+        self.id = id
+        self.appId = appId
+        self.appName = appName
+        self.title = title
+        self.isActive = isActive
+        self.width = width
+        self.height = height
+        self.snapshotJPEG = snapshotJPEG
+    }
+}
+
+/// Mac → iPhone: the current window list (kind 0x18). `canCapture` is
+/// false when Screen Recording is not granted, in which case `windows`
+/// holds one app-level entry per running app instead of real windows.
+public struct IBWindowList: Codable, Sendable, Equatable {
+    public let windows: [IBWindowInfo]
+    public let canCapture: Bool
+    public init(windows: [IBWindowInfo], canCapture: Bool) {
+        self.windows = windows
+        self.canCapture = canCapture
+    }
+}
+
+/// iPhone → Mac: ask for a fresh window list (kind 0x17).
+public struct IBWindowListRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
 // MARK: - File transfer (iPhone → Mac)
 
 /// iPhone → Mac: begin a file transfer (kind 0x0F). Followed by raw

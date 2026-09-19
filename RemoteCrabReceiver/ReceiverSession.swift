@@ -53,6 +53,9 @@ final class ReceiverSession: ObservableObject {
     /// Filled lazily when the iPhone asks for icons; icons never change
     /// while an app is running, so this is process-lifetime cached.
     private var iconCache: [String: Data] = [:]
+    /// True once we've popped the Screen Recording prompt this run, so a
+    /// window refresh doesn't nag for permission every time.
+    private var didRequestScreenRecording = false
 
     /// Last file received from the iPhone (menu bar → Show in Finder).
     @Published private(set) var lastReceivedFileURL: URL?
@@ -239,6 +242,26 @@ final class ReceiverSession: ObservableObject {
               let png = rep.representation(using: .png, properties: [:]) else { return nil }
         iconCache[key] = png
         return png
+    }
+
+    /// Build and send the window list for the iPhone's full-screen window
+    /// picker. If Screen Recording isn't granted we ask once (System
+    /// Settings) and send an app-level list so the picker still works.
+    func publishMacWindows() {
+        guard sessionGranted, let connection, connection.state == .ready else { return }
+        if !WindowCapture.isAuthorized, !didRequestScreenRecording {
+            didRequestScreenRecording = true
+            WindowCapture.requestAccess()
+        }
+        Task { [weak self] in
+            let list = await WindowCapture.buildList()
+            guard let self, self.sessionGranted,
+                  let connection = self.connection, connection.state == .ready else { return }
+            Self.log.info("published \(list.windows.count, privacy: .public) windows (canCapture=\(list.canCapture, privacy: .public))")
+            if let data = try? IBWire.encode(windowList: list) {
+                connection.send(content: data, completion: .contentProcessed { _ in })
+            }
+        }
     }
 
     /// Resolve an app by bundle id, or `pid:<n>` when it has no bundle id.
@@ -1118,6 +1141,8 @@ final class ReceiverSession: ObservableObject {
                 if let request = try? IBWire.decodeQuitApp(frame) {
                     quitApp(id: request.id, force: request.force)
                 }
+            case .windowListRequest:
+                publishMacWindows()
             case .fileOffer:
                 if let offer = try? IBWire.decodeFileOffer(frame) {
                     beginIncoming(offer)

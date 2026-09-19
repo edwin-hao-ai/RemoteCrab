@@ -54,4 +54,45 @@ final class AppSwitcherWireTests: XCTestCase {
         XCTAssertEqual(decoded.id, "pid:789")
         XCTAssertTrue(decoded.force)
     }
+
+    func testRoundTripWindowListRequest() throws {
+        let encoded = try IBWire.encode(windowListRequest: IBWindowListRequest())
+        let frames = IBWire.Parser().append(encoded)
+
+        XCTAssertEqual(frames[0].kind, .windowListRequest)
+        XCTAssertNoThrow(try IBWire.decodeWindowListRequest(frames[0]))
+    }
+
+    func testRoundTripWindowList() throws {
+        let windows = [
+            IBWindowInfo(id: "123:45", appId: "com.apple.Terminal", appName: "Terminal",
+                         title: "Claude Code — 等待确认", isActive: true,
+                         width: 1200, height: 760,
+                         snapshotJPEG: Data([0xFF, 0xD8, 0xFF, 0xE0])),
+            IBWindowInfo(id: "456:7", appId: "com.apple.Safari", appName: "Safari",
+                         title: "RemoteCrab", isActive: false, width: 1440, height: 900)
+        ]
+        let encoded = try IBWire.encode(windowList: IBWindowList(windows: windows, canCapture: true))
+        let frames = IBWire.Parser().append(encoded)
+
+        XCTAssertEqual(frames[0].kind, .windowList)
+        let decoded = try IBWire.decodeWindowList(frames[0])
+        XCTAssertEqual(decoded.windows, windows)
+        XCTAssertTrue(decoded.canCapture)
+    }
+
+    func testRoundTripWindowListDegraded() throws {
+        // No Screen Recording: one app-level entry per app, no titles/pixels.
+        let windows = [
+            IBWindowInfo(id: "com.apple.Terminal", appId: "com.apple.Terminal",
+                         appName: "Terminal", title: "", isActive: true)
+        ]
+        let encoded = try IBWire.encode(windowList: IBWindowList(windows: windows, canCapture: false))
+        let frames = IBWire.Parser().append(encoded)
+
+        let decoded = try IBWire.decodeWindowList(frames[0])
+        XCTAssertFalse(decoded.canCapture)
+        XCTAssertEqual(decoded.windows.first?.snapshotJPEG, nil)
+        XCTAssertEqual(decoded.windows.first?.title, "")
+    }
 }

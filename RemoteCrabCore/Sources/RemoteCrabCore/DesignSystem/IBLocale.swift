@@ -422,6 +422,7 @@ public enum IBLocale {
         public static let forceQuit = IBL("Force Quit")
         public static let forceQuitConfirmTitle = IBL("Force Quit App?")
         public static let forceQuitConfirmMessage = IBL("This immediately ends the app on the Mac. Unsaved changes will be lost.")
+        public static let permissionHint = IBL("Showing app icons — allow Screen Recording on the Mac to see window previews.")
         public static func quitStillRunning(_ name: String) -> String {
             String(format: IBL("If “%@” is still open, it may be waiting for a save confirmation on the Mac."), name)
         }

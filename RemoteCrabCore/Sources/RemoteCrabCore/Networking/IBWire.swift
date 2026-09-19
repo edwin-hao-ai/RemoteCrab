@@ -41,6 +41,8 @@ public enum IBWire {
         case textCommand   = 0x14    // JSON IBTextCommandMessage (iPhone → Mac)
         case cameraCommand = 0x15    // JSON IBCameraCommand (Mac → iPhone)
         case quitApp       = 0x16    // JSON IBQuitApp (iPhone → Mac)
+        case windowListRequest = 0x17 // JSON IBWindowListRequest (iPhone → Mac)
+        case windowList    = 0x18    // JSON IBWindowList (Mac → iPhone)
     }
 
     // MARK: - Encoding
@@ -128,6 +130,16 @@ public enum IBWire {
     public static func encode(activateApp: IBActivateApp) throws -> Data {
         let json = try JSONEncoder().encode(activateApp)
         return encodeFrame(kind: .activateApp, payload: json)
+    }
+
+    /// Encode a window-list request (iPhone → Mac).
+    public static func encode(windowListRequest: IBWindowListRequest) throws -> Data {
+        encodeFrame(kind: .windowListRequest, payload: try JSONEncoder().encode(windowListRequest))
+    }
+
+    /// Encode a window list (Mac → iPhone).
+    public static func encode(windowList: IBWindowList) throws -> Data {
+        encodeFrame(kind: .windowList, payload: try JSONEncoder().encode(windowList))
     }
 
     /// Encode a file offer (iPhone → Mac).
@@ -295,6 +307,16 @@ public enum IBWire {
     /// Decode an `.activateApp` frame's payload.
     public static func decodeActivateApp(_ frame: Frame) throws -> IBActivateApp {
         try JSONDecoder().decode(IBActivateApp.self, from: frame.payload)
+    }
+
+    /// Decode a `.windowListRequest` frame's payload.
+    public static func decodeWindowListRequest(_ frame: Frame) throws -> IBWindowListRequest {
+        try JSONDecoder().decode(IBWindowListRequest.self, from: frame.payload)
+    }
+
+    /// Decode a `.windowList` frame's payload.
+    public static func decodeWindowList(_ frame: Frame) throws -> IBWindowList {
+        try JSONDecoder().decode(IBWindowList.self, from: frame.payload)
     }
 
     /// Decode a `.fileOffer` frame's payload.

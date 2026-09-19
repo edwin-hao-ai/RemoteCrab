@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteCrab · 远程终端 — 交互线框</title>
+<style>
+  :root{
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --amber:#FF9F0A;
+    --ink:#1c1c1e; --ink2:#3a3a3c; --muted:#8e8e93;
+    --page:#f2f2f7; --card:#ffffff; --line:#e5e5ea;
+    --canvas1:#0e1013; --canvas2:#1a1d22;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--ui);line-height:1.6;
+       -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:20px;letter-spacing:-.01em;margin:56px 0 14px}
+  .sub{color:var(--muted);font-size:16px;margin:0 0 8px}
+  .lead{font-size:16px;color:var(--ink2);max-width:820px;margin:18px 0 0}
+  .tag{display:inline-block;font-size:12px;font-weight:600;color:var(--blue);
+       background:rgba(10,132,255,.1);padding:3px 10px;border-radius:100px;margin-bottom:14px}
+
+  /* ---------- concept cards ---------- */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:28px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .card .n{font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.04em}
+  .card h3{font-size:16px;margin:8px 0 6px}
+  .card p{margin:0;color:var(--ink2);font-size:14px}
+  @media (max-width:860px){ .cards{grid-template-columns:1fr} }
+
+  /* ---------- flow ---------- */
+  .flow{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-top:22px}
+  .step{flex:1 1 150px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:16px;min-width:150px}
+  .step .k{font-size:12px;color:var(--muted);font-weight:600}
+  .step .t{font-size:15px;font-weight:600;margin-top:4px}
+  .step .d{font-size:13px;color:var(--ink2);margin-top:4px}
+  .arrow{align-self:center;color:#c7c7cc;font-size:20px;padding:0 2px}
+  @media (max-width:860px){ .arrow{display:none} }
+
+  /* ---------- phones ---------- */
+  .row{display:flex;gap:34px;flex-wrap:wrap;margin-top:28px}
+  .phonewrap{width:320px}
+  .phone{width:320px;background:#0a0a0b;border-radius:46px;padding:11px;
+         box-shadow:0 24px 60px rgba(0,0,0,.22), inset 0 0 0 2px #2a2a2c}
+  .screen{position:relative;border-radius:36px;overflow:hidden;height:660px;
+          background:linear-gradient(180deg,var(--canvas2),var(--canvas1));color:#fff;
+          display:flex;flex-direction:column}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:96px;height:26px;
+         background:#000;border-radius:100px;z-index:5}
+  .statusbar{display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;
+             font-weight:600;color:#fff;opacity:.92}
+  .cap{font-size:13px;color:var(--ink2);margin-top:14px;padding-left:6px}
+  .cap b{color:var(--ink)}
+
+  .nav{display:flex;align-items:center;gap:10px;padding:10px 18px 8px}
+  .nav .back{color:var(--blue);font-size:20px;font-weight:400;width:24px}
+  .nav .ttl{font-size:17px;font-weight:600}
+  .nav .spacer{flex:1}
+  .nav .act{color:var(--blue);font-size:15px}
+
+  .content{flex:1;padding:6px 16px 0;display:flex;flex-direction:column;gap:12px}
+
+  /* home */
+  .pill{align-self:center;display:flex;align-items:center;gap:7px;font-size:12px;color:#d5d5da;
+        background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);
+        padding:5px 12px;border-radius:100px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+  .pip{margin:6px auto 0;width:200px;height:150px;border-radius:16px;
+       background:linear-gradient(135deg,#2c2f36,#15171b);border:1px solid rgba(255,255,255,.08);
+       display:flex;align-items:center;justify-content:center;color:#6e6e73;font-size:12px}
+  .alertcard{margin-top:6px;background:rgba(255,159,10,.12);border:1px solid rgba(255,159,10,.28);
+             border-radius:14px;padding:12px 14px;font-size:13px;color:#ffd9a0}
+  .alertcard b{color:#fff}
+  .dock{margin:auto 12px 18px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);
+        border-radius:26px;padding:14px 10px;display:flex;justify-content:space-around}
+  .di{width:52px;text-align:center;color:#c7c7cc;font-size:10px}
+  .di .ic{width:44px;height:44px;border-radius:14px;margin:0 auto 5px;
+          background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;
+          font-size:18px;font-weight:700;color:#fff}
+  .di.on .ic{background:var(--blue);box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+  .di{position:relative}
+  .badge{position:absolute;top:-4px;right:2px;min-width:18px;height:18px;border-radius:100px;
+         background:var(--red);color:#fff;font-size:11px;font-weight:700;display:flex;
+         align-items:center;justify-content:center;padding:0 4px}
+
+  /* list */
+  .group{font-size:12px;letter-spacing:.08em;color:#8e8e93;font-weight:600;margin:4px 4px 0}
+  .lrow{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.055);
+        border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:13px 14px}
+  .lrow .ldot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .lrow .lt{font-size:15px;font-weight:600}
+  .lrow .ls{font-size:12px;color:#98989d;margin-top:1px}
+  .lrow .chev{margin-left:auto;color:#48484a;font-size:16px}
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;
+       background:var(--blue);color:#fff;font-weight:600;font-size:15px;
+       border-radius:14px;padding:14px;margin-top:2px}
+  .hint{font-size:12px;color:#8e8e93;text-align:center;padding:2px 8px 0}
+
+  /* terminal */
+  .tabstrip{display:flex;gap:6px;padding:8px 14px 0;overflow:hidden}
+  .tab{font-size:12px;color:#c7c7cc;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);
+       padding:6px 11px;border-radius:9px;white-space:nowrap}
+  .tab.cur{background:rgba(10,132,255,.22);border-color:rgba(10,132,255,.45);color:#fff;font-weight:600}
+  .term{flex:1;background:#07080a;border:1px solid rgba(255,255,255,.07);border-radius:12px;
+        margin:8px 14px 0;padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.5;
+        color:#d7dae0;overflow:hidden}
+  .term .g{color:#7ee787}.term .b{color:#79c0ff}.term .y{color:#ffd479}.term .m{color:#8b949e}
+  .term .cursor{display:inline-block;width:7px;height:13px;background:#d7dae0;vertical-align:-2px}
+  .keystrip{display:flex;gap:6px;padding:10px 14px 0;overflow:hidden}
+  .key{flex:1;text-align:center;font-size:12px;font-weight:600;color:#e5e5ea;
+       background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);
+       border-radius:9px;padding:9px 0}
+  .key.mic{flex:1.4;background:var(--blue);border-color:var(--blue)}
+  .approve{display:flex;gap:8px;padding:10px 14px 0}
+  .approve .a{flex:1;text-align:center;font-size:14px;font-weight:700;border-radius:12px;padding:12px 0}
+  .approve .yes{background:var(--green);color:#05230f}
+  .approve .no{background:rgba(255,69,58,.16);border:1px solid rgba(255,69,58,.5);color:#ff8b83}
+
+  /* sheet */
+  .sheet{margin-top:auto;background:#1c1f24;border-top-left-radius:22px;border-top-right-radius:22px;
+         border:1px solid rgba(255,255,255,.08);padding:14px 14px 20px}
+  .grab{width:40px;height:5px;border-radius:100px;background:#3a3a3c;margin:0 auto 12px}
+  .sheet h4{margin:0 0 10px;font-size:14px;color:#c7c7cc;font-weight:600}
+
+  .note{background:#fff8ec;border:1px solid #ffe1b3;border-radius:16px;padding:22px;margin-top:44px}
+  .note h3{margin:0 0 10px;font-size:16px}
+  .note ul{margin:8px 0 0;padding-left:20px}
+  .note li{margin:6px 0;color:var(--ink2);font-size:14px}
+  .note code{font-family:var(--mono);font-size:12.5px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px}
+  .q{background:#f5f5f7;border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:18px}
+  .q h3{margin:0 0 8px;font-size:16px}
+  .q ol{margin:6px 0 0;padding-left:20px}
+  .q li{margin:7px 0;color:var(--ink2);font-size:14px}
+  footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">交互线框 · 非最终视觉</span>
+  <h1>远程终端</h1>
+  <p class="sub">手机连在家里的局域网，点一下就能让 Mac 开一个终端，然后直接在手机上操作它。</p>
+
+  <p class="lead">
+    一句话：<b>把 Mac 上的终端搬到手机上</b>。不用远程桌面、不用 SSH、不经过任何服务器——
+    手机和 Mac 本来就已经用 Bonjour 连上了，我们只是在那条连接上，多传一路「终端画面 + 按键」。
+  </p>
+
+  <!-- ============ 能实现什么 ============ -->
+  <h2>能实现什么</h2>
+  <div class="cards">
+    <div class="card">
+      <div class="n">01 · 开</div>
+      <h3>手机点一下，Mac 自动开终端</h3>
+      <p>你躺在沙发上，点「新建终端」，Mac 上就自动开好一个终端。不用走到电脑前。</p>
+    </div>
+    <div class="card">
+      <div class="n">02 · 用</div>
+      <h3>手机上直接操作</h3>
+      <p>终端画面实时显示在手机上，打字、回车、上下键、Ctrl 都能用，还有语音输入。</p>
+    </div>
+    <div class="card">
+      <div class="n">03 · 切</div>
+      <h3>看到并切换已开的终端</h3>
+      <p>Mac 上正开着的终端（含 tmux 会话）会列出来，像切 App 一样，点一下接管。</p>
+    </div>
+  </div>
+
+  <!-- ============ 流程 ============ -->
+  <h2>它是怎么工作的</h2>
+  <div class="flow">
+    <div class="step"><div class="k">STEP 1</div><div class="t">手机点「终端」</div><div class="d">选一个已开的，或新建</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="k">STEP 2</div><div class="t">走局域网到 Mac</div><div class="d">复用已配对的 Bonjour 连接，不出家门</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="k">STEP 3</div><div class="t">Mac 开出终端</div><div class="d">由 Mac 上的小助手启动 shell / tmux</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="k">STEP 4</div><div class="t">画面回到手机</div><div class="d">像本地终端一样操作</div></div>
+  </div>
+
+  <!-- ============ 手机线框 ============ -->
+  <h2>手机上长什么样</h2>
+  <div class="row">
+
+    <!-- ===== Phone 1: home ===== -->
+    <div class="phonewrap">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="content">
+          <div class="pill"><span class="dot"></span>已连接 · Mac mini</div>
+          <div class="pip">摄像头预览（可关）</div>
+          <div class="alertcard"><b>Agent 在等你</b><br>Claude Code 需要确认一个操作</div>
+        </div>
+        <div class="dock">
+          <div class="di"><div class="ic">◉</div>相机</div>
+          <div class="di"><div class="ic">◍</div>麦克风</div>
+          <div class="di"><div class="ic">▢</div>触控板</div>
+          <div class="di"><div class="ic">⌨</div>键盘</div>
+          <div class="di on"><div class="ic">›_</div><span class="badge">2</span>终端</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>主界面</b><br>底栏新增「终端」入口；红点 <b>2</b> 表示 Mac 上有两个终端在等你（比如某个 agent 卡在确认框）。</p>
+    </div>
+
+    <!-- ===== Phone 2: list ===== -->
+    <div class="phonewrap">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="nav"><span class="back">‹</span><span class="ttl">终端</span><span class="spacer"></span></div>
+        <div class="content">
+          <div class="group">正在运行</div>
+          <div class="lrow">
+            <span class="ldot" style="background:var(--amber)"></span>
+            <div><div class="lt">Claude Code</div><div class="ls">~/iBridge · 等待确认</div></div>
+            <span class="chev">›</span>
+          </div>
+          <div class="lrow">
+            <span class="ldot" style="background:var(--green)"></span>
+            <div><div class="lt">live</div><div class="ls">tmux 会话 · 1 个窗口</div></div>
+            <span class="chev">›</span>
+          </div>
+          <div class="lrow">
+            <span class="ldot" style="background:var(--green)"></span>
+            <div><div class="lt">shotzh</div><div class="ls">tmux 会话 · 已连接</div></div>
+            <span class="chev">›</span>
+          </div>
+          <div class="btn">＋ 新建终端</div>
+          <div class="hint">这些是 Mac 上正开着的终端，点一下就能接上</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>终端列表</b><br>把 Mac 上开着的终端 / tmux 会话列出来，一眼看到谁在跑、谁在等你。<b>点一下接管</b>，不用在电脑上找。</p>
+    </div>
+
+    <!-- ===== Phone 3: session ===== -->
+    <div class="phonewrap">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="nav"><span class="back">‹</span><span class="ttl">Claude Code</span><span class="spacer"></span><span class="act">切换</span></div>
+        <div class="term">
+<span class="m">$</span> claude<br>
+<span class="g">✓</span> 已读取 AGENTS.md<br>
+<span class="b">→</span> 准备执行：<span class="y">rm -rf ./build</span><br>
+<br>
+┌──────────────────────────────┐<br>
+│  <span class="y">是否允许这次操作？</span>            │<br>
+│  <span class="g">[y]</span> 允许      <span class="b">[n]</span> 拒绝       │<br>
+└──────────────────────────────┘<br>
+<br>
+<span class="m">等待你的选择</span> <span class="cursor"></span>
+        </div>
+        <div class="approve"><div class="a yes">允许 (y)</div><div class="a no">拒绝 (n)</div></div>
+        <div class="keystrip">
+          <div class="key">esc</div><div class="key">tab</div><div class="key">↑</div>
+          <div class="key">↓</div><div class="key">ctrl</div>
+        </div>
+        <div class="keystrip" style="padding-bottom:14px">
+          <div class="key mic">🎙 按住说话</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>终端会话</b><br>完整终端画面。<b>确认框可直接点「允许/拒绝」</b>（自动发 y / n）；底部快捷键 + 语音，躺着也能操作。</p>
+    </div>
+
+    <!-- ===== Phone 4: switch ===== -->
+    <div class="phonewrap">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="nav"><span class="back">‹</span><span class="ttl">Claude Code</span><span class="spacer"></span><span class="act">切换</span></div>
+        <div class="tabstrip">
+          <div class="tab cur">Claude Code</div>
+          <div class="tab">live</div>
+          <div class="tab">shotzh</div>
+        </div>
+        <div class="term" style="flex:1">
+<span class="m">$</span> <span class="cursor"></span><br><br>
+<span class="m">切换到 Claude Code 会话</span>
+        </div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h4>切换终端</h4>
+          <div class="lrow" style="margin-bottom:8px">
+            <span class="ldot" style="background:var(--amber)"></span>
+            <div><div class="lt">Claude Code</div><div class="ls">等待确认</div></div>
+          </div>
+          <div class="lrow" style="margin-bottom:8px">
+            <span class="ldot" style="background:var(--green)"></span>
+            <div><div class="lt">live</div><div class="ls">tmux 会话</div></div>
+          </div>
+          <div class="lrow">
+            <span class="ldot" style="background:var(--green)"></span>
+            <div><div class="lt">shotzh</div><div class="ls">tmux 会话</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>切换终端</b><br>顶部标签 + 底部切换面板，双重入口。在多个 agent/会话之间来回切，就像切 App。</p>
+    </div>
+
+  </div>
+
+  <!-- ============ 诚实说明 ============ -->
+  <div class="note">
+    <h3>能不能实现？—— 能，但要先说清一件事</h3>
+    <p style="margin:0;color:var(--ink2);font-size:14px">
+      手机端没有任何障碍：显示终端、发按键、列表切换，都是常规工作。唯一的工程决定在 <b>Mac 端</b>：
+      「让 Mac 自动开出一个终端」需要有东西真的去启动 shell，而 RemoteCrab 的 Mac App 目前是<b>沙箱</b>的，
+      沙箱里起的终端连 <code>~/.zshrc</code> 都读不到，等于废的。两条路：
+    </p>
+    <ul>
+      <li><b>方案 A：装一个小助手</b>（随 App 安装、无需管理员密码）专门负责开终端。App 还是沙箱的，终端由助手开。推荐。</li>
+      <li><b>方案 B：Mac App 去掉沙箱</b>。代码最简单，但要重新验证收发文件等已有功能。次选。</li>
+    </ul>
+    <p style="margin:12px 0 0;color:var(--ink2);font-size:14px">
+      <b>不需要 SSH、不需要开远程登录、不需要任何服务器。</b> 全程走你已有的局域网连接。
+    </p>
+    <p style="margin:12px 0 0;color:var(--ink2);font-size:14px">
+      <b>覆盖范围：</b>跑在终端里的 agent（Claude Code、Codex CLI、opencode、Kimi 等）都在这个范围内；
+      只在图形界面里跑的 agent（Cursor 聊天窗、桌面版 App）不在——那些要走别的路。
+    </p>
+  </div>
+
+  <!-- ============ 待定问题 ============ -->
+  <div class="q">
+    <h3>需要你拍板的问题</h3>
+    <ol>
+      <li><b>新建的终端要「普通 shell」还是「tmux 会话」？</b> 普通 shell 断线就没了；tmux 会话在手机断线后还在跑，躺沙发上断开、回来接着用。</li>
+      <li><b>要不要自动优先用 tmux？</b> 你若已经有 tmux 会话，直接列出来接管，体验最顺。</li>
+      <li><b>「允许/拒绝」要做成通用按键映射吗？</b> 大多数 agent 的确认框都吃 <code>y</code> / <code>n</code> / <code>Enter</code>，可以统一成两个大按钮。</li>
+      <li><b>Mac 端走 A（小助手）还是 B（去沙箱）？</b></li>
+    </ol>
+  </div>
+
+  <footer>RemoteCrab · 远程终端线框 · 用于讨论，不是最终视觉稿</footer>
+</div>
+</body>
+</html>

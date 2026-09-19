@@ -61,6 +61,15 @@ final class CaptureEngine: ObservableObject {
     /// publishes omit icons (only an explicit switcher request fetches
     /// them).
     @Published private(set) var macAppIcons: [String: UIImage] = [:]
+    /// Mac windows for the full-screen window picker, front-to-back.
+    @Published private(set) var macWindows: [IBWindowInfo] = []
+    /// False when the Mac lacks Screen Recording, so `macWindows` holds
+    /// one app-level entry per app instead of real windows.
+    @Published private(set) var windowsCanCapture = false
+    /// Decoded window snapshots keyed by `IBWindowInfo.id`. Kept across
+    /// refreshes so a background refresh without pixels doesn't blank the
+    /// cards.
+    @Published private(set) var macWindowSnapshots: [String: UIImage] = [:]
     /// Fixed listening port (for manual "connect by IP" when Bonjour is
     /// blocked) + this device's WiFi address, shown in the connection sheet.
     @Published private(set) var listeningPort: UInt16?
@@ -1136,6 +1145,11 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBAppListRequest())
     }
 
+    /// Ask the Mac for a fresh window list (window picker).
+    func requestMacWindows() {
+        broadcaster?.send(IBWindowListRequest())
+    }
+
     /// Bring a Mac app to the front.
     func activateMacApp(id: String) {
         broadcaster?.send(IBActivateApp(id: id))
@@ -1352,6 +1366,16 @@ final class CaptureEngine: ObservableObject {
                     for app in list.apps where app.iconPNG != nil {
                         if let data = app.iconPNG, let image = UIImage(data: data) {
                             macAppIcons[app.id] = image
+                        }
+                    }
+                }
+            case .windowList:
+                if let list = try? IBWire.decodeWindowList(frame) {
+                    macWindows = list.windows
+                    windowsCanCapture = list.canCapture
+                    for window in list.windows where window.snapshotJPEG != nil {
+                        if let data = window.snapshotJPEG, let image = UIImage(data: data) {
+                            macWindowSnapshots[window.id] = image
                         }
                     }
                 }

@@ -2,38 +2,32 @@ import SwiftUI
 import UIKit
 import RemoteCrabCore
 
-/// iPhone-side Mac app switcher: lists the Mac's running apps with their
-/// real icons, pinned apps first, and brings the tapped one to the front.
-/// A deliberate left-swipe (or the long-press menu) quits an app;
-/// force-quitting is destructive and always confirmed.
+/// Full-screen Mac window picker: one large card per window (so the
+/// snapshot is actually readable), newest first. Tap a card to switch and
+/// dismiss; pull down to close. Before a window's snapshot arrives the
+/// card shows that app's icon, so the layout never jumps.
 ///
-/// Inspired by WhisPrompt's window wheel and the Codex Micro macropad's
-/// "jump to the app that needs me" keys — but with no extra hardware.
+/// Everything secondary (pin, quit, force quit) lives in the long-press
+/// menu — the surface itself has no buttons.
 struct AppSwitcherView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("remotecrab.ios.pinnedApps") private var pinnedCSV = ""
 
-    /// The app awaiting a destructive force-quit confirmation.
-    @State private var forceQuitTarget: IBAppInfo?
-    /// Non-nil while the "maybe waiting on a save sheet" hint is shown.
-    @State private var quitHint: String?
+    /// The window whose app is awaiting a destructive force-quit confirm.
+    @State private var forceQuitTarget: IBWindowInfo?
 
     private var pinned: Set<String> {
         Set(pinnedCSV.split(separator: ",").map(String.init))
     }
 
-    private var pinnedApps: [IBAppInfo] {
-        engine.macApps
-            .filter { pinned.contains($0.id) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
-    private var unpinnedApps: [IBAppInfo] {
-        engine.macApps
-            .filter { !pinned.contains($0.id) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    /// Pinned apps first (preserving the Mac's front-to-back order within
+    /// each group).
+    private var orderedWindows: [IBWindowInfo] {
+        guard !pinned.isEmpty else { return engine.macWindows }
+        return engine.macWindows.filter { pinned.contains($0.appId) }
+             + engine.macWindows.filter { !pinned.contains($0.appId) }
     }
 
     private var forceQuitPresented: Binding<Bool> {
@@ -44,144 +38,145 @@ struct AppSwitcherView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if engine.macApps.isEmpty {
-                    ContentUnavailableView {
-                        Label(IBLocale.Switcher.empty, systemImage: "macwindow.on.rectangle")
-                    } description: {
-                        Text(IBLocale.Switcher.hint)
-                    }
-                } else {
-                    list
-                }
+        VStack(spacing: 0) {
+            if !engine.windowsCanCapture && !engine.macWindows.isEmpty {
+                permissionHint
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
             }
-            .navigationTitle(IBLocale.Switcher.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { engine.requestMacApps() } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .accessibilityLabel(IBLocale.Switcher.refresh)
 
-                    Button { engine.sendClipboard() } label: {
-                        Image(systemName: "doc.on.clipboard")
+            if orderedWindows.isEmpty {
+                ContentUnavailableView {
+                    Label(IBLocale.Switcher.empty, systemImage: "macwindow.on.rectangle")
+                } description: {
+                    Text(IBLocale.Switcher.hint)
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(orderedWindows) { window in
+                            card(window)
+                        }
                     }
-                    .accessibilityLabel(IBLocale.Transfer.clipboardToMac)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 28)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(IBLocale.Settings.done) { dismiss() }
-                }
-            }
-            .task { engine.requestMacApps() }
-            .overlay(alignment: .bottom) { hintBanner }
-            .confirmationDialog(
-                IBLocale.Switcher.forceQuitConfirmTitle,
-                isPresented: forceQuitPresented,
-                titleVisibility: .visible,
-                presenting: forceQuitTarget
-            ) { app in
-                Button(IBLocale.Switcher.forceQuit, role: .destructive) {
-                    performQuit(app, force: true)
-                }
-                Button(IBLocale.Connection.cancel, role: .cancel) {}
-            } message: { _ in
-                Text(IBLocale.Switcher.forceQuitConfirmMessage)
             }
         }
-    }
-
-    private var list: some View {
-        List {
-            if !pinnedApps.isEmpty {
-                Section {
-                    ForEach(pinnedApps) { row(for: $0) }
-                } header: {
-                    header(IBLocale.Switcher.pinnedSection)
-                }
-            }
-            Section {
-                ForEach(unpinnedApps) { row(for: $0) }
-            } header: {
-                header(IBLocale.Switcher.allAppsSection)
-            }
+        .presentationDragIndicator(.visible)
+        .task {
+            engine.requestMacApps()
+            engine.requestMacWindows()
         }
-        .listStyle(.insetGrouped)
+        .confirmationDialog(
+            IBLocale.Switcher.forceQuitConfirmTitle,
+            isPresented: forceQuitPresented,
+            titleVisibility: .visible,
+            presenting: forceQuitTarget
+        ) { window in
+            Button(IBLocale.Switcher.forceQuit, role: .destructive) {
+                engine.quitMacApp(id: window.appId, force: true)
+            }
+            Button(IBLocale.Connection.cancel, role: .cancel) {}
+        } message: { _ in
+            Text(IBLocale.Switcher.forceQuitConfirmMessage)
+        }
     }
 
     @ViewBuilder
-    private func row(for app: IBAppInfo) -> some View {
+    private func card(_ window: IBWindowInfo) -> some View {
         Button {
-            engine.activateMacApp(id: app.id)
+            engine.activateMacApp(id: window.appId)
+            dismiss()
         } label: {
-            rowContent(app)
+            cardBody(window)
         }
         .buttonStyle(.plain)
-        // Destructive actions go trailing (left-swipe) and never trigger
-        // on a full swipe — quitting should be deliberate.
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                performQuit(app, force: false)
-            } label: {
-                Label(IBLocale.Switcher.quit, systemImage: "power")
-            }
-        }
-        .swipeActions(edge: .leading) {
-            Button {
-                togglePin(app.id)
-            } label: {
-                Label(pinned.contains(app.id) ? IBLocale.Switcher.unpin : IBLocale.Switcher.pin,
-                      systemImage: pinned.contains(app.id) ? "pin.slash" : "pin")
-            }
-            .tint(.orange)
-        }
         .contextMenu {
             Button {
-                togglePin(app.id)
+                togglePin(window.appId)
             } label: {
-                Label(pinned.contains(app.id) ? IBLocale.Switcher.unpin : IBLocale.Switcher.pin,
-                      systemImage: pinned.contains(app.id) ? "pin.slash" : "pin")
+                Label(pinned.contains(window.appId) ? IBLocale.Switcher.unpin : IBLocale.Switcher.pin,
+                      systemImage: pinned.contains(window.appId) ? "pin.slash" : "pin")
             }
             Divider()
             Button {
-                performQuit(app, force: false)
+                engine.quitMacApp(id: window.appId, force: false)
             } label: {
                 Label(IBLocale.Switcher.quit, systemImage: "power")
             }
             Button(role: .destructive) {
-                forceQuitTarget = app
+                forceQuitTarget = window
             } label: {
                 Label(IBLocale.Switcher.forceQuit, systemImage: "bolt.fill")
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(window.title.isEmpty ? window.appName : "\(window.appName), \(window.title)"))
     }
 
-    private func rowContent(_ app: IBAppInfo) -> some View {
-        HStack(spacing: IBSpace.m.pt) {
-            AppIconView(image: engine.macAppIcons[app.id], name: app.name)
-                .frame(width: 40, height: 40)
+    private func cardBody(_ window: IBWindowInfo) -> some View {
+        VStack(spacing: 0) {
+            shot(window)
+            meta(window)
+        }
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(window.isActive ? IBColor.accent : IBColor.borderSubtle,
+                        lineWidth: window.isActive ? 2 : 1)
+        }
+    }
 
-            Text(app.name)
-                .font(IBFont.bodyLarge)
-                .foregroundStyle(IBColor.textPrimary)
-                .lineLimit(1)
-
-            Spacer(minLength: IBSpace.s.pt)
-
-            if app.isActive {
-                activeBadge
-            } else if pinned.contains(app.id) {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(IBColor.textTertiary)
-                    .accessibilityHidden(true)
+    private func shot(_ window: IBWindowInfo) -> some View {
+        ZStack {
+            Color(uiColor: .tertiarySystemFill)
+            if let image = engine.macWindowSnapshots[window.id] {
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                VStack(spacing: IBSpace.m.pt) {
+                    AppIconTile(image: engine.macAppIcons[window.appId],
+                                name: window.appName, size: 56)
+                    Text(window.title.isEmpty ? window.appName : window.title)
+                        .font(IBFont.bodySmall)
+                        .foregroundStyle(IBColor.textSecondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, IBSpace.l.pt)
+                }
             }
         }
-        .padding(.vertical, IBSpace.xxs.pt)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(app.isActive ? IBLocale.Switcher.active : "")
+        .aspectRatio(aspect(window), contentMode: .fit)
+        .frame(maxWidth: .infinity)
+        .clipped()
+    }
+
+    private func meta(_ window: IBWindowInfo) -> some View {
+        HStack(spacing: IBSpace.s.pt) {
+            AppIconTile(image: engine.macAppIcons[window.appId], name: window.appName, size: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(window.appName)
+                    .font(IBFont.bodyMedium)
+                    .foregroundStyle(IBColor.textPrimary)
+                    .lineLimit(1)
+                if !window.title.isEmpty {
+                    Text(window.title)
+                        .font(IBFont.caption)
+                        .foregroundStyle(IBColor.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: IBSpace.s.pt)
+            if window.isActive {
+                activeBadge
+            }
+        }
+        .padding(.horizontal, IBSpace.m.pt)
+        .padding(.vertical, IBSpace.s.pt)
     }
 
     private var activeBadge: some View {
@@ -196,67 +191,40 @@ struct AppSwitcherView: View {
             .accessibilityHidden(true)
     }
 
-    private func header(_ text: String) -> some View {
-        Text(text)
-            .font(IBFont.eyebrowMono)
-            .ibEyebrowTracking()
-            .foregroundStyle(IBColor.textSecondary)
-    }
-
-    @ViewBuilder
-    private var hintBanner: some View {
-        if let quitHint {
-            Text(quitHint)
+    private var permissionHint: some View {
+        HStack(spacing: IBSpace.s.pt) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text(IBLocale.Switcher.permissionHint)
                 .font(IBFont.bodySmall)
-                .foregroundStyle(IBColor.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, IBSpace.l.pt)
-                .padding(.vertical, IBSpace.m.pt)
-                .background {
-                    IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous)
-                        .stroke(IBColor.borderRegular, lineWidth: 0.5)
-                }
-                .padding(.horizontal, IBSpace.l.pt)
-                .padding(.bottom, IBSpace.l.pt)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .foregroundStyle(IBColor.textSecondary)
+            Spacer(minLength: 0)
         }
+        .padding(IBSpace.m.pt)
+        .background(Color(uiColor: .tertiarySystemFill),
+                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
     }
 
-    private func performQuit(_ app: IBAppInfo, force: Bool) {
-        engine.quitMacApp(id: app.id, force: force)
-        // A graceful quit can stall behind a save sheet on the Mac that
-        // the iPhone can't see. Only then does the hint earn its place.
-        guard !force else { return }
-        let id = app.id
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(1500))
-            guard engine.macApps.contains(where: { $0.id == id }) else { return }
-            withAnimation(.easeOut(duration: 0.2)) {
-                quitHint = IBLocale.Switcher.quitStillRunning(app.name)
-            }
-            try? await Task.sleep(for: .seconds(4))
-            withAnimation(.easeIn(duration: 0.2)) {
-                quitHint = nil
-            }
-        }
+    /// Window content aspect, falling back to a 16:10 card when the Mac
+    /// didn't report a size (app-level entries / no permission).
+    private func aspect(_ window: IBWindowInfo) -> CGFloat {
+        guard window.width > 0, window.height > 0 else { return 16.0 / 10.0 }
+        return CGFloat(window.width / window.height)
     }
 
-    private func togglePin(_ id: String) {
+    private func togglePin(_ appId: String) {
         var set = pinned
-        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        if set.contains(appId) { set.remove(appId) } else { set.insert(appId) }
         pinnedCSV = set.sorted().joined(separator: ",")
     }
 }
 
-/// A Mac app's icon. Falls back to a tinted initial tile while the icon
-/// PNG is still in flight (background list refreshes don't carry icons)
-/// so rows never flash a generic placeholder.
-private struct AppIconView: View {
+/// A Mac app's icon, falling back to a tinted initial tile while the icon
+/// PNG is still in flight (or when the app has a generic icon).
+private struct AppIconTile: View {
     let image: UIImage?
     let name: String
+    let size: CGFloat
 
     private var initial: String {
         String(name.first(where: { !$0.isWhitespace }).map(String.init) ?? "?")
@@ -270,20 +238,16 @@ private struct AppIconView: View {
                     .interpolation(.high)
                     .scaledToFit()
             } else {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
                     .fill(IBColor.accent.opacity(0.14))
                     .overlay {
                         Text(initial)
-                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
                             .foregroundStyle(IBColor.accent)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .stroke(IBColor.borderSubtle, lineWidth: 0.5)
                     }
             }
         }
-        .frame(width: 40, height: 40)
+        .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 }

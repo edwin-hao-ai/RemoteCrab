@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteCrab · 窗口切换 · 大小对比（一行一个 vs 一行两个）</title>
+<style>
+  :root{
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --amber:#FF9F0A;
+    --ink:#1c1c1e; --ink2:#3a3a3c; --muted:#8e8e93;
+    --page:#f2f2f7; --card:#ffffff; --line:#e5e5ea;
+    --canvas1:#0e1013; --canvas2:#191c21;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--ui);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1300px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:20px;letter-spacing:-.01em;margin:56px 0 14px}
+  .sub{color:var(--muted);font-size:16px;margin:0 0 8px}
+  .lead{font-size:16px;color:var(--ink2);max-width:880px;margin:18px 0 0}
+  .tag{display:inline-block;font-size:12px;font-weight:600;color:var(--blue);background:rgba(10,132,255,.1);padding:3px 10px;border-radius:100px;margin-bottom:14px}
+
+  .row{display:flex;gap:34px;flex-wrap:wrap;margin-top:28px}
+  .phonewrap{width:330px}
+  .badge-best{display:inline-block;font-size:12px;font-weight:700;color:#0a5;background:rgba(48,209,88,.14);padding:3px 10px;border-radius:100px;margin-bottom:8px}
+  .badge-alt{display:inline-block;font-size:12px;font-weight:700;color:#9a6a00;background:rgba(255,159,10,.16);padding:3px 10px;border-radius:100px;margin-bottom:8px}
+  .phone{width:330px;background:#0a0a0b;border-radius:46px;padding:11px;box-shadow:0 24px 60px rgba(0,0,0,.22), inset 0 0 0 2px #2a2a2c}
+  .screen{position:relative;border-radius:36px;overflow:hidden;height:680px;background:#0e1013;color:#fff}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#000;border-radius:100px;z-index:9}
+  .statusbar{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600;opacity:.92;z-index:8}
+  .behind{position:absolute;inset:0;background:linear-gradient(160deg,#23262c,#121417);filter:saturate(.7)}
+  .behind .pi{margin:120px auto 0;width:180px;height:120px;border-radius:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center;color:#6b6b70;font-size:12px;text-align:center;padding:0 12px}
+  .sheet{position:absolute;left:0;right:0;top:44px;bottom:0;border-radius:26px 26px 0 0;
+         background:radial-gradient(120% 60% at 50% 0%,#25282e,var(--canvas2) 45%,var(--canvas1));
+         box-shadow:0 -12px 40px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
+  .grab{width:40px;height:5px;border-radius:100px;background:#48484a;margin:10px auto 4px}
+  .grid{flex:1;padding:10px 14px 8px;display:grid;gap:12px;align-content:start;overflow:hidden}
+  .grid.one{grid-template-columns:1fr}
+  .grid.two{grid-template-columns:1fr 1fr}
+  .foot{padding:6px 0 16px;text-align:center;font-size:11px;color:#7c7c80}
+  .cap{font-size:13px;color:var(--ink2);margin-top:14px;padding-left:6px}
+  .cap b{color:var(--ink)}
+
+  .win{border-radius:15px;overflow:hidden;background:#0b0c0e;border:1px solid rgba(255,255,255,.12);
+       box-shadow:0 8px 18px rgba(0,0,0,.35);display:flex;flex-direction:column}
+  .win.active{border-color:var(--blue);box-shadow:0 0 0 2px rgba(10,132,255,.55),0 8px 18px rgba(0,0,0,.35)}
+  .shot{aspect-ratio:16/10.4;position:relative;overflow:hidden;background:#14171b}
+  .titlebar{position:absolute;top:0;left:0;right:0;height:19px;background:rgba(255,255,255,.1);display:flex;align-items:center;gap:4px;padding:0 8px}
+  .light{width:5px;height:5px;border-radius:50%}
+  .wbody{padding:9px 11px;font-size:8px}
+  .line{height:5px;border-radius:2px;background:rgba(255,255,255,.16);margin:5px 0}
+  .shot.dark{background:#08090b;font-family:var(--mono);color:#cfd3da}
+  .shot.dark .g{color:#7ee787}.shot.dark .b{color:#79c0ff}.shot.dark .y{color:#ffd479}.shot.dark .m{color:#8b949e}
+  .shot.light{background:#f3f4f6}.shot.light .line{background:rgba(0,0,0,.12)}
+  .shot.side{display:flex;background:#212429}
+  .side .sb{width:26%;background:rgba(0,0,0,.22);padding:8px 6px}
+  .side .mn{flex:1;padding:9px 10px}
+  .code{font-family:var(--mono);padding:9px 11px;color:#cfd3da;background:#0b0c0f}
+  .code .k{color:#ff7b72}.code .s{color:#a5d6ff}.code .c{color:#8b949e}
+
+  .meta{display:flex;align-items:center;gap:8px;padding:9px 11px;background:rgba(255,255,255,.055)}
+  .meta .ic{border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}
+  .meta .tx{min-width:0}
+  .meta .nm{font-weight:600;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta .wt{color:#98989d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cur{margin-left:auto;font-weight:800;letter-spacing:.04em;color:#fff;background:var(--blue);padding:2px 6px;border-radius:100px;flex:0 0 auto}
+
+  /* size scaling: one-col is big, two-col is small */
+  .one .shot{font-size:10.5px;line-height:1.55;padding:8px 10px}
+  .one .shot.light .wbody{font-size:10px}
+  .one .shot .line{height:6px;margin:6px 0}
+  .one .code{font-size:9.5px;line-height:1.7}
+  .one .meta .ic{width:26px;height:26px;font-size:12px}
+  .one .meta{padding:10px 12px}
+  .one .meta .nm{font-size:13.5px}
+  .one .meta .wt{font-size:11px}
+  .one .cur{font-size:10px;padding:3px 8px}
+
+  .two .shot{font-size:7px;line-height:1.45;padding:5px 7px}
+  .two .shot.light .wbody{font-size:6.5px}
+  .two .code{font-size:6.5px;line-height:1.6}
+  .two .meta .ic{width:18px;height:18px;font-size:9px;border-radius:5px}
+  .two .meta{padding:6px 8px}
+  .two .meta .nm{font-size:10.5px}
+  .two .meta .wt{font-size:8.5px}
+  .two .cur{font-size:8px;padding:2px 5px}
+
+  .shot.loading{display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(110deg,#16181c 30%,#20242b 50%,#16181c 70%);background-size:200% 100%;animation:sheen 1.6s linear infinite}
+  @keyframes sheen{to{background-position:-200% 0}}
+  .appicon{border-radius:12px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;box-shadow:0 6px 16px rgba(0,0,0,.4)}
+
+  .note{background:#fff8ec;border:1px solid #ffe1b3;border-radius:16px;padding:22px;margin-top:44px}
+  .note h3{margin:0 0 10px;font-size:16px}
+  .note ul{margin:8px 0 0;padding-left:20px}
+  .note li{margin:6px 0;color:var(--ink2);font-size:14px}
+  .note code{font-family:var(--mono);font-size:12.5px;background:rgba(0,0,0,.06);padding:1px 5px;border-radius:5px}
+  .kbd{font-family:var(--mono);background:#eaeaec;border:1px solid #d5d5d8;border-bottom-width:2px;border-radius:5px;padding:1px 5px;font-size:12px}
+  footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">交互线框 · 大小对比</span>
+  <h1>窗口切换 · 尺寸取舍</h1>
+  <p class="sub">「一行两个」看得多，但看不清；「一行一个」看得清，但要滑动。先看对比再定。</p>
+
+  <p class="lead">
+    手机屏幕宽约 <b>390pt</b>。一行两个时，每张卡只有约 <b>134pt</b> 宽——一个 1440pt 宽的窗口缩到约 <b>9%</b>，
+    字基本糊掉，只能认出「大概是什么」，读不了内容。<b>要「清晰看到画面」，就得一行一个、整宽大卡。</b>
+  </p>
+
+  <div class="row">
+
+    <!-- ===== A: one per row (big) ===== -->
+    <div class="phonewrap">
+      <span class="badge-best">推荐 · 一行一个</span>
+      <div class="phone"><div class="screen">
+        <div class="behind"><div class="pi">正在使用的 App（模糊变暗）</div></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="sheet">
+          <div class="notch"></div>
+          <div class="grab"></div>
+          <div class="grid one">
+            <div class="win active">
+              <div class="shot dark">
+                <div class="titlebar"><span class="light" style="background:#ff5f57"></span><span class="light" style="background:#febc2e"></span><span class="light" style="background:#28c840"></span></div>
+                <div style="padding-top:26px">
+                  <span class="m">$</span> claude<br>
+                  <span class="g">✓</span> 已读取 AGENTS.md<br>
+                  <span class="b">→</span> 准备执行：<span class="y">rm -rf ./build</span><br>
+                  <span class="y">是否允许这次操作？</span>  <span class="b">[y]</span> 允许&nbsp;&nbsp;<span class="b">[n]</span> 拒绝
+                </div>
+              </div>
+              <div class="meta"><span class="ic" style="background:#1f2937">›_</span><div class="tx"><div class="nm">Terminal</div><div class="wt">Claude Code — 等待确认</div></div><span class="cur">当前</span></div>
+            </div>
+            <div class="win">
+              <div class="shot light">
+                <div class="titlebar" style="background:#e8e8ea"><span class="light" style="background:#ff5f57"></span><span class="light" style="background:#febc2e"></span><span class="light" style="background:#28c840"></span></div>
+                <div class="wbody"><div class="line" style="width:45%;height:8px;background:rgba(0,0,0,.22)"></div><div class="line" style="width:85%"></div><div class="line"></div><div class="line" style="width:70%"></div></div>
+              </div>
+              <div class="meta"><span class="ic" style="background:#2563eb;width:26px;height:26px">S</span><div class="tx"><div class="nm">Safari</div><div class="wt">RemoteCrab — 项目主页</div></div></div>
+            </div>
+          </div>
+          <div class="foot">下拉关闭 · 点窗口即切换 · 上下滑动看更多</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>一行一个 · 整宽</b><br>每张卡约 <b>280pt</b> 宽，是两列版的 <b>2 倍</b>。标题、正文都能看清，一眼就能认出是哪个窗口、在发生什么。</p>
+    </div>
+
+    <!-- ===== B: two per row (small) ===== -->
+    <div class="phonewrap">
+      <span class="badge-alt">对照 · 一行两个</span>
+      <div class="phone"><div class="screen">
+        <div class="behind"><div class="pi">正在使用的 App（模糊变暗）</div></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="sheet">
+          <div class="notch"></div>
+          <div class="grab"></div>
+          <div class="grid two">
+            <div class="win active">
+              <div class="shot dark">
+                <div class="titlebar"><span class="light" style="background:#ff5f57"></span><span class="light" style="background:#febc2e"></span><span class="light" style="background:#28c840"></span></div>
+                <div style="padding-top:22px"><span class="m">$</span> claude<br><span class="g">✓</span> AGENTS.md<br><span class="y">→</span> rm -rf ./build<br><span class="b">[y]</span> 允许 <span class="b">[n]</span> 拒绝</div>
+              </div>
+              <div class="meta"><span class="ic" style="background:#1f2937">›_</span><div class="tx"><div class="nm">Terminal</div><div class="wt">Claude Code</div></div></div>
+            </div>
+            <div class="win">
+              <div class="shot light"><div class="wbody"><div class="line" style="width:60%"></div><div class="line"></div><div class="line" style="width:75%"></div></div></div>
+              <div class="meta"><span class="ic" style="background:#2563eb">S</span><div class="tx"><div class="nm">Safari</div><div class="wt">RemoteCrab</div></div></div>
+            </div>
+            <div class="win">
+              <div class="shot side"><div class="sb"><div class="line" style="width:80%"></div><div class="line" style="width:60%"></div></div><div class="mn"><div class="line" style="width:55%"></div><div class="line" style="width:80%"></div></div></div>
+              <div class="meta"><span class="ic" style="background:#0a84ff">F</span><div class="tx"><div class="nm">Finder</div><div class="wt">Downloads</div></div></div>
+            </div>
+            <div class="win">
+              <div class="shot code"><span class="c">// swift</span><br><span class="k">func</span> run() {<br>&nbsp;&nbsp;<span class="s">"ok"</span><br>}</div>
+              <div class="meta"><span class="ic" style="background:#0ea5e9">X</span><div class="tx"><div class="nm">Xcode</div><div class="wt">Receiver.swift</div></div></div>
+            </div>
+          </div>
+          <div class="foot">下拉关闭 · 点窗口即切换</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>一行两个 · 小</b><br>一屏能看到 4 个，但每张只有约 <b>134pt</b>，窗口里的字看不清，只能靠布局和标题猜。适合「先扫一眼」。</p>
+    </div>
+
+    <!-- ===== C: loading ===== -->
+    <div class="phonewrap">
+      <span class="badge-best">推荐 · 画面未到时</span>
+      <div class="phone"><div class="screen">
+        <div class="behind"><div class="pi">正在使用的 App（模糊变暗）</div></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ ᯤ 100%</span></div>
+        <div class="sheet">
+          <div class="notch"></div>
+          <div class="grab"></div>
+          <div class="grid one">
+            <div class="win">
+              <div class="shot loading"><div class="appicon" style="width:56px;height:56px;font-size:24px;background:linear-gradient(135deg,#1f2937,#111827)">›_</div></div>
+              <div class="meta"><span class="ic" style="background:#1f2937;width:26px;height:26px">›_</span><div class="tx"><div class="nm">Terminal</div><div class="wt">Claude Code — 等待确认</div></div></div>
+            </div>
+            <div class="win">
+              <div class="shot loading" style="animation-delay:-.5s"><div class="appicon" style="width:56px;height:56px;font-size:24px;background:linear-gradient(135deg,#3b82f6,#1d4ed8)">S</div></div>
+              <div class="meta"><span class="ic" style="background:#2563eb;width:26px;height:26px">S</span><div class="tx"><div class="nm">Safari</div><div class="wt">RemoteCrab — 项目主页</div></div></div>
+            </div>
+          </div>
+          <div class="foot">下拉关闭 · 点窗口即切换 · 上下滑动看更多</div>
+        </div>
+      </div></div>
+      <p class="cap"><b>画面还没到</b><br>大卡位置先放该 App 的大图标占位，标题照常可读、照样能点。截图一到就地替换，位置不跳。</p>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <h3>建议</h3>
+    <ul>
+      <li><b>默认「一行一个、整宽大卡」</b>——这是唯一能兑现「清晰看到画面」的排法。上下滑动看更多，滑动手感本身也很轻。</li>
+      <li><b>「一行两个」留作「概览」选项</b>（比如卡片右上角一个小图标切换，或设置里选），但不要作为默认——它看不清。</li>
+      <li><b>真要「读内容」而不是「认窗口」</b>，任何缩略图都不够（就算整宽也只有原窗口 25%）。那需要「点开看大图」或「开实时」，是另一个动作。</li>
+      <li>无论哪种，都保持上一版的极简：<b>没有按钮、下拉关闭、点一下即切</b>。</li>
+    </ul>
+  </div>
+
+  <footer>RemoteCrab · 窗口切换尺寸对比 · 用于讨论，不是最终视觉稿</footer>
+</div>
+</body>
+</html>

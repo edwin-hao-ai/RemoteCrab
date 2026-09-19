@@ -477,6 +477,23 @@
         }
       }
     },
+    "Showing app icons — allow Screen Recording on the Mac to see window previews.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing app icons — allow Screen Recording on the Mac to see window previews."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前只显示应用图标——在 Mac 上允许「屏幕录制」即可看到窗口预览。"
+          }
+        }
+      }
+    },
     "Audio": {
       "extractionState": "manual",
       "localizations": {

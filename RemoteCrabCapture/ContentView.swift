@@ -97,7 +97,7 @@ struct ContentView: View {
         .sheet(isPresented: $showAppSwitcher) {
             AppSwitcherView()
                 .environmentObject(engine)
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $showMacPicker) {
             MacPickerView()
