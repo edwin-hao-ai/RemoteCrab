@@ -114,21 +114,38 @@ struct KeyboardScreen: View {
                     .font(IBFont.monoMedium)
                     .foregroundStyle(.white.opacity(0.4))
             }
-            Text(committedText.isEmpty
-                 ? IBLocale.Keyboard.startTyping
-                 : committedText)
-                .font(IBFont.titleMedium)
-                .foregroundStyle(committedText.isEmpty ? .white.opacity(0.35) : .white)
-                // Accessibility text sizes get unlimited lines — two
-                // lines of AX5 text would clip mid-sentence.
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+            // Bounded height + scroll: a long message stays fully
+            // readable (auto-scrolled to the newest text) without growing
+            // the card until the mini trackpad and keys fall off screen.
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    Text(committedText.isEmpty
+                         ? IBLocale.Keyboard.startTyping
+                         : committedText)
+                        .font(IBFont.titleMedium)
+                        .foregroundStyle(committedText.isEmpty ? .white.opacity(0.35) : .white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Color.clear.frame(height: 1).id(previewBottomID)
+                }
+                .frame(maxHeight: previewMaxHeight)
+                .frame(minHeight: 36, alignment: .top)
+                .onChange(of: committedText) {
+                    proxy.scrollTo(previewBottomID, anchor: .bottom)
+                }
+            }
         }
         .padding(14)
         .background {
             IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
+    }
+
+    private let previewBottomID = "preview-bottom"
+
+    /// A few lines of room, then it scrolls. Accessibility text sizes get
+    /// more height so wrapping doesn't hide most of the message.
+    private var previewMaxHeight: CGFloat {
+        dynamicTypeSize.isAccessibilitySize ? 220 : 120
     }
 
     // MARK: - Mini trackpad

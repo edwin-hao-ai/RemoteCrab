@@ -19,6 +19,14 @@ struct FeatureDock: View {
             voiceButton
 
             HStack(spacing: 10) {
+                // Surfaces anchor the ends (most-used, easiest thumb
+                // reach); the two stream toggles sit in the middle.
+                surfaceButton(
+                    icon: "hand.point.up.left.fill",
+                    surface: .trackpad,
+                    label: IBLocale.Mode.trackpad
+                )
+
                 streamToggle(
                     icon: "video.fill",
                     isOn: features.cameraOn,
@@ -34,12 +42,6 @@ struct FeatureDock: View {
                 ) {
                     features.set(feature: .microphone, enabled: !features.micOn)
                 }
-
-                surfaceButton(
-                    icon: "hand.point.up.left.fill",
-                    surface: .trackpad,
-                    label: IBLocale.Mode.trackpad
-                )
 
                 surfaceButton(
                     icon: "keyboard",
