@@ -37,9 +37,16 @@ struct KeyboardScreen: View {
                 .ignoresSafeArea()
 
             GeometryReader { geo in
+                // Cap the preview so the header + preview + mini trackpad
+                // + shortcut bar always fit ABOVE the system keyboard.
+                // A fixed preview height overflowed on multi-line text and
+                // pushed the lower controls under the keyboard.
+                let available = geo.size.height - 56 - keyboardHeight - IBSpace.m.pt
+                let reserved: CGFloat = 30 + 96 + 44 + IBSpace.m.pt * 3
+                let previewCap = max(44, min(previewMaxHeight, available - reserved))
                 VStack(spacing: IBSpace.m.pt) {
                     header
-                    previewCard
+                    previewCard(maxHeight: previewCap)
                     miniTrackpad
                     shortcutBar
                     SystemKeyboardInput(
@@ -99,7 +106,7 @@ struct KeyboardScreen: View {
 
     // MARK: - Preview
 
-    private var previewCard: some View {
+    private func previewCard(maxHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: "text.cursor")
@@ -127,7 +134,7 @@ struct KeyboardScreen: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Color.clear.frame(height: 1).id(previewBottomID)
                 }
-                .frame(maxHeight: previewMaxHeight)
+                .frame(maxHeight: maxHeight)
                 .frame(minHeight: 36, alignment: .top)
                 .onChange(of: committedText) {
                     proxy.scrollTo(previewBottomID, anchor: .bottom)
@@ -284,6 +291,11 @@ struct KeyboardScreen: View {
         let mask = modifierMask | extra
         engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: mask))
         engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: mask))
+        // Keep the mirror in step with a plain Backspace, or it drifts
+        // from what the Mac now shows.
+        if keycode == 51, mask == 0, !committedText.isEmpty {
+            committedText.removeLast()
+        }
     }
 
     private func handleTextChange(from old: String, to new: String) {

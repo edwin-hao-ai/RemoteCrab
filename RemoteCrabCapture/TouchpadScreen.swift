@@ -11,8 +11,6 @@ import os
 struct TouchpadScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
-    /// Number of times the coach marks have been shown; >= 3 means never again.
-    @AppStorage("remotecrab.ios.trackpadCoachShown") private var coachShownCount: Int = 0
     @AppStorage("remotecrab.ios.labAirMouse") private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
 
@@ -22,7 +20,6 @@ struct TouchpadScreen: View {
     /// Recent touch positions for the motion trail behind the cursor,
     /// newest last. Pruned by age at render time.
     @State private var trail: [(point: CGPoint, at: Date)] = []
-    @State private var showCoach = false
     @State private var airMouseActive = false
     @State private var wheelArmed = false
     /// True while a double-tap-hold selection drag is armed; the
@@ -119,7 +116,6 @@ struct TouchpadScreen: View {
                             cursor = CGPoint(x: 0.5, y: 0.5)
                         }
                     }
-                    dismissCoach()
                 },
                 onDragArmedChange: { armed in
                     withAnimation(IBAnimation.snappy) {
@@ -185,24 +181,12 @@ struct TouchpadScreen: View {
                 .padding(.bottom, dockClearance)
             }
             .padding(.horizontal, IBSpace.xl.pt)
-
-            if showCoach {
-                coachOverlay
-                    .transition(.opacity)
-                    .zIndex(10)
-            }
         }
         // The whole screen is the trackpad: one-finger drags start at
         // the very bottom edge and must not fight the Home indicator,
         // so the system overlays stay hidden (which also defers edge
         // gestures) while this surface is up.
         .persistentSystemOverlays(.hidden)
-        .onAppear {
-            maybeShowCoach()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .trackpadGuideRequested)) { _ in
-            withAnimation(IBAnimation.snappy) { showCoach = true }
-        }
     }
 
     // MARK: - Cursor preview
@@ -312,103 +296,6 @@ struct TouchpadScreen: View {
             .accessibilityAddTraits(active ? .isSelected : [])
     }
 
-    // MARK: - Coach marks
-
-    /// The full gesture guide. Shown on the first couple of visits and
-    /// re-openable from the top-bar menu. It blocks the surface while up
-    /// so it can actually be read (a stray touch can't dismiss it);
-    /// tapping the dimmed background closes it.
-    private var coachOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.5)
-                .ignoresSafeArea()
-                .onTapGesture { dismissCoach() }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: IBSpace.m.pt) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "hand.point.up.left.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white.opacity(0.8))
-                        Text(IBLocale.Coach.title)
-                            .font(IBFont.titleMedium)
-                            .foregroundStyle(.white)
-                        Spacer()
-                    }
-
-                    coachGroup(IBLocale.Coach.sectionMove, [
-                        ("hand.draw", IBLocale.Coach.dragMove),
-                        ("hand.tap", IBLocale.Coach.tapClick)
-                    ])
-                    coachGroup(IBLocale.Coach.sectionScroll, [
-                        ("arrow.up.and.down", IBLocale.Coach.twoFingerScroll),
-                        ("cursorarrow.click.2", IBLocale.Coach.twoFingerRightClick),
-                        ("arrow.up.left.and.arrow.down.right", IBLocale.Coach.pinchZoom)
-                    ])
-                    coachGroup(IBLocale.Coach.sectionDrag, [
-                        ("hand.draw", IBLocale.Coach.doubleTapHoldDrag),
-                        ("arrow.left.and.right", IBLocale.Coach.clutchDrag)
-                    ])
-                    coachGroup(IBLocale.Coach.sectionFingers, [
-                        ("hand.point.up", IBLocale.Coach.threeFingerTap),
-                        ("rectangle.3.group", IBLocale.Coach.threeFingerSwipe),
-                        ("hand.point.up.braille", IBLocale.Coach.forceClick)
-                    ])
-                    coachGroup(IBLocale.Coach.sectionKeys, [
-                        ("command", IBLocale.Coach.modifierBar),
-                        ("shift", IBLocale.Coach.shiftSelect),
-                        ("delete.left", IBLocale.Coach.quickKeys)
-                    ])
-
-                    Button {
-                        dismissCoach()
-                    } label: {
-                        Text(IBLocale.Coach.dismiss)
-                            .font(IBFont.bodyLarge)
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .background { Capsule().fill(IBColor.accent) }
-                    }
-                    .buttonStyle(IBPressButtonStyle())
-                    .padding(.top, IBSpace.xs.pt)
-                }
-                .padding(20)
-                .background {
-                    IBMaterial.glass(
-                        in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous)
-                    )
-                }
-                .padding(.horizontal, IBSpace.l.pt)
-                .padding(.vertical, 72)
-            }
-        }
-    }
-
-    private func coachGroup(_ title: String, _ rows: [(String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(title)
-                .font(IBFont.eyebrowMono)
-                .ibEyebrowTracking()
-                .foregroundStyle(.white.opacity(0.5))
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                coachLine(symbol: row.0, text: row.1)
-            }
-        }
-    }
-
-    private func coachLine(symbol: String, text: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 18))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 28)
-            Text(text)
-                .font(IBFont.bodyMedium)
-                .foregroundStyle(.white)
-            Spacer()
-        }
-    }
 
     /// Compact glass capsule for in-context hints (clutch active,
     /// ⇧ locked). Non-interactive: touches fall through to the surface.
@@ -429,22 +316,5 @@ struct TouchpadScreen: View {
         .allowsHitTesting(false)
     }
 
-    private func maybeShowCoach() {
-        guard coachShownCount < 2 else { return }
-        coachShownCount += 1
-        Self.log.debug("trackpad guide shown (\(self.coachShownCount)/2)")
-        withAnimation(IBAnimation.gentle) { showCoach = true }
-    }
-
-    private func dismissCoach() {
-        guard showCoach else { return }
-        withAnimation(IBAnimation.snappy) {
-            showCoach = false
-        }
-    }
 }
 
-extension Notification.Name {
-    /// Posted from the top-bar menu to re-open the trackpad guide.
-    static let trackpadGuideRequested = Notification.Name("remotecrab.trackpadGuideRequested")
-}

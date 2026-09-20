@@ -13,6 +13,8 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showAppSwitcher = false
     @State private var showMacPicker = false
+    @State private var showTrackpadGuide = false
+    @AppStorage("remotecrab.ios.trackpadGuideShown") private var trackpadGuideShown = false
     @State private var showSendDialog = false
     @State private var showFileImporter = false
     @State private var showPhotoPicker = false
@@ -99,6 +101,14 @@ struct ContentView: View {
                 .environmentObject(engine)
                 .presentationDetents([.large])
         }
+        .sheet(isPresented: $showTrackpadGuide) {
+            TrackpadGuideView()
+                .presentationDetents([.large])
+        }
+        .onChange(of: engine.features.activeSurface) { _, surface in
+            if surface == .trackpad { presentTrackpadGuideIfNeeded() }
+        }
+        .task { presentTrackpadGuideIfNeeded() }
         .sheet(isPresented: $showMacPicker) {
             MacPickerView()
                 .environmentObject(engine)
@@ -481,11 +491,7 @@ struct ContentView: View {
                 Divider()
                 Button {
                     engine.features.activeSurface = .trackpad
-                    // Let the trackpad surface mount before asking it to
-                    // open the guide.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        NotificationCenter.default.post(name: .trackpadGuideRequested, object: nil)
-                    }
+                    showTrackpadGuide = true
                 } label: {
                     Label(IBLocale.Coach.title, systemImage: "hand.point.up.left.fill")
                 }
@@ -502,6 +508,16 @@ struct ContentView: View {
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .accessibilityLabel(IBLocale.App.more)
+        }
+    }
+
+    /// Show the trackpad guide once, the first time the user lands on the
+    /// trackpad (which is also the launch surface).
+    private func presentTrackpadGuideIfNeeded() {
+        guard !trackpadGuideShown, engine.features.activeSurface == .trackpad else { return }
+        trackpadGuideShown = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            showTrackpadGuide = true
         }
     }
 
