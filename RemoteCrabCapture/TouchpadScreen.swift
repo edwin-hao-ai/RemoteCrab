@@ -173,16 +173,23 @@ struct TouchpadScreen: View {
                         .transition(.opacity)
                         .padding(.bottom, IBSpace.s.pt)
                 }
-                VStack(spacing: IBSpace.s.pt) {
-                    // Common typing keys — fix a typo or commit without
-                    // leaving the trackpad surface.
+                // One horizontally-scrollable key row: the modifiers
+                // (leftmost, needed for trackpad gestures) then the
+                // common typing keys. A single row instead of two keeps
+                // the touch surface clear. "Hold to talk" is deliberately
+                // NOT here — it stays a fixed, easy-to-reach control.
+                ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: IBSpace.s.pt) {
+                        IBModifierBar(activeModifiers: $modifiers)
+                        Rectangle()
+                            .fill(IBColor.borderSubtle)
+                            .frame(width: 1, height: 28)
                         quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                         quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                         quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
                         quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36)
                     }
-                    IBModifierBar(activeModifiers: $modifiers)
+                    .padding(.horizontal, 2)
                 }
                 .padding(.bottom, dockClearance)
             }
