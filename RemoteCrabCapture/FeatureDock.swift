@@ -79,7 +79,7 @@ struct FeatureDock: View {
         } label: {
             buttonBody(icon: icon, isActive: isOn)
         }
-        .buttonStyle(DockPressStyle())
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
         .accessibilityLabel(label)
         .accessibilityValue(isOn ? IBLocale.A11y.on : IBLocale.A11y.off)
         .accessibilityAddTraits(isOn ? .isSelected : [])
@@ -95,7 +95,7 @@ struct FeatureDock: View {
         } label: {
             buttonBody(icon: icon, isActive: isActive)
         }
-        .buttonStyle(DockPressStyle())
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
         .accessibilityLabel(label)
         .accessibilityHint(IBLocale.A11y.showsSurface(label))
         .accessibilityAddTraits(isActive ? .isSelected : [])
@@ -204,10 +204,4 @@ struct FeatureDock: View {
 
 /// Pressed-state feedback for the dock's tap buttons — scales the
 /// button down while the finger is on it.
-private struct DockPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.88 : 1.0)
-            .animation(IBAnimation.snappy, value: configuration.isPressed)
-    }
-}
+/// Pressed-state feedback now lives in `IBPressButtonStyle` (RemoteCrabCore).

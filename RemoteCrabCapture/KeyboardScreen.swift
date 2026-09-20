@@ -233,7 +233,7 @@ struct KeyboardScreen: View {
                     }
             }
         }
-        .buttonStyle(ShortcutKeyStyle())
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
         .accessibilityLabel(accessibility)
     }
 
@@ -262,7 +262,7 @@ struct KeyboardScreen: View {
                     }
                 }
         }
-        .buttonStyle(ShortcutKeyStyle())
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
         .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
         .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
     }
@@ -345,11 +345,4 @@ struct KeyboardScreen: View {
 
 /// Pressed-state feedback for the shortcut bar — scales the key down
 /// while the finger is on it (same idiom as `IBKeyboardKey`).
-private struct ShortcutKeyStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.9 : 1.0)
-            .opacity(configuration.isPressed ? 0.8 : 1.0)
-            .animation(IBAnimation.snappy, value: configuration.isPressed)
-    }
-}
+/// Pressed-state feedback now lives in `IBPressButtonStyle` (RemoteCrabCore).

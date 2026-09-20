@@ -93,7 +93,7 @@ struct AppSwitcherView: View {
         } label: {
             cardBody(window)
         }
-        .buttonStyle(PressableCardStyle())
+        .buttonStyle(IBPressButtonStyle(scale: 0.97, highlight: 0.06))
         .contextMenu {
             Button {
                 togglePin(window.appId)
@@ -253,13 +253,4 @@ private struct AppIconTile: View {
     }
 }
 
-/// Tap feedback for a window card. `.plain` gave no pressed state, so a
-/// tap felt like it did nothing (especially when the switch was slow).
-private struct PressableCardStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
-    }
-}
+/// Pressed-state feedback now lives in `IBPressButtonStyle` (RemoteCrabCore).

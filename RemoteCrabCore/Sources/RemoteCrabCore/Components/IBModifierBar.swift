@@ -46,7 +46,7 @@ public struct IBModifierBar: View {
                             keyBackground(isActive: activeModifiers.contains(modifier))
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(IBPressButtonStyle())
                 .accessibilityLabel(accessibilityLabel(for: modifier))
                 .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
             }
