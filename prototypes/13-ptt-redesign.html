@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteCrab · 按住说话（PTT）重新设计 · 交互线框</title>
+<style>
+  :root{
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --amber:#FF9F0A;
+    --ink:#1c1c1e; --ink2:#3a3a3c; --muted:#8e8e93;
+    --page:#f2f2f7; --card:#ffffff; --line:#e5e5ea;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--ui);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:20px;letter-spacing:-.01em;margin:52px 0 14px}
+  .sub{color:var(--muted);font-size:16px;margin:0 0 8px}
+  .lead{font-size:16px;color:var(--ink2);max-width:880px;margin:18px 0 0}
+  .tag{display:inline-block;font-size:12px;font-weight:600;color:var(--blue);background:rgba(10,132,255,.1);padding:3px 10px;border-radius:100px;margin-bottom:14px}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:100px;margin-bottom:8px}
+  .badge.b{color:#0a5db8;background:rgba(10,132,255,.14)}
+  .badge.g{color:#0a7a3f;background:rgba(48,209,88,.14)}
+
+  .row{display:flex;gap:32px;flex-wrap:wrap;margin-top:24px}
+  .phonewrap{width:330px}
+  .phone{width:330px;background:#0a0a0b;border-radius:46px;padding:11px;box-shadow:0 24px 60px rgba(0,0,0,.22), inset 0 0 0 2px #2a2a2c}
+  .screen{position:relative;border-radius:36px;overflow:hidden;height:680px;color:#fff;
+          background:radial-gradient(130% 70% at 50% 0%,#242830,#161a20 46%,#0d1014);display:flex;flex-direction:column}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#000;border-radius:100px;z-index:9}
+  .statusbar{display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600;opacity:.9}
+  .cap{font-size:13px;color:var(--ink2);margin-top:14px;padding-left:6px}
+  .cap b{color:var(--ink)}
+
+  .topbar{display:flex;align-items:center;gap:10px;padding:6px 16px 0}
+  .topbar .ico{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.10);
+               border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:15px}
+  .topbar .spacer{flex:1}
+  .rec{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+  .stage{flex:1;position:relative}
+  .dot{position:absolute;left:50%;top:46%;width:16px;height:16px;border-radius:50%;
+       background:#fff;box-shadow:0 0 0 10px rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.5);transform:translate(-50%,-50%)}
+  .surfacetip{position:absolute;left:50%;top:calc(46% + 40px);transform:translateX(-50%);
+              font-size:12px;color:rgba(255,255,255,.26);white-space:nowrap}
+
+  .keys{display:flex;gap:7px;align-items:center;background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.10);border-radius:20px;padding:6px 8px;backdrop-filter:blur(20px)}
+  .k{width:40px;height:40px;border-radius:11px;background:rgba(255,255,255,.09);
+     border:1px solid rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 auto}
+  .split{width:1px;height:26px;background:rgba(255,255,255,.16);flex:0 0 auto}
+
+  .dock{display:flex;justify-content:space-around;align-items:center;gap:6px;
+        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);
+        border-radius:24px;padding:11px 10px;backdrop-filter:blur(20px);width:100%}
+  .d{width:50px;text-align:center;font-size:9.5px;color:#c7c7cc}
+  .d .ic{width:42px;height:42px;border-radius:13px;margin:0 auto 4px;font-size:17px;
+         background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center}
+  .d.on .ic{background:rgba(10,132,255,.95);box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+
+  /* PTT variants */
+  .mic{display:inline-flex;align-items:center;justify-content:center}
+  .orb{position:absolute;right:20px;bottom:126px;width:78px;height:78px;border-radius:50%;
+       background:linear-gradient(150deg,#3aa0ff,#0073e6);display:flex;flex-direction:column;
+       align-items:center;justify-content:center;gap:1px;
+       box-shadow:0 14px 34px rgba(10,132,255,.5),0 0 0 8px rgba(10,132,255,.12);
+       border:1px solid rgba(255,255,255,.25);z-index:6}
+  .orb .lbl{font-size:10px;font-weight:700;color:#fff;letter-spacing:.02em}
+  .orb .mic{font-size:22px}
+  .orbrush{position:absolute;right:8px;bottom:214px;font-size:11px;color:rgba(255,255,255,.5)}
+  .brashtip{position:absolute;right:20px;bottom:96px;font-size:11px;color:rgba(255,255,255,.42);z-index:6}
+
+  .bigptt{display:flex;align-items:center;justify-content:center;gap:10px;flex:1;
+          background:linear-gradient(135deg,#2f9bff,#0077e6);color:#fff;font-weight:700;font-size:15px;
+          border-radius:20px;padding:16px 18px;box-shadow:0 10px 26px rgba(10,132,255,.38);
+          border:1px solid rgba(255,255,255,.2)}
+  .bigptt .mic{font-size:19px}
+  .rowbar{display:flex;align-items:center;gap:9px;width:100%}
+  .ficon{width:44px;height:44px;border-radius:14px;background:rgba(255,255,255,.08);
+         border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto}
+  .ficon.on{background:rgba(10,132,255,.95);box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+
+  .toggle{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%}
+  .togglebtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+             background:rgba(255,255,255,.07);border:1px solid rgba(10,132,255,.55);color:#fff;
+             font-weight:700;font-size:15px;border-radius:22px;padding:18px}
+  .togglebtn .mic{font-size:20px;color:#5bb6ff}
+  .recstate{display:flex;align-items:center;gap:8px;font-size:12px;color:#ff9d9d}
+  .pulse{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 0 4px rgba(255,69,58,.25)}
+
+  .note{background:#fff8ec;border:1px solid #ffe1b3;border-radius:16px;padding:22px;margin-top:44px}
+  .note h3{margin:0 0 10px;font-size:16px}
+  .note li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .note ul{margin:8px 0 0;padding-left:20px}
+  .pick{background:#f5f5f7;border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:18px}
+  .pick h3{margin:0 0 8px;font-size:16px}
+  .pick li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .pick ol{margin:6px 0 0;padding-left:20px}
+  footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">交互线框 · 非最终视觉</span>
+  <h1>「按住说话」重新设计</h1>
+  <p class="sub">它是 Agent 用户的高频核心操作，必须「闭着眼都能按住」。三种思路并排。</p>
+
+  <p class="lead">
+    上一版把语音当成「一层胶囊」，位置小、还跟其它元素抢地方——对高频操作来说不合格。
+    下面三种把它提到主角位置，同时不牺牲触控板的净空。
+  </p>
+
+  <div class="row">
+
+    <!-- ============ 方案 1：悬浮球 ============ -->
+    <div class="phonewrap">
+      <span class="badge b">方案 1 · 悬浮语音球（可拖）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar"><div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div></div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+          <div class="orushtip" style="position:absolute;right:14px;bottom:216px;font-size:11px;color:rgba(255,255,255,.45)">可拖到顺手的一侧 ↔</div>
+          <div class="orb"><span class="mic">◍</span><span class="lbl">按住</span></div>
+          <div class="brashtip">常驻拇指区 · 不占层</div>
+        </div>
+        <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px;align-items:center">
+          <div class="keys">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+            <div class="split"></div><div class="k">⌫</div><div class="k">,</div><div class="k">.</div><div class="k">⏎</div>
+          </div>
+          <div class="dock">
+            <div class="d on"><div class="ic">▢</div>触控板</div>
+            <div class="d"><div class="ic">◉</div>相机</div>
+            <div class="d"><div class="ic">◍</div>麦克风</div>
+            <div class="d"><div class="ic">⌨</div>键盘</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>方案 1 · 悬浮球</b><br>一个大圆球常驻拇指区，可拖到左右手顺手处；按住即说。<br><b>不占层</b>（浮在触控板上），dock 保持 4 格。<br>风险：可能被触控手势误触，需「按住 ~0.15s」判定。</p>
+    </div>
+
+    <!-- ============ 方案 2：底部宽主键 ============ -->
+    <div class="phonewrap">
+      <span class="badge b">方案 2 · 底部宽主键</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar"><div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div></div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+        </div>
+        <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px;align-items:center">
+          <div class="keys">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+            <div class="split"></div><div class="k">⌫</div><div class="k">,</div><div class="k">.</div><div class="k">⏎</div>
+          </div>
+          <div class="rowbar">
+            <div class="ficon on">▢</div>
+            <div class="ficon">◉</div>
+            <div class="ficon">◍</div>
+            <div class="bigptt"><span class="mic">◍</span>按住说话</div>
+            <div class="ficon">⌨</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>方案 2 · 底部宽主键</b><br>底栏右侧是一块 <b>宽而高</b> 的「按住说话」，4 个功能变紧凑圆图标。<br>拇指一伸就到，目标大、不易滑出。<br>缺点：功能图标变小（40pt），但仍是次要入口。</p>
+    </div>
+
+    <!-- ============ 方案 3：点按式 ============ -->
+    <div class="phonewrap">
+      <span class="badge g">方案 3 · 点按式（tap-to-talk）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar"><div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div></div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+        </div>
+        <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:8px;align-items:center">
+          <div class="toggle">
+            <div class="recstate"><span class="pulse"></span>正在聆听 · 再说一段也行，说完点「结束」</div>
+            <div class="togglebtn"><span class="mic">◍</span>点一下开始 / 结束</div>
+          </div>
+          <div class="keys">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+            <div class="split"></div><div class="k">⌫</div><div class="k">,</div><div class="k">.</div><div class="k">⏎</div>
+          </div>
+          <div class="dock">
+            <div class="d on"><div class="ic">▢</div>触控板</div>
+            <div class="d"><div class="ic">◉</div>相机</div>
+            <div class="d"><div class="ic">◍</div>麦克风</div>
+            <div class="d"><div class="ic">⌨</div>键盘</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>方案 3 · 点按式</b><br>不再「一直按着」：点一下开始、再点结束（或说完静音自动停）。<br>对「给 agent 说一整段长指令」最舒服，手指可以放松。<br>代价：多一个「正在录」状态要管理（防误开）。</p>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <h3>我的判断</h3>
+    <ul>
+      <li><b>要「闭眼按得住」→ 方案 1 或 2。</b> 悬浮球最好按，且不占层；宽主键最稳、最不容易按空。</li>
+      <li><b>对 agent 的长指令 → 方案 3 更人性。</b> 一直按着说 30 秒是真累。很多对讲/语音输入类 App 都改成了点按式。</li>
+      <li>可以<b>组合</b>：默认<b>方案 2 的宽主键</b>，但按下后<b>不松手就是按住模式；快速点一下则进入「免持」持续聆听</b>，再点结束。一个按钮同时满足两种。← 我最推荐这个。</li>
+      <li>悬浮球（方案 1）作为可选：设置里让用户切「拇指球 / 底栏」。</li>
+    </ul>
+  </div>
+
+  <div class="pick">
+    <h3>要你定</h3>
+    <ol>
+      <li>选 <b>1（悬浮球）</b>、<b>2（底部宽主键）</b>、还是 <b>3（点按式）</b>？</li>
+      <li>能不能接受「<b>按住 = 说；轻点 = 免持</b>」的组合式一个按钮？</li>
+      <li>语音按钮放在<b>右下</b>（右手拇指）还是<b>底部居中</b>？</li>
+    </ol>
+  </div>
+
+  <footer>RemoteCrab · PTT 重新设计线框 · 用于讨论，不是最终视觉稿</footer>
+</div>
+</body>
+</html>

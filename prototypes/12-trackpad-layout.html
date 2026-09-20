@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteCrab · 触控板布局减层 · 交互线框</title>
+<style>
+  :root{
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --amber:#FF9F0A;
+    --ink:#1c1c1e; --ink2:#3a3a3c; --muted:#8e8e93;
+    --page:#f2f2f7; --card:#ffffff; --line:#e5e5ea;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--ui);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1240px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:20px;letter-spacing:-.01em;margin:52px 0 14px}
+  .sub{color:var(--muted);font-size:16px;margin:0 0 8px}
+  .lead{font-size:16px;color:var(--ink2);max-width:860px;margin:18px 0 0}
+  .tag{display:inline-block;font-size:12px;font-weight:600;color:var(--blue);background:rgba(10,132,255,.1);padding:3px 10px;border-radius:100px;margin-bottom:14px}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:100px;margin-bottom:8px}
+  .badge.bad{color:#c0392b;background:rgba(255,69,58,.12)}
+  .badge.good{color:#0a7a3f;background:rgba(48,209,88,.14)}
+
+  .row{display:flex;gap:32px;flex-wrap:wrap;margin-top:24px}
+  .phonewrap{width:330px}
+  .phone{width:330px;background:#0a0a0b;border-radius:46px;padding:11px;box-shadow:0 24px 60px rgba(0,0,0,.22), inset 0 0 0 2px #2a2a2c}
+  .screen{position:relative;border-radius:36px;overflow:hidden;height:680px;color:#fff;
+          background:radial-gradient(130% 70% at 50% 0%,#242830,#161a20 46%,#0d1014);display:flex;flex-direction:column}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#000;border-radius:100px;z-index:9}
+  .statusbar{display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600;opacity:.9}
+  .cap{font-size:13px;color:var(--ink2);margin-top:14px;padding-left:6px}
+  .cap b{color:var(--ink)}
+
+  /* floating top bar (app switcher + menu) */
+  .topbar{display:flex;align-items:center;gap:10px;padding:6px 16px 0}
+  .topbar .ico{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.10);
+               border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center;font-size:15px}
+  .topbar .spacer{flex:1}
+  .rec{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+  .stage{flex:1;position:relative}
+  .dot{position:absolute;left:50%;top:54%;width:16px;height:16px;border-radius:50%;
+       background:#fff;box-shadow:0 0 0 10px rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.5);transform:translate(-50%,-50%)}
+  .surfacetip{position:absolute;left:50%;top:calc(54% + 40px);transform:translateX(-50%);
+              font-size:12px;color:rgba(255,255,255,.28);white-space:nowrap}
+
+  /* bottom stack */
+  .bottom{position:absolute;left:0;right:0;bottom:0;padding:0 14px 16px;display:flex;flex-direction:column;gap:8px;align-items:center}
+  .keys{display:flex;gap:7px;align-items:center;background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.10);border-radius:22px;padding:7px 9px;
+        backdrop-filter:blur(20px);max-width:100%}
+  .keys.scroll{position:relative;overflow:hidden}
+  .keys.scroll::after{content:"";position:absolute;right:0;top:0;bottom:0;width:26px;
+        background:linear-gradient(90deg,transparent,rgba(20,22,26,.85));border-radius:0 22px 22px 0}
+  .k{width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,.09);
+     border:1px solid rgba(255,255,255,.13);display:flex;align-items:center;justify-content:center;
+     font-size:16px;font-weight:500;flex:0 0 auto}
+  .k.sym{font-size:15px;opacity:.9}
+  .split{width:1px;height:30px;background:rgba(255,255,255,.16);flex:0 0 auto}
+  .k.wide{width:auto;padding:0 16px;gap:7px;font-size:13px;font-weight:600}
+  .k.voice{background:rgba(10,132,255,.9);border-color:rgba(10,132,255,.9)}
+
+  /* voice capsule variants */
+  .ptt{display:flex;align-items:center;justify-content:center;gap:9px;
+       background:linear-gradient(135deg,var(--blue),#0080e8);color:#fff;font-weight:600;font-size:15px;
+       border-radius:100px;padding:13px 40px;box-shadow:0 10px 26px rgba(10,132,255,.35);
+       border:1px solid rgba(255,255,255,.18)}
+  .ptt.small{padding:10px 30px;font-size:14px;box-shadow:0 8px 20px rgba(10,132,255,.30)}
+
+  .dock{display:flex;justify-content:space-around;align-items:center;gap:6px;
+        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);
+        border-radius:24px;padding:11px 10px;backdrop-filter:blur(20px);width:100%}
+  .d{width:50px;text-align:center;font-size:9.5px;color:#c7c7cc}
+  .d .ic{width:42px;height:42px;border-radius:13px;margin:0 auto 4px;font-size:17px;
+         background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center}
+  .d.on .ic{background:rgba(10,132,255,.95);box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+  .d.voice .ic{background:rgba(10,132,255,.22);border:1px solid rgba(10,132,255,.5)}
+
+  /* layer annotations */
+  .layers{position:absolute;right:8px;top:120px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;z-index:8}
+  .lyt{font-size:10px;font-weight:700;color:#fff;background:rgba(255,69,58,.85);padding:2px 7px;border-radius:6px}
+  .lyt.g{background:rgba(48,209,88,.85)}
+  .bracket{position:absolute;left:8px;top:118px;bottom:120px;width:3px;border-radius:3px;background:rgba(255,69,58,.6)}
+  .bracket.g{background:rgba(48,209,88,.6)}
+
+  .note{background:#fff8ec;border:1px solid #ffe1b3;border-radius:16px;padding:22px;margin-top:44px}
+  .note h3{margin:0 0 10px;font-size:16px}
+  .note ul{margin:8px 0 0;padding-left:20px}
+  .note li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .pick{background:#f5f5f7;border:1px solid var(--line);border-radius:16px;padding:22px;margin-top:18px}
+  .pick h3{margin:0 0 8px;font-size:16px}
+  .pick ol{margin:6px 0 0;padding-left:20px}
+  .pick li{margin:7px 0;color:var(--ink2);font-size:14px}
+  footer{color:var(--muted);font-size:13px;margin-top:40px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">交互线框 · 非最终视觉</span>
+  <h1>触控板布局：减层</h1>
+  <p class="sub">把底部从「四层」压到「两层」，让触控板重新变成大面积净空。</p>
+
+  <p class="lead">
+    问题不是按键本身，而是**层数**：快捷键行 + 修饰键行 + 语音胶囊 + dock，四层同时压在触控区底部。
+    下面三种放法并排对比。
+  </p>
+
+  <div class="row">
+
+    <!-- ================= 现状 ================= -->
+    <div class="phonewrap">
+      <span class="badge bad">现状 · 4 层</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar">
+          <div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+        </div>
+        <div class="bracket"></div>
+        <div class="layers">
+          <span class="lyt">① 快捷键行</span>
+          <span class="lyt">② 修饰键行</span>
+          <span class="lyt">③ 语音胶囊</span>
+          <span class="lyt">④ dock</span>
+        </div>
+        <div class="bottom">
+          <div class="keys">
+            <div class="k sym">⌫</div><div class="k">,</div><div class="k">.</div><div class="k sym">⏎</div>
+          </div>
+          <div class="keys">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+          </div>
+          <div class="ptt">◍ 按住说话</div>
+          <div class="dock">
+            <div class="d on"><div class="ic">▢</div>触控板</div>
+            <div class="d"><div class="ic">◉</div>相机</div>
+            <div class="d"><div class="ic">◍</div>麦克风</div>
+            <div class="d"><div class="ic">⌨</div>键盘</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>现状</b><br>底部四层叠加，触控区被压缩，视觉很吵。</p>
+    </div>
+
+    <!-- ================= 方案 A ================= -->
+    <div class="phonewrap">
+      <span class="badge good">方案 A · 2 层</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar">
+          <div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+        </div>
+        <div class="bracket g"></div>
+        <div class="layers">
+          <span class="lyt g">① 合并键行</span>
+          <span class="lyt g">② dock（含语音）</span>
+        </div>
+        <div class="bottom">
+          <div class="keys scroll">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+            <div class="split"></div>
+            <div class="k sym">⌫</div><div class="k">,</div><div class="k">.</div><div class="k sym">⏎</div>
+          </div>
+          <div class="dock">
+            <div class="d on"><div class="ic">▢</div>触控板</div>
+            <div class="d"><div class="ic">◉</div>相机</div>
+            <div class="d"><div class="ic">◍</div>麦克风</div>
+            <div class="d"><div class="ic">⌨</div>键盘</div>
+            <div class="d voice"><div class="ic">◉</div>按住说话</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>方案 A · 语音进 dock</b><br>两行键合成一行；语音做成 dock 的第 5 个按钮。<br><b>缺点</b>：语音按钮只有 42pt，按住说话偏小；dock 变 5 格更满。</p>
+    </div>
+
+    <!-- ================= 方案 C ================= -->
+    <div class="phonewrap">
+      <span class="badge good">方案 C · 2 层</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar">
+          <div class="ico">▦</div><div class="spacer"></div><span class="rec"></span><div class="ico">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="surfacetip">整屏都是触控板</div>
+        </div>
+        <div class="bracket g"></div>
+        <div class="layers">
+          <span class="lyt g">① 合并键行（含语音）</span>
+          <span class="lyt g">② dock（干净 4 格）</span>
+        </div>
+        <div class="bottom">
+          <div class="keys scroll">
+            <div class="k">⌃</div><div class="k">⌥</div><div class="k">⌘</div><div class="k">⇧</div>
+            <div class="split"></div>
+            <div class="k sym">⌫</div><div class="k">,</div><div class="k">.</div><div class="k sym">⏎</div>
+            <div class="split"></div>
+            <div class="k voice wide">◉ 按住说话</div>
+          </div>
+          <div class="dock">
+            <div class="d on"><div class="ic">▢</div>触控板</div>
+            <div class="d"><div class="ic">◉</div>相机</div>
+            <div class="d"><div class="ic">◍</div>麦克风</div>
+            <div class="d"><div class="ic">⌨</div>键盘</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap"><b>方案 C · 语音并进键行</b><br>dock 保持干净的 4 格；语音在键行最右侧，<b>保留宽大的按住目标</b>。<br><b>缺点</b>：键行更长（靠右需横滑才够得到语音）。</p>
+    </div>
+
+  </div>
+
+  <div class="note">
+    <h3>三种放法对比</h3>
+    <ul>
+      <li><b>现状</b>：四层，最挤。但每样东西都在最顺手的位置。</li>
+      <li><b>方案 A</b>：语音进 dock → dock 5 格。最省层，但按住说话的按钮小，dock 也更满。</li>
+      <li><b>方案 C</b>：语音留在键行右侧、保持宽目标，dock 保持 4 格。层数一样少，语音手感更好。</li>
+    </ul>
+    <p style="margin:12px 0 0;color:var(--ink2);font-size:14px">
+      <b>我推荐 C</b>：dock 是「模式切换」，应该保持干净；语音是「按住的一次性动作」，和快捷键放一起更符合它的语义，也能保住大按钮。⌃⌥⌘⇧ 永远在最左（触控手势最常用），中间是 ⌫ , . ⏎，右边是语音——横向可滑。
+    </p>
+  </div>
+
+  <div class="pick">
+    <h3>要你定</h3>
+    <ol>
+      <li>选 <b>A</b>（语音进 dock）还是 <b>C</b>（语音并进键行）？</li>
+      <li>按键行做成<b>横向可滑</b>可以接受吗？（窄屏放不下时才有用，宽屏一行就够）</li>
+      <li>要不要顺手把 dock 的<b>图标缩小一点</b>、留更多触控区？</li>
+    </ol>
+  </div>
+
+  <footer>RemoteCrab · 触控板布局线框 · 用于讨论，不是最终视觉稿</footer>
+</div>
+</body>
+</html>
