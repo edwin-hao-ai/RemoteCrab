@@ -294,10 +294,33 @@ public enum IBLocale {
 
     /// First-run coach marks on the full-screen trackpad surface.
     public enum Coach {
+        public static let title = IBL("What your trackpad can do")
+        public static let dismiss = IBL("Got it")
+
+        public static let sectionMove = IBL("Move & click")
         public static let dragMove = IBL("Drag to move the cursor")
-        public static let doubleTapHoldDrag = IBL("Hold still, or double-tap and hold, to drag")
-        public static let twoFingerScrollRightClick = IBL("Two fingers to scroll or right-click")
-        public static let accessibilitySummary = IBL("Trackpad gestures: drag to move the cursor, double-tap and hold to drag, two fingers to scroll or right-click")
+        public static let tapClick = IBL("Tap to click")
+
+        public static let sectionScroll = IBL("Scroll & zoom")
+        public static let twoFingerScroll = IBL("Two fingers to scroll — with momentum")
+        public static let twoFingerRightClick = IBL("Two-finger tap for right-click")
+        public static let pinchZoom = IBL("Pinch to zoom")
+
+        public static let sectionDrag = IBL("Select & drag")
+        public static let doubleTapHoldDrag = IBL("Hold still, or double-tap and hold, then move to drag")
+        public static let clutchDrag = IBL("Lift at the edge and touch down again in a moment to keep dragging")
+
+        public static let sectionFingers = IBL("Three & four fingers")
+        public static let threeFingerTap = IBL("Three-finger tap for middle-click")
+        public static let threeFingerSwipe = IBL("Three or four fingers up for Mission Control, sideways to switch desktops")
+        public static let forceClick = IBL("Press hard for right-click")
+
+        public static let sectionKeys = IBL("Modifiers & keys")
+        public static let modifierBar = IBL("Lock ⌃⌥⌘⇧ — they ride on every tap and gesture")
+        public static let shiftSelect = IBL("With ⇧ locked: tap the start, then the end, to select everything between")
+        public static let quickKeys = IBL("⌫ , . ⏎ sit under your thumb for quick fixes")
+
+        public static let accessibilitySummary = IBL("Trackpad guide: drag to move the cursor; tap to click; two fingers scroll, tap for right-click, pinch to zoom; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock ⌃⌥⌘⇧ to combine them, and ⇧ to select a range.")
     }
 
     /// In-context trackpad hints: shown while the drag clutch is

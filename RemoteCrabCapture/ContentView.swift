@@ -261,14 +261,14 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
                     .background { Capsule().fill(.white.opacity(0.15)) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(IBPressButtonStyle())
                 Button(IBLocale.Pairing.allow) { engine.approvePendingMac() }
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 11)
                     .background { Capsule().fill(Color.accentColor) }
-                    .buttonStyle(.plain)
+                    .buttonStyle(IBPressButtonStyle())
             }
         }
         .padding(20)
@@ -376,7 +376,7 @@ struct ContentView: View {
         }
         .frame(width: 44, height: 44)
         .contentShape(Circle())
-        .buttonStyle(.plain)
+        .buttonStyle(IBPressButtonStyle())
         .padding(.top, topInset + 16 + 44 + 12)
         .padding(.trailing, IBSpace.l.pt)
         .accessibilityLabel(IBLocale.A11y.switchCamera)
@@ -423,7 +423,7 @@ struct ContentView: View {
                     }
                     .contentShape(Capsule())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(IBLocale.Capture.turnCameraOn)
         }
     }
@@ -439,7 +439,7 @@ struct ContentView: View {
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
-            .buttonStyle(.plain)
+            .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(IBLocale.Connection.info)
 
             if demoMode {
@@ -463,7 +463,7 @@ struct ContentView: View {
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
-            .buttonStyle(.plain)
+            .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(IBLocale.Switcher.title)
 
             // Everything else lives in ONE overflow menu. The bar used
@@ -477,6 +477,17 @@ struct ContentView: View {
                 }
                 Button { engine.sendClipboard() } label: {
                     Label(IBLocale.Transfer.clipboardToMac, systemImage: "doc.on.clipboard")
+                }
+                Divider()
+                Button {
+                    engine.features.activeSurface = .trackpad
+                    // Let the trackpad surface mount before asking it to
+                    // open the guide.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        NotificationCenter.default.post(name: .trackpadGuideRequested, object: nil)
+                    }
+                } label: {
+                    Label(IBLocale.Coach.title, systemImage: "hand.point.up.left.fill")
                 }
                 Divider()
                 Button { showConnectionSheet = true } label: {
@@ -604,7 +615,7 @@ struct ContentView: View {
                             Capsule().fill(Color.accentColor.opacity(0.9))
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(IBPressButtonStyle())
                     .accessibilityLabel(linkTitle)
                     .padding(.top, 4)
                 }

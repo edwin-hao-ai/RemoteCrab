@@ -23,10 +23,6 @@ struct TouchpadScreen: View {
     /// newest last. Pruned by age at render time.
     @State private var trail: [(point: CGPoint, at: Date)] = []
     @State private var showCoach = false
-    /// Bumped each time the coach marks show/dismiss; the 3.5 s fade
-    /// timer compares against it so a stale timer can't clip a newer
-    /// showing.
-    @State private var coachGeneration = 0
     @State private var airMouseActive = false
     @State private var wheelArmed = false
     /// True while a double-tap-hold selection drag is armed; the
@@ -86,7 +82,7 @@ struct TouchpadScreen: View {
                 )
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(IBPressButtonStyle())
         .accessibilityLabel(accessibility)
     }
 
@@ -143,11 +139,6 @@ struct TouchpadScreen: View {
 
             VStack {
                 Spacer()
-                if showCoach {
-                    coachMarks
-                        .transition(.opacity)
-                }
-                Spacer()
                 if labWheelScroll || labAirMouse {
                     HStack {
                         if labWheelScroll {
@@ -194,6 +185,12 @@ struct TouchpadScreen: View {
                 .padding(.bottom, dockClearance)
             }
             .padding(.horizontal, IBSpace.xl.pt)
+
+            if showCoach {
+                coachOverlay
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
         // The whole screen is the trackpad: one-finger drags start at
         // the very bottom edge and must not fight the Home indicator,
@@ -202,6 +199,9 @@ struct TouchpadScreen: View {
         .persistentSystemOverlays(.hidden)
         .onAppear {
             maybeShowCoach()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .trackpadGuideRequested)) { _ in
+            withAnimation(IBAnimation.snappy) { showCoach = true }
         }
     }
 
@@ -314,25 +314,87 @@ struct TouchpadScreen: View {
 
     // MARK: - Coach marks
 
-    /// First-run gesture hints. Shown on the first 3 entries into the
-    /// trackpad surface; fades out after 3.5 s or on any touch.
-    private var coachMarks: some View {
-        VStack(spacing: 10) {
-            coachLine(symbol: "hand.draw", text: IBLocale.Coach.dragMove)
-            coachLine(symbol: "hand.tap", text: IBLocale.Coach.doubleTapHoldDrag)
-            coachLine(symbol: "arrow.up.and.down", text: IBLocale.Coach.twoFingerScrollRightClick)
+    /// The full gesture guide. Shown on the first couple of visits and
+    /// re-openable from the top-bar menu. It blocks the surface while up
+    /// so it can actually be read (a stray touch can't dismiss it);
+    /// tapping the dimmed background closes it.
+    private var coachOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture { dismissCoach() }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: IBSpace.m.pt) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "hand.point.up.left.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white.opacity(0.8))
+                        Text(IBLocale.Coach.title)
+                            .font(IBFont.titleMedium)
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+
+                    coachGroup(IBLocale.Coach.sectionMove, [
+                        ("hand.draw", IBLocale.Coach.dragMove),
+                        ("hand.tap", IBLocale.Coach.tapClick)
+                    ])
+                    coachGroup(IBLocale.Coach.sectionScroll, [
+                        ("arrow.up.and.down", IBLocale.Coach.twoFingerScroll),
+                        ("cursorarrow.click.2", IBLocale.Coach.twoFingerRightClick),
+                        ("arrow.up.left.and.arrow.down.right", IBLocale.Coach.pinchZoom)
+                    ])
+                    coachGroup(IBLocale.Coach.sectionDrag, [
+                        ("hand.draw", IBLocale.Coach.doubleTapHoldDrag),
+                        ("arrow.left.and.right", IBLocale.Coach.clutchDrag)
+                    ])
+                    coachGroup(IBLocale.Coach.sectionFingers, [
+                        ("hand.point.up", IBLocale.Coach.threeFingerTap),
+                        ("rectangle.3.group", IBLocale.Coach.threeFingerSwipe),
+                        ("hand.point.up.braille", IBLocale.Coach.forceClick)
+                    ])
+                    coachGroup(IBLocale.Coach.sectionKeys, [
+                        ("command", IBLocale.Coach.modifierBar),
+                        ("shift", IBLocale.Coach.shiftSelect),
+                        ("delete.left", IBLocale.Coach.quickKeys)
+                    ])
+
+                    Button {
+                        dismissCoach()
+                    } label: {
+                        Text(IBLocale.Coach.dismiss)
+                            .font(IBFont.bodyLarge)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background { Capsule().fill(IBColor.accent) }
+                    }
+                    .buttonStyle(IBPressButtonStyle())
+                    .padding(.top, IBSpace.xs.pt)
+                }
+                .padding(20)
+                .background {
+                    IBMaterial.glass(
+                        in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous)
+                    )
+                }
+                .padding(.horizontal, IBSpace.l.pt)
+                .padding(.vertical, 72)
+            }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
-        .background {
-            IBMaterial.glass(
-                in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous)
-            )
+    }
+
+    private func coachGroup(_ title: String, _ rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title)
+                .font(IBFont.eyebrowMono)
+                .ibEyebrowTracking()
+                .foregroundStyle(.white.opacity(0.5))
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                coachLine(symbol: row.0, text: row.1)
+            }
         }
-        // Touches fall through to the surface below, which dismisses.
-        .allowsHitTesting(false)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(IBLocale.Coach.accessibilitySummary)
     }
 
     private func coachLine(symbol: String, text: String) -> some View {
@@ -368,27 +430,21 @@ struct TouchpadScreen: View {
     }
 
     private func maybeShowCoach() {
-        guard coachShownCount < 3 else { return }
+        guard coachShownCount < 2 else { return }
         coachShownCount += 1
-        Self.log.debug("coach marks shown (\(self.coachShownCount)/3)")
-        withAnimation(IBAnimation.gentle) {
-            showCoach = true
-        }
-        coachGeneration += 1
-        let generation = coachGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-            guard generation == coachGeneration, showCoach else { return }
-            withAnimation(IBAnimation.gentle) {
-                showCoach = false
-            }
-        }
+        Self.log.debug("trackpad guide shown (\(self.coachShownCount)/2)")
+        withAnimation(IBAnimation.gentle) { showCoach = true }
     }
 
     private func dismissCoach() {
         guard showCoach else { return }
-        coachGeneration += 1
         withAnimation(IBAnimation.snappy) {
             showCoach = false
         }
     }
+}
+
+extension Notification.Name {
+    /// Posted from the top-bar menu to re-open the trackpad guide.
+    static let trackpadGuideRequested = Notification.Name("remotecrab.trackpadGuideRequested")
 }

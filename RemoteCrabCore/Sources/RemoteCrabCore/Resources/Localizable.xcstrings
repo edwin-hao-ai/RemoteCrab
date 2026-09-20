@@ -1552,6 +1552,146 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "回车键" } }
       }
     },
+    "What your trackpad can do": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "What your trackpad can do" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板能做什么" } }
+      }
+    },
+    "Got it": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Got it" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "知道了" } }
+      }
+    },
+    "Move & click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Move & click" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "移动与点击" } }
+      }
+    },
+    "Tap to click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Tap to click" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "轻点即点击" } }
+      }
+    },
+    "Scroll & zoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scroll & zoom" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "滚动与缩放" } }
+      }
+    },
+    "Two fingers to scroll — with momentum": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Two fingers to scroll — with momentum" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "双指滑动滚动（带惯性）" } }
+      }
+    },
+    "Two-finger tap for right-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Two-finger tap for right-click" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "双指轻点 = 右键" } }
+      }
+    },
+    "Pinch to zoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pinch to zoom" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "双指捏合缩放" } }
+      }
+    },
+    "Select & drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select & drag" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择与拖拽" } }
+      }
+    },
+    "Hold still, or double-tap and hold, then move to drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hold still, or double-tap and hold, then move to drag" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "长按不动或双击后按住，再移动即拖拽" } }
+      }
+    },
+    "Lift at the edge and touch down again in a moment to keep dragging": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lift at the edge and touch down again in a moment to keep dragging" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "拖到屏幕边缘抬手，稍候再按下即可继续拖" } }
+      }
+    },
+    "Three & four fingers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three & four fingers" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "三指与四指" } }
+      }
+    },
+    "Three-finger tap for middle-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three-finger tap for middle-click" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "三指轻点 = 中键" } }
+      }
+    },
+    "Three or four fingers up for Mission Control, sideways to switch desktops": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Three or four fingers up for Mission Control, sideways to switch desktops" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "三/四指上滑 = 调度中心，左右滑 = 切换桌面" } }
+      }
+    },
+    "Press hard for right-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Press hard for right-click" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用力按压 = 右键" } }
+      }
+    },
+    "Modifiers & keys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Modifiers & keys" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "修改键与快捷键" } }
+      }
+    },
+    "Lock ⌃⌥⌘⇧ — they ride on every tap and gesture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock ⌃⌥⌘⇧ — they ride on every tap and gesture" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "锁定 ⌃⌥⌘⇧，之后每次点按与手势都会带上" } }
+      }
+    },
+    "With ⇧ locked: tap the start, then the end, to select everything between": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "With ⇧ locked: tap the start, then the end, to select everything between" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "锁定 ⇧ 时：点起点、再点终点，选中之间的全部内容" } }
+      }
+    },
+    "⌫ , . ⏎ sit under your thumb for quick fixes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "⌫ , . ⏎ sit under your thumb for quick fixes" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "⌫ , . ⏎ 就在拇指下方，随手改错字" } }
+      }
+    },
+    "Trackpad guide: drag to move the cursor; tap to click; two fingers scroll, tap for right-click, pinch to zoom; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock ⌃⌥⌘⇧ to combine them, and ⇧ to select a range.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Trackpad guide: drag to move the cursor; tap to click; two fingers scroll, tap for right-click, pinch to zoom; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock ⌃⌥⌘⇧ to combine them, and ⇧ to select a range." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触控板指南：滑动移动光标；轻点点击；双指滚动、双指轻点右键、捏合缩放；长按或双击按住拖拽；三指轻点中键；三/四指切换；锁定 ⌃⌥⌘⇧ 组合使用，锁定 ⇧ 可框选一段。" } }
+      }
+    },
     "Delete key": {
       "extractionState": "manual",
       "localizations": {
