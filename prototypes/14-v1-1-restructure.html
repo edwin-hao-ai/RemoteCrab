@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RemoteCrab · V1.1 最小改动线框（v3 · 基于现有代码）</title>
+<style>
+  :root{
+    --blue:#0A84FF; --green:#30D158; --red:#FF453A; --amber:#FF9F0A;
+    --ink:#1c1c1e; --ink2:#3a3a3c; --muted:#8e8e93;
+    --page:#f2f2f7; --card:#ffffff; --line:#e5e5ea;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+    --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font-family:var(--ui);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1340px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:32px;letter-spacing:-.02em;margin:0 0 6px}
+  h2{font-size:20px;letter-spacing:-.01em;margin:56px 0 6px}
+  .sub{color:var(--muted);font-size:15px;margin:0 0 8px}
+  .lead{font-size:16px;color:var(--ink2);max-width:920px;margin:14px 0 0}
+  .lead b{color:var(--ink)}
+  .lead code{font-family:var(--mono);font-size:13px;background:#ececf0;border-radius:5px;padding:1px 6px}
+  .tag{display:inline-block;font-size:12px;font-weight:600;color:var(--blue);background:rgba(10,132,255,.1);padding:3px 10px;border-radius:100px;margin-bottom:14px}
+  .badge{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:100px;margin-bottom:8px}
+  .badge.b{color:#0a5db8;background:rgba(10,132,255,.14)}
+  .badge.g{color:#0a7a3f;background:rgba(48,209,88,.14)}
+  .badge.keep{color:#5e5ce6;background:rgba(94,92,230,.12)}
+  .badge.amber{color:#8a5800;background:rgba(255,159,10,.16)}
+
+  .row{display:flex;gap:32px;flex-wrap:wrap;margin-top:24px}
+  .phonewrap{width:330px}
+  .phone{width:330px;background:#0a0a0b;border-radius:46px;padding:11px;box-shadow:0 24px 60px rgba(0,0,0,.22), inset 0 0 0 2px #2a2a2c}
+  /* IBGradient.canvasDark 的近似 */
+  .screen{position:relative;border-radius:36px;overflow:hidden;height:680px;color:#fff;
+          background:linear-gradient(180deg,#101527 0%,#0b1020 45%,#151029 100%);display:flex;flex-direction:column}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:96px;height:26px;background:#000;border-radius:100px;z-index:9}
+  .statusbar{display:flex;justify-content:space-between;padding:14px 24px 0;font-size:13px;font-weight:600;opacity:.9}
+  .cap{font-size:13px;color:var(--ink2);margin-top:14px;padding-left:6px}
+  .cap b{color:var(--ink)}
+  .cap code{font-family:var(--mono);font-size:11px;background:#ececf0;border-radius:4px;padding:0 5px}
+  .newdot{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:var(--blue);border-radius:5px;padding:1px 6px;vertical-align:2px;margin-left:4px}
+
+  /* ---- 顶栏（IBMaterial.bar 玻璃圆钮，44pt） ---- */
+  .topbar{display:flex;align-items:center;gap:10px;padding:12px 16px 0}
+  .tb{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.10);
+      display:flex;align-items:center;justify-content:center;font-size:14px;backdrop-filter:blur(20px);color:#fff;position:relative;flex:0 0 auto}
+  .tb.ok{color:var(--green)}
+  .tb.on{background:var(--blue);border-color:transparent;box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+  .tb.onred{background:rgba(255,69,58,.85);border-color:transparent;box-shadow:0 0 0 4px rgba(255,69,58,.2)}
+  .topbar .spacer{flex:1}
+
+  /* ---- 触控板舞台 ---- */
+  .stage{flex:1;position:relative}
+  .dot{position:absolute;left:42%;top:30%;width:44px;height:44px;border-radius:50%;
+       background:radial-gradient(circle at 35% 30%,#4da3ff,#0A84FF 60%,#0066d6);
+       box-shadow:0 0 0 14px rgba(10,132,255,.10),0 10px 30px rgba(10,132,255,.45)}
+  .trail{position:absolute;left:30%;top:20%;width:18px;height:18px;border-radius:50%;background:rgba(10,132,255,.18)}
+  .trail.t2{left:35%;top:24%;width:13px;height:13px;background:rgba(10,132,255,.12)}
+  .coach{position:absolute;left:16px;right:16px;top:40%;background:rgba(255,255,255,.05);
+         border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:13px 16px;backdrop-filter:blur(24px)}
+  .coach .cr{display:flex;align-items:center;gap:10px;font-size:12.5px;font-weight:600;padding:5px 0;color:#e5e5ea}
+  .coach .cr small{display:block;font-size:10.5px;color:rgba(255,255,255,.45);font-weight:500}
+  .coach .cico{width:22px;text-align:center;font-size:13px;opacity:.8}
+
+  /* PiP（现有实现：120×160，右上，可拖，点按→相机面） */
+  .pip{position:absolute;right:14px;top:12px;width:86px;height:115px;border-radius:14px;overflow:hidden;z-index:5;
+       background:linear-gradient(160deg,#3a4a5a,#1c242e);border:1px solid rgba(255,255,255,.14);
+       box-shadow:0 12px 28px rgba(0,0,0,.45)}
+  .pip .eye{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);font-size:19px;opacity:.85}
+  .pip::after{content:"点按全屏";position:absolute;left:0;right:0;bottom:0;font-size:9px;font-weight:700;color:#fff;
+              background:rgba(0,0,0,.45);text-align:center;padding:2.5px 0}
+
+  /* ---- 底部堆叠 ---- */
+  .bottom{padding:0 16px 16px;display:flex;flex-direction:column;gap:9px}
+  /* 快捷键行（TouchpadScreen 现状：修饰键 + ⌫ , . ⏎，横向滚动） */
+  .keyrow{display:flex;gap:7px;align-items:center;overflow:hidden;position:relative}
+  .keyrow::after{content:"";position:absolute;right:0;top:0;bottom:0;width:24px;
+        background:linear-gradient(90deg,transparent,rgba(16,19,32,.9));pointer-events:none}
+  .mod{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);
+       display:flex;align-items:center;justify-content:center;font-size:16px;color:#d5d5da;backdrop-filter:blur(20px);flex:0 0 auto}
+  .mod.locked{background:var(--blue);border-color:transparent;color:#fff;box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+  .qk{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid rgba(10,132,255,.35);
+      display:flex;align-items:center;justify-content:center;font-size:15px;color:#e5e5ea;flex:0 0 auto}
+  .qk.send{background:var(--blue);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(10,132,255,.35)}
+  .ctxchip{display:flex;align-items:center;gap:6px;height:44px;border-radius:12px;flex:0 0 auto;
+           background:rgba(10,132,255,.16);border:1px solid rgba(10,132,255,.45);padding:0 12px;
+           font-size:12px;font-weight:700;color:#8ec2ff;backdrop-filter:blur(20px);white-space:nowrap}
+  .ctxchip .appico{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#5ac8fa,#0a84ff);
+                   display:flex;align-items:center;justify-content:center;font-size:9px;color:#fff}
+  .ctxchip .appico.agent{background:linear-gradient(135deg,#bf5af2,#5e5ce6)}
+  .split{width:1px;height:26px;background:rgba(255,255,255,.14);flex:0 0 auto}
+
+  /* PTT + 键盘 胶囊行（dock 移除后） */
+  .pttrow{display:flex;gap:9px}
+  .ptt{flex:1;display:flex;align-items:center;justify-content:center;gap:9px;
+       background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.14);color:rgba(255,255,255,.85);
+       font-weight:600;font-size:14.5px;border-radius:100px;padding:12px;backdrop-filter:blur(20px)}
+  .ptt.held{background:rgba(255,69,58,.85);border-color:rgba(255,255,255,.5);color:#fff;
+            box-shadow:0 0 20px rgba(255,69,58,.45)}
+  .kb{width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+      display:flex;align-items:center;justify-content:center;font-size:16px;flex:0 0 auto;backdrop-filter:blur(20px)}
+  .kb.on{background:var(--blue);border-color:transparent;box-shadow:0 0 0 4px rgba(10,132,255,.22)}
+
+  /* ---- 键盘面（KeyboardScreen 现状） ---- */
+  .kbhead{display:flex;align-items:center;gap:8px;padding:60px 14px 0;font-size:10px;letter-spacing:.18em;
+          color:rgba(255,255,255,.45);font-family:var(--mono);font-weight:700}
+  .kbcard{margin:10px 10px 0;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);
+          border-radius:16px;padding:12px 14px;backdrop-filter:blur(20px)}
+  .kbcard .kh{display:flex;font-size:9.5px;letter-spacing:.16em;color:rgba(255,255,255,.45);font-family:var(--mono);font-weight:700;margin-bottom:6px}
+  .kbcard .kh span:last-child{margin-left:auto}
+  .kbcard .kt{font-size:15px;color:#fff}
+  .kbcard .kt .caret{display:inline-block;width:2px;height:15px;background:var(--blue);vertical-align:-2px;margin-left:2px}
+  .minipad{margin:10px 10px 0;height:64px;border-radius:14px;background:rgba(255,255,255,.05);
+           border:1px dashed rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;
+           font-size:9.5px;letter-spacing:.18em;color:rgba(255,255,255,.3);font-family:var(--mono);font-weight:700}
+  .ime{margin:10px 10px 0;background:rgba(28,30,36,.96);border-radius:14px;padding:8px;display:flex;flex-direction:column;gap:5px}
+  .ime .cands{display:flex;gap:2px;font-size:12.5px;color:#d5d5da;padding:0 4px 2px}
+  .ime .cands span{padding:2px 8px;border-radius:7px}
+  .ime .cands span:first-child{background:rgba(10,132,255,.85);color:#fff;font-weight:600}
+  .imegrid{display:grid;grid-template-columns:repeat(10,1fr);gap:4px}
+  .ik{height:32px;border-radius:6px;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;font-size:12px;color:#f0f0f2}
+  .ik.wide2{grid-column:span 2}
+  .ik.space{grid-column:span 5}
+
+  /* ---- 情境页（独立全屏 sheet） ---- */
+  .sheet{position:absolute;inset:0;z-index:8;background:rgba(10,13,24,.55);backdrop-filter:blur(26px);
+         display:flex;flex-direction:column;padding:56px 14px 16px}
+  .sheetcard{flex:1;background:rgba(30,36,54,.72);border:1px solid rgba(255,255,255,.10);border-radius:26px;
+             padding:16px;display:flex;flex-direction:column;backdrop-filter:blur(30px)}
+  .sheethead{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .sheethead .appico{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#5ac8fa,#0a84ff);
+                     display:flex;align-items:center;justify-content:center;font-size:15px}
+  .sheethead .appico.agent{background:linear-gradient(135deg,#bf5af2,#5e5ce6)}
+  .sheethead .t b{display:block;font-size:15px}
+  .sheethead .t small{font-size:10px;color:rgba(255,255,255,.5);font-family:var(--mono);letter-spacing:.08em}
+  .sheethead .x{margin-left:auto;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.10);
+                display:flex;align-items:center;justify-content:center;font-size:13px}
+  .seg{display:flex;gap:6px;margin:10px 0 12px}
+  .seg span{font-size:11px;font-weight:700;padding:5px 12px;border-radius:100px;background:rgba(255,255,255,.08);color:#c7c7cc}
+  .seg span.on{background:var(--blue);color:#fff}
+  .keypad{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .kp{border-radius:18px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.10);
+      padding:13px 13px;display:flex;flex-direction:column;gap:5px;backdrop-filter:blur(10px)}
+  .kp .ki{font-size:19px}
+  .kp b{font-size:13px}
+  .kp small{font-size:10px;color:rgba(255,255,255,.45);font-family:var(--mono)}
+  .kp.hero{grid-column:span 2;flex-direction:row;align-items:center;gap:13px;background:linear-gradient(135deg,#2f9bff,#0077e6);border-color:transparent}
+  .kp.hero small{color:rgba(255,255,255,.7)}
+  .kp.hero .ki{font-size:24px}
+  .kp.wide{grid-column:span 2}
+  .slider{height:6px;border-radius:3px;background:rgba(255,255,255,.14);position:relative;margin-top:6px}
+  .slider i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--blue)}
+  .slider b{position:absolute;top:-4px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  .sheetfoot{margin-top:12px;display:flex;align-items:center;gap:8px;font-size:10.5px;color:rgba(255,255,255,.45)}
+  .sheetfoot .gear{margin-left:auto;font-size:12px}
+
+  /* ---- Mac 设置窗 ---- */
+  .macwrap{width:460px}
+  .macwin{background:#f5f5f7;border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.18);border:1px solid #dcdce0}
+  .mactitle{display:flex;align-items:center;gap:6px;padding:10px 14px;background:#ececee;border-bottom:1px solid #dcdce0}
+  .mactitle i{width:12px;height:12px;border-radius:50%;display:block}
+  .mactitle i:nth-child(1){background:#ff5f57}.mactitle i:nth-child(2){background:#febc2e}.mactitle i:nth-child(3){background:#28c840}
+  .mactitle b{margin-left:10px;font-size:13px;color:var(--ink2)}
+  .macbody{padding:10px 20px;font-size:13.5px;color:var(--ink)}
+  .prefrow{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}
+  .prefrow:last-child{border-bottom:none}
+  .prefrow .pico{width:32px;height:32px;border-radius:8px;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;flex:0 0 auto}
+  .prefrow .pt{flex:1}
+  .prefrow .pt b{display:block;font-size:13.5px}
+  .prefrow .pt small{color:var(--muted);font-size:11.5px}
+  .switch{width:44px;height:26px;border-radius:100px;background:var(--green);position:relative;flex:0 0 auto}
+  .switch::after{content:"";position:absolute;right:2px;top:2px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.25)}
+
+  .keep{background:#f4f1ff;border:1px solid #ddd8f5;border-radius:16px;padding:22px;margin-top:28px}
+  .keep h3{margin:0 0 10px;font-size:16px;color:#5e5ce6}
+  .keep ul{margin:8px 0 0;padding-left:20px}
+  .keep li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .keep li b{color:var(--ink)}
+  .note{background:#fff8ec;border:1px solid #ffe1b3;border-radius:16px;padding:22px;margin-top:28px}
+  .note h3{margin:0 0 10px;font-size:16px}
+  .note ul{margin:8px 0 0;padding-left:20px}
+  .note li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .note li b{color:var(--ink)}
+  .note li code{font-family:var(--mono);font-size:12px;background:#fff;border-radius:4px;padding:0 5px}
+  .open{background:#eef6ff;border:1px solid #cfe4ff;border-radius:16px;padding:22px;margin-top:28px}
+  .open h3{margin:0 0 10px;font-size:16px;color:#0a5db8}
+  .open li{margin:7px 0;color:var(--ink2);font-size:14px}
+  .open ol{margin:6px 0 0;padding-left:20px}
+  footer{color:var(--muted);font-size:13px;margin-top:44px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">交互线框 v3 · 基于现有代码 · 2026-09-22</span>
+  <h1>RemoteCrab V1.1：干掉底部 tab 栏</h1>
+  <p class="sub">FeatureDock 退役。键盘入口挪到「按住说话」旁边，相机/麦克风开关挪到顶栏，回车键在快捷键区升为主发送键；情境页兜底 = Mac 基本能力控制台。</p>
+
+  <p class="lead">
+    读完现有代码后的结论：底部 FeatureDock（<code>FeatureDock.swift</code>，PTT 胶囊 + 4 钮行）可以整个去掉——
+    它的四个功能都有更好的家：<b>触控板是默认主界面</b>不需要入口；<b>相机/麦克风</b>本来就是全局开关，
+    挪到顶栏（和它们的状态天然该在的地方，一屏省出整行）；<b>键盘</b>按你的意见放到 PTT 胶囊左边。
+    快捷键行里<b>回车（keycode 36）今天就已经在</b>（<code>TouchpadScreen.swift:177</code>），
+    这版把它染成主色当「发送」键。修饰键锁定、快捷键行、键盘面布局、Liquid Glass 风格——一行不动。
+  </p>
+  <p class="lead">
+    情境页的思路借自 <b>MuseTap</b>（App Store 上的 Mac 遥控器）：它的哲学是「沙发遥控器」——
+    单手、大按钮、跟着前台 app 换场景、没场景时永远有系统层兜底（音量 / 媒体 / 睡眠 / 快速启动）。
+    我们 adopting 这个分层：<b>匹配到 app → 它的套件；匹配不到 → Mac 控制台（F 框）</b>，永远不空。
+    不同点：我们的底层是手势引擎 + 完整键盘 + 摄像头/麦克风流，控制台只是情境页的一个兜底段，不是主界面。
+  </p>
+
+  <div class="row">
+
+    <!-- A: 触控板面（dock 移除后） -->
+    <div class="phonewrap">
+      <span class="badge b">A · 触控板面（默认，无 dock）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar">
+          <div class="tb ok">✓</div>
+          <div class="spacer"></div>
+          <div class="tb">▦</div>
+          <div class="tb">📷</div>
+          <div class="tb">🎙</div>
+          <div class="tb">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="trail"></div><div class="trail t2"></div>
+          <div class="dot"></div>
+          <div class="coach">
+            <div class="cr"><span class="cico">👆</span><div>Drag<small>Move cursor</small></div></div>
+            <div class="cr"><span class="cico">⚪️</span><div>Tap<small>Left click</small></div></div>
+            <div class="cr"><span class="cico">✌️</span><div>Two fingers<small>Scroll / right click</small></div></div>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="keyrow">
+            <div class="ctxchip"><span class="appico">▶︎</span>Keynote</div>
+            <div class="mod">⇧</div><div class="mod">⌃</div><div class="mod locked">⌘</div><div class="mod">⌥</div>
+            <div class="split"></div>
+            <div class="qk">⌫</div><div class="qk">,</div><div class="qk">.</div>
+            <div class="qk send">⏎</div>
+          </div>
+          <div class="pttrow">
+            <div class="kb">⌨️</div>
+            <div class="ptt">🎤 按住说话</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">底部只剩两层：<b>快捷键行</b>（现状原样 + 情境 chip 在最左 + ⏎ 主色化）和 <b>PTT 行</b>（⌨️ + 按住说话）。触控板净空从 148pt 缩到 ~110pt 的底部占用。顶栏接收 📷/🎙 开关（关=灰玻璃，开=蓝/红）。</p>
+    </div>
+
+    <!-- B: 键盘面 -->
+    <div class="phonewrap">
+      <span class="badge b">B · ⌨️ → 键盘面（现状保留）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="kbhead">⌨️<span style="letter-spacing:.18em;margin-left:auto">TYPING ON MAC</span></div>
+        <div class="kbcard">
+          <div class="kh"><span>ON YOUR MAC</span><span>12</span></div>
+          <div class="kt">帮我重构这个函数<span class="caret"></span></div>
+        </div>
+        <div class="minipad">MINI TRACKPAD</div>
+        <div style="padding:10px 10px 0">
+          <div class="keyrow">
+            <div class="ctxchip"><span class="appico agent">◆</span>Kimi</div>
+            <div class="qk">esc</div><div class="qk">tab</div>
+            <div class="mod">⌃</div><div class="mod">⌥</div><div class="mod locked">⌘</div><div class="mod">⇧</div>
+            <div class="qk">⌘⇥</div><div class="qk send">⏎</div>
+          </div>
+        </div>
+        <div style="flex:1"></div>
+        <div class="ime">
+          <div class="cands"><span>函数</span><span>韩树</span><span>汉书</span><span>…</span></div>
+          <div class="imegrid">
+            <div class="ik">Q</div><div class="ik">W</div><div class="ik">E</div><div class="ik">R</div><div class="ik">T</div>
+            <div class="ik">Y</div><div class="ik">U</div><div class="ik">I</div><div class="ik">O</div><div class="ik">P</div>
+            <div class="ik">A</div><div class="ik">S</div><div class="ik">D</div><div class="ik">F</div><div class="ik">G</div>
+            <div class="ik">H</div><div class="ik">J</div><div class="ik">K</div><div class="ik">L</div><div class="ik">⏎</div>
+            <div class="ik wide2">⇧</div><div class="ik">Z</div><div class="ik">X</div><div class="ik">C</div>
+            <div class="ik">V</div><div class="ik">B</div><div class="ik">N</div><div class="ik">M</div><div class="ik">⌫</div>
+            <div class="ik">🌐</div><div class="ik">🎤</div><div class="ik space">空格</div>
+            <div class="ik">←</div><div class="ik">→</div><div class="ik">🖐</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">键盘面就是今天的 K3，一行不改：预览卡 + mini 触控板 + 快捷键行（esc/tab/⌃⌥⌘⇧/⌘⇥…）+ 系统 IME。退出方式：系统键盘左下 🖐 手势键 / 或顶栏下方点空白——<b>或再点一次 ⌨️ 圆钮</b>（它在 dock 移除后改驻顶栏旁？见待确认 #1）。⏎ 发送沿用 IME return 语义。</p>
+    </div>
+
+    <!-- C: 相机开 → PiP -->
+    <div class="phonewrap">
+      <span class="badge b">C · 📷 开 → PiP 浮层（现有机制）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>▮▮▮ 100%</span></div>
+        <div class="topbar">
+          <div class="tb ok">✓</div>
+          <div class="spacer"></div>
+          <div class="tb">▦</div>
+          <div class="tb on">📷</div>
+          <div class="tb onred">🎙</div>
+          <div class="tb">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="pip"><div class="eye">👁</div></div>
+          <div class="dot"></div>
+          <div class="coach">
+            <div class="cr"><span class="cico">👆</span><div>Drag<small>Move cursor</small></div></div>
+            <div class="cr"><span class="cico">⚪️</span><div>Tap<small>Left click</small></div></div>
+            <div class="cr"><span class="cico">✌️</span><div>Two fingers<small>Scroll / right click</small></div></div>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="keyrow">
+            <div class="ctxchip"><span class="appico">▶︎</span>Keynote</div>
+            <div class="mod">⇧</div><div class="mod">⌃</div><div class="mod">⌘</div><div class="mod">⌥</div>
+            <div class="split"></div>
+            <div class="qk">⌫</div><div class="qk">,</div><div class="qk">.</div>
+            <div class="qk send">⏎</div>
+          </div>
+          <div class="pttrow">
+            <div class="kb">⌨️</div>
+            <div class="ptt">🎤 按住说话</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">顶栏 📷 点亮 → 现有 PiP 机制（120×160、可拖动、点按进相机全屏面）直接接管，零新代码。相机全屏面的退出：再点一次顶栏 📷（关流）或加一个 ✕——见待确认 #2。🎙 开 = 红点钮。</p>
+    </div>
+  </div>
+
+  <!-- ================= 情境页 ================= -->
+  <h2>情境快捷键：快捷键行最左的 chip → 呼出独立页面</h2>
+  <p class="sub">入口不在顶栏、不占新行——就是快捷键行（ScrollView 横向滚动）的第一颗 chip，实时显示 Mac 前台 app。触控板面和键盘面都有它。</p>
+  <div class="row">
+
+    <!-- D: 情境页 Keynote -->
+    <div class="phonewrap">
+      <span class="badge b">D · 点 chip → 情境页（Keynote）</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="sheet">
+          <div class="sheetcard">
+            <div class="sheethead">
+              <div class="appico">▶︎</div>
+              <div class="t"><b>Keynote</b><small>FRONTMOST · LIVE</small></div>
+              <div class="x">✕</div>
+            </div>
+            <div class="seg"><span class="on">演讲</span><span>编辑</span></div>
+            <div class="keypad">
+              <div class="kp hero"><span class="ki">▶︎</span><div><b>播放 / 结束</b><br><small>⌥⌘P · ESC</small></div></div>
+              <div class="kp"><span class="ki">←</span><b>上一页</b><small>←</small></div>
+              <div class="kp"><span class="ki">→</span><b>下一页</b><small>→</small></div>
+              <div class="kp"><span class="ki">🔦</span><b>激光笔</b><small>触控板变光点</small></div>
+              <div class="kp"><span class="ki">译</span><b>快捷翻译</b><small>选中即译</small></div>
+              <div class="kp"><span class="ki">⏱</span><b>演讲计时</b><small>本地显示</small></div>
+              <div class="kp"><span class="ki">⬛️</span><b>黑屏 / 白屏</b><small>B / W</small></div>
+            </div>
+            <div class="sheetfoot">按键 = Mac 快捷键事件（现有 KeyEvent 注入）<span class="gear">⚙️ 自定义</span></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">独立全屏 sheet，用完 ✕ 关掉，触控板净空零占用。套件按 Mac 前台 app 自动切换；播放检测自动进「演讲」段。</p>
+    </div>
+
+    <!-- E: 情境页 Agent -->
+    <div class="phonewrap">
+      <span class="badge b">E · 同一页面 · AI Agent 套件</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="sheet">
+          <div class="sheetcard">
+            <div class="sheethead">
+              <div class="appico agent">◆</div>
+              <div class="t"><b>Kimi Code</b><small>TERMINAL · FRONTMOST</small></div>
+              <div class="x">✕</div>
+            </div>
+            <div class="seg"><span class="on">Agent</span><span>终端</span></div>
+            <div class="keypad">
+              <div class="kp hero"><span class="ki">🎤</span><div><b>按住说话给 Agent</b><br><small>复用 VoiceRecognizer</small></div></div>
+              <div class="kp"><span class="ki">⇄</span><b>切换 Session</b><small>/resume</small></div>
+              <div class="kp"><span class="ki">◈</span><b>切换 Model</b><small>/model</small></div>
+              <div class="kp"><span class="ki">✓</span><b>批准</b><small>⏎</small></div>
+              <div class="kp"><span class="ki">✕</span><b>拒绝 / 中断</b><small>⌃C</small></div>
+              <div class="kp"><span class="ki">📋</span><b>复制输出</b><small>⌘C</small></div>
+              <div class="kp"><span class="ki">📥</span><b>粘贴</b><small>⌘V</small></div>
+            </div>
+            <div class="sheetfoot">匹配 kimi / claude / codex / opencode 进程<span class="gear">⚙️ 自定义</span></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">数据源今天就有：Mac 的 appList/isActive（协议 0x0C）。所有按键走现有 KeyEvent 注入，agent 侧零适配。</p>
+    </div>
+
+    <!-- F: 无匹配 → Mac 基本能力（MuseTap 式） -->
+    <div class="phonewrap">
+      <span class="badge g">F · 无匹配 app → Mac 基本能力</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="sheet">
+          <div class="sheetcard">
+            <div class="sheethead">
+              <div class="appico" style="background:linear-gradient(135deg,#8e8e93,#48484a)">⌘</div>
+              <div class="t"><b>Mac 控制台</b><small>DEFAULT · ALWAYS AVAILABLE</small></div>
+              <div class="x">✕</div>
+            </div>
+            <div class="seg"><span class="on">系统</span><span>媒体</span><span>启动</span></div>
+            <div class="keypad">
+              <div class="kp wide"><b>🔊 音量</b><div class="slider"><i style="width:62%"></i><b style="left:58%"></b></div><small>拖动 = 实时调节</small></div>
+              <div class="kp wide"><b>☀️ 屏幕亮度</b><div class="slider"><i style="width:78%"></i><b style="left:74%"></b></div><small>主显示器</small></div>
+              <div class="kp"><span class="ki">⏯</span><b>播放 / 暂停</b><small>媒体键</small></div>
+              <div class="kp"><span class="ki">⏭</span><b>上一首 / 下一首</b><small>媒体键</small></div>
+              <div class="kp"><span class="ki">🌙</span><b>专注模式</b><small>勿扰切换</small></div>
+              <div class="kp"><span class="ki">🔒</span><b>锁屏 / 睡眠</b><small>⌃⌘Q</small></div>
+              <div class="kp wide"><span class="ki">🚀</span><b>快速启动</b><small>Safari · 音乐 · 备忘录…（自定义 app / 网址）</small></div>
+            </div>
+            <div class="sheetfoot">任何 app 不匹配时都可用 · 永远兜底<span class="gear">⚙️ 自定义</span></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">没有匹配套件（或干脆没检测到前台 app）时，情境页 = <b>Mac 基本能力控制台</b>：音量 / 亮度滑杆、媒体键、专注模式、锁屏睡眠、快速启动。这也是 MuseTap 哲学的核心层——「沙发遥控器」永远有用，不依赖识别任何 app。</p>
+    </div>
+  </div>
+
+  <!-- ================= Mac 自启动 + AWDL ================= -->
+  <h2>Mac 开机自启动 &nbsp;·&nbsp; AWDL 无网络直连</h2>
+  <div class="row">
+
+    <div class="macwrap">
+      <span class="badge b">Mac · 设置新增三项</span>
+      <div class="macwin">
+        <div class="mactitle"><i></i><i></i><i></i><b>RemoteCrab · 设置</b></div>
+        <div class="macbody">
+          <div class="prefrow">
+            <div class="pico">⚡︎</div>
+            <div class="pt"><b>登录时自动启动<span class="newdot">新</span></b><small>常驻菜单栏，iPhone 随时可连（SMAppService）</small></div>
+            <div class="switch"></div>
+          </div>
+          <div class="prefrow">
+            <div class="pico" style="background:#8e8e93">📡</div>
+            <div class="pt"><b>自动连接已配对 iPhone<span class="newdot">新</span></b><small>启动即搜索，token 静默重连</small></div>
+            <div class="switch"></div>
+          </div>
+          <div class="prefrow">
+            <div class="pico" style="background:var(--amber)">✦</div>
+            <div class="pt"><b>点对点直连（AWDL）<span class="newdot">新</span></b><small>无路由器时与 iPhone 直连 Wi-Fi</small></div>
+            <div class="switch"></div>
+          </div>
+        </div>
+      </div>
+      <p class="cap">Mac 端就这三行。<code>SMAppService.mainApp.register()</code> 一行注册，用户可在系统设置 → 登录项管理。</p>
+    </div>
+
+    <div class="phonewrap">
+      <span class="badge amber">AWDL · 状态图标区分</span>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>✈️ 无 WiFi</span></div>
+        <div class="topbar">
+          <div class="tb" style="color:#7ab8ff;border-color:rgba(10,132,255,.5)">✓</div>
+          <div class="spacer"></div>
+          <div class="tb">▦</div>
+          <div class="tb">📷</div>
+          <div class="tb">🎙</div>
+          <div class="tb">⋯</div>
+        </div>
+        <div class="stage">
+          <div class="dot"></div>
+          <div class="coach">
+            <div class="cr"><span class="cico">✦</span><div>点对点直连<small>AWDL · 8ms · 无路由器</small></div></div>
+          </div>
+        </div>
+        <div class="bottom">
+          <div class="keyrow">
+            <div class="ctxchip"><span class="appico">▶︎</span>Keynote</div>
+            <div class="mod">⇧</div><div class="mod">⌃</div><div class="mod locked">⌘</div><div class="mod">⌥</div>
+            <div class="split"></div>
+            <div class="qk">⌫</div><div class="qk">,</div><div class="qk">.</div>
+            <div class="qk send">⏎</div>
+          </div>
+          <div class="pttrow">
+            <div class="kb">⌨️</div>
+            <div class="ptt">🎤 按住说话</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="cap">双端各一行 <code>includePeerToPeer = true</code>，同一套 NWListener/NWBrowser/Bonjour 自动获得点对点通道；wire 协议零改动。连接详情 sheet 里显示「点对点直连」。</p>
+    </div>
+  </div>
+
+  <!-- ================= 保留 & 改动清单 ================= -->
+  <div class="keep">
+    <h3>不动的部分（对照代码确认过）</h3>
+    <ul>
+      <li><b>快捷键行 + 修饰键锁定</b>（<code>TouchpadScreen.swift:168-181</code>：IBModifierBar ⇧⌃⌥⌘ + ⌫ , . ⏎）——原样保留，⏎ 染主色当发送键</li>
+      <li><b>键盘面 K3 全部</b>（<code>KeyboardScreen.swift</code>：预览卡 / mini 触控板 / shortcut bar / 系统 IME / return=发送清空）</li>
+      <li><b>PiP 机制</b>（<code>ContentView.swift:712-750</code>：可拖动、点按进相机全屏）——直接承接「相机是浮层」</li>
+      <li><b>按住说话手势语义</b>（<code>FeatureDock.swift:132-140</code> DragGesture 按住/松开）——原样搬到新 PTT 行</li>
+      <li><b>顶栏其余</b>：状态钮 / app 切换器 ▦ / ⋯ 溢出菜单</li>
+      <li><b>视觉</b>：IBGradient.canvasDark、IBMaterial.bar 玻璃、IBFont、System Blue</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <h3>改动清单（代码级）</h3>
+    <ul>
+      <li><b>删</b>：<code>FeatureDock.swift</code> 的 4 钮行；PTT 胶囊逻辑（voiceButton + startVoice/stopVoice）搬进 ContentView 底部新 PTT 行</li>
+      <li><b>ContentView 顶栏</b>：+📷/🎙 两个 44pt 圆钮（复用 <code>features.set(feature:)</code>）；底部 VStack 换成「PTT 行」：⌨️ 圆钮（切 keyboard ↔ trackpad）+ PTT 胶囊</li>
+      <li><b>常量重测</b>：dock 没了之后 <code>TouchpadScreen.dockClearance</code>（148）和 <code>ContentView.voiceCardBottomInset</code>（204/146）要按新底部高度重算</li>
+      <li><b>快捷键行</b>：最左插入情境 chip（读 appList 的 isActive 项，协议已有）；⏎ 用 accent 色</li>
+      <li><b>新增</b>：情境 sheet 页（套件注册表 bundle id/进程名 → 按键集；按键全走现有 <code>sendKeyTap</code>/KeyEvent）；无匹配时回落到 Mac 控制台套件</li>
+      <li><b>Mac 端新动作</b>（控制台套件需要）：音量 = CoreAudio 默认输出 <code>kAudioDevicePropertyVolumeScalar</code>；媒体键/锁屏 = CGEvent system-defined（NX_KEYTYPE_*）；亮度 = IOKit（内建屏好做，外接显示器走 DDC/CI，标「实验」）；快速启动 = <code>NSWorkspace.openApplication</code> / open URL。都走一个新 wire kind（<code>systemCommand</code>）或复用 KeyEvent，量不大</li>
+      <li><b>相机面退出</b>：dock 没了以后需要一个出口（再点 📷 / ✕）</li>
+      <li><b>Mac</b>：设置 +3 行（SMAppService 自启动 / 自动连接 / AWDL）；连接层双端 <code>includePeerToPeer</code></li>
+      <li><b>E2E</b>：<code>REMOTECRAB_E2E_SURFACE</code> 仍直接设 <code>activeSurface</code>，不受影响；UI 截图脚本里 dock 相关构图要更新</li>
+    </ul>
+  </div>
+
+  <div class="open">
+    <h3>待你确认</h3>
+    <ol>
+      <li><b>⌨️ 入口的落点</b>：现在画在 PTT 胶囊左边（触控板面）。键盘面里怎么退出——再点一次 ⌨️、系统键盘上的 🖐 键、还是下滑手势？</li>
+      <li><b>相机全屏面的退出</b>：dock 没了之后，再点一次顶栏 📷（关流并返回）还是单独的 ✕（返回但保持流）？</li>
+      <li><b>情境 chip 位置</b>：快捷键行最左（现在画的，横向滚动时可能滑出屏）还是固定不滚？</li>
+      <li><b>Mac 控制台的范围</b>：音量/亮度/媒体键/锁屏/快速启动（F 框这些）V1.1 全做，还是先音量+媒体键两个最稳的？外接显示器亮度（DDC）建议标实验或砍掉。</li>
+      <li><b>套件范围</b>：内置「演讲 + Agent + 控制台（兜底）」三套，长按 chip 自定义——激光笔要不要（唯一需要 Mac 端新 UI 的项）？</li>
+      <li><b>AWDL</b>：默认开启做兜底，还是默认关、标注「实验性」？</li>
+    </ol>
+  </div>
+
+  <footer>RemoteCrab V1.1 · 最小改动线框 v3 · prototypes/14-v1-1-restructure.html · 2026-09-22</footer>
+</div>
+</body>
+</html>
