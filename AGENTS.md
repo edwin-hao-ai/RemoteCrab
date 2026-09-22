@@ -90,12 +90,12 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 94 automated tests (see below)
+│   ├── Tests/                    # 109 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
 │       ├── Input/                # InputInjector + RecordingInputInjector + TrackpadMath + TextDiff
-│       ├── State/                # FeatureStore (@Observable, single source of truth)
+│       ├── State/                # FeatureStore (@Observable, single source of truth) + ContextProfiles (context-sheet suites)
 │       └── Networking/           # IBProtocol, IBWire, IBEvents, IBEventBroadcaster
 ├── RemoteCrabCapture/               # iOS app
 │   ├── Info.plist                # permissions + Bonjour service declaration
@@ -103,8 +103,8 @@ RemoteCrab/
 │   ├── RootView.swift            # Onboarding → Permissions → ContentView
 │   ├── OnboardingFlow.swift      # 3-page paged TabView with hero/perm/pair pages
 │   ├── PermissionFlow.swift      # per-permission request cards (camera/mic/speech/local-network)
-│   ├── ContentView.swift         # feature-dock home: surfaces + PiP + voice card
-│   ├── FeatureDock.swift         # 5-icon dock: stream toggles + surface switcher + hold-to-talk
+│   ├── ContentView.swift         # surfaces + PiP + voice card; top-bar cam/mic toggles + bottom ⌨️/PTT row (V1.1, dock removed)
+│   ├── ContextSheetView.swift    # frontmost-app context sheet: header + 2-col action grid + voice hero (V1.1)
 │   ├── CameraPreview.swift       # AVCaptureVideoPreviewLayer wrapper
 │   ├── CaptureEngine.swift       # AVCaptureSession + Bonjour publish + broadcaster + Mac→iOS control
 │   ├── VoiceRecognizer.swift     # hold-to-talk: SFSpeechRecognizer on-device → KeyEvent(.text)
@@ -128,6 +128,7 @@ RemoteCrab/
 │   ├── TestWindowView.swift      # connection self-check: 4 quadrants (camera/keyboard/trackpad/mic)
 │   ├── CameraExtensionBridge.swift  # host→extension XPC bridge
 │   ├── SystemExtensionManager.swift # OSSystemExtensionRequest activation for the CMIO sysex
+│   ├── SystemCommandHandler.swift  # IBSystemCommand (0x19) executor: media-key/volume/brightness CGEvents + NSWorkspace launch
 │   ├── Input/CGEventInjector.swift   # real CGEventPost injector
 │   ├── Input/InputInjector.swift    # protocol + RecordingInputInjector
 │   ├── RemoteCrabReceiver.entitlements
@@ -218,6 +219,7 @@ frames defined in `RemoteCrabCore/Networking/IBWire.swift`:
 | fileAck | `0x12` | **Mac** | UTF-8 JSON `IBFileAck` `{id,status,receivedBytes,path?}` |
 | clipboardSet | `0x13` | **both** | UTF-8 JSON `IBClipboard` `{text}` — replace the peer's clipboard |
 | textCommand | `0x14` | iOS | UTF-8 JSON `IBTextCommandMessage` `{command}` — rewrite the Mac's selection |
+| systemCommand | `0x19` | iOS | UTF-8 JSON `IBSystemCommand` `{command, argument?}` — Mac 系统控制（音量/亮度/媒体键/启动 app）; `0x15`–`0x18` are cameraCommand / quitApp / windowListRequest / windowList |
 
 The protocol is bidirectional since V0.3: Mac can toggle iPhone
 features and measure latency.
@@ -291,11 +293,12 @@ buffering. The parser refuses frames larger than 64 MiB
 | Camera capture + H.264 encode | `CaptureEngine.swift`, `H264Encoder.swift` | 1080p @ 30 fps, hardware encode via VideoToolbox |
 | Bonjour publish | `CaptureEngine.swift` | `_remotecrab._tcp` service on `local.` |
 | Microphone capture | `MicrophoneEncoder.swift` | AVAudioEngine → 20 ms Opus packets (`IBOpusEncoder`, 48 kHz mono 24 kbps; PCM fallback if the codec is unavailable). **Real-hardware gotcha**: the input node delivers Float32 non-interleaved, so `int16ChannelData` is nil on device — buffers must be converted to mono Int16; also requires an active `AVAudioSession` (`.playAndRecord`) before `engine.start()` or the tap never fires |
-| **Feature dock home (V0.3)** | `ContentView.swift`, `FeatureDock.swift` | Camera/mic = stream toggles, trackpad/keyboard = surfaces; draggable PiP preview |
+| **Feature home (V1.1 layout)** | `ContentView.swift` | FeatureDock removed (V0.3 dock retired): camera/mic stream toggles are round `video.fill`/`mic.fill` buttons in the top bar; trackpad/keyboard are surfaces; a bottom row holds a round `keyboard` button + the PTT capsule; draggable PiP preview. Camera surface has an ✕ close button, keyboard surface a back button |
+| **Context sheet (V1.1)** | `ContextSheetView.swift`, `RemoteCrabCore/State/ContextProfiles.swift` | A context chip pinned at the left of the trackpad/keyboard shortcut rows (outside the ScrollView) opens a full sheet keyed to the Mac's frontmost app (`CaptureEngine.frontmostMacApp`): presentation / agent / console suites (console is the fallback); actions are KeyEvent replays or `systemCommand` (0x19); voice hero triggers PTT |
 | **Feature state store (V0.3)** | `RemoteCrabCore/State/FeatureStore.swift` | `@Observable`, single source of truth, synced to Mac via `featureState` |
 | **Trackpad gesture engine (V0.3)** | `Input/TouchSurface.swift` | Drag (double-tap-hold), momentum scroll, pinch, accel curve, haptics, force right-click, 3-finger gestures. **Joystick-style relative positioning**: the Mac cursor never teleports — hover applies deltas, discrete events fire at the hover position; the on-screen dot springs back to center on lift and leaves a fading motion trail |
 | **K3 keyboard (V0.3)** | `KeyboardScreen.swift` | System IME (Chinese/dictation work), shortcut bar, lockable modifiers, 96pt mini trackpad |
-| **Hold-to-talk voice (V0.3)** | `VoiceRecognizer.swift`, `FeatureDock.swift` | On-device SFSpeechRecognizer (zh-Hans/en-US) → `KeyEvent(.text)`; mic stream yields while active. Wide PTT capsule floats above the dock (it's a momentary action, not a mode toggle) |
+| **Hold-to-talk voice (V0.3)** | `VoiceRecognizer.swift`, `ContentView.swift` | On-device SFSpeechRecognizer (zh-Hans/en-US) → `KeyEvent(.text)`; mic stream yields while active. Wide PTT capsule sits in the bottom row (it's a momentary action, not a mode toggle) |
 | **Background mic (V0.3)** | `Info.plist` (`UIBackgroundModes: audio`) | Mic keeps streaming with the app backgrounded (screen shows the system mic indicator). Camera still hard-stops in background — platform restriction; capture-session interruption observers restart video on return |
 | **Labs (V0.3, default off)** | `IOSSettingsView.swift`, `Input/TouchSurface.swift` | Air mouse (gyro tilt) + wheel scrolling (draw circles) |
 | Onboarding | `OnboardingFlow.swift` | 3-page paged: Hero / Permissions / Pair Mac |
@@ -318,6 +321,8 @@ buffering. The parser refuses frames larger than 64 MiB
 | Preview window | `PreviewWindow.swift` | Minimalist live video display |
 | Connection test window | `TestWindowView.swift` | 4-quadrant live self-check (camera / keyboard echo / trackpad pad / mic RMS); data from `ReceiverSession` event mirrors (`typedText`/`lastKey`/`touchVisual`/`micLevel`/`latencyHistory`) written in `handleInbound` before injection |
 | Camera Extension skeleton | `RemoteCrabCameraExtension/` | system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle |
+| **System commands (V1.1)** | `SystemCommandHandler.swift` | Executes `systemCommand` (0x19): volume/brightness/media keys via system-defined CGEvents (step-based — no readback channel), `launchApp`/`openURL` via NSWorkspace |
+| **Settings (V1.1)** | `PreferencesView.swift`, `ReceiverSession.swift`, `BonjourBrowser.swift` | launchAtLogin wired to `SMAppService.mainApp` (was a dead toggle); autoReconnect gate now actually gates the reconnect loop (`remotecrab.autoReconnect`); AWDL peer-to-peer toggle `remotecrab.mac.peerToPeer` (default true) feeds `includePeerToPeer` on both the browser and outbound dials (`tcpParameters()`) |
 
 ### Multi-Mac pairing (V0.4, 2026-09-12)
 
@@ -358,7 +363,7 @@ it. Now ownership is explicit:
 
 ## Tests
 
-94 tests in `RemoteCrabCore/Tests/`, all pass:
+109 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
@@ -369,7 +374,9 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── TextDiffTests.swift                 (6)  IME text diffing → KeyEvent sequences
 ├── PairingTests.swift                 (19)  clientHello/sessionReply round-trip, ownership policy, preferred-Mac, allow-list store
 ├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
-├── AppSwitcherWireTests.swift          (3)  appList / appListRequest / activateApp round-trip
+├── AppSwitcherWireTests.swift          (8)  appList / appListRequest / activateApp + windowList / cameraCommand / quitApp round-trips
+├── ContextProfilesTests.swift          (7)  frontmost-app → presentation/agent/console suite mapping, fallback
+├── SystemCommandWireTests.swift        (3)  IBSystemCommand (0x19) wire round-trip
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
 ├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
 ├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
@@ -418,7 +425,7 @@ land in the wrong window.
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 94 tests + both apps build
+./scripts/test.sh                    # 109 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -488,7 +495,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 94 automated tests passing
+- 109 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -526,6 +533,7 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - **V0.4** — Virtual microphone, real-device validation sprint
 - **V0.5** — ~~Real Opus encoding~~ ✅ (2026-09-15, Apple AudioConverter, zero deps), localization
 - **V1.0** — Public App Store release
+- ~~**V1.1** — UI restructure: dock removed (top-bar toggles + PTT row), context sheet (presentation/agent/console suites), `systemCommand` 0x19, Mac settings wired (launchAtLogin/autoReconnect/AWDL)~~ ✅ (2026-09-22)
 - **V1.2** — Context-sheet action labels localization batch (V1.1 ships the
   presentation/agent/console suites with English labels; sheet chrome —
   `IBLocale.Context.open` / `.footer` — is already bilingual)
@@ -707,13 +715,16 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     For `simctl launch`, pass env vars with a `SIMCTL_CHILD_` prefix.
 
 12. **The iOS top bar is a floating overlay — surfaces must leave room.**
-    `ContentView` overlays a compact top bar (status icon + an overflow
-    `Menu`) plus a centered status alert card. `KeyboardScreen` pads its
+    `ContentView` overlays a compact top bar (status icon + cam/mic
+    stream toggles + an overflow `Menu`) plus a centered status alert
+    card. `KeyboardScreen` pads its
     top by 56pt so its header (正在 Mac 上输入) isn't covered. The
-    `FeatureDock` is ~134pt tall (44pt PTT capsule + 10 gap + 64 button
-    row + 16 ContentView padding), so `TouchpadScreen.dockClearance` is
-    **148** — at the old 88 the ⌃⌥⌘⇧ modifier bar sat on top of the
-    "按住说话" capsule. Keep these numbers in sync when the dock grows.
+    bottom `pttRow` (round `keyboard` button + wide PTT capsule) is
+    ~76pt tall, so `TouchpadScreen.dockClearance` is **76** (was 148
+    when the V0.3 FeatureDock — ~134pt of capsule + button row — still
+    existed; at the old 88 the ⌃⌥⌘⇧ modifier bar sat on top of the
+    "按住说话" capsule). Keep these numbers in sync when the bottom
+    row grows.
     Long status text must never go in a cramped pill (it wrapped one CJK
     glyph per line); it goes in the alert card.
 13. **Never surface a raw `NWError`/POSIX error.** `"\(error)"` shows
@@ -926,8 +937,9 @@ below were invisible to the simulator and to `./scripts/test.sh`:
 22. **The camera is OFF by default (2026-09-15).** Users may only want
     the mic, the trackpad, or voice typing — streaming video on launch
     was the surprising default. `FeatureStore.cameraOn = false`; the
-    local preview still runs, nothing is SENT until the dock toggle
-    (`handleEncodedFrame` guards on `features.cameraOn`). The camera
+    local preview still runs, nothing is SENT until the camera toggle
+    (top-bar `video.fill` button since V1.1; `handleEncodedFrame`
+    guards on `features.cameraOn`). The camera
     surface already had a "CAMERA IS OFF / TURN ON" placeholder, so no
     new UI was needed. Headless e2e opts back in explicitly:
     `REMOTECRAB_AUTOSTREAM=1` sets the camera feature on connect.
@@ -936,7 +948,7 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     surprise: the user covered the lens / walked away and the Mac kept
     watching). On `.background` the engine sets the camera feature off
     and broadcasts `featureState`; back in the foreground the surface
-    shows the OFF placeholder + a hint to tap the dock icon
+    shows the OFF placeholder + a hint to tap the camera toggle
     (`IBLocale.Error.resumedAfterBackground`). Mic keeps flowing in the
     background by design (`UIBackgroundModes: audio`).
 23. **A stale speculative direct-IP dial starved Bonjour (fixed 2026-09-15).**
@@ -1148,6 +1160,32 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     review risk. To enable it, add `UIBackgroundModes: [audio]` to
     `project-ios.yml` and be ready to justify it to Apple.
 
+37. **V1.1 layout: the feature dock is gone (2026-09-22).**
+    `FeatureDock.swift` was deleted; camera/mic stream toggles moved to
+    the `ContentView` top bar (round `video.fill`/`mic.fill` buttons)
+    and the bottom row (`pttRow`: round `keyboard` button + wide PTT
+    capsule). The layout constants moved with it:
+    `TouchpadScreen.dockClearance` is now **76** (was 148) and
+    `ContentView.voiceCardBottomInset` is **132/72** (was 204/146) —
+    these are the plan's values and have NOT had a visual pass on
+    device/simulator yet; if the shortcut bar crowds the PTT row, tune
+    these first. The context sheet (`ContextSheetView` + Core
+    `State/ContextProfiles.swift`) keys off the Mac's frontmost app
+    (`CaptureEngine.frontmostMacApp` from `IBAppList.isActive`):
+    Keynote/PowerPoint → presentation suite, terminals + VSCode/Cursor
+    → agent suite, everything else → console (fallback). Sheet actions
+    are either KeyEvent replays or `systemCommand` (0x19) frames —
+    volume/brightness/media step via system-defined CGEvents,
+    `launchApp`/`openURL` via NSWorkspace
+    (`RemoteCrabReceiver/SystemCommandHandler.swift`); lock screen is
+    deliberately a ⌃⌘Q KeyEvent chord from the iOS side, not a
+    systemCommand. AWDL peer-to-peer is enabled at BOTH ends (iOS
+    `NWListener.includePeerToPeer = true`; Mac browser + outbound dials
+    via `ReceiverSession.tcpParameters()`, Preferences toggle
+    `remotecrab.mac.peerToPeer` default true). The V1.2 backlog (laser
+    pointer, quick-launch customization, action-label localization) is
+    tracked in the Roadmap section — don't duplicate it here.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1240,6 +1278,6 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-19 (V1.0 SUBMITTED: iOS build 2026091802 → version 1.0 + TestFlight Internal; Mac 1.0 Developer ID notarized DMG via `scripts/release-mac.sh`; domain → `vgoapp.com/remotecrab/`; iOS download links + App Review notes + demo video; lessons 29-36 added. Remaining human step: ASC privacy-policy URL in the browser.)_
+_Last updated: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired; lesson 37 added; 109 tests green + both app targets build. Visual constants dockClearance=76 / voiceCardBottomInset=132/72 not yet visually verified.)_
 
-_Previous: 2026-09-16 by kimi (ASC assets: 32 narrative screenshots en-US+zh-Hans × iPhone 6.9"+iPad 13" all COMPLETE on app 6811599153, bilingual metadata/subtitle pushed; Bonjour `\DDD` display fix shipped to /Applications; lessons 27-28)._
+_Previous: 2026-09-19 (V1.0 SUBMITTED: iOS build 2026091802 → version 1.0 + TestFlight Internal; Mac 1.0 Developer ID notarized DMG via `scripts/release-mac.sh`; domain → `vgoapp.com/remotecrab/`; iOS download links + App Review notes + demo video; lessons 29-36 added. Remaining human step: ASC privacy-policy URL in the browser.)_
