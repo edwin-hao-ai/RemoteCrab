@@ -31,13 +31,13 @@ fail() { echo -e "${RED}✗ $1${RESET}"; exit 1; }
 # the default DerivedData.
 CI_DERIVED_DATA="$ROOT/.build/ci-derived-data"
 
-# 1. RemoteCrabCore package — 94 unit + integration + e2e tests
+# 1. RemoteCrabCore package — 109 unit + integration + e2e tests
 #    covering: wire protocol, Bonjour discovery, event pipeline,
 #    feature store, trackpad math, text diffing, Opus codec.
 echo ""
 echo "── RemoteCrabCore package tests ──"
 if swift test --package-path RemoteCrabCore 2>&1 | tail -10; then
-  pass "RemoteCrabCore tests (94 e2e + unit)"
+  pass "RemoteCrabCore tests (109 e2e + unit)"
 else
   fail "RemoteCrabCore tests"
 fi

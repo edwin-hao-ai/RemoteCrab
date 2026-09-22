@@ -42,6 +42,9 @@ struct ContextSheetView: View {
                 engine.features.set(feature: .voice, enabled: false)
             }
         }
+        .onDisappear {
+            if voiceHeld { stopVoice() }
+        }
     }
 
     private var header: some View {
