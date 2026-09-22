@@ -31,7 +31,11 @@ final class MicrophoneEncoder: @unchecked Sendable {
         // without this the tap sees silence (or the engine fails).
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            // `.record` (not `.playAndRecord`): once the app declares
+            // `UIBackgroundModes: [audio]` iOS rejects a `.playAndRecord`
+            // activation with "Session activation failed" (561017449).
+            // The mic only records, so `.record` is the right category.
+            try session.setCategory(.record, mode: .default, options: [])
             try session.setActive(true)
         } catch {
             Self.log.error("audio session setup failed: \(error, privacy: .public)")

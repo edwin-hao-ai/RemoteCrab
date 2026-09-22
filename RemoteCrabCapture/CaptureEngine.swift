@@ -365,7 +365,7 @@ final class CaptureEngine: ObservableObject {
             // Stay reachable while backgrounded / locked: without this
             // iOS suspends the app, the Bonjour listener goes away, and
             // the Mac can't reconnect until the app is reopened.
-            BackgroundKeepAlive.shared.start()
+            applyKeepAlive()
             UIApplication.shared.isIdleTimerDisabled =
                 UserDefaults.standard.bool(forKey: "remotecrab.ios.keepScreenOn")
                 || ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1"
@@ -769,12 +769,15 @@ final class CaptureEngine: ObservableObject {
             captureSession.addOutput(videoOutput)
         }
 
-        if let micDevice = AVCaptureDevice.default(for: .audio) {
-            let audioInput = try AVCaptureDeviceInput(device: micDevice)
-            if captureSession.canAddInput(audioInput) {
-                captureSession.addInput(audioInput)
-            }
-        }
+        // Deliberately NO audio input on the capture session. The mic is
+        // captured separately by `MicrophoneEncoder` (AVAudioEngine); an
+        // AVCaptureDeviceInput(audio) here makes AVCaptureSession manage
+        // the app's AVAudioSession (its default automatic config), which
+        // competes with the encoder and — once `UIBackgroundModes: [audio]`
+        // is declared — makes the mic's `.playAndRecord` activation fail
+        // with "Session activation failed" (561017449). Nothing consumes a
+        // capture-session audio output anyway.
+        captureSession.automaticallyConfiguresApplicationAudioSession = false
 
         captureSession.commitConfiguration()
 
@@ -1545,12 +1548,30 @@ final class CaptureEngine: ObservableObject {
     private func syncMicrophone(_ enabled: Bool) {
         Forensic.log("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)")
         if enabled {
+            // A live record session already keeps iOS from suspending us,
+            // so the silent keep-alive must stand down completely before
+            // the mic reconfigures the session — leaving it active in
+            // `.playback` makes the mic's `.playAndRecord` switch fail
+            // with '!pri' (incompatible category while active).
+            BackgroundKeepAlive.shared.stop()
             if audioEncoder == nil {
                 audioEncoder = MicrophoneEncoder()
             }
             if let broadcaster { audioEncoder?.start(broadcaster: broadcaster) }
         } else {
             audioEncoder?.stop()
+            applyKeepAlive()
+        }
+    }
+
+    /// Hold the app open in the background, unless a record session
+    /// (mic/voice) is already doing so.
+    private func applyKeepAlive() {
+        let recording = features.micOn || features.voiceOn
+        if isStreaming && !recording {
+            BackgroundKeepAlive.shared.start()
+        } else {
+            BackgroundKeepAlive.shared.stop()
         }
     }
 

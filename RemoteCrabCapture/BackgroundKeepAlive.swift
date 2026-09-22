@@ -32,10 +32,12 @@ final class BackgroundKeepAlive: @unchecked Sendable {
 
     func start() {
         guard !isActive, Self.enabled else { return }
+        Forensic.log("[keepalive] start requested")
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
+            Forensic.log("[keepalive] session playback active")
 
             let engine = AVAudioEngine()
             let player = AVAudioPlayerNode()
@@ -60,16 +62,22 @@ final class BackgroundKeepAlive: @unchecked Sendable {
         }
     }
 
-    func stop() {
+    func stop(deactivateSession: Bool = true) {
         guard isActive else { return }
+        Forensic.log("[keepalive] stop requested (deactivate=\(deactivateSession))")
         player?.stop()
         engine?.stop()
         engine = nil
         player = nil
         isActive = false
-        try? AVAudioSession.sharedInstance()
-            .setActive(false, options: .notifyOthersOnDeactivation)
-        Self.log.info("background keep-alive stopped")
+        // When handing the session to the mic/voice engine, leave it
+        // active and let them reconfigure — a deactivate → reactivate in
+        // the same runloop turn makes their `setActive(true)` fail.
+        if deactivateSession {
+            try? AVAudioSession.sharedInstance()
+                .setActive(false, options: .notifyOthersOnDeactivation)
+        }
+        Self.log.info("background keep-alive stopped (deactivate=\(deactivateSession, privacy: .public))")
     }
 
     /// After the mic/voice engine releases its record session, restore the
