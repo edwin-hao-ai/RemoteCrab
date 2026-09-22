@@ -485,6 +485,8 @@ public struct IBClipboard: Codable, Sendable, Equatable {
     public init(text: String) { self.text = text }
 }
 
+// MARK: - System command
+
 /// iPhone → Mac: a system-level action on the Mac (volume, brightness,
 /// media keys, app/URL launch). Kind 0x19. Lock screen is NOT here —
 /// it's a plain ⌃⌘Q KeyEvent chord from the iOS side.
