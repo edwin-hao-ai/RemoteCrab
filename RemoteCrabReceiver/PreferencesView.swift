@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import ServiceManagement
 import SwiftUI
 import RemoteCrabCore
 
@@ -21,6 +22,7 @@ struct PreferencesView: View {
     @AppStorage("remotecrab.cameraPosition")  private var cameraPosition: String = "Back"
     @AppStorage("remotecrab.launchAtLogin")   private var launchAtLogin: Bool = false
     @AppStorage("remotecrab.autoReconnect")   private var autoReconnect: Bool = true
+    @AppStorage("remotecrab.mac.peerToPeer")  private var peerToPeer: Bool = true
     @AppStorage("remotecrab.didFirstLaunch")  private var didFirstLaunch: Bool = false
 
     /// Local mirrors so this window reflects a permission the user
@@ -84,8 +86,23 @@ struct PreferencesView: View {
 
                 Toggle(IBLocale.Settings.openAtLogin, isOn: $launchAtLogin)
                     .accessibilityHint(IBLocale.Settings.launchAtLoginDescription)
+                    .onChange(of: launchAtLogin) { _, enabled in
+                        do {
+                            if enabled {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            // Registration can fail (e.g. running from DerivedData
+                            // during development) — revert the toggle to the real status.
+                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                        }
+                    }
 
                 Toggle("Auto-reconnect on connection loss", isOn: $autoReconnect)
+
+                Toggle(IBLocale.Settings.peerToPeer, isOn: $peerToPeer)
             } header: {
                 Text(IBLocale.Settings.general)
             }
@@ -209,6 +226,11 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        .task {
+            // The system is the source of truth (user can toggle us in
+            // System Settings → Login Items without us knowing).
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
     }
 
     // MARK: - Streaming

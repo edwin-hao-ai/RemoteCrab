@@ -16,7 +16,9 @@ final class BonjourBrowser: @unchecked Sendable {
     func start(serviceType: String, onChange: @escaping @MainActor @Sendable ([DiscoveredPhone]) -> Void) {
         if browser != nil { return }
         let descriptor = NWBrowser.Descriptor.bonjour(type: serviceType, domain: nil)
-        browser = NWBrowser(for: descriptor, using: .tcp)
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = UserDefaults.standard.object(forKey: "remotecrab.mac.peerToPeer") as? Bool ?? true
+        browser = NWBrowser(for: descriptor, using: parameters)
 
         browser?.stateUpdateHandler = { state in
             switch state {

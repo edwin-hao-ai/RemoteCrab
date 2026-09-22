@@ -375,6 +375,23 @@
         }
       }
     },
+    "Direct Wi-Fi (peer-to-peer)": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct Wi-Fi (peer-to-peer)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点对点直连 Wi-Fi"
+          }
+        }
+      }
+    },
     "Force Quit": {
       "extractionState": "manual",
       "localizations": {

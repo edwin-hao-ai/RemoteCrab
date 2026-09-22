@@ -574,7 +574,8 @@ final class ReceiverSession: ObservableObject {
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
         Self.log.info("discovered \(phones.count, privacy: .public) phone(s); connection==nil: \(self.connection == nil, privacy: .public)")
-        guard !autoConnectSuppressed else { return }
+        let autoConnectEnabled = UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true
+        guard !autoConnectSuppressed, autoConnectEnabled else { return }
         // Bidirectional pairing: the Mac never connects to an iPhone it
         // hasn't paired with — the user picks one from the Devices list
         // and the iPhone shows its approval card. A phone this Mac holds
@@ -656,6 +657,7 @@ final class ReceiverSession: ObservableObject {
             try? await Task.sleep(for: .seconds(5))
             while !Task.isCancelled {
                 guard let self else { return }
+                guard UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true else { return }
                 if self.connection == nil,
                    !self.autoConnectSuppressed, !self.suppressReconnect,
                    case .searching = self.state,
@@ -710,7 +712,7 @@ final class ReceiverSession: ObservableObject {
         return await withCheckedContinuation { cont in
             final class Box: @unchecked Sendable { var resumed = false }
             let box = Box()
-            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+            let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: Self.tcpParameters())
             let finish: @Sendable (Bool) -> Void = { ok in
                 guard !box.resumed else { return }
                 box.resumed = true
@@ -730,6 +732,14 @@ final class ReceiverSession: ObservableObject {
                 finish(false)
             }
         }
+    }
+
+    /// TCP parameters for dialing the iPhone, with AWDL (peer-to-peer
+    /// Wi-Fi) enabled unless the user turned it off in Preferences.
+    private static func tcpParameters() -> NWParameters {
+        let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = UserDefaults.standard.object(forKey: "remotecrab.mac.peerToPeer") as? Bool ?? true
+        return parameters
     }
 
     /// True when any local interface holds an iPhone Personal Hotspot
@@ -791,12 +801,12 @@ final class ReceiverSession: ObservableObject {
 
         let conn: NWConnection
         if let serviceEndpoint = phone.serviceEndpoint {
-            conn = NWConnection(to: serviceEndpoint, using: .tcp)
+            conn = NWConnection(to: serviceEndpoint, using: Self.tcpParameters())
         } else {
             conn = NWConnection(
                 host: NWEndpoint.Host(phone.endpoint),
                 port: NWEndpoint.Port(rawValue: phone.port) ?? .any,
-                using: NWParameters.tcp
+                using: Self.tcpParameters()
             )
         }
         conn.stateUpdateHandler = { [weak self] newState in

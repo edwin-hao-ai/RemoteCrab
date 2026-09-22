@@ -232,6 +232,7 @@ public enum IBLocale {
             on ? IBL("Open RemoteCrab at login") : IBL("Don't open at login")
         }
         public static let launchAtLoginDescription = IBL("Start RemoteCrab Receiver automatically when you log in.")
+        public static let peerToPeer = IBL("Direct Wi-Fi (peer-to-peer)")
 
         public static let versionLabel = IBL("Version")
         public static let buildLabel = IBL("Build")
