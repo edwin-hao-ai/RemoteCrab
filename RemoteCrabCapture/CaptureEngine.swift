@@ -56,6 +56,11 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var connectedMacId: String?
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
+    /// Frontmost Mac app, from the latest pushed appList (0x0C).
+    var frontmostMacApp: IBAppInfo? { macApps.first(where: { $0.isActive }) }
+
+    /// Presents the context-shortcut sheet (observed by ContentView).
+    @Published var showContextSheet = false
     /// Decoded app icons keyed by app id. Merged from `appList` frames
     /// that carry `iconPNG`; kept across refreshes because background
     /// publishes omit icons (only an explicit switcher request fetches
@@ -269,6 +274,12 @@ final class CaptureEngine: ObservableObject {
     func sendKey(_ event: KeyEvent) {
         guard features.keyboardOn else { return }
         broadcaster?.send(event)
+    }
+
+    /// Context-sheet system command (volume / brightness / media / launch).
+    /// Not gated on a feature toggle: the console is always available.
+    func sendSystemCommand(_ command: IBSystemCommand) {
+        broadcaster?.send(command)
     }
 
     /// Voice dictation result. Ships as a `.text` KeyEvent over the

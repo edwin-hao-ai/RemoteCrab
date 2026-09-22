@@ -115,6 +115,11 @@ struct ContentView: View {
                 .environmentObject(engine)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(isPresented: $engine.showContextSheet) {
+            ContextSheetView()
+                .environmentObject(engine)
+                .presentationDetents([.large])
+        }
         .confirmationDialog(IBLocale.Transfer.sendTitle, isPresented: $showSendDialog, titleVisibility: .visible) {
             Button(IBLocale.Transfer.photo) { showPhotoPicker = true }
             Button(IBLocale.Transfer.file) { showFileImporter = true }
@@ -502,7 +507,10 @@ struct ContentView: View {
             // they are global on/off state, which is exactly what a
             // top bar is for.
             Button {
-                engine.features.set(feature: .camera, enabled: !engine.features.cameraOn)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(IBAnimation.snappy) {
+                    engine.features.set(feature: .camera, enabled: !engine.features.cameraOn)
+                }
             } label: {
                 topBarIcon("video.fill", tint: .white,
                            active: engine.features.cameraOn)
@@ -515,7 +523,10 @@ struct ContentView: View {
             .accessibilityAddTraits(engine.features.cameraOn ? .isSelected : [])
 
             Button {
-                engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(IBAnimation.snappy) {
+                    engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
+                }
             } label: {
                 topBarIcon("mic.fill", tint: .white,
                            active: engine.features.micOn, activeColor: IBColor.recording)
@@ -740,6 +751,7 @@ struct ContentView: View {
             }
             .buttonStyle(IBPressButtonStyle(scale: 0.9))
             .accessibilityLabel(IBLocale.Mode.keyboard)
+            .accessibilityHint(IBLocale.A11y.showsSurface(IBLocale.Mode.keyboard))
             .accessibilityAddTraits(engine.features.activeSurface == .keyboard ? .isSelected : [])
 
             // Hold-to-talk — moved verbatim from FeatureDock.

@@ -171,18 +171,23 @@ struct TouchpadScreen: View {
                 // common typing keys. A single row instead of two keeps
                 // the touch surface clear. "Hold to talk" is deliberately
                 // NOT here — it stays a fixed, easy-to-reach control.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: IBSpace.s.pt) {
-                        IBModifierBar(activeModifiers: $modifiers)
-                        Rectangle()
-                            .fill(IBColor.borderSubtle)
-                            .frame(width: 1, height: 28)
-                        quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
-                        quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
-                        quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
-                        quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
+                // The context chip is pinned OUTSIDE the ScrollView so it
+                // never scrolls away.
+                HStack(spacing: IBSpace.s.pt) {
+                    contextChip
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: IBSpace.s.pt) {
+                            IBModifierBar(activeModifiers: $modifiers)
+                            Rectangle()
+                                .fill(IBColor.borderSubtle)
+                                .frame(width: 1, height: 28)
+                            quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+                            quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
+                            quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
+                            quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
+                        }
+                        .padding(.horizontal, 2)
                     }
-                    .padding(.horizontal, 2)
                 }
                 .padding(.bottom, dockClearance)
             }
@@ -196,6 +201,34 @@ struct TouchpadScreen: View {
     }
 
     // MARK: - Cursor preview
+
+    /// Frontmost-app context chip, pinned left of the key row. Opens
+    /// the context sheet (Task 7). Data: engine.frontmostMacApp.
+    private var contextChip: some View {
+        Button {
+            engine.showContextSheet = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(engine.frontmostMacApp?.name ?? "Mac")
+                    .font(IBFont.caption.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background {
+                IBMaterial.glass(
+                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
+                    tint: IBColor.accent,
+                    interactive: true
+                )
+            }
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
+        .accessibilityLabel(IBLocale.Context.open)
+    }
 
     /// Live cursor preview. While a finger is down the dot follows it
     /// with a fading motion trail; on lift the dot springs back to

@@ -459,6 +459,13 @@ public enum IBLocale {
         public static let chordQuitApp = IBL("Quit app")
     }
 
+    /// Frontmost-app context sheet (chip + sheet chrome; action labels
+    /// stay English until the V1.2 localization batch).
+    public enum Context {
+        public static let open = IBL("App shortcuts")
+        public static let footer = IBL("Buttons send keyboard or system events to your Mac")
+    }
+
     /// Recording the live stream to disk (Mac).
     public enum Record {
         public static let start = IBL("Start Recording")
@@ -546,6 +553,9 @@ public enum IBLocale {
         // Generic on/off state values for toggles and lockable keys.
         public static let on = IBL("On")
         public static let off = IBL("Off")
+
+        // Generic dismiss affordance (sheet close buttons).
+        public static let close = IBL("Close")
 
         // iOS feature dock.
         public static let microphone = IBL("Microphone")

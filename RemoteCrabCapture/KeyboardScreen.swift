@@ -204,28 +204,61 @@ struct KeyboardScreen: View {
     private var shortcutBar: some View {
         // Horizontally scrollable: 8 keys × 44pt + spacing exceeds a
         // 375pt screen, so scrolling keeps every key ≥44pt wide.
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
-                shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
-                shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
-                modifierKey(.control)
-                modifierKey(.option)
-                modifierKey(.command)
-                modifierKey(.shift)
-                shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
-                shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
-                // App / window switching — borrowed from WhisPrompt's
-                // window wheel and the Codex Micro macropad's "jump to
-                // app" keys, mapped onto macOS's native shortcuts.
-                shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
-                shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
-                shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
-                shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
-                shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
-                shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
+        // The context chip is pinned OUTSIDE the ScrollView so it never
+        // scrolls away.
+        HStack(spacing: 6) {
+            contextChip
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
+                    shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
+                    shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+                    modifierKey(.control)
+                    modifierKey(.option)
+                    modifierKey(.command)
+                    modifierKey(.shift)
+                    shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
+                    shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
+                    // App / window switching — borrowed from WhisPrompt's
+                    // window wheel and the Codex Micro macropad's "jump to
+                    // app" keys, mapped onto macOS's native shortcuts.
+                    shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
+                    shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
+                    shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
+                    shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
+                    shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
+                    shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
+                }
             }
         }
+    }
+
+    /// Frontmost-app context chip, pinned left of the shortcut bar.
+    /// Opens the context sheet (Task 7). Data: engine.frontmostMacApp.
+    private var contextChip: some View {
+        Button {
+            engine.showContextSheet = true
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(engine.frontmostMacApp?.name ?? "Mac")
+                    .font(IBFont.caption.weight(.semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 12)
+            .frame(height: 48)
+            .background {
+                IBMaterial.glass(
+                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
+                    tint: IBColor.accent,
+                    interactive: true
+                )
+            }
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
+        .accessibilityLabel(IBLocale.Context.open)
     }
 
     private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, extra: UInt8 = 0) -> some View {

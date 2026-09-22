@@ -526,6 +526,9 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - **V0.4** — Virtual microphone, real-device validation sprint
 - **V0.5** — ~~Real Opus encoding~~ ✅ (2026-09-15, Apple AudioConverter, zero deps), localization
 - **V1.0** — Public App Store release
+- **V1.2** — Context-sheet action labels localization batch (V1.1 ships the
+  presentation/agent/console suites with English labels; sheet chrome —
+  `IBLocale.Context.open` / `.footer` — is already bilingual)
 - **V1.5** — Windows support (DirectShow virtual camera)
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog
 

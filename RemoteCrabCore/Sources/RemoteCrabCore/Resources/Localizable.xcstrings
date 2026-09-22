@@ -358,6 +358,23 @@
         }
       }
     },
+    "App shortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App shortcuts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用快捷键"
+          }
+        }
+      }
+    },
     "All Apps": {
       "extractionState": "manual",
       "localizations": {
@@ -630,6 +647,23 @@
         }
       }
     },
+    "Buttons send keyboard or system events to your Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buttons send keyboard or system events to your Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按键将作为键盘或系统事件发送到 Mac"
+          }
+        }
+      }
+    },
     "CAMERA IS OFF": {
       "extractionState": "manual",
       "localizations": {
@@ -847,6 +881,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "点击下方“启用摄像头扩展”——macOS 会要求你批准一次该扩展。"
+          }
+        }
+      }
+    },
+    "Close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
           }
         }
       }
