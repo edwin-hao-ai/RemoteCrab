@@ -1187,6 +1187,10 @@ final class ReceiverSession: ObservableObject {
                 if let request = try? IBWire.decodeQuitApp(frame) {
                     quitApp(id: request.id, force: request.force)
                 }
+            case .systemCommand:
+                if let command = try? IBWire.decodeSystemCommand(frame) {
+                    SystemCommandHandler.handle(command)
+                }
             case .windowListRequest:
                 publishMacWindows()
             case .fileOffer:
