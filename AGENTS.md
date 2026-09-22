@@ -90,7 +90,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 109 automated tests (see below)
+│   ├── Tests/                    # 112 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -363,7 +363,7 @@ it. Now ownership is explicit:
 
 ## Tests
 
-109 tests in `RemoteCrabCore/Tests/`, all pass:
+112 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
@@ -377,6 +377,7 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── AppSwitcherWireTests.swift          (8)  appList / appListRequest / activateApp + windowList / cameraCommand / quitApp round-trips
 ├── ContextProfilesTests.swift          (7)  frontmost-app → presentation/agent/console suite mapping, fallback
 ├── SystemCommandWireTests.swift        (3)  IBSystemCommand (0x19) wire round-trip
+├── SystemKeyEncoderTests.swift         (3)  media-key CGEvent data1 encoding (regression: double-shifted flags)
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
 ├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
 ├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
@@ -425,7 +426,7 @@ land in the wrong window.
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 109 tests + both apps build
+./scripts/test.sh                    # 112 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -495,7 +496,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 109 automated tests passing
+- 112 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -1186,6 +1187,25 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     pointer, quick-launch customization, action-label localization) is
     tracked in the Roadmap section — don't duplicate it here.
 
+38. **System-defined (media key) CGEvents: `data1 = (key << 16) | flags`,
+    NOT `(key << 16) | (flags << 8)` (2026-09-22, real-device catch).**
+    V1.1 shipped the console suite's volume/mute/brightness buttons with
+    the flags byte shifted twice (`0xA00 << 8 = 0xA0000`) — WindowServer
+    decodes that as "key 10, no state" and drops the event silently, so
+    every media button did nothing on device with zero errors anywhere.
+    The pure encoder now lives in
+    `RemoteCrabCore/Input/SystemKeyEncoder.swift` with regression tests
+    (`SystemKeyEncoderTests`); verify empirically with
+    `osascript -e 'output volume of (get volume settings)'` before/after
+    when touching this path. Same device pass: the app switcher only
+    listed on-screen `SCWindow`s, so minimized / hidden / other-Space
+    apps vanished entirely (and a stale comment claimed they "still
+    appear") — `WindowCapture.buildList` now merges
+    `appLevelEntries()` for any regular app with no listed window, so
+    the picker always shows every running Dock app. Also: shortcut rows
+    lead with ⏎/⌫ (post-dictation "send"/"edit" is the most common
+    reach) and context-sheet buttons fire a light haptic on tap.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1278,6 +1298,6 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired; lesson 37 added; 109 tests green + both app targets build. Visual constants dockClearance=76 / voiceCardBottomInset=132/72 not yet visually verified.)_
+_Last updated: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE + REAL-DEVICE PASS: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired. Device pass fixed: media-key data1 double-shift (volume/mute dead on device), switcher missing minimized/hidden apps, shortcut rows now lead with ⏎/⌫, sheet buttons haptic — lessons 37-38; 112 tests green + both app targets build.)_
 
 _Previous: 2026-09-19 (V1.0 SUBMITTED: iOS build 2026091802 → version 1.0 + TestFlight Internal; Mac 1.0 Developer ID notarized DMG via `scripts/release-mac.sh`; domain → `vgoapp.com/remotecrab/`; iOS download links + App Review notes + demo video; lessons 29-36 added. Remaining human step: ASC privacy-policy URL in the browser.)_

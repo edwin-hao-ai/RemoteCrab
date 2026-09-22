@@ -202,17 +202,20 @@ struct KeyboardScreen: View {
     // MARK: - Shortcut bar
 
     private var shortcutBar: some View {
-        // Horizontally scrollable: 8 keys × 44pt + spacing exceeds a
-        // 375pt screen, so scrolling keeps every key ≥44pt wide.
+        // Horizontally scrollable: the full row exceeds a 375pt screen,
+        // so scrolling keeps every key ≥44pt wide.
         // The context chip is pinned OUTSIDE the ScrollView so it never
         // scrolls away.
         HStack(spacing: 6) {
             contextChip
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
+                    // ⏎/⌫ lead the row: after voice dictation the next
+                    // reach is always "edit" or "send".
+                    shortcutKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
+                    shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                     shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
                     shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
-                    shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                     modifierKey(.control)
                     modifierKey(.option)
                     modifierKey(.command)
@@ -261,7 +264,7 @@ struct KeyboardScreen: View {
         .accessibilityLabel(IBLocale.Context.open)
     }
 
-    private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, extra: UInt8 = 0) -> some View {
+    private func shortcutKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, extra: UInt8 = 0, prominent: Bool = false) -> some View {
         Button {
             sendKeyTap(keycode, extra: extra)
         } label: {
@@ -274,15 +277,20 @@ struct KeyboardScreen: View {
                         .font(.system(size: 15, weight: .medium))
                 }
             }
-            .foregroundStyle(.white.opacity(0.75))
+            .foregroundStyle(prominent ? .white : .white.opacity(0.75))
             .frame(width: 44, height: 44)
             .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.white.opacity(0.08))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                    }
+                if prominent {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.accentColor)
+                } else {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        }
+                }
             }
         }
         .buttonStyle(IBPressButtonStyle(scale: 0.9))

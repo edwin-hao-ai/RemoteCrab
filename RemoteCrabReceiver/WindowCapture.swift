@@ -76,8 +76,7 @@ enum WindowCapture {
 
         // Active first, then windows with a real preview, then grouped by
         // app / title — SC gives no z-order, so this is the best ordering
-        // available. Windows macOS won't render (minimized/hidden) still
-        // appear, just without a picture, so the picker is never empty.
+        // available.
         windows.sort { lhs, rhs in
             if lhs.isActive != rhs.isActive { return lhs.isActive }
             let lhsHasPreview = lhs.snapshotJPEG != nil
@@ -88,6 +87,13 @@ enum WindowCapture {
             }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+
+        // Apps with no on-screen window (minimized / hidden / on another
+        // Space, or every window under the size floor) would otherwise
+        // vanish from the picker entirely — merge them back as app-level
+        // entries. Tapping one still activates (and un-hides) the app.
+        let listedAppIds = Set(windows.map(\.appId))
+        windows.append(contentsOf: appLevelEntries().filter { !listedAppIds.contains($0.appId) })
 
         let previews = windows.filter { $0.snapshotJPEG != nil }.count
         log.info("window list: \(windows.count, privacy: .public) windows from \(content.windows.count, privacy: .public) SC windows, \(previews, privacy: .public) with previews")

@@ -31,13 +31,16 @@ fail() { echo -e "${RED}✗ $1${RESET}"; exit 1; }
 # the default DerivedData.
 CI_DERIVED_DATA="$ROOT/.build/ci-derived-data"
 
-# 1. RemoteCrabCore package — 109 unit + integration + e2e tests
-#    covering: wire protocol, Bonjour discovery, event pipeline,
-#    feature store, trackpad math, text diffing, Opus codec.
+# 1. RemoteCrabCore package — unit + integration + e2e tests covering:
+#    wire protocol, Bonjour discovery, event pipeline, feature store,
+#    trackpad math, text diffing, Opus codec.
 echo ""
 echo "── RemoteCrabCore package tests ──"
-if swift test --package-path RemoteCrabCore 2>&1 | tail -10; then
-  pass "RemoteCrabCore tests (109 e2e + unit)"
+core_out="$(swift test --package-path RemoteCrabCore 2>&1)" && core_ok=1 || core_ok=0
+echo "$core_out" | tail -10
+core_count="$(echo "$core_out" | grep -oE 'Executed [0-9]+ tests' | grep -oE '[0-9]+' | sort -n | tail -1)"
+if [ "$core_ok" = 1 ]; then
+  pass "RemoteCrabCore tests (${core_count:-?} e2e + unit)"
 else
   fail "RemoteCrabCore tests"
 fi

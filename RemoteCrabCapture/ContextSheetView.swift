@@ -102,7 +102,10 @@ struct ContextSheetView: View {
     }
 
     private func contextButton(label: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            action()
+        } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: 19, weight: .medium))

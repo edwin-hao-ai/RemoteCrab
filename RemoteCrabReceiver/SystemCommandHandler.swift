@@ -55,7 +55,6 @@ enum SystemCommandHandler {
 
     private static func postSystemKey(_ key: Int32, down: Bool) {
         let flags: UInt = down ? 0xA00 : 0xB00
-        let data1 = Int((Int(key) << 16) | (Int(flags) << 8))
         guard let event = NSEvent.otherEvent(
             with: .systemDefined,
             location: .zero,
@@ -64,7 +63,7 @@ enum SystemCommandHandler {
             windowNumber: 0,
             context: nil,
             subtype: 8,
-            data1: data1,
+            data1: SystemKeyEncoder.data1(key: key, down: down),
             data2: -1
         )?.cgEvent else { return }
         event.post(tap: .cghidEventTap)

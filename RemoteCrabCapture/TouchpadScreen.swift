@@ -177,14 +177,16 @@ struct TouchpadScreen: View {
                     contextChip
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: IBSpace.s.pt) {
-                            IBModifierBar(activeModifiers: $modifiers)
+                            // ⏎/⌫ lead the row: after voice dictation the
+                            // next reach is always "edit" or "send".
+                            quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
+                            quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                             Rectangle()
                                 .fill(IBColor.borderSubtle)
                                 .frame(width: 1, height: 28)
-                            quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+                            IBModifierBar(activeModifiers: $modifiers)
                             quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                             quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
-                            quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
                         }
                         .padding(.horizontal, 2)
                     }
