@@ -85,7 +85,13 @@ final class MicrophoneEncoder: @unchecked Sendable {
         // suppresses ALL UIFeedbackGenerator haptics in the app (to
         // keep vibration noise out of the recording), which killed
         // trackpad haptics even after the mic was toggled off.
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        //
+        // But if the background keep-alive is holding the session, don't
+        // drop it — restore the non-record `.playback` category instead,
+        // so the app stays reachable in the background AND haptics work.
+        if !BackgroundKeepAlive.shared.restoreAfterRecording() {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     // MARK: - PCM framing

@@ -15,6 +15,7 @@ struct IOSSettingsView: View {
     @AppStorage("remotecrab.ios.scrollSens")    private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.keepScreenOn") private var keepScreenOn: Bool = true
+    @AppStorage("remotecrab.ios.backgroundKeepAlive") private var backgroundKeepAlive: Bool = true
     @AppStorage("remotecrab.ios.labAirMouse")   private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
     @AppStorage("remotecrab.ios.demoMode") private var demoMode = false
@@ -185,6 +186,16 @@ struct IOSSettingsView: View {
                 .onChange(of: keepScreenOn) { _, new in
                     if engine.isStreaming {
                         UIApplication.shared.isIdleTimerDisabled = new
+                    }
+                }
+
+            Toggle(IBLocale.Settings.backgroundKeepAlive, isOn: $backgroundKeepAlive)
+                .accessibilityHint(IBLocale.Settings.backgroundKeepAliveHint)
+                .onChange(of: backgroundKeepAlive) { _, new in
+                    // Apply immediately while streaming.
+                    if engine.isStreaming {
+                        if new { BackgroundKeepAlive.shared.start() }
+                        else { BackgroundKeepAlive.shared.stop() }
                     }
                 }
         } header: {

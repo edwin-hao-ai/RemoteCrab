@@ -362,6 +362,10 @@ final class CaptureEngine: ObservableObject {
             lastVideoFrameAt = Date()
             hasProducedVideoFrame = false
             startVideoWatchdog()
+            // Stay reachable while backgrounded / locked: without this
+            // iOS suspends the app, the Bonjour listener goes away, and
+            // the Mac can't reconnect until the app is reopened.
+            BackgroundKeepAlive.shared.start()
             UIApplication.shared.isIdleTimerDisabled =
                 UserDefaults.standard.bool(forKey: "remotecrab.ios.keepScreenOn")
                 || ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1"
@@ -373,6 +377,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     func stopStreaming() {
+        BackgroundKeepAlive.shared.stop()
         listener?.cancel()
         listener = nil
         handshakeTask?.cancel()

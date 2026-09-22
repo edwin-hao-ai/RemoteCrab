@@ -6194,6 +6194,40 @@
           }
         }
       }
+    },
+    "Stay connected in the background": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stay connected in the background"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后台保持连接"
+          }
+        }
+      }
+    },
+    "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换 App 或锁屏后仍保持可连接，让 Mac 随时能找到。会播放静音音频。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

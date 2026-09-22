@@ -70,6 +70,8 @@ targets:
         NSSpeechRecognitionUsageDescription: RemoteCrab recognizes your speech on-device to type into your Mac.
         NSPhotoLibraryUsageDescription: RemoteCrab reads your latest screenshot to send it to your Mac.
         NSLocalNetworkUsageDescription: RemoteCrab discovers your Mac on the local WiFi network.
+        UIBackgroundModes:
+          - audio
         NSBonjourServices:
           - _remotecrab._tcp
     settings:

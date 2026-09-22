@@ -1315,6 +1315,38 @@ is tracked in the Roadmap section — don't duplicate it here.
     last 30 s (`lastWindowListRequestAt`), so an app quitting in the
     background doesn't trigger a full ScreenCaptureKit pass.
 
+48. **A half-open dial wedged the Mac forever — add a handshake timeout
+    (2026-09-23).** This is the recurring "can't connect". Symptom:
+    `discovered 1 phone(s); connection==nil: false` and then silence —
+    the Mac holds a connection that reached TCP `.ready` and sent
+    `clientHello` but never got a `sessionReply` (phone backgrounded
+    mid-handshake). `handleDiscovered` only dials when `connection ==
+    nil` or the state is `.connecting`, so a stuck `.handshaking` never
+    re-dials. Direct-IP dials had an 8 s timeout; Bonjour dials had none.
+    Fix: a 6 s timeout abandons a `.handshaking` connection and
+    reconnects — deliberately NOT firing on `.awaitingApproval`, since a
+    `pending` reply is a legitimate wait for the user's tap. Verified on
+    device: `no sessionReply after 6s — abandoning the handshake` →
+    `sessionReply: accepted` on the retry.
+
+49. **The app now stays alive in the background (2026-09-23, supersedes
+    lesson 36).** `project-ios.yml` gained `UIBackgroundModes: [audio]`
+    and `BackgroundKeepAlive` holds a `.playback` + `.mixWithOthers`
+    session playing 1 s of silence while the app is serving
+    (`startStreaming` → `stopStreaming`). Without it iOS suspends the
+    app the moment it backgrounds or the screen locks, tearing down the
+    Bonjour listener so the Mac can never connect — the #1 "can't
+    connect" report. `.playback` (not `.playAndRecord`) is deliberate:
+    it does NOT suppress the app's haptics (lesson 25) and doesn't
+    interrupt the user's music. `MicrophoneEncoder.stop()` /
+    `VoiceRecognizer` call `BackgroundKeepAlive.restoreAfterRecording()`
+    instead of `setActive(false)` so the mic toggling off doesn't kill
+    the keep-alive. Setting: Settings → Input → "Stay connected in the
+    background" (default on). **Camera still stops in the background**
+    (platform limitation, lesson 22) — only the connection survives.
+    App Review note: background audio is justified by the mic stream;
+    the setting gives users an off switch.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible

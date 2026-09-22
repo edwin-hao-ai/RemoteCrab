@@ -281,6 +281,8 @@ public enum IBLocale {
         public static let scrollSpeed = IBL("Scroll Speed")
         public static let naturalScroll = IBL("Natural Scrolling")
         public static let naturalScrollHint = IBL("Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.")
+        public static let backgroundKeepAlive = IBL("Stay connected in the background")
+        public static let backgroundKeepAliveHint = IBL("Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio.")
         public static let privacyPolicy = IBL("Privacy Policy")
         /// About-section link to the Mac receiver download page (vgoapp.com).
         public static let downloadMac = IBL("Download for Mac")

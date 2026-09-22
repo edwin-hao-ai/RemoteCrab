@@ -146,7 +146,9 @@ final class VoiceRecognizer {
             self.request = nil
             self.recognizer = nil
             inputNode.removeTap(onBus: 0)
-            try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            if !BackgroundKeepAlive.shared.restoreAfterRecording() {
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
             isStarting = false
             return false
         }
@@ -240,7 +242,9 @@ final class VoiceRecognizer {
         request = nil
         recognizer = nil
         stopRequested = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if !BackgroundKeepAlive.shared.restoreAfterRecording() {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     /// Clears the surfaced mid-session error after the UI has shown it.
