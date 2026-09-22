@@ -43,6 +43,7 @@ public enum IBWire {
         case quitApp       = 0x16    // JSON IBQuitApp (iPhone → Mac)
         case windowListRequest = 0x17 // JSON IBWindowListRequest (iPhone → Mac)
         case windowList    = 0x18    // JSON IBWindowList (Mac → iPhone)
+        case systemCommand = 0x19    // JSON IBSystemCommand (iPhone → Mac)
     }
 
     // MARK: - Encoding
@@ -180,6 +181,11 @@ public enum IBWire {
     /// Encode a quit-app request (iPhone → Mac).
     public static func encode(quitApp: IBQuitApp) throws -> Data {
         encodeFrame(kind: .quitApp, payload: try JSONEncoder().encode(quitApp))
+    }
+
+    /// Encode a system command (iPhone → Mac).
+    public static func encode(systemCommand: IBSystemCommand) throws -> Data {
+        encodeFrame(kind: .systemCommand, payload: try JSONEncoder().encode(systemCommand))
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -352,6 +358,11 @@ public enum IBWire {
     /// Decode a `.quitApp` frame's payload.
     public static func decodeQuitApp(_ frame: Frame) throws -> IBQuitApp {
         try JSONDecoder().decode(IBQuitApp.self, from: frame.payload)
+    }
+
+    /// Decode a `.systemCommand` frame's payload.
+    public static func decodeSystemCommand(_ frame: Frame) throws -> IBSystemCommand {
+        try JSONDecoder().decode(IBSystemCommand.self, from: frame.payload)
     }
 
     /// Decode a `.ping` frame's payload into the sender timestamp.

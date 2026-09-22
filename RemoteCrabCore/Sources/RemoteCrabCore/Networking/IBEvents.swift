@@ -484,3 +484,22 @@ public struct IBClipboard: Codable, Sendable, Equatable {
     public let text: String
     public init(text: String) { self.text = text }
 }
+
+/// iPhone → Mac: a system-level action on the Mac (volume, brightness,
+/// media keys, app/URL launch). Kind 0x19. Lock screen is NOT here —
+/// it's a plain ⌃⌘Q KeyEvent chord from the iOS side.
+public struct IBSystemCommand: Codable, Sendable, Equatable {
+    public enum Command: String, Codable, Sendable {
+        case volumeUp, volumeDown, volumeMute
+        case brightnessUp, brightnessDown
+        case mediaPlayPause, mediaNext, mediaPrevious
+        case launchApp      // argument = bundle id
+        case openURL        // argument = URL string
+    }
+    public let command: Command
+    public let argument: String?
+    public init(command: Command, argument: String? = nil) {
+        self.command = command
+        self.argument = argument
+    }
+}

@@ -54,6 +54,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .quitApp) { try IBWire.encode(quitApp: quit) }
     }
 
+    /// iOS → Mac: a system-level action (volume / brightness / media / launch).
+    public func send(_ command: IBSystemCommand) {
+        send(kind: .systemCommand) { try IBWire.encode(systemCommand: command) }
+    }
+
     /// iOS → Mac: offer a file, then stream chunks, then complete.
     public func send(_ offer: IBFileOffer) {
         send(kind: .fileOffer) { try IBWire.encode(fileOffer: offer) }
