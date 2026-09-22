@@ -777,6 +777,7 @@ final class CaptureEngine: ObservableObject {
 
     private func startListener() throws {
         let parameters = NWParameters.tcp
+        parameters.includePeerToPeer = true   // AWDL: accept direct Wi-Fi when no LAN exists
 
         // Try the fixed port first (manual-IP fallback); fall back to a
         // dynamic port if it's taken.
