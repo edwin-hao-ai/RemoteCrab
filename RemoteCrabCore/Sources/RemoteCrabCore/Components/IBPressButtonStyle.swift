@@ -16,6 +16,11 @@ public struct IBPressButtonStyle: ButtonStyle {
 
     public func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            // Hit-test the label's whole bounds. A custom ButtonStyle
+            // hit-tests the label's *content* shape, so a glass background
+            // (transparent fill) leaves only the icon/text tappable — the
+            // trailing half of a left-aligned card was dead.
+            .contentShape(Rectangle())
             .scaleEffect(configuration.isPressed ? scale : 1)
             .brightness(configuration.isPressed ? highlight : 0)
             .opacity(configuration.isPressed ? 0.92 : 1)

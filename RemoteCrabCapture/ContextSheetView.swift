@@ -125,9 +125,12 @@ struct ContextSheetView: View {
             .background {
                 IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
             }
+            // Must be on the LABEL: with a custom ButtonStyle the hit test
+            // uses the label's content shape, and the left-aligned icon +
+            // text otherwise leave the trailing half untappable.
+            .contentShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
         .buttonStyle(GlassPressButtonStyle(cornerRadius: IBRadius.l.pt))
-        .contentShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         .accessibilityLabel(label)
     }
 
@@ -188,6 +191,9 @@ private struct GlassPressButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            // Hit-test the whole label bounds (the left-aligned icon+text
+            // otherwise leaves the trailing half untappable).
+            .contentShape(Rectangle())
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(.white.opacity(configuration.isPressed ? 0.18 : 0))

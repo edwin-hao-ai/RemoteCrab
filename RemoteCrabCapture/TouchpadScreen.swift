@@ -86,9 +86,11 @@ struct TouchpadScreen: View {
                     )
                 }
             }
+            // On the LABEL: a custom ButtonStyle hit-tests the label's
+            // content shape, not the outer button bounds.
+            .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         }
         .buttonStyle(IBPressButtonStyle())
-        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         .accessibilityLabel(accessibility)
     }
 
@@ -232,9 +234,9 @@ struct TouchpadScreen: View {
                     interactive: true
                 )
             }
+            .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         }
         .buttonStyle(IBPressButtonStyle(scale: 0.9))
-        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         .accessibilityLabel(IBLocale.Context.open)
     }
 
