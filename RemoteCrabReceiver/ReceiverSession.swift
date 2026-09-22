@@ -157,6 +157,11 @@ final class ReceiverSession: ObservableObject {
     /// a stale address otherwise sits in `preparing` for the full ~75 s
     /// TCP timeout and blocks the healthy Bonjour path.
     private var directDialTimeoutTask: Task<Void, Never>?
+    /// Abandons a connection that reaches TCP `.ready` but never gets a
+    /// `sessionReply` (the phone backgrounded mid-handshake). Without
+    /// this the Mac stays in `.handshaking` with `connection != nil`
+    /// forever and refuses to dial again — the "can't connect" deadlock.
+    private var handshakeTimeoutTask: Task<Void, Never>?
     /// Bonjour-empty fallback loop: direct-dials candidate IPs when
     /// multicast discovery yields nothing (Personal Hotspot, client
     /// isolation, some VPNs all break mDNS while plain TCP still works).
@@ -903,6 +908,7 @@ final class ReceiverSession: ObservableObject {
             if let connection {
                 sendClientHello(on: connection)
                 persistLastPhoneEndpoint(connection)
+                startHandshakeTimeout(on: connection)
             }
             if let name = currentPhoneName() {
                 state = .handshaking(name: name)
@@ -927,7 +933,6 @@ final class ReceiverSession: ObservableObject {
             break
         }
     }
-
     /// Send this Mac's identity so the iPhone can pair/authorize it.
     private func sendClientHello(on conn: NWConnection) {
         let token = currentTokenKey.flatMap { tokenStore[$0] }
@@ -942,7 +947,25 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    /// Give up on a `clientHello` that never gets a `sessionReply`. Only
+    /// fires while still `.handshaking` — a `pending` reply (waiting for
+    /// the user's approval) is a legitimate long wait and must not be cut
+    /// off. Cancelling clears `connection`, so the next discovery dials.
+    private func startHandshakeTimeout(on conn: NWConnection) {
+        handshakeTimeoutTask?.cancel()
+        handshakeTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(6))
+            guard let self, !Task.isCancelled,
+                  self.connection === conn,
+                  case .handshaking = self.state else { return }
+            Self.log.info("no sessionReply after 6s — abandoning the handshake")
+            conn.cancel()
+        }
+    }
+
     private func handleSessionReply(_ reply: IBSessionReply) {
+        handshakeTimeoutTask?.cancel()
+        handshakeTimeoutTask = nil
         Self.log.info("sessionReply: \(reply.result.rawValue, privacy: .public) owner=\(reply.ownerName ?? "-", privacy: .public)")
         switch reply.result {
         case .accepted:
@@ -1087,6 +1110,8 @@ final class ReceiverSession: ObservableObject {
     /// stream state (metadata / last frame / latency) so no window
     /// keeps showing stale evidence of a dead connection.
     private func clearConnectionState() {
+        handshakeTimeoutTask?.cancel()
+        handshakeTimeoutTask = nil
         featureState = nil
         connection = nil
         connectedPhoneName = nil
