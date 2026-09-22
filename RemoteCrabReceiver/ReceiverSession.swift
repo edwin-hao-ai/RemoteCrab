@@ -168,6 +168,12 @@ final class ReceiverSession: ObservableObject {
     }
     private var incoming: IncomingFile?
 
+    /// Files awaiting a Finder reveal. A multi-file send completes each
+    /// file back-to-back; revealing once per file would yank Finder to
+    /// the front repeatedly, so reveals are coalesced over a short window.
+    private var pendingRevealURLs: [URL] = []
+    private var revealTask: Task<Void, Never>?
+
     init() {
         pairedPhones = tokenStore.keys.sorted()
         decoder.onDecoded = { [weak self] image in
@@ -431,7 +437,22 @@ final class ReceiverSession: ObservableObject {
         sendFileAck(IBFileAck(id: file.id, status: .saved,
                               receivedBytes: file.received, path: file.url.path))
         // AirDrop-like landing: open the folder with the file selected.
-        NSWorkspace.shared.activateFileViewerSelecting([file.url])
+        // Coalesced so a multi-file send reveals them together once.
+        scheduleReveal(file.url)
+    }
+
+    /// Reveal `url` in Finder, batched with any other files that land
+    /// within the next moment.
+    private func scheduleReveal(_ url: URL) {
+        pendingRevealURLs.append(url)
+        revealTask?.cancel()
+        revealTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, let self, !self.pendingRevealURLs.isEmpty else { return }
+            let urls = self.pendingRevealURLs
+            self.pendingRevealURLs = []
+            NSWorkspace.shared.activateFileViewerSelecting(urls)
+        }
     }
 
     private func sendFileAck(_ ack: IBFileAck) {

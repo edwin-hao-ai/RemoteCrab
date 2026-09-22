@@ -20,8 +20,15 @@ struct ContextSheetView: View {
             IBGradient.canvasDark.ignoresSafeArea()
             VStack(spacing: IBSpace.l.pt) {
                 header
+                // The voice hero spans the full width; a two-column grid
+                // cell would clip the capsule. The remaining actions pair
+                // up two-per-row (ContextProfiles keeps related controls
+                // adjacent).
+                if let hero = profile.voiceHero {
+                    actionButton(hero)
+                }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    ForEach(Array(profile.actions.enumerated()), id: \.offset) { _, action in
+                    ForEach(Array(profile.gridActions.enumerated()), id: \.offset) { _, action in
                         actionButton(action)
                     }
                 }
@@ -61,7 +68,7 @@ struct ContextSheetView: View {
                 Text(engine.frontmostMacApp?.name ?? "Mac")
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
-                Text(profile.titleKey.uppercased())
+                Text(profile.title.uppercased())
                     .font(IBFont.eyebrowMono)
                     .ibEyebrowTracking()
                     .foregroundStyle(.white.opacity(0.45))
@@ -119,7 +126,8 @@ struct ContextSheetView: View {
                 IBMaterial.glass(in: RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
             }
         }
-        .buttonStyle(IBPressButtonStyle(scale: 0.96))
+        .buttonStyle(GlassPressButtonStyle(cornerRadius: IBRadius.l.pt))
+        .contentShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         .accessibilityLabel(label)
     }
 
@@ -166,5 +174,27 @@ struct ContextSheetView: View {
         voiceHeld = false
         engine.features.set(feature: .voice, enabled: false)
         voice.stop()
+    }
+}
+
+/// Pressed feedback for a Liquid-Glass card.
+///
+/// The shared `IBPressButtonStyle` drives its feedback with `.brightness`,
+/// which the iOS 26 `glassEffect` compositing layer ignores — on device
+/// the buttons looked completely inert. This paints the highlight in the
+/// button's own layer instead, where it always shows.
+private struct GlassPressButtonStyle: ButtonStyle {
+    var cornerRadius: CGFloat
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.white.opacity(configuration.isPressed ? 0.18 : 0))
+                    .allowsHitTesting(false)
+            }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.22, dampingFraction: 0.7),
+                       value: configuration.isPressed)
     }
 }

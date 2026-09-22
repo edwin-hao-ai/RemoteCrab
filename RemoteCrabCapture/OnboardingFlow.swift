@@ -286,7 +286,7 @@ private struct HeroIllustration: View {
 
 private struct PermissionsIllustration: View {
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 14) {
             permissionCard(icon: "camera.fill",
                            title: IBLocale.Onboarding.permCameraTitle,
                            description: IBLocale.Onboarding.permCameraDesc)
@@ -296,9 +296,12 @@ private struct PermissionsIllustration: View {
             permissionCard(icon: "wifi",
                            title: IBLocale.Onboarding.permNetworkTitle,
                            description: IBLocale.Onboarding.permNetworkDesc)
+            permissionCard(icon: "photo.on.rectangle",
+                           title: IBLocale.Onboarding.permPhotoTitle,
+                           description: IBLocale.Onboarding.permPhotoDesc)
         }
         .padding(.horizontal, IBSpace.xxl.pt)
-        .frame(height: 320)
+        .frame(minHeight: 320)
     }
 
     private func permissionCard(icon: String, title: String, description: String) -> some View {

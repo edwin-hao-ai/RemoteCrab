@@ -1,5 +1,6 @@
 import AVFoundation
 import Network
+import Photos
 import Speech
 import SwiftUI
 import RemoteCrabCore
@@ -17,7 +18,7 @@ struct PermissionFlow: View {
     @State private var results: [Stage: PermissionResult] = [:]
 
     enum Stage: String, CaseIterable, Identifiable {
-        case camera, microphone, speech, localNetwork
+        case camera, microphone, speech, photos, localNetwork
         var id: String { rawValue }
 
         var title: String {
@@ -25,6 +26,7 @@ struct PermissionFlow: View {
             case .camera:        return IBLocale.Permission.camera
             case .microphone:    return IBLocale.Permission.microphone
             case .speech:        return IBLocale.Permission.speech
+            case .photos:        return IBLocale.Permission.photos
             case .localNetwork:  return IBLocale.Permission.localNetwork
             }
         }
@@ -34,6 +36,7 @@ struct PermissionFlow: View {
             case .camera:        return "camera.fill"
             case .microphone:    return "mic.fill"
             case .speech:        return "waveform"
+            case .photos:        return "photo.on.rectangle"
             case .localNetwork:  return "wifi"
             }
         }
@@ -43,6 +46,7 @@ struct PermissionFlow: View {
             case .camera:        return IBLocale.Permission.cameraReason
             case .microphone:    return IBLocale.Permission.microphoneReason
             case .speech:        return IBLocale.Permission.speechReason
+            case .photos:        return IBLocale.Permission.photosReason
             case .localNetwork:  return IBLocale.Permission.localNetworkReason
             }
         }
@@ -97,6 +101,8 @@ struct PermissionFlow: View {
             result = await requestMicrophone()
         case .speech:
             result = await requestSpeech()
+        case .photos:
+            result = await requestPhotos()
         case .localNetwork:
             result = await requestLocalNetwork()
         }
@@ -166,6 +172,23 @@ struct PermissionFlow: View {
                 }
             }
         @unknown default: return .denied
+        }
+    }
+
+    /// Photos: `.limited` ("selected photos only") counts as granted —
+    /// the user can still send a screenshot they've allowed; the send
+    /// path falls back to the picker if the latest one isn't in scope.
+    private func requestPhotos() async -> PermissionResult {
+        switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
+        case .authorized, .limited:
+            return .granted
+        case .denied, .restricted:
+            return .denied
+        case .notDetermined:
+            let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+            return (status == .authorized || status == .limited) ? .granted : .denied
+        @unknown default:
+            return .denied
         }
     }
 

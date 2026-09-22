@@ -39,6 +39,8 @@
 	<string>RemoteCrab discovers your Mac on the local WiFi network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RemoteCrab streams your iPhone microphone to your Mac.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>RemoteCrab reads your latest screenshot to send it to your Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>RemoteCrab recognizes your speech on-device to type into your Mac.</string>
 	<key>UIApplicationSceneManifest</key>

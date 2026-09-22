@@ -1043,16 +1043,22 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_DRAG"] == "1" {
             runE2EDragSequence()
         }
-        // E2E: send a generated file so the receive + Finder-reveal
-        // path is verifiable from the receiver log.
-        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SEND_FILE"] == "1" {
+        // E2E: send generated file(s) so the receive + Finder-reveal
+        // path is verifiable from the receiver log. A value >1 also
+        // exercises the serial multi-file queue.
+        if let raw = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SEND_FILE"],
+           let count = Int(raw), count > 0 {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(4))
-                let data = Data(repeating: 0xAB, count: 1_500_000)
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("remotecrab-e2e-file.bin")
-                try? data.write(to: url)
-                self?.sendFile(at: url)
+                var urls: [URL] = []
+                for i in 1...count {
+                    let data = Data(repeating: UInt8(0xAB &+ i), count: 1_500_000)
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("remotecrab-e2e-file-\(i).bin")
+                    try? data.write(to: url)
+                    urls.append(url)
+                }
+                self?.sendFiles(at: urls)
             }
         }
         // E2E: push a known clipboard string so the Mac receive path is
@@ -1201,9 +1207,27 @@ final class CaptureEngine: ObservableObject {
 
     // MARK: - File transfer
 
-    /// Stream a file to the Mac (offer → chunks → complete). Safe to
-    /// call from any surface; a no-op when no Mac owns the session.
+    /// Serializes file sends — the wire protocol has no per-file stream
+    /// id, so two in-flight transfers would interleave chunk frames.
+    private let fileSender = SerialFileSender()
+
+    /// Stream a single file to the Mac (offer → chunks → complete).
+    /// Safe to call from any surface; a no-op when no Mac owns the session.
     func sendFile(at url: URL) {
+        sendFiles(at: [url])
+    }
+
+    /// Stream several files to the Mac, strictly one after another.
+    func sendFiles(at urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        Task {
+            await fileSender.enqueue(urls) { [weak self] url in
+                await self?.sendFileNow(at: url)
+            }
+        }
+    }
+
+    private func sendFileNow(at url: URL) async {
         guard broadcaster != nil else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         let name = url.lastPathComponent
@@ -1215,7 +1239,9 @@ final class CaptureEngine: ObservableObject {
         fileTransferProgress = 0
         lastFileAck = nil
 
-        Task.detached(priority: .userInitiated) { [weak self] in
+        // Detached so the chunk loop stays off the main thread; awaited
+        // so the serial queue waits for this file to finish.
+        await Task.detached(priority: .userInitiated) { [weak self] in
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             guard let self else { return }
             let broadcaster = await self.broadcaster
@@ -1240,7 +1266,7 @@ final class CaptureEngine: ObservableObject {
             }
             try? handle.close()
             await self.finishFileSend(offer)
-        }
+        }.value
     }
 
     private func setFileProgress(_ value: Double) {

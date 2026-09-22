@@ -66,6 +66,9 @@ public enum IBLocale {
         public static let speech = IBL("Speech Recognition")
         public static let speechReason = IBL("Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature.")
 
+        public static let photos = IBL("Photos Access")
+        public static let photosReason = IBL("RemoteCrab can send your latest screenshots straight to the Mac. Only the screenshots you send are read — nothing is uploaded.")
+
         public static let accessibility = IBL("Accessibility Permission")
         public static let accessibilityReason = IBL("We need Accessibility to drive your Mac's cursor and keyboard from your iPhone.")
 
@@ -103,6 +106,8 @@ public enum IBLocale {
         public static let permMicDesc = IBL("Stream iPhone mic to Mac speakers")
         public static let permNetworkTitle = IBL("Local Network")
         public static let permNetworkDesc = IBL("Discover & connect to your Mac")
+        public static let permPhotoTitle = IBL("Photos")
+        public static let permPhotoDesc = IBL("Send recent screenshots to your Mac")
     }
 
     public enum Mode {
@@ -153,6 +158,9 @@ public enum IBLocale {
         public static let status = IBL("Status")
         public static let resolution = IBL("Resolution")
         public static let bitrate = IBL("Bitrate")
+        /// Connection-sheet target section: which Mac this iPhone serves.
+        public static let macSection = IBL("Mac")
+        public static let notConnected = IBL("Not connected")
     }
 
     /// Hold-to-talk voice card states.
@@ -464,6 +472,17 @@ public enum IBLocale {
     public enum Context {
         public static let open = IBL("App shortcuts")
         public static let footer = IBL("Buttons send keyboard or system events to your Mac")
+        // Context-sheet profile titles (frontmost Mac app → suite).
+        public static let profilePresentation = IBL("Presentation")
+        public static let profileAgent = IBL("Agent")
+        public static let profileFinder = IBL("Finder")
+        public static let profileNotes = IBL("Notes")
+        public static let profileBrowser = IBL("Browser")
+        public static let profileMail = IBL("Mail")
+        public static let profileMessages = IBL("Messages")
+        public static let profileCalendar = IBL("Calendar")
+        public static let profileEditor = IBL("Editor")
+        public static let profileConsole = IBL("Console")
     }
 
     /// Recording the live stream to disk (Mac).
@@ -485,6 +504,9 @@ public enum IBLocale {
         public static let clipboardToiPhone = IBL("Send Clipboard to iPhone")
         public static let clipboardHelp = IBL("Copy the Mac clipboard to the iPhone")
         public static let sendHint = IBL("Send a photo, video, or file to the Mac")
+        public static let latestScreenshot = IBL("Latest Screenshot")
+        public static let noScreenshot = IBL("No screenshot found in your library.")
+        public static let photosDenied = IBL("Photos access is off. Enable it in iOS Settings → Privacy → Photos, or pick a photo instead.")
     }
 
     /// Multi-Mac pairing prompts and settings.

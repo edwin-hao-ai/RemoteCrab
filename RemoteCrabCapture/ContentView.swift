@@ -18,7 +18,8 @@ struct ContentView: View {
     @State private var showSendDialog = false
     @State private var showFileImporter = false
     @State private var showPhotoPicker = false
-    @State private var photoItem: PhotosPickerItem?
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var screenshotError: String?
     @State private var voice = VoiceRecognizer()
     @State private var voiceHeld = false
 
@@ -46,7 +47,13 @@ struct ContentView: View {
                 VStack {
                     topBar
                     Spacer()
-                    pttRow
+                    // Hidden in keyboard mode: the system keyboard pushes
+                    // this row up into the KeyboardScreen shortcut bar, so
+                    // they overlapped. That surface has its own "back to
+                    // trackpad" button in its header.
+                    if engine.features.activeSurface != .keyboard {
+                        pttRow
+                    }
                 }
                 .padding(IBSpace.l.pt)
 
@@ -89,8 +96,13 @@ struct ContentView: View {
                 : .automatic
         )
         .sheet(isPresented: $showConnectionSheet) {
-            ConnectionSheet(engine: engine)
-                .presentationDetents([.medium])
+            ConnectionSheet(engine: engine, onChooseMac: {
+                showConnectionSheet = false
+                // Let the sheet finish dismissing before presenting the
+                // picker on top of it.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showMacPicker = true }
+            })
+            .presentationDetents([.medium])
         }
         .sheet(isPresented: $showSettings) {
             IOSSettingsView()
@@ -121,28 +133,44 @@ struct ContentView: View {
                 .presentationDetents([.large])
         }
         .confirmationDialog(IBLocale.Transfer.sendTitle, isPresented: $showSendDialog, titleVisibility: .visible) {
+            Button(IBLocale.Transfer.latestScreenshot) { sendLatestScreenshot() }
             Button(IBLocale.Transfer.photo) { showPhotoPicker = true }
             Button(IBLocale.Transfer.file) { showFileImporter = true }
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                engine.sendFile(at: url)
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result {
+                engine.sendFiles(at: urls)
             }
         }
-        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem,
+        .photosPicker(isPresented: $showPhotoPicker, selection: $photoItems,
+                      maxSelectionCount: 10,
                       matching: .any(of: [.images, .videos]))
-        .onChange(of: photoItem) { _, item in
-            guard let item else { return }
+        .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
+            let picked = items
+            photoItems = []
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "dat"
-                    let tmp = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("remotecrab-\(UUID().uuidString).\(ext)")
-                    try? data.write(to: tmp)
-                    engine.sendFile(at: tmp)
+                // Materialize each pick to a temp file, then hand them
+                // to the engine in one call so it sends them one by one.
+                var urls: [URL] = []
+                for item in picked {
+                    if let data = try? await item.loadTransferable(type: Data.self) {
+                        let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "dat"
+                        let tmp = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("remotecrab-\(UUID().uuidString).\(ext)")
+                        try? data.write(to: tmp)
+                        urls.append(tmp)
+                    }
                 }
-                photoItem = nil
+                engine.sendFiles(at: urls)
             }
+        }
+        .alert(IBLocale.Transfer.latestScreenshot,
+               isPresented: Binding(get: { screenshotError != nil },
+                                    set: { if !$0 { screenshotError = nil } })) {
+            Button(IBLocale.Settings.done, role: .cancel) {}
+        } message: {
+            Text(screenshotError ?? "")
         }
         .onAppear {
             // Finalized dictation is typed into the Mac as a `.text`
@@ -583,6 +611,22 @@ struct ContentView: View {
         }
     }
 
+    /// Grab the newest screenshot and send it. On failure show a short
+    /// alert (denied vs. none) instead of failing silently — the send
+    /// menu entry would otherwise look broken.
+    private func sendLatestScreenshot() {
+        Task {
+            do {
+                let url = try await LatestScreenshot.newestFileURL()
+                engine.sendFiles(at: [url])
+            } catch LatestScreenshot.Failure.notAuthorized {
+                screenshotError = IBLocale.Transfer.photosDenied
+            } catch {
+                screenshotError = IBLocale.Transfer.noScreenshot
+            }
+        }
+    }
+
     private func topBarIcon(_ name: String, tint: Color = .white,
                             active: Bool = false, activeColor: Color = .accentColor) -> some View {
         Image(systemName: name)
@@ -750,6 +794,8 @@ struct ContentView: View {
                     }
             }
             .buttonStyle(IBPressButtonStyle(scale: 0.9))
+            .frame(width: 48, height: 48)
+            .contentShape(Circle())
             .accessibilityLabel(IBLocale.Mode.keyboard)
             .accessibilityHint(IBLocale.A11y.showsSurface(IBLocale.Mode.keyboard))
             .accessibilityAddTraits(engine.features.activeSurface == .keyboard ? .isSelected : [])
@@ -944,6 +990,9 @@ struct ContentView: View {
 
 private struct ConnectionSheet: View {
     @ObservedObject var engine: CaptureEngine
+    /// Called when the user taps "Choose a Mac" — the presenter dismisses
+    /// this sheet and opens the Mac picker.
+    let onChooseMac: () -> Void
     @Environment(\.dismiss) private var dismiss
     /// True while `toggleStreaming()` is in flight — the listener +
     /// Bonjour publish resolve asynchronously, so the button shows an
@@ -960,6 +1009,25 @@ private struct ConnectionSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                Section(IBLocale.Connection.macSection) {
+                    HStack(spacing: IBSpace.s.pt) {
+                        Image(systemName: "laptopcomputer")
+                            .foregroundStyle(.secondary)
+                        Text(engine.connectedMacName ?? IBLocale.Connection.notConnected)
+                            .foregroundStyle(engine.connectedMacName != nil ? .primary : .secondary)
+                        Spacer()
+                        if engine.connectedMacName != nil {
+                            Text(IBLocale.Pairing.connectedNow)
+                                .font(IBFont.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button {
+                        onChooseMac()
+                    } label: {
+                        Label(IBLocale.Pairing.macPickerTitle, systemImage: "laptopcomputer.and.iphone")
+                    }
+                }
                 Section(IBLocale.Connection.bonjourService) {
                     LabeledContent(IBLocale.Connection.address) {
                         monoValue(connectionAddressText)

@@ -47,6 +47,7 @@ public struct IBModifierBar: View {
                         }
                 }
                 .buttonStyle(IBPressButtonStyle())
+                .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
                 .accessibilityLabel(accessibilityLabel(for: modifier))
                 .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
             }

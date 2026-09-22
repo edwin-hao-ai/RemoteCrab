@@ -261,6 +261,7 @@ struct KeyboardScreen: View {
             }
         }
         .buttonStyle(IBPressButtonStyle(scale: 0.9))
+        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         .accessibilityLabel(IBLocale.Context.open)
     }
 

@@ -86,6 +86,7 @@ struct TouchpadScreen: View {
             }
         }
         .buttonStyle(IBPressButtonStyle())
+        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         .accessibilityLabel(accessibility)
     }
 
@@ -229,6 +230,7 @@ struct TouchpadScreen: View {
             }
         }
         .buttonStyle(IBPressButtonStyle(scale: 0.9))
+        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
         .accessibilityLabel(IBLocale.Context.open)
     }
 

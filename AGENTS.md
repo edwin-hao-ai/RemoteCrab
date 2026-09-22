@@ -90,7 +90,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 112 automated tests (see below)
+│   ├── Tests/                    # 130 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -363,7 +363,7 @@ it. Now ownership is explicit:
 
 ## Tests
 
-112 tests in `RemoteCrabCore/Tests/`, all pass:
+130 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
@@ -375,10 +375,12 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── PairingTests.swift                 (19)  clientHello/sessionReply round-trip, ownership policy, preferred-Mac, allow-list store
 ├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
 ├── AppSwitcherWireTests.swift          (8)  appList / appListRequest / activateApp + windowList / cameraCommand / quitApp round-trips
-├── ContextProfilesTests.swift          (7)  frontmost-app → presentation/agent/console suite mapping, fallback
+├── ContextProfilesTests.swift         (18)  frontmost-app → suite mapping (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), row-pairing invariant, bundle-id uniqueness, Codable round-trip
 ├── SystemCommandWireTests.swift        (3)  IBSystemCommand (0x19) wire round-trip
 ├── SystemKeyEncoderTests.swift         (3)  media-key CGEvent data1 encoding (regression: double-shifted flags)
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
+├── ScreenshotPickerTests.swift         (4)  newest-screenshot selection (ignores newer ordinary photos)
+├── SerialFileSenderTests.swift         (3)  multi-file sends run in order, never overlap
 ├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
 ├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
 ├── IBOpusCodecTests.swift              (6)  Opus encode/decode round-trip, garbage packets, rate guard
@@ -426,7 +428,7 @@ land in the wrong window.
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 112 tests + both apps build
+./scripts/test.sh                    # 130 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -496,7 +498,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 112 automated tests passing
+- 130 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -535,9 +537,8 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - **V0.5** — ~~Real Opus encoding~~ ✅ (2026-09-15, Apple AudioConverter, zero deps), localization
 - **V1.0** — Public App Store release
 - ~~**V1.1** — UI restructure: dock removed (top-bar toggles + PTT row), context sheet (presentation/agent/console suites), `systemCommand` 0x19, Mac settings wired (launchAtLogin/autoReconnect/AWDL)~~ ✅ (2026-09-22)
-- **V1.2** — Context-sheet action labels localization batch (V1.1 ships the
-  presentation/agent/console suites with English labels; sheet chrome —
-  `IBLocale.Context.open` / `.footer` — is already bilingual)
+- ~~**V1.2** — context sheet expanded to 10 suites (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), profiles made `Codable` + self-describing (`bundleIDs`) ahead of a future plugin marketplace, 2-column row pairing, full-width voice hero; multi-select file/photo send with a serial queue; "Latest Screenshot" one-tap send (+ Photos permission in onboarding); connection-sheet "Choose a Mac" entry; glass-button hit-area + keyboard-mode PTT overlap fixes~~ ✅ (2026-09-22)
+- **V1.3** — Context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome — `IBLocale.Context.open` / `.footer` / profile titles — is already bilingual); trackpad scroll-feel pass (see the trackpad UX notes)
 - **V1.5** — Windows support (DirectShow virtual camera)
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog
 
@@ -1183,9 +1184,10 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     systemCommand. AWDL peer-to-peer is enabled at BOTH ends (iOS
     `NWListener.includePeerToPeer = true`; Mac browser + outbound dials
     via `ReceiverSession.tcpParameters()`, Preferences toggle
-    `remotecrab.mac.peerToPeer` default true). The V1.2 backlog (laser
-    pointer, quick-launch customization, action-label localization) is
-    tracked in the Roadmap section — don't duplicate it here.
+`remotecrab.mac.peerToPeer` default true). V1.2 shipped the context-sheet
+expansion (10 suites, `Codable` profiles, row pairing) — the V1.3 backlog
+(action-label localization, trackpad scroll-feel pass) is tracked in the
+Roadmap section — don't duplicate it here.
 
 38. **System-defined (media key) CGEvents: `data1 = (key << 16) | flags`,
     NOT `(key << 16) | (flags << 8)` (2026-09-22, real-device catch).**
@@ -1206,6 +1208,66 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     lead with ⏎/⌫ (post-dictation "send"/"edit" is the most common
     reach) and context-sheet buttons fire a light haptic on tap.
 
+39. **A Liquid-Glass background does NOT create a hit area — every glass
+    button needs an explicit `.contentShape` (2026-09-22, real-device).**
+    `IBMaterial.glass/bar` renders `shape.fill(.clear).glassEffect(...)`:
+    the `.fill(.clear)` is transparent (no hit test) and the glass layer
+    doesn't contribute either, so a button whose only content is a small
+    SF Symbol ends up with a ~16 pt tap target — it reads as "the button
+    is covered / the tap area is tiny". The top-bar icons always worked
+    because `topBarIcon` callers add `.contentShape(Circle())`; the
+    bottom ⌨️ toggle, `quickKey`/`shortcutKey`, the context chip,
+    `IBModifierBar`, and the context-sheet cards had all been missed.
+    **Rule: any Button whose background is `IBMaterial.*` must add
+    `.contentShape(<same shape>)`.** Solid `.fill(Color…)` backgrounds
+    (e.g. `shortcutKey`'s non-prominent state) are fine.
+
+40. **Only ONE row may anchor itself above the system keyboard
+    (2026-09-22).** In keyboard mode both `KeyboardScreen`'s shortcut bar
+    (padded by `keyboardHeight`) and `ContentView`'s PTT row (pushed up by
+    SwiftUI keyboard avoidance) landed in the same band, so the blue ⌨️
+    toggle covered the context chip and ⏎. Fix: `ContentView` does not
+    render `pttRow` while `activeSurface == .keyboard` — that surface
+    already has a "back to trackpad" button in its header. If a bottom
+    control must exist in keyboard mode, it belongs INSIDE KeyboardScreen's
+    layout, not as a ContentView overlay.
+
+41. **Multi-file sends MUST be serialized — the wire has no per-file
+    stream id (2026-09-22).** `fileOffer → raw fileChunk* → fileComplete`
+    carries one transfer at a time; two concurrent sends interleave chunk
+    frames and corrupt both. `RemoteCrabCore/Transfer/SerialFileSender.swift`
+    (an actor, unit-tested) chains enqueued URLs so the next starts only
+    after the previous finishes; `CaptureEngine.sendFiles(at:)` routes
+    through it and `sendFile(at:)` is now a one-element enqueue. The Mac
+    coalesces the Finder reveal (`scheduleReveal`, 700 ms quiet window) so
+    a 10-file send activates Finder once, not ten times. E2E:
+    `REMOTECRAB_E2E_SEND_FILE=<N>` sends N generated files (N>1 exercises
+    the queue).
+
+42. **"Latest Screenshot" reads the photo library, so it needs a Photos
+    permission (2026-09-22).** `NSPhotoLibraryUsageDescription` lives in
+    `project-ios.yml` (xcodegen is the source of truth) and the read
+    prompt is requested in onboarding (`PermissionFlow.Stage.photos`,
+    `.limited` counts as granted) with a lazy fallback on first use.
+    Selection logic is pure + tested in
+    `RemoteCrabCore/Transfer/ScreenshotPicker.swift`; the Photos plumbing
+    is `RemoteCrabCapture/LatestScreenshot.swift`. **Trap:**
+    `PHAsset.mediaSubtypes` is plural in Swift, but the
+    `PHFetchOptions.predicate` KVC key is singular `mediaSubtype` —
+    `NSPredicate(format: "(mediaSubtype & %d) != 0", …)`.
+
+43. **Context profiles are `Codable` + self-describing on purpose
+    (2026-09-22).** `ContextProfile` carries `id`/`title`/`bundleIDs`/
+    `actions` and round-trips through JSON (`ContextProfilesTests`), so a
+    future plugin marketplace can ship developer-authored suites as data;
+    nothing remote is loaded yet. `ContextProfiles.all` is the built-in
+    registry (first-match-wins on `bundleIDs`), `console` is the fallback.
+    **The sheet lays grid actions out two-per-row, so related controls
+    must be ADJACENT (first at an even index)** — that pairing is a tested
+    invariant (`testConsolePairsRelatedActionsInRows`); reorder profiles
+    with that in mind. The voice hero is rendered full-width above the
+    grid (a two-column cell would clip the capsule).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1225,8 +1287,8 @@ Headless e2e launch envs for the iOS app (via
   iPhone pairing prompt) for headless multi-Mac runs
 - `REMOTECRAB_E2E_SWITCH=<bundleid>` — request the Mac app list + activate
   that app, so the switcher path is verifiable from the receiver log
-- `REMOTECRAB_E2E_SEND_FILE=1` — generate a 1.5 MB file and send it to the
-  Mac (verifies receive + Finder reveal)
+- `REMOTECRAB_E2E_SEND_FILE=<N>` — generate N 1.5 MB files and send them
+  (verifies receive + Finder reveal; N>1 exercises the serial queue)
 - `REMOTECRAB_E2E_RECORD=1` — Mac receiver records 6 s of the live stream
 - `REMOTECRAB_E2E_CLIPBOARD=1` — push a known string to the Mac's clipboard
   (verifies the clipboard path from the receiver log)
@@ -1298,6 +1360,8 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE + REAL-DEVICE PASS: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired. Device pass fixed: media-key data1 double-shift (volume/mute dead on device), switcher missing minimized/hidden apps, shortcut rows now lead with ⏎/⌫, sheet buttons haptic — lessons 37-38; 112 tests green + both app targets build.)_
+_Last updated: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
+
+_Previous: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE + REAL-DEVICE PASS: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired. Device pass fixed: media-key data1 double-shift (volume/mute dead on device), switcher missing minimized/hidden apps, shortcut rows now lead with ⏎/⌫, sheet buttons haptic — lessons 37-38.)_
 
 _Previous: 2026-09-19 (V1.0 SUBMITTED: iOS build 2026091802 → version 1.0 + TestFlight Internal; Mac 1.0 Developer ID notarized DMG via `scripts/release-mac.sh`; domain → `vgoapp.com/remotecrab/`; iOS download links + App Review notes + demo video; lessons 29-36 added. Remaining human step: ASC privacy-policy URL in the browser.)_
