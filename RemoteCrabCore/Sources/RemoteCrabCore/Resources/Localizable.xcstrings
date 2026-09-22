@@ -2576,6 +2576,23 @@
         }
       }
     },
+    "Make sure the Mac app is running, both are on the same WiFi, and keep this app in the foreground.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make sure the Mac app is running, both are on the same WiFi, and keep this app in the foreground."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请确认 Mac 端 App 正在运行、两者在同一 WiFi，并让本 App 保持在前台。"
+          }
+        }
+      }
+    },
     "Looking for your Mac on the same WiFi…": {
       "extractionState": "manual",
       "localizations": {
@@ -6123,6 +6140,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "演示"
+          }
+        }
+      }
+    },
+    "Scroll Speed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll Speed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动速度"
+          }
+        }
+      }
+    },
+    "Natural Scrolling": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Natural Scrolling"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然滚动"
+          }
+        }
+      }
+    },
+    "Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容跟随手指移动，与 Mac 的「自然滚动」一致。若你的 Mac 用的是传统方向，请关闭此项。"
           }
         }
       }

@@ -278,6 +278,9 @@ public enum IBLocale {
         public static func sensitivity(_ value: Int) -> String {
             String(format: IBL("Sensitivity %lld"), value)
         }
+        public static let scrollSpeed = IBL("Scroll Speed")
+        public static let naturalScroll = IBL("Natural Scrolling")
+        public static let naturalScrollHint = IBL("Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.")
         public static let privacyPolicy = IBL("Privacy Policy")
         /// About-section link to the Mac receiver download page (vgoapp.com).
         public static let downloadMac = IBL("Download for Mac")
@@ -537,7 +540,7 @@ public enum IBLocale {
         public static let noCameraPermission = IBL("Camera permission denied. Enable in iOS Settings → Privacy → Camera.")
         public static let noMicPermission = IBL("Microphone permission denied. Enable in iOS Settings → Privacy → Microphone.")
         public static let noLocalNetwork = IBL("Local network permission denied. Enable in iOS Settings → Privacy → Local Network.")
-        public static let searchingHint = IBL("Looking for your Mac on the same WiFi…")
+        public static let searchingHint = IBL("Make sure the Mac app is running, both are on the same WiFi, and keep this app in the foreground.")
         /// Title of the idle/waiting card: the iPhone is the TCP server,
         /// so it can only WAIT for a Mac — "connecting" misleads.
         public static let waitingForMac = IBL("Waiting for your Mac")

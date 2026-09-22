@@ -90,7 +90,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 130 automated tests (see below)
+│   ├── Tests/                    # 145 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -363,14 +363,14 @@ it. Now ownership is explicit:
 
 ## Tests
 
-130 tests in `RemoteCrabCore/Tests/`, all pass:
+145 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── IBWireTests.swift                  (14)  wire protocol round-trip, partial frames, oversized guard
 ├── IBEventsTests.swift                (13)  TouchEvent / KeyEvent / AudioPacket / feature frames round-trip
 ├── FeatureStoreTests.swift             (6)  feature state set/apply/snapshot
-├── TrackpadMathTests.swift             (9)  accel curve + momentum decay
+├── TrackpadMathTests.swift            (15)  accel curve, velocity-scaled momentum, scroll accel/tick spacing
 ├── TextDiffTests.swift                 (6)  IME text diffing → KeyEvent sequences
 ├── PairingTests.swift                 (19)  clientHello/sessionReply round-trip, ownership policy, preferred-Mac, allow-list store
 ├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
@@ -381,6 +381,8 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
 ├── ScreenshotPickerTests.swift         (4)  newest-screenshot selection (ignores newer ordinary photos)
 ├── SerialFileSenderTests.swift         (3)  multi-file sends run in order, never overlap
+├── ScrollCoalescerTests.swift          (5)  120 Hz scroll deltas coalesce to one event per frame
+├── PinchSmootherTests.swift            (4)  pinch dead-zone + EMA damping
 ├── ClipboardWireTests.swift            (1)  clipboardSet text round-trip
 ├── TextTransformTests.swift            (5)  selection transforms + textCommand wire round-trip
 ├── IBOpusCodecTests.swift              (6)  Opus encode/decode round-trip, garbage packets, rate guard
@@ -428,7 +430,7 @@ land in the wrong window.
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 130 tests + both apps build
+./scripts/test.sh                    # 145 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -498,7 +500,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 130 automated tests passing
+- 145 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -538,7 +540,8 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - **V1.0** — Public App Store release
 - ~~**V1.1** — UI restructure: dock removed (top-bar toggles + PTT row), context sheet (presentation/agent/console suites), `systemCommand` 0x19, Mac settings wired (launchAtLogin/autoReconnect/AWDL)~~ ✅ (2026-09-22)
 - ~~**V1.2** — context sheet expanded to 10 suites (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), profiles made `Codable` + self-describing (`bundleIDs`) ahead of a future plugin marketplace, 2-column row pairing, full-width voice hero; multi-select file/photo send with a serial queue; "Latest Screenshot" one-tap send (+ Photos permission in onboarding); connection-sheet "Choose a Mac" entry; glass-button hit-area + keyboard-mode PTT overlap fixes~~ ✅ (2026-09-22)
-- **V1.3** — Context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome — `IBLocale.Context.open` / `.footer` / profile titles — is already bilingual); trackpad scroll-feel pass (see the trackpad UX notes)
+- ~~**V1.3** — trackpad scroll-feel pass (velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, "tap during a glide brakes instead of clicking"); Mac sandbox removed (Quit works) + defaults migration; window picker drops a quit app; connection resilience (dial-any-discovered, owner watchdog, ping timeout)~~ ✅ (2026-09-23)
+- **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry)
 - **V1.5** — Windows support (DirectShow virtual camera)
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog
 
@@ -1185,9 +1188,10 @@ below were invisible to the simulator and to `./scripts/test.sh`:
     `NWListener.includePeerToPeer = true`; Mac browser + outbound dials
     via `ReceiverSession.tcpParameters()`, Preferences toggle
 `remotecrab.mac.peerToPeer` default true). V1.2 shipped the context-sheet
-expansion (10 suites, `Codable` profiles, row pairing) — the V1.3 backlog
-(action-label localization, trackpad scroll-feel pass) is tracked in the
-Roadmap section — don't duplicate it here.
+expansion (10 suites, `Codable` profiles, row pairing) and V1.3 the
+trackpad scroll-feel pass + connection resilience — the V1.4 backlog
+(action-label localization, bidirectional discovery, connection doctor)
+is tracked in the Roadmap section — don't duplicate it here.
 
 38. **System-defined (media key) CGEvents: `data1 = (key << 16) | flags`,
     NOT `(key << 16) | (flags << 8)` (2026-09-22, real-device catch).**
@@ -1268,6 +1272,49 @@ Roadmap section — don't duplicate it here.
     with that in mind. The voice hero is rendered full-width above the
     grid (a two-column cell would clip the capsule).
 
+44. **The Mac receiver is NOT sandboxed — the sandbox silently broke
+    "Quit" (2026-09-22).** `NSRunningApplication.terminate()` /
+    `forceTerminate()` return **false** under the App Sandbox (it forbids
+    signalling other processes), so the window picker's Quit did nothing
+    with zero errors — the wire and dispatch were fine all along. The
+    Mac app ships via Developer ID (not the Mac App Store), so the
+    sandbox is optional; `RemoteCrabReceiver.entitlements` now keeps only
+    `system-extension.install` + the app group. **Consequence:** dropping
+    the sandbox moves `UserDefaults` out of the app container to
+    `~/Library/Preferences/<bundle-id>.plist`, orphaning the paired-Mac
+    tokens and settings — `SandboxDefaultsMigration` copies them across
+    on first launch, and `remotecrab.mac.id` must be carried over too
+    (a fresh id makes the iPhone treat the Mac as a stranger → `busy`).
+    `defaults read <bundle-id>` still resolves to the container while it
+    exists — edit `~/Library/Preferences/…plist` directly to inspect it.
+
+45. **The Mac now dials ANY discovered iPhone (2026-09-22).** It used to
+    dial only phones it held a token for; after a reinstall / settings
+    migration / Mac-id change the token was gone and the Mac silently
+    refused to dial (`discovered 1 phone(s); connection==nil: true` and
+    nothing after), leaving the user stuck on "waiting". Now it prefers a
+    token-matched phone and otherwise dials the first discovered one — the
+    iPhone gates access itself (`accepted` / `pending` / `busy`), so an
+    unknown Mac shows the iPhone's approval card instead of a dead end.
+
+46. **A silent owner must not hold the session forever (2026-09-22).**
+    A half-open socket (Wi-Fi drop, frozen/suspended Mac) stays
+    `NWConnection.state == .ready` and never fires `.failed`, so the
+    iPhone kept answering every other Mac `busy`. Now the iPhone runs an
+    owner watchdog: the Mac pings every 2 s, so **10 s of silence**
+    releases the session (verified by `kill -STOP`-ing the receiver — the
+    iPhone reset the connection at ~13 s). The Mac mirrors it: **8 s
+    without a pong** in the ping loop cancels the link so reconnect
+    starts in seconds.
+
+47. **The window picker drops an app the moment it quits (2026-09-22).**
+    Quitting from the picker left a stale card. Now `CaptureEngine
+    .quitMacApp` removes the app's cards optimistically and the Mac
+    republishes the window list after the quit; `didTerminateApplication`
+    also refreshes it — but only if the iPhone asked for the list in the
+    last 30 s (`lastWindowListRequestAt`), so an app quitting in the
+    background doesn't trigger a full ScreenCaptureKit pass.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1289,6 +1336,8 @@ Headless e2e launch envs for the iOS app (via
   that app, so the switcher path is verifiable from the receiver log
 - `REMOTECRAB_E2E_SEND_FILE=<N>` — generate N 1.5 MB files and send them
   (verifies receive + Finder reveal; N>1 exercises the serial queue)
+- `REMOTECRAB_E2E_QUIT=<bundleid>` — quit that Mac app (verifies the
+  window-picker Quit path from the receiver log: `quitApp … accepted=true`)
 - `REMOTECRAB_E2E_RECORD=1` — Mac receiver records 6 s of the live stream
 - `REMOTECRAB_E2E_CLIPBOARD=1` — push a known string to the Mac's clipboard
   (verifies the clipboard path from the receiver log)
@@ -1360,7 +1409,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
+_Last updated: 2026-09-23 (V1.3 SHIPPED: trackpad scroll-feel pass — velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, tap-during-glide brakes without clicking (lessons 39-43 territory, tests 145); Mac App Sandbox REMOVED so the window picker's Quit actually terminates apps (`terminate()` was silently false under the sandbox) + `SandboxDefaultsMigration` carries the pairing/settings across; the Mac dials ANY discovered iPhone; the iPhone releases a silent owner after 10 s and the Mac treats 8 s without a pong as dead; the window picker drops a quit app — lessons 44-47; real-device e2e 10/10.)_
+
+_Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
 _Previous: 2026-09-22 (V1.1 UI RESTRUCTURE COMPLETE + REAL-DEVICE PASS: FeatureDock removed — top-bar cam/mic toggles + bottom ⌨️/PTT row; ContextSheetView with presentation/agent/console suites + `systemCommand` 0x19; Mac launchAtLogin (SMAppService) / autoReconnect gate / AWDL peer-to-peer wired. Device pass fixed: media-key data1 double-shift (volume/mute dead on device), switcher missing minimized/hidden apps, shortcut rows now lead with ⏎/⌫, sheet buttons haptic — lessons 37-38.)_
 

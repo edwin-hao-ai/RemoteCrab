@@ -124,6 +124,13 @@ final class CaptureEngine: ObservableObject {
     // MARK: - Multi-Mac handshake state
 
     private var ownerMac: PairedMac?
+    /// Last time any frame arrived from the owner Mac. The Mac pings
+    /// every 2 s, so sustained silence means the link is dead — and a
+    /// dead-but-still-"ready" socket must not keep answering other Macs
+    /// `busy` forever.
+    private var lastInboundAt = Date()
+    /// Watchdog that releases a silent owner (see `lastInboundAt`).
+    private var ownerWatchdog: Timer?
     /// Connection currently awaiting a `clientHello` (not yet granted).
     private var candidate: NWConnection?
     private var candidateParser: IBWire.Parser?
@@ -1010,6 +1017,7 @@ final class CaptureEngine: ObservableObject {
         connectedMacName = mac?.name ?? "Mac (legacy)"
         connectedMacId = mac?.id
         connectionState = .connected
+        startOwnerWatchdog()
         Self.log.info("session granted to \(self.connectedMacName ?? "?", privacy: .public)")
 
         conn.stateUpdateHandler = { [weak self] state in
@@ -1080,6 +1088,15 @@ final class CaptureEngine: ObservableObject {
                 try? await Task.sleep(for: .seconds(2))
                 self?.activateMacApp(id: target)
                 Forensic.log("[e2e] switch requested: \(target)")
+            }
+        }
+        // E2E: exercise the quit path headlessly — REMOTECRAB_E2E_QUIT is a
+        // bundle id; the Mac log confirms "quitApp … accepted=…".
+        if let target = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_QUIT"], !target.isEmpty {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(4))
+                self?.quitMacApp(id: target, force: true)
+                Forensic.log("[e2e] quit requested: \(target)")
             }
         }
         // E2E: request the window list so the Mac's capture path is
@@ -1203,6 +1220,11 @@ final class CaptureEngine: ObservableObject {
     /// on the Mac); `force` terminates immediately and can lose work.
     func quitMacApp(id: String, force: Bool) {
         broadcaster?.send(IBQuitApp(id: id, force: force))
+        // Optimistic: drop the app's cards from the open window picker
+        // immediately. The Mac republishes the list right after the quit
+        // and reconciles — if a graceful quit is blocked by an invisible
+        // save prompt, the card simply comes back.
+        macWindows.removeAll { $0.appId == id }
     }
 
     // MARK: - File transfer
@@ -1386,12 +1408,40 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func clearOwner() {
+        stopOwnerWatchdog()
         broadcaster = nil
         audioEncoder?.stop()
         connection = nil
         ownerMac = nil
         connectedMacName = nil
         connectedMacId = nil
+    }
+
+    /// Release the session when the owner goes silent. The Mac pings
+    /// every 2 s; 10 s of silence (5 missed pings) means the link is
+    /// dead, so stop answering other Macs `busy` and let the next one in.
+    private func startOwnerWatchdog() {
+        stopOwnerWatchdog()
+        lastInboundAt = Date()
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkOwnerLiveness() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        ownerWatchdog = timer
+    }
+
+    private func stopOwnerWatchdog() {
+        ownerWatchdog?.invalidate()
+        ownerWatchdog = nil
+    }
+
+    private func checkOwnerLiveness() {
+        guard connection != nil || ownerMac != nil else { return }
+        let idle = Date().timeIntervalSince(lastInboundAt)
+        guard idle > 10 else { return }
+        Self.log.error("owner silent for \(Int(idle), privacy: .public)s — releasing the session")
+        connection?.cancel()
+        clearOwner()
     }
 
     // MARK: - Receiving (Mac → iPhone control)
@@ -1422,6 +1472,7 @@ final class CaptureEngine: ObservableObject {
     }
 
     private func handleInbound(_ data: Data) {
+        lastInboundAt = Date()
         for frame in parser.append(data) {
             switch frame.kind {
             case .featureControl:

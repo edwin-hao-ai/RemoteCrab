@@ -12,6 +12,8 @@ struct IOSSettingsView: View {
     @AppStorage("remotecrab.ios.resolution")    private var resolution: String = "1080p"
     @AppStorage("remotecrab.ios.frameRate")    private var frameRate: Int = 30
     @AppStorage("remotecrab.ios.trackpadSens")  private var trackpadSens: Int = 3
+    @AppStorage("remotecrab.ios.scrollSens")    private var scrollSens: Int = 3
+    @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.keepScreenOn") private var keepScreenOn: Bool = true
     @AppStorage("remotecrab.ios.labAirMouse")   private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
@@ -167,6 +169,16 @@ struct IOSSettingsView: View {
                 }
             }
             .accessibilityLabel(IBLocale.A11y.trackpadSensitivity)
+
+            Picker(IBLocale.Settings.scrollSpeed, selection: $scrollSens) {
+                ForEach(1...5, id: \.self) { i in
+                    Text(IBLocale.Settings.sensitivity(i)).tag(i)
+                }
+            }
+            .accessibilityLabel(IBLocale.Settings.scrollSpeed)
+
+            Toggle(IBLocale.Settings.naturalScroll, isOn: $naturalScroll)
+                .accessibilityHint(IBLocale.Settings.naturalScrollHint)
 
             Toggle(IBLocale.Settings.keepScreenOn, isOn: $keepScreenOn)
                 .accessibilityHint(IBLocale.A11y.keepScreenOnHint)

@@ -57,6 +57,15 @@ final class ReceiverSession: ObservableObject {
     /// window refresh doesn't nag for permission every time.
     private var didRequestScreenRecording = false
 
+    /// When the iPhone last asked for the window list — lets a background
+    /// event (e.g. an app quitting) refresh the picker only while it's
+    /// likely open, instead of capturing every window on every change.
+    private var lastWindowListRequestAt: Date?
+
+    /// When the last ping echo came back — the ping loop treats 8 s of
+    /// silence as a dead link (see `startPingLoop`).
+    private var lastPongAt: Date?
+
     /// Last file received from the iPhone (menu bar → Show in Finder).
     @Published private(set) var lastReceivedFileURL: URL?
 
@@ -217,7 +226,14 @@ final class ReceiverSession: ObservableObject {
                      NSWorkspace.didLaunchApplicationNotification,
                      NSWorkspace.didTerminateApplicationNotification] {
             workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.publishMacApps() }
+                Task { @MainActor in
+                    self?.publishMacApps()
+                    // An app that quits (on its own or from the picker)
+                    // must vanish from an OPEN window picker.
+                    if name == NSWorkspace.didTerminateApplicationNotification {
+                        self?.publishMacWindowsIfRecentlyRequested()
+                    }
+                }
             }
         }
     }
@@ -269,6 +285,7 @@ final class ReceiverSession: ObservableObject {
     /// picker. If Screen Recording isn't granted we ask once (System
     /// Settings) and send an app-level list so the picker still works.
     func publishMacWindows() {
+        lastWindowListRequestAt = Date()
         guard sessionGranted, let connection, connection.state == .ready else { return }
         if !WindowCapture.isAuthorized, !didRequestScreenRecording {
             didRequestScreenRecording = true
@@ -284,6 +301,15 @@ final class ReceiverSession: ObservableObject {
                 connection.send(content: data, completion: .contentProcessed { _ in })
             }
         }
+    }
+
+    /// Refresh the window picker only if the iPhone asked for it recently
+    /// (i.e. the picker is probably open). Used for background events like
+    /// an app quitting on its own.
+    private func publishMacWindowsIfRecentlyRequested() {
+        guard let at = lastWindowListRequestAt,
+              Date().timeIntervalSince(at) < 30 else { return }
+        publishMacWindows()
     }
 
     /// Resolve an app by bundle id, or `pid:<n>` when it has no bundle id.
@@ -350,6 +376,9 @@ final class ReceiverSession: ObservableObject {
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             self?.publishMacApps()
+            // The user quit from the picker — republish the window list so
+            // the card disappears from the still-open sheet.
+            self?.publishMacWindows()
         }
     }
 
@@ -602,7 +631,12 @@ final class ReceiverSession: ObservableObject {
         // and the iPhone shows its approval card. A phone this Mac holds
         // a token for was approved on both sides already, so it may
         // connect on sight (this is also the reconnect-after-drop path).
-        guard let phone = phones.first(where: { tokenStore[$0.name] != nil }) else { return }
+        // Prefer a phone this Mac already paired with. If none is around,
+        // dial the first discovered phone anyway: the iPhone decides
+        // (accepted / pending / busy) and shows its approval card, instead
+        // of leaving the user stuck on "waiting" because a reinstall or a
+        // settings migration dropped the local token.
+        guard let phone = phones.first(where: { tokenStore[$0.name] != nil }) ?? phones.first else { return }
         if connection == nil {
             connect(to: phone)
         } else if case .connecting = state {
@@ -992,8 +1026,18 @@ final class ReceiverSession: ObservableObject {
 
     private func startPingLoop(on connection: NWConnection) {
         stopPingLoop()
+        lastPongAt = Date()
         let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self, weak connection] _ in
-            guard let connection, connection.state == .ready else { return }
+            guard let self, let connection, connection.state == .ready else { return }
+            // The phone echoes every ping. Sustained silence means the
+            // link is half-open (Wi-Fi dropped, phone suspended) — a
+            // "ready" socket that never fires .failed. Detect it here so
+            // reconnect starts in seconds, not whenever TCP notices.
+            if let last = self.lastPongAt, Date().timeIntervalSince(last) > 8 {
+                Self.log.error("no pong for \(Int(Date().timeIntervalSince(last)), privacy: .public)s — link is dead")
+                connection.cancel()
+                return
+            }
             let micros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
             connection.send(content: IBWire.encodePing(sentMicros: micros),
                             completion: .contentProcessed { _ in })
@@ -1010,7 +1054,8 @@ final class ReceiverSession: ObservableObject {
     /// After a drop, retry the phone we were talking to every few
     /// seconds. The Bonjour browser keeps running, so `discovered`
     /// stays fresh; if the phone disappears the connect fails and this
-    /// re-arms. Never auto-dials a phone we haven't paired with.
+    /// re-arms. Prefers a paired phone, but will re-dial any discovered
+    /// phone (the iPhone gates access itself).
     private func scheduleReconnect() {
         guard !suppressReconnect else { return }
         Task { [weak self] in
@@ -1030,7 +1075,7 @@ final class ReceiverSession: ObservableObject {
            let phone = discovered.first(where: { $0.name == name }) {
             return phone
         }
-        return discovered.first(where: { tokenStore[$0.name] != nil })
+        return discovered.first(where: { tokenStore[$0.name] != nil }) ?? discovered.first
     }
 
     private func currentPhoneName() -> String? {
@@ -1199,6 +1244,7 @@ final class ReceiverSession: ObservableObject {
                     continue
                 }
                 let sentMicros = IBWire.decodePing(frame)
+                lastPongAt = Date()
                 let nowMicros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
                 let rttMs = Int((nowMicros &- sentMicros) / 1_000)
                 latencyHistory.append(rttMs)

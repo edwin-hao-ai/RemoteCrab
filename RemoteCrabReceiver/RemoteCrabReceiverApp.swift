@@ -54,6 +54,9 @@ struct RemoteCrabReceiverApp: App {
     }()
 
     init() {
+        // The sandbox was removed (V1.3); bring the old container's
+        // paired-Mac tokens + settings over before anything reads them.
+        SandboxDefaultsMigration.runIfNeeded()
         // Prompt for Accessibility only as part of the first-launch
         // flow (so the app appears in the user's Accessibility list).
         // On later launches the setup assistant / Preferences check

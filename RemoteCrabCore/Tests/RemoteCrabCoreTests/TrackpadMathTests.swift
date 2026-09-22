@@ -31,10 +31,26 @@ final class TrackpadMathTests: XCTestCase {
         XCTAssertEqual(s9, s5, accuracy: 0.0001)
     }
 
+    // MARK: - Momentum
+
+    private func glideDistance(initialSpeed: CGFloat) -> CGFloat {
+        let retention = TrackpadMath.momentumRetention(initialSpeed: initialSpeed)
+        var v = CGPoint(x: 0, y: initialSpeed)
+        var total: CGFloat = 0
+        while let step = TrackpadMath.momentumStep(
+            velocity: v, elapsedSeconds: 1.0 / 60.0, retention: retention) {
+            total += abs(step.delta.y)
+            v = step.newVelocity
+        }
+        return total
+    }
+
     func testMomentumDecaysAndStops() {
+        let retention = TrackpadMath.momentumRetention(initialSpeed: 800)
         var v = CGPoint(x: 0, y: 800)   // 800 pt/s downward
         var steps = 0
-        while let step = TrackpadMath.momentumStep(velocity: v, elapsedSeconds: 1.0 / 60.0) {
+        while let step = TrackpadMath.momentumStep(
+            velocity: v, elapsedSeconds: 1.0 / 60.0, retention: retention) {
             v = step.newVelocity
             steps += 1
             XCTAssertLessThan(abs(v.y), 800.0 + 0.01)
@@ -44,8 +60,53 @@ final class TrackpadMathTests: XCTestCase {
     }
 
     func testMomentumBelowCutoffStopsImmediately() {
-        XCTAssertNil(TrackpadMath.momentumStep(velocity: CGPoint(x: 0, y: 10), elapsedSeconds: 1.0 / 60.0))
+        XCTAssertNil(TrackpadMath.momentumStep(
+            velocity: CGPoint(x: 0, y: 10), elapsedSeconds: 1.0 / 60.0, retention: 0.95))
     }
+
+    func testMomentumRetentionIncreasesWithSpeed() {
+        XCTAssertLessThan(TrackpadMath.momentumRetention(initialSpeed: 40),
+                          TrackpadMath.momentumRetention(initialSpeed: 2000))
+        XCTAssertEqual(TrackpadMath.momentumRetention(initialSpeed: 40), 0.90, accuracy: 0.001)
+        XCTAssertEqual(TrackpadMath.momentumRetention(initialSpeed: 5000), 0.985, accuracy: 0.001)
+    }
+
+    func testFastFlickGlidesFartherThanSlow() {
+        // The whole point of velocity-scaled momentum: a hard flick
+        // travels much farther than a gentle one.
+        XCTAssertGreaterThan(glideDistance(initialSpeed: 2000),
+                             glideDistance(initialSpeed: 120) * 2)
+    }
+
+    // MARK: - Scroll acceleration
+
+    func testScrollAccelerateSensitivityOrdering() {
+        let s1 = TrackpadMath.accelerateScroll(dx: 0.01, dy: 0, sensitivity: 1).x
+        let s5 = TrackpadMath.accelerateScroll(dx: 0.01, dy: 0, sensitivity: 5).x
+        XCTAssertGreaterThan(s5, s1)
+    }
+
+    func testScrollAccelerateFastGainsMore() {
+        let slow = TrackpadMath.accelerateScroll(dx: 0.002, dy: 0, sensitivity: 3).x / 0.002
+        let fast = TrackpadMath.accelerateScroll(dx: 0.03, dy: 0, sensitivity: 3).x / 0.03
+        XCTAssertGreaterThan(fast, slow)
+    }
+
+    func testScrollAccelerateKeepsDirection() {
+        XCTAssertLessThan(TrackpadMath.accelerateScroll(dx: 0, dy: -0.02, sensitivity: 3).y, 0)
+        XCTAssertGreaterThan(TrackpadMath.accelerateScroll(dx: 0.02, dy: 0, sensitivity: 3).x, 0)
+    }
+
+    // MARK: - Haptic tick spacing
+
+    func testScrollTickDistanceGrowsWithSpeed() {
+        XCTAssertEqual(TrackpadMath.scrollTickDistance(speedPointsPerSecond: 0), 24, accuracy: 0.001)
+        XCTAssertEqual(TrackpadMath.scrollTickDistance(speedPointsPerSecond: 5000), 64, accuracy: 0.001)
+        XCTAssertGreaterThan(TrackpadMath.scrollTickDistance(speedPointsPerSecond: 800),
+                             TrackpadMath.scrollTickDistance(speedPointsPerSecond: 200))
+    }
+
+    // MARK: - Pointer
 
     func testSelectionAccelerateHasNoBoost() {
         // Fast and slow drags get the SAME gain — selecting text must

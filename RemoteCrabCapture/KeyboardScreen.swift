@@ -11,6 +11,8 @@ struct KeyboardScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
+    @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
+    @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
 
     /// Lockable modifier state — locked modifiers ride on every
     /// subsequent key / text / touch event.
@@ -174,6 +176,8 @@ struct KeyboardScreen: View {
             label: IBLocale.A11y.miniTrackpad,
             modifierMask: modifierMask,
             sensitivity: trackpadSens,
+            scrollSensitivity: scrollSens,
+            naturalScroll: naturalScroll,
             onEvent: { engine.sendTouch($0) }
         )
         .frame(height: 96)

@@ -11,6 +11,8 @@ import os
 struct TouchpadScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
+    @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
+    @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.labAirMouse") private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
 
@@ -101,6 +103,8 @@ struct TouchpadScreen: View {
             TouchSurface(
                 modifierMask: modifierMask,
                 sensitivity: trackpadSens,
+                scrollSensitivity: scrollSens,
+                naturalScroll: naturalScroll,
                 airMouseEnabled: labAirMouse,
                 wheelScrollEnabled: labWheelScroll,
                 airMouseActive: airMouseActive,

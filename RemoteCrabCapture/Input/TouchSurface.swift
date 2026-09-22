@@ -27,6 +27,12 @@ final class TouchSurfaceUIView: UIView {
     var modifierMask: UInt8 = 0
     /// 1...5 pointer sensitivity, read by the host from @AppStorage.
     var sensitivity: Int = 3
+    /// 1...5 two-finger scroll sensitivity (separate from the pointer).
+    var scrollSensitivity: Int = 3
+    /// Match macOS "natural scrolling" (content follows the fingers).
+    /// The pref is applied by the trackpad driver, which synthetic events
+    /// bypass — so we honour it here.
+    var naturalScroll: Bool = true
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
 
@@ -207,19 +213,28 @@ final class TouchSurfaceUIView: UIView {
     }
 
     @objc private func handleScrollPan(_ rec: UIPanGestureRecognizer) {
-        let translation = rec.translation(in: self)
         switch rec.state {
         case .changed:
+            let translation = rec.translation(in: self)
             rec.setTranslation(.zero, in: self)
-            emitScroll(deltaPoints: translation)
+            let scaled = TrackpadMath.accelerateScroll(
+                dx: translation.x, dy: translation.y, sensitivity: scrollSensitivity)
+            if let out = scrollCoalescer.add(scaled, at: CACurrentMediaTime()) {
+                let v = rec.velocity(in: self)
+                emitScroll(deltaPoints: out, speed: hypot(v.x, v.y))
+            }
         case .ended:
             rec.setTranslation(.zero, in: self)
             let velocity = rec.velocity(in: self)
-            if hypot(velocity.x, velocity.y) > 40 {
+            if let out = scrollCoalescer.flush() {
+                emitScroll(deltaPoints: out, speed: hypot(velocity.x, velocity.y))
+            }
+            if hypot(velocity.x, velocity.y) >= TrackpadMath.momentumCutoff {
                 startMomentum(velocity: velocity)
             }
         case .cancelled:
             rec.setTranslation(.zero, in: self)
+            _ = scrollCoalescer.flush()
         default:
             break
         }
@@ -256,22 +271,29 @@ final class TouchSurfaceUIView: UIView {
         case .began:
             lastPinchScale = 1
             pinchBoundaryFired = false
+            pinchSmoother.reset()
         case .changed:
-            let delta = Float(rec.scale - lastPinchScale)
+            let raw = rec.scale - lastPinchScale
             lastPinchScale = rec.scale
-            emit(phase: .pinch, at: rec.location(in: self), dx: delta)
+            if let delta = pinchSmoother.delta(forScaleDelta: raw) {
+                emit(phase: .pinch, at: rec.location(in: self), dx: Float(delta))
+            }
             if !pinchBoundaryFired && abs(rec.scale - 1) > 0.5 {
                 pinchBoundaryFired = true
                 fire(mediumImpact)
             }
         case .ended, .cancelled, .failed:
             lastPinchScale = 1
+            pinchSmoother.reset()
         default:
             break
         }
     }
 
     @objc private func handleTap(_ rec: UITapGestureRecognizer) {
+        // Tapping to brake a momentum glide stops the scroll, it does not
+        // click (macOS behaviour).
+        if CACurrentMediaTime() - momentumStoppedAt < 0.12 { return }
         let location = rec.location(in: self)
         lastTapTime = Date().timeIntervalSince1970
         lastTapLocation = location
@@ -414,6 +436,9 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        // A finger landing during a glide brakes it (macOS behaviour);
+        // the resulting tap must stop the scroll, not click.
+        if momentumLink != nil { momentumStoppedAt = CACurrentMediaTime() }
         stopMomentum()
         // A finger landing during the clutch window either continues
         // the drag (one finger) or ends it (second finger = scroll).
@@ -603,10 +628,22 @@ final class TouchSurfaceUIView: UIView {
     private var momentumLink: CADisplayLink?
     private var momentumVelocity: CGPoint = .zero   // pt/s
     private var momentumLastTimestamp: CFTimeInterval = 0
+    /// Per-frame retention for the current glide (velocity-scaled).
+    private var momentumRetention: CGFloat = 0.94
+    /// When the last glide was braked by a touch-down — a tap right after
+    /// stops the scroll, it does not click (macOS behaviour).
+    private var momentumStoppedAt: CFTimeInterval = 0
+
+    /// Coalesces 120 Hz pan callbacks into ≤60 Hz scroll events.
+    private var scrollCoalescer = ScrollCoalescer()
+    /// Damps pinch jitter.
+    private var pinchSmoother = PinchSmoother()
 
     private func startMomentum(velocity: CGPoint) {
         stopMomentum()
         momentumVelocity = velocity
+        momentumRetention = TrackpadMath.momentumRetention(
+            initialSpeed: hypot(velocity.x, velocity.y))
         momentumLastTimestamp = CACurrentMediaTime()
         let link = CADisplayLink(target: self, selector: #selector(momentumFrame(_:)))
         link.add(to: .main, forMode: .common)
@@ -624,7 +661,8 @@ final class TouchSurfaceUIView: UIView {
         momentumLastTimestamp = link.timestamp
         guard let step = TrackpadMath.momentumStep(
             velocity: momentumVelocity,
-            elapsedSeconds: elapsed
+            elapsedSeconds: elapsed,
+            retention: momentumRetention
         ) else {
             stopMomentum()
             return
@@ -641,9 +679,9 @@ final class TouchSurfaceUIView: UIView {
     private let rigidImpact = UIImpactFeedbackGenerator(style: .rigid)
     private let selectionFeedback = UISelectionFeedbackGenerator()
 
-    /// Accumulates scroll travel; fires a selection tick every 24 pt.
+    /// Accumulates scroll travel; fires a selection tick every
+    /// `TrackpadMath.scrollTickDistance` points (speed-adaptive).
     private var scrollTickAccumulator: CGFloat = 0
-    private let scrollTickDistance: CGFloat = 24
 
     private func prepareHaptics() {
         mediumImpact.prepare()
@@ -660,27 +698,34 @@ final class TouchSurfaceUIView: UIView {
         generator.impactOccurred()
     }
 
-    private func tickScrollHaptics(deltaPoints: CGPoint) {
+    private func tickScrollHaptics(deltaPoints: CGPoint, speed: CGFloat) {
         guard scrollTickHaptics else { return }
         scrollTickAccumulator += hypot(deltaPoints.x, deltaPoints.y)
-        while scrollTickAccumulator >= scrollTickDistance {
-            scrollTickAccumulator -= scrollTickDistance
+        // Adaptive spacing: fast flicks tick less often (no buzz), slow
+        // scrubbing ticks tightly for precision.
+        let distance = TrackpadMath.scrollTickDistance(speedPointsPerSecond: speed)
+        while scrollTickAccumulator >= distance {
+            scrollTickAccumulator -= distance
             selectionFeedback.selectionChanged()
         }
     }
 
     // MARK: - Emit
 
-    private func emitScroll(deltaPoints: CGPoint, momentum: Bool = false) {
+    private func emitScroll(deltaPoints: CGPoint, speed: CGFloat = 0, momentum: Bool = false) {
         guard uniformReference > 0 else { return }
+        // Honour macOS's natural-scrolling preference (vertical axis).
+        let dy = naturalScroll ? deltaPoints.y : -deltaPoints.y
         emit(
             phase: .scroll,
             at: nil,
             dx: Float(deltaPoints.x) / Float(uniformReference),
-            dy: Float(deltaPoints.y) / Float(uniformReference),
+            dy: Float(dy) / Float(uniformReference),
             momentum: momentum
         )
-        tickScrollHaptics(deltaPoints: deltaPoints)
+        // No ticks during the glide — a real trackpad goes silent once
+        // the fingers are off.
+        if !momentum { tickScrollHaptics(deltaPoints: deltaPoints, speed: speed) }
     }
 
     private func emit(
@@ -747,6 +792,8 @@ struct TouchSurface: UIViewRepresentable {
     var label: String? = nil
     var modifierMask: UInt8 = 0
     var sensitivity: Int = 3
+    var scrollSensitivity: Int = 3
+    var naturalScroll: Bool = true
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
     var airMouseEnabled: Bool = false
@@ -774,6 +821,8 @@ struct TouchSurface: UIViewRepresentable {
         }
         view.modifierMask = modifierMask
         view.sensitivity = sensitivity
+        view.scrollSensitivity = scrollSensitivity
+        view.naturalScroll = naturalScroll
         view.scrollTickHaptics = scrollTickHaptics
         view.clickHaptics = clickHaptics
         view.airMouseEnabled = airMouseEnabled
