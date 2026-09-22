@@ -851,6 +851,23 @@
         }
       }
     },
+    "Close camera view": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close camera view"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭相机视图"
+          }
+        }
+      }
+    },
     "Codec": {
       "extractionState": "manual",
       "localizations": {

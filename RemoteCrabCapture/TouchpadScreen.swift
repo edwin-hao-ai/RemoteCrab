@@ -32,11 +32,11 @@ struct TouchpadScreen: View {
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "trackpad")
 
-    /// Clearance so the modifier bar floats *above* the whole feature
-    /// dock, which is now 118 pt tall (44 pt PTT capsule + 10 pt gap +
-    /// 64 pt button row) plus ContentView's 16 pt padding = ~134 pt.
-    /// It used to be 88, which let the bar overlap the PTT capsule.
-    private let dockClearance: CGFloat = 148
+    /// Clearance so the modifier/quick-key row floats *above* the
+    /// bottom PTT row (⌨️ button + hold-to-talk capsule), which is
+    /// 48 pt tall plus ContentView's 16 pt padding — ~64 pt, plus a
+    /// small margin.
+    private let dockClearance: CGFloat = 76
 
     /// Modifier bitmask shared with TouchEvent: shift=1, control=2,
     /// option=4, command=8.
@@ -58,7 +58,8 @@ struct TouchpadScreen: View {
 
     /// A compact key button styled like the modifier bar (comma, period,
     /// delete, return — the keys you reach for while navigating).
-    private func quickKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16) -> some View {
+    /// `prominent` fills the key with the accent color (used for ⏎).
+    private func quickKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, prominent: Bool = false) -> some View {
         Button {
             sendKeyTap(keycode)
         } label: {
@@ -70,13 +71,18 @@ struct TouchpadScreen: View {
                 }
             }
             .frame(width: 48, height: 48)
-            .foregroundStyle(IBColor.textPrimary)
+            .foregroundStyle(prominent ? .white : IBColor.textPrimary)
             .background {
-                IBMaterial.glass(
-                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
-                    tint: IBColor.accent,
-                    interactive: true
-                )
+                if prominent {
+                    RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous)
+                        .fill(Color.accentColor)
+                } else {
+                    IBMaterial.glass(
+                        in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
+                        tint: IBColor.accent,
+                        interactive: true
+                    )
+                }
             }
         }
         .buttonStyle(IBPressButtonStyle())
@@ -174,7 +180,7 @@ struct TouchpadScreen: View {
                         quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                         quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                         quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
-                        quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36)
+                        quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
                     }
                     .padding(.horizontal, 2)
                 }

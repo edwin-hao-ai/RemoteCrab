@@ -74,7 +74,7 @@ struct KeyboardScreen: View {
         }
         .onAppear {
             // Delay so the keyboard slides up with the surface instead
-            // of racing the feature-dock transition.
+            // of racing the surface-switch transition.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 // Bail on a fast surface switch: don't steal focus
                 // for a keyboard that is no longer on screen.
@@ -91,9 +91,21 @@ struct KeyboardScreen: View {
 
     private var header: some View {
         HStack {
-            Image(systemName: "keyboard")
-                .foregroundStyle(.white.opacity(0.7))
-                .accessibilityHidden(true)
+            // Back to the trackpad — the system keyboard covers the
+            // bottom PTT row, so the exit needs to live up here.
+            Button {
+                engine.features.activeSurface = .trackpad
+            } label: {
+                Image(systemName: "hand.point.up.left.fill")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(IBSpace.s.pt + 2)
+                    .background { IBMaterial.bar(in: Circle()) }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .buttonStyle(IBPressButtonStyle())
+            .accessibilityLabel(IBLocale.Mode.trackpad)
             Spacer()
             Text(IBLocale.Keyboard.typingOnMac)
                 .font(IBFont.eyebrowMono)

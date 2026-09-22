@@ -566,6 +566,7 @@ public enum IBLocale {
         public static let switchCameraHint = IBL("Flips between the front and back cameras")
         public static let cameraPreview = IBL("Camera preview")
         public static let pipHint = IBL("Tap to show the camera full screen, drag to move")
+        public static let closeCamera = IBL("Close camera view")
 
         // iOS hold-to-talk voice card.
         public static let voiceInputError = IBL("Voice input error")

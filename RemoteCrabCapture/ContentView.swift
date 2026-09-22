@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var showPhotoPicker = false
     @State private var photoItem: PhotosPickerItem?
     @State private var voice = VoiceRecognizer()
+    @State private var voiceHeld = false
 
     /// Brief "Sent" confirmation shown on the voice card after the
     /// finalized text has been dispatched to the Mac.
@@ -45,7 +46,7 @@ struct ContentView: View {
                 VStack {
                     topBar
                     Spacer()
-                    FeatureDock(features: engine.features, voice: voice)
+                    pttRow
                 }
                 .padding(IBSpace.l.pt)
 
@@ -151,6 +152,14 @@ struct ContentView: View {
                 }
             }
 
+            // Recognition session ended on its own (system cap or
+            // mid-session error) — un-stick the held/glowing state.
+            // (Moved here from the retired FeatureDock.)
+            voice.onInterrupted = {
+                voiceHeld = false
+                engine.features.set(feature: .voice, enabled: false)
+            }
+
             // E2E test mode: when REMOTECRAB_AUTO_START=1 is set, skip
             // onboarding and surface a "Tap to start streaming" affordance.
             //
@@ -195,7 +204,7 @@ struct ContentView: View {
             // Privacy rule: the camera NEVER resumes by itself. iOS
             // hard-stops capture in the background anyway; on return the
             // stream stays off until the user turns it back on from the
-            // dock — same opt-in philosophy as the launch default.
+            // top-bar toggle — same opt-in philosophy as the launch default.
             if phase == .background, engine.features.cameraOn {
                 engine.features.set(feature: .camera, enabled: false)
                 backgroundPausePending = true
@@ -210,8 +219,8 @@ struct ContentView: View {
         }
         .onChange(of: voice.lastError) { _, newError in
             // Mid-session failure: flash the error on the voice card
-            // briefly, then dismiss. (The dock resets its own held
-            // state via `voice.onInterrupted`.)
+            // briefly, then dismiss. (The PTT capsule resets its own
+            // held state via `voice.onInterrupted`.)
             guard newError != nil else { return }
             voiceErrorFlash = true
             Task { @MainActor in
@@ -353,12 +362,27 @@ struct ContentView: View {
             } else if engine.features.cameraOn {
                 if engine.captureSessionReady, let previewView = engine.previewView {
                     // Purely visual — VoiceOver users control the camera
-                    // from the dock toggle and the status pill.
+                    // from the top-bar toggle and the status pill.
                     CameraPreview(view: previewView)
                         .ignoresSafeArea()
                         .accessibilityHidden(true)
                         .overlay(alignment: .topTrailing) {
                             flipCameraButton(topInset: topInset)
+                        }
+                        .overlay(alignment: .topLeading) {
+                            Button {
+                                withAnimation(IBAnimation.snappy) {
+                                    engine.features.activeSurface = .trackpad
+                                }
+                            } label: {
+                                topBarIcon("xmark")
+                            }
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                            .buttonStyle(IBPressButtonStyle())
+                            .padding(.top, topInset + 16 + 44 + 12)
+                            .padding(.leading, IBSpace.l.pt)
+                            .accessibilityLabel(IBLocale.A11y.closeCamera)
                         }
                 } else {
                     cameraStartingPlaceholder
@@ -465,9 +489,7 @@ struct ContentView: View {
             Spacer()
 
             // App switching is a top-level action now — it used to hide
-            // behind the overflow menu. The old camera-preview "X" is
-            // gone: the dock switches surfaces, so the exit button was
-            // dead weight (the camera is off by default anyway).
+            // behind the overflow menu.
             Button { showAppSwitcher = true } label: {
                 topBarIcon("square.grid.2x2")
             }
@@ -475,6 +497,35 @@ struct ContentView: View {
             .contentShape(Circle())
             .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(IBLocale.Switcher.title)
+
+            // Stream toggles moved here from the retired FeatureDock:
+            // they are global on/off state, which is exactly what a
+            // top bar is for.
+            Button {
+                engine.features.set(feature: .camera, enabled: !engine.features.cameraOn)
+            } label: {
+                topBarIcon("video.fill", tint: .white,
+                           active: engine.features.cameraOn)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .buttonStyle(IBPressButtonStyle())
+            .accessibilityLabel(IBLocale.Mode.camera)
+            .accessibilityValue(engine.features.cameraOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+            .accessibilityAddTraits(engine.features.cameraOn ? .isSelected : [])
+
+            Button {
+                engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
+            } label: {
+                topBarIcon("mic.fill", tint: .white,
+                           active: engine.features.micOn, activeColor: IBColor.recording)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .buttonStyle(IBPressButtonStyle())
+            .accessibilityLabel(IBLocale.A11y.microphone)
+            .accessibilityValue(engine.features.micOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+            .accessibilityAddTraits(engine.features.micOn ? .isSelected : [])
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.
@@ -521,12 +572,19 @@ struct ContentView: View {
         }
     }
 
-    private func topBarIcon(_ name: String, tint: Color = .white) -> some View {
+    private func topBarIcon(_ name: String, tint: Color = .white,
+                            active: Bool = false, activeColor: Color = .accentColor) -> some View {
         Image(systemName: name)
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(tint)
             .padding(IBSpace.s.pt + 2)
-            .background { IBMaterial.bar(in: Circle()) }
+            .background {
+                if active {
+                    Circle().fill(activeColor)
+                } else {
+                    IBMaterial.bar(in: Circle())
+                }
+            }
     }
 
     // MARK: - Connection status (icon + alert)
@@ -654,10 +712,106 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Bottom row (keyboard entry + hold-to-talk)
+
+    /// Bottom row: keyboard entry (left) + wide hold-to-talk capsule.
+    /// This replaces the FeatureDock — the trackpad is the default
+    /// surface and needs no button; camera/mic live in the top bar.
+    private var pttRow: some View {
+        HStack(spacing: 10) {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(IBAnimation.snappy) {
+                    engine.features.activeSurface =
+                        engine.features.activeSurface == .keyboard ? .trackpad : .keyboard
+                }
+            } label: {
+                Image(systemName: "keyboard")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 48, height: 48)
+                    .background {
+                        if engine.features.activeSurface == .keyboard {
+                            Circle().fill(Color.accentColor)
+                        } else {
+                            IBMaterial.bar(in: Circle())
+                        }
+                    }
+            }
+            .buttonStyle(IBPressButtonStyle(scale: 0.9))
+            .accessibilityLabel(IBLocale.Mode.keyboard)
+            .accessibilityAddTraits(engine.features.activeSurface == .keyboard ? .isSelected : [])
+
+            // Hold-to-talk — moved verbatim from FeatureDock.
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 15, weight: .semibold))
+                    .symbolEffect(.variableColor.iterative, isActive: voiceHeld)
+                Text(voiceHeld ? IBLocale.Voice.releaseToSend : IBLocale.Voice.holdToTalk)
+                    .font(IBFont.bodyMedium)
+            }
+            .foregroundStyle(voiceHeld ? .white : .white.opacity(0.75))
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 48)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(voiceHeld ? IBColor.recording.opacity(0.85) : .white.opacity(0.10))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(voiceHeld ? Color.white.opacity(0.5) : Color.white.opacity(0.14),
+                                          lineWidth: voiceHeld ? 1.5 : 0.5)
+                    }
+            }
+            .shadow(color: voiceHeld ? IBColor.recording.opacity(0.5) : .clear,
+                    radius: voiceHeld ? 14 : 0)
+            .scaleEffect(voiceHeld ? 1.03 : 1.0)
+            .animation(IBAnimation.snappy, value: voiceHeld)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in startVoice() }
+                    .onEnded { _ in stopVoice() }
+            )
+            .accessibilityLabel(voiceHeld ? IBLocale.A11y.voiceReleaseToStop : IBLocale.A11y.voiceHoldToTalk)
+            .accessibilityAction(named: IBLocale.A11y.voiceToggle) {
+                if voiceHeld { stopVoice() } else { startVoice() }
+            }
+        }
+    }
+
+    // Hold-to-talk — moved verbatim from FeatureDock.
+    private func startVoice() {
+        guard !voiceHeld else { return }
+        voiceHeld = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        engine.features.set(feature: .voice, enabled: true)
+        Task { @MainActor in
+            let started = await voice.start()
+            if !started {
+                // No permission / recognizer unavailable — don't leave
+                // the button glowing a fake active state.
+                voiceHeld = false
+                engine.features.set(feature: .voice, enabled: false)
+            } else if !voiceHeld {
+                // Finger released before the async start() resolved
+                // (quick tap) — stop immediately so the recognizer
+                // doesn't run on its own until the ~1 min system cap.
+                voice.stop()
+            }
+        }
+    }
+
+    private func stopVoice() {
+        guard voiceHeld else { return }
+        voiceHeld = false
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        engine.features.set(feature: .voice, enabled: false)
+        voice.stop()
+    }
+
     // MARK: - Voice recognition card
 
-    /// Floating hold-to-talk card, hovers above the dock on every
-    /// surface. Shows the live interim transcription while the
+    /// Floating hold-to-talk card, hovers above the bottom PTT row on
+    /// every surface. Shows the live interim transcription while the
     /// recognizer runs, then a brief "Sent" confirmation (~0.8 s)
     /// after the final text is dispatched.
     private var voiceCard: some View {
@@ -683,7 +837,7 @@ struct ContentView: View {
             IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.continuous.pt, style: .continuous))
         }
         .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        // Clear the dock below — and on the trackpad also clear the
+        // Clear the bottom PTT row — and on the trackpad also clear the
         // floating ⌃⌥⌘⇧ modifier bar so the PTT pill never covers it.
         .padding(.bottom, voiceCardBottomInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -696,11 +850,10 @@ struct ContentView: View {
                                : "\(IBLocale.A11y.voiceInput). \(voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)"))
     }
 
-    /// Dock top is ~134pt from the bottom; on the trackpad the ⌃⌥⌘⇧
-    /// modifier bar adds another ~56pt above that, so the dictation
-    /// card floats above both instead of covering them.
+    /// New bottom stack: 48pt PTT row + 16pt padding; the trackpad's
+    /// quick-key row floats ~76pt above it.
     private var voiceCardBottomInset: CGFloat {
-        engine.features.activeSurface == .trackpad ? 204 : 146
+        engine.features.activeSurface == .trackpad ? 132 : 72
     }
 
     // MARK: - PiP camera preview
