@@ -6144,6 +6144,55 @@
         }
       }
     },
+    "Xcode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Xcode" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Xcode" } }
+      }
+    },
+    "Text": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Text" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文本" } }
+      }
+    },
+    "Media": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Media" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "媒体" } }
+      }
+    },
+    "Chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Chat" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "聊天" } }
+      }
+    },
+    "Meeting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Meeting" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "会议" } }
+      }
+    },
+    "Image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "图片" } }
+      }
+    },
+    "Notebook": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Notebook" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "笔记" } }
+      }
+    },
     "Scroll Speed": {
       "extractionState": "manual",
       "localizations": {

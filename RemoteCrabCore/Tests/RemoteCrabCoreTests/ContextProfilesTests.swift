@@ -20,15 +20,55 @@ final class ContextProfilesTests: XCTestCase {
 
     func testTerminalsMatchAgent() {
         for id in ["com.apple.Terminal", "com.googlecode.iterm2",
-                   "com.mitchellh.ghostty", "dev.warp.Warp-Stable",
-                   "com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92"] {
+                   "com.mitchellh.ghostty", "dev.warp.Warp-Stable"] {
             XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "agent", id)
         }
     }
 
     func testAgentClientsMatchAgent() {
-        for id in ["com.anthropic.claudefordesktop", "com.openai.chat"] {
+        for id in ["com.anthropic.claudefordesktop", "com.openai.chat",
+                   "ai.opencode.desktop", "com.minimax.agent.cn"] {
             XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "agent", id)
+        }
+    }
+
+    func testCodeEditorsMatchEditor() {
+        for id in ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92",
+                   "com.sublimetext.4", "com.panic.Nova", "dev.zed.Zed"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "editor", id)
+        }
+    }
+
+    func testXcodeMatchesXcode() {
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.dt.Xcode")).id, "xcode")
+    }
+
+    func testRichTextMatchesText() {
+        for id in ["com.apple.TextEdit", "com.apple.iWork.Pages",
+                   "com.apple.iWork.Numbers", "com.microsoft.Word"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "text", id)
+        }
+    }
+
+    func testMediaChatMeetingMatch() {
+        for id in ["com.apple.Music", "com.spotify.client"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "media", id)
+        }
+        for id in ["com.hnc.Discord", "com.tinyspeck.slackmacgap",
+                   "com.electron.lark", "com.tencent.xinWeChat", "org.telegram.desktop"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "chat", id)
+        }
+        for id in ["us.zoom.xos", "com.microsoft.teams2", "com.tencent.meeting"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "meeting", id)
+        }
+    }
+
+    func testImageAndNotebookMatch() {
+        for id in ["com.apple.Preview", "com.apple.Photos", "com.apple.QuickTimePlayerX"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "image", id)
+        }
+        for id in ["md.obsidian", "notion.id", "net.shinyfrog.bear"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "notebook", id)
         }
     }
 
@@ -59,8 +99,7 @@ final class ContextProfilesTests: XCTestCase {
     }
 
     func testEditorsMatchEditor() {
-        for id in ["com.apple.dt.Xcode", "com.apple.TextEdit",
-                   "com.sublimetext.4", "com.panic.Nova", "dev.zed.Zed"] {
+        for id in ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92"] {
             XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "editor", id)
         }
     }
@@ -97,6 +136,15 @@ final class ContextProfilesTests: XCTestCase {
                 if case .voiceHero = $0 { return true }
                 return false
             }, profile.id)
+        }
+    }
+
+    /// The grid is two columns, so an even number of actions pairs every
+    /// row cleanly (no lonely half-row at the bottom).
+    func testEveryProfileHasEvenGridActionCount() {
+        for profile in ContextProfiles.all {
+            XCTAssertEqual(profile.gridActions.count % 2, 0,
+                           "\(profile.id) has \(profile.gridActions.count) grid actions")
         }
     }
 

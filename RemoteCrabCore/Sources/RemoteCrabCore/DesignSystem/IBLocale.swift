@@ -488,6 +488,13 @@ public enum IBLocale {
         public static let profileCalendar = IBL("Calendar")
         public static let profileEditor = IBL("Editor")
         public static let profileConsole = IBL("Console")
+        public static let profileXcode = IBL("Xcode")
+        public static let profileText = IBL("Text")
+        public static let profileMedia = IBL("Media")
+        public static let profileChat = IBL("Chat")
+        public static let profileMeeting = IBL("Meeting")
+        public static let profileImage = IBL("Image")
+        public static let profileNotebook = IBL("Notebook")
     }
 
     /// Recording the live stream to disk (Mac).
