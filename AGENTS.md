@@ -1347,6 +1347,32 @@ is tracked in the Roadmap section — don't duplicate it here.
     App Review note: background audio is justified by the mic stream;
     the setting gives users an off switch.
 
+50. **Declaring `UIBackgroundModes: [audio]` breaks a `.playAndRecord`
+    mic — use `.record`, and keep the capture session off the audio
+    session (2026-09-23).** Adding the background mode made the mic's
+    `AVAudioSession` activation fail with **"Session activation failed"
+    (561017449, `'!pri'`)** and e2e lost audio while video/touch looked
+    fine. Two causes, both fixed:
+    (a) `configureCaptureSession` added an `AVCaptureDeviceInput(audio)`
+    that **nothing consumed** (there is no `AVCaptureAudioDataOutput`) —
+    it made `AVCaptureSession` manage the app's audio session and fight
+    `MicrophoneEncoder`. Removed it and set
+    `automaticallyConfiguresApplicationAudioSession = false`.
+    (b) The mic activated `.playAndRecord`; with the background mode
+    declared iOS rejects that activation. It now uses `.record` (the mic
+    only records; `VoiceRecognizer` always used `.record` too).
+    Isolation method that settled it: run the e2e with the keep-alive
+    forced off, and with `UIBackgroundModes` removed, to separate the
+    three variables. With the mode present the app is NOT suspended when
+    backgrounded, so the connection survives (verified 90 s: camera goes
+    `camera=false` on background while `published 5 apps to iPhone`
+    keeps flowing and the TCP stays ESTABLISHED); only the camera still
+    stops, by design.
+    **Keep-alive vs mic are mutually exclusive**: `applyKeepAlive()`
+    only runs when neither `micOn` nor `voiceOn`, and `syncMicrophone`
+    fully deactivates the keep-alive session before the mic
+    reconfigures (leaving it active in `.playback` makes the switch fail).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1441,7 +1467,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-23 (V1.3 SHIPPED: trackpad scroll-feel pass — velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, tap-during-glide brakes without clicking (lessons 39-43 territory, tests 145); Mac App Sandbox REMOVED so the window picker's Quit actually terminates apps (`terminate()` was silently false under the sandbox) + `SandboxDefaultsMigration` carries the pairing/settings across; the Mac dials ANY discovered iPhone; the iPhone releases a silent owner after 10 s and the Mac treats 8 s without a pong as dead; the window picker drops a quit app — lessons 44-47; real-device e2e 10/10.)_
+_Last updated: 2026-09-23 (V1.3 SHIPPED: trackpad scroll-feel pass — velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, tap-during-glide brakes without clicking; Mac App Sandbox REMOVED so the window picker's Quit actually terminates apps + `SandboxDefaultsMigration`; the Mac dials ANY discovered iPhone; a Mac handshake timeout so a half-open dial can't wedge the link; the iPhone releases a silent owner after 10 s and the Mac treats 8 s without a pong as dead; the window picker drops a quit app; **UIBackgroundModes: [audio] + a silent keep-alive so the app survives background/lock** (the mic must use `.record` and the capture session must not own the audio session) — lessons 39-50; 145 tests green + both targets build + real-device e2e 10/10.)_
+
+_Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
 _Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
