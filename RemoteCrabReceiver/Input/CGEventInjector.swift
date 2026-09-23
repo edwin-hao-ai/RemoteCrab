@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import os
 import Foundation
 import RemoteCrabCore
 
@@ -86,6 +87,7 @@ public final class CGEventInjector: InputInjector {
                 // macOS won't match a menu shortcut (⌘A, ⇧←…). Unicode-string
                 // events never do — send keycode events instead, and fall
                 // back to the string for characters with no US keycode (CJK).
+                Self.log.info("modified text \(text, privacy: .public) -> keycodes (mods=\(key.modifiers, privacy: .public))")
                 for char in text {
                     guard let (code, needsShift) = Self.keycode(forCharacter: char) else {
                         typeText(String(char), flags: flags)
@@ -104,6 +106,8 @@ public final class CGEventInjector: InputInjector {
 
     /// US-ANSI character → (virtual keycode, needsShift). Enough for the
     /// letters/digits/punctuation that make up shortcuts.
+    private static let log = Logger(subsystem: "com.remotecrab", category: "injector")
+
     private static func keycode(forCharacter ch: Character) -> (UInt16, Bool)? {
         let lower: [Character: UInt16] = [
             "a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,

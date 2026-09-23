@@ -2,6 +2,7 @@ import CoreMotion
 import QuartzCore
 import SwiftUI
 import UIKit
+import AudioToolbox
 import RemoteCrabCore
 import os
 
@@ -730,6 +731,12 @@ final class TouchSurfaceUIView: UIView {
         Forensic.log("[haptic] fire strength=\(strength) kind=\(adjusted)")
         generator.prepare()
         generator.impactOccurred()
+        if strength >= 3 {
+            // Guaranteed vibration: UIFeedbackGenerator only plays while the
+            // system "Haptics" setting is on, whereas this fires regardless —
+            // so "Strong" is felt even with System Haptics off.
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        }
     }
 
     private func tickScrollHaptics(deltaPoints: CGPoint, speed: CGFloat) {

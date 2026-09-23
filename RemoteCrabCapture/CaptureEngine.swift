@@ -323,7 +323,11 @@ final class CaptureEngine: ObservableObject {
     /// Final transcription for the hold.
     func finishVoiceText(_ final: String) {
         if handleVoiceCommand(final) {
-            eraseVoiceText()   // remove anything typed live, then run it
+            // Deliberately do NOT erase what was typed: a long dictation
+            // that merely starts with a command-like word was being
+            // mis-detected here and the whole paragraph got backspaced
+            // away. A stray prefix word is far better than data loss.
+            voiceTypedText = ""
             voiceLastFull = ""
             return
         }
@@ -333,13 +337,6 @@ final class CaptureEngine: ObservableObject {
         if !tail.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: tail)) }
         voiceTypedText = ""
         voiceLastFull = ""
-    }
-
-    /// Explicitly remove the live-typed voice text (voice-command path).
-    private func eraseVoiceText() {
-        guard !voiceTypedText.isEmpty else { return }
-        for event in TextDiff.events(from: voiceTypedText, to: "") { broadcaster?.send(event) }
-        voiceTypedText = ""
     }
 
     private static func commonPrefix(_ a: String, _ b: String) -> String {
@@ -1170,13 +1167,18 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_VOICE"] == "1" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.updateVoiceText("你好")          // first utterance
+                self?.updateVoiceText("前面输入的内容")   // first utterance
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("你好世界")      // grows
+                self?.updateVoiceText("前面输入的内容")   // stable -> typed
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("你好世界，")    // revision (punctuation) — used to duplicate
+                self?.updateVoiceText("新词")             // LONG PAUSE: recognizer reset (shrank)
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.finishVoiceText("你好世界，")
+                self?.finishVoiceText("新词")
+                try? await Task.sleep(for: .milliseconds(300))
+                // And a final that LOOKS like a command — must not erase.
+                self?.updateVoiceText("变成大写")
+                try? await Task.sleep(for: .milliseconds(300))
+                self?.finishVoiceText("变成大写")
                 Forensic.log("[e2e] voice sequence sent")
             }
         }
@@ -1192,6 +1194,9 @@ final class CaptureEngine: ObservableObject {
                 self?.sendKey(KeyEvent(action: .down, keycode: 0, modifiers: mask))
                 self?.sendKey(KeyEvent(action: .up, keycode: 0, modifiers: mask))
                 self?.sendKey(KeyEvent(action: .up, keycode: code))
+                // Also exercise the IME text path (locked modifier + typed
+                // character), which is what real typing uses.
+                self?.sendKey(KeyEvent(action: .text, text: "a", modifiers: mask))
                 Forensic.log("[e2e] modifier sequence sent: \(code) mask=\(mask)")
             }
         }
