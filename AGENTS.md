@@ -90,7 +90,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 145 automated tests (see below)
+│   ├── Tests/                    # 151 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -375,7 +375,7 @@ RemoteCrabCore/Tests/RemoteCrabCoreTests/
 ├── PairingTests.swift                 (19)  clientHello/sessionReply round-trip, ownership policy, preferred-Mac, allow-list store
 ├── PairingHandshakeE2ETests.swift      (1)  clientHello → TCP → policy → sessionReply round-trip
 ├── AppSwitcherWireTests.swift          (8)  appList / appListRequest / activateApp + windowList / cameraCommand / quitApp round-trips
-├── ContextProfilesTests.swift         (18)  frontmost-app → suite mapping (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), row-pairing invariant, bundle-id uniqueness, Codable round-trip
+├── ContextProfilesTests.swift         (24)  17-suite frontmost-app mapping (presentation/agent/finder/notes/browser/mail/messages/calendar/xcode/editor/text/media/chat/meeting/image/notebook/console), even-row-pairing + bundle-id uniqueness invariants, Codable round-trip
 ├── SystemCommandWireTests.swift        (3)  IBSystemCommand (0x19) wire round-trip
 ├── SystemKeyEncoderTests.swift         (3)  media-key CGEvent data1 encoding (regression: double-shifted flags)
 ├── FileTransferWireTests.swift         (3)  fileOffer / raw fileChunk / fileComplete + fileAck
@@ -430,7 +430,7 @@ land in the wrong window.
 brew install xcodegen
 
 cd /Users/edwinhao/RemoteCrab
-./scripts/test.sh                    # 145 tests + both apps build
+./scripts/test.sh                    # 151 tests + both apps build
 
 # iOS
 xcodegen generate --spec project-ios.yml
@@ -500,7 +500,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 145 automated tests passing
+- 151 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
@@ -1373,6 +1373,36 @@ is tracked in the Roadmap section — don't duplicate it here.
     fully deactivates the keep-alive session before the mic
     reconfigures (leaving it active in `.playback` makes the switch fail).
 
+51. **`contentShape` belongs INSIDE the button style, not on the Button
+    (2026-09-23).** Lesson 39 added `.contentShape(...)` to individual
+    buttons; the context-sheet cards still had a dead trailing half
+    because a **custom `ButtonStyle` hit-tests the label's content
+    shape**, not the outer button bounds — and a glass card's fill is
+    transparent, so only the left-aligned icon+text was tappable.
+    Fixed once for all: `IBPressButtonStyle` and `GlassPressButtonStyle`
+    now apply `.contentShape(Rectangle())` to `configuration.label`, so
+    every button using them hit-tests its full bounds. Prefer fixing hit
+    areas in the style over per-view `contentShape`.
+
+52. **Context-sheet suites: verify shortcuts against the real menu, and
+    keep grid actions even (2026-09-23).** The registry is now 17 suites
+    (`presentation, agent, finder, notes, browser, mail, messages,
+    calendar, xcode, editor, text, media, chat, meeting, image,
+    notebook, console`). Two rules learned:
+    (a) **Read the app's actual menu bar with AppleScript** before writing
+    a binding — walk `menu bar item` → `menu item`, read
+    `AXMenuItemCmdChar` + `AXMenuItemCmdModifiers` (0 = ⌘, 1 = ⇧, 2 = ⌥,
+    4 = ⌃, 8 = no-command). That caught three wrong bindings: Mail
+    Delete is ⌘⌫, Messages Send is ⌘⏎, and Notes' menu delete is a bare
+    ⌫ (ambiguous while editing, replaced with ⇧⌘N New Folder). Electron
+    apps (VSCode/Discord/Lark) don't expose menus to AX — use the
+    vendor's docs for those.
+    (b) **`⌘B` is app-specific**: build in Xcode, bold in TextEdit,
+    *toggle sidebar* in VSCode — hence three separate suites (`xcode`,
+    `editor`, `text`) rather than one. The sheet's grid is two columns,
+    so each suite must have an EVEN grid-action count (tested), and
+    related controls must be adjacent (same row).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1467,7 +1497,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-23 (V1.3 SHIPPED: trackpad scroll-feel pass — velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, tap-during-glide brakes without clicking; Mac App Sandbox REMOVED so the window picker's Quit actually terminates apps + `SandboxDefaultsMigration`; the Mac dials ANY discovered iPhone; a Mac handshake timeout so a half-open dial can't wedge the link; the iPhone releases a silent owner after 10 s and the Mac treats 8 s without a pong as dead; the window picker drops a quit app; **UIBackgroundModes: [audio] + a silent keep-alive so the app survives background/lock** (the mic must use `.record` and the capture session must not own the audio session) — lessons 39-50; 145 tests green + both targets build + real-device e2e 10/10.)_
+_Last updated: 2026-09-23 (V1.3 SHIPPED + context sheet grew to 17 suites: added media/chat/meeting/image/notebook and split the old `editor` into `xcode`/`editor`/`text` so ⌘B means build/bold/toggle-sidebar correctly; every shortcut checked against the app's real menu bar via AppleScript where installed (caught Mail ⌘⌫, Messages ⌘⏎, Notes ⇧⌘N); the silent-glass hit-area bug fixed in the button styles (whole card is tappable now). Earlier the same day: trackpad scroll-feel pass, Mac App Sandbox REMOVED (window-picker Quit works) + `SandboxDefaultsMigration`, the Mac dials ANY discovered iPhone, a 6 s handshake timeout, an iPhone owner watchdog, and **`UIBackgroundModes: [audio]` + a silent keep-alive** so the app survives background/lock (the mic must use `.record`; the capture session must not own the audio session) — lessons 39-52; 151 tests green + both targets build + real-device e2e 10/10.)_
+
+_Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
 _Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
