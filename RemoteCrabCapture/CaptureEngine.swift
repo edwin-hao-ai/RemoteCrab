@@ -1167,7 +1167,24 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[e2e] quit requested: \(target)")
             }
         }
-        // E2E: exercise the modifier path — REMOTECRAB_E2E_MODIFIER=<keycode>
+        // E2E: exercise the voice pipeline without real speech —
+        // REMOTECRAB_E2E_VOICE=1 simulates "say → pause (recognizer resets
+        // and shrinks) → keep talking", which used to backspace away the
+        // earlier words. The Mac log must show the full text and NO
+        // backspace from the pause.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_VOICE"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.updateVoiceText("你好")          // first utterance
+                try? await Task.sleep(for: .milliseconds(400))
+                self?.updateVoiceText("你好世界")      // grows normally
+                try? await Task.sleep(for: .milliseconds(400))
+                self?.updateVoiceText("世界")          // pause → recognizer reset
+                try? await Task.sleep(for: .milliseconds(400))
+                self?.finishVoiceText("你好世界")
+                Forensic.log("[e2e] voice sequence sent")
+            }
+        }
         // holds it, types "a" with it, then releases. The Mac log confirms
         // "modifier key event: keycode=…" and the key events.
         if let raw = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MODIFIER"],

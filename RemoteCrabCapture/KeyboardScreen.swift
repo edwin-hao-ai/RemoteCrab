@@ -328,8 +328,15 @@ struct KeyboardScreen: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: 10))
             .onTapGesture {
-                if modifiers.contains(modifier) { modifiers.remove(modifier) }
-                else { modifiers.insert(modifier) }
+                // Locking = a real modifier key down (so a locked ⌥ behaves
+                // like a held physical ⌥); unlocking = the matching key up.
+                if modifiers.contains(modifier) {
+                    modifiers.remove(modifier)
+                    engine.sendKey(KeyEvent(action: .up, keycode: modifier.keycode))
+                } else {
+                    modifiers.insert(modifier)
+                    engine.sendKey(KeyEvent(action: .down, keycode: modifier.keycode))
+                }
             }
             .onLongPressGesture(minimumDuration: 0.18, maximumDistance: 12) {
                 heldModifiers.insert(modifier)

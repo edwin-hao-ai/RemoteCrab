@@ -1206,12 +1206,16 @@ final class ReceiverSession: ObservableObject {
                     if let code = event.keycode, (55...62).contains(code) {
                         Self.log.info("modifier key event: keycode=\(code) action=\(String(describing: event.action), privacy: .public)")
                     }
+                    if let code = event.keycode, code == 51, event.action == .down {
+                        Self.log.info("backspace received")
+                    }
                     if keyEventCount == 1 || keyEventCount % 20 == 0 {
                         Self.log.info("key events received: \(self.keyEventCount) (action=\(String(describing: event.action), privacy: .public) text=\(event.text ?? "", privacy: .public))")
                     }
                     switch event.action {
                     case .text:
                         if let text = event.text {
+                            Self.log.info("typed text: \(text, privacy: .public)")
                             typedText.append(text)
                             if typedText.count > 200 {
                                 typedText = String(typedText.suffix(200))

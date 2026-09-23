@@ -347,8 +347,8 @@ final class TouchSurfaceUIView: UIView {
     /// Latest finger position while the hold is pending, so the armed
     // drag starts where the finger actually is.
     private var longPressCurrent: CGPoint?
-    private let longPressDragDelay: TimeInterval = 0.45
-    private let longPressDragSlop: CGFloat = 12  // pt of allowed jitter while holding
+    private let longPressDragDelay: TimeInterval = 0.35
+    private let longPressDragSlop: CGFloat = 16  // pt of allowed jitter while holding
     private weak var tapRecognizer: UITapGestureRecognizer?
 
     private func cancelLongPressDrag() {

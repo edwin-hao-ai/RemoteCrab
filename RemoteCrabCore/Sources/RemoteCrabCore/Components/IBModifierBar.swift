@@ -61,6 +61,12 @@ public struct IBModifierBar: View {
                 keyView(modifier)
             }
         }
+        .onDisappear {
+            // Release every locked modifier so a stranded key-down can't
+            // turn all later typing into a shortcut.
+            for m in activeModifiers { onModifierKey?(m.keycode, false) }
+            activeModifiers.removeAll()
+        }
     }
 
     /// Tap toggles the sticky modifier; a press-and-hold sends a REAL
@@ -121,12 +127,18 @@ public struct IBModifierBar: View {
         }
     }
 
+    /// Locking a modifier now also emits a REAL modifier key down, so a
+    /// locked ⌥ behaves exactly like a held physical ⌥ (which is what
+    /// opens an input method's panel) — not just a flag on later events.
+    /// Unlocking emits the matching key up.
     private func toggle(_ m: Modifier) {
         withAnimation(IBAnimation.snappy) {
             if activeModifiers.contains(m) {
                 activeModifiers.remove(m)
+                onModifierKey?(m.keycode, false)
             } else {
                 activeModifiers.insert(m)
+                onModifierKey?(m.keycode, true)
             }
         }
     }
