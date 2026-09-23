@@ -300,44 +300,39 @@ final class CaptureEngine: ObservableObject {
     /// voice-command surface: "open X" / "切换到 X" activates a running
     /// Mac app, "改写…" transforms the Mac's selection.
     private var voiceTypedText = ""
+    /// The previous full interim text, so we can tell which prefix is stable.
+    private var voiceLastFull = ""
 
-    /// Interim transcription (full text so far) — type only the delta.
+    /// Interim transcription (full text so far). Type only the part that
+    /// has been STABLE across the last two updates: the tail is still being
+    /// revised by the recognizer (punctuation, word fixes), and typing it
+    /// would duplicate when it changes. The remaining tail is typed by
+    /// `finishVoiceText`. Never deletes.
     func updateVoiceText(_ full: String) {
         // Don't type live while the utterance looks like a command;
         // wait for the final so the command words never hit the Mac.
         guard !looksLikeVoiceCommand(full) else { return }
-        typeVoiceDelta(to: full)
+        let stable = Self.commonPrefix(full, voiceLastFull)
+        voiceLastFull = full
+        guard stable.count > voiceTypedText.count else { return }
+        let delta = String(stable.dropFirst(voiceTypedText.count))
+        if !delta.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: delta)) }
+        voiceTypedText = stable
     }
 
     /// Final transcription for the hold.
     func finishVoiceText(_ final: String) {
         if handleVoiceCommand(final) {
             eraseVoiceText()   // remove anything typed live, then run it
+            voiceLastFull = ""
             return
         }
-        typeVoiceDelta(to: final)
+        // Type whatever is left after the already-typed stable prefix.
+        let common = Self.commonPrefix(final, voiceTypedText)
+        let tail = String(final.dropFirst(common.count))
+        if !tail.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: tail)) }
         voiceTypedText = ""
-    }
-
-    /// Append-only: interim recognition frequently REWRITES or shortens
-    /// its text (especially after a pause), and a plain diff would then
-    /// backspace away words the user already said. Never delete here —
-    /// only send text that extends what we've typed.
-    private func typeVoiceDelta(to new: String) {
-        guard new != voiceTypedText else { return }
-        if new.hasPrefix(voiceTypedText) {
-            let delta = String(new.dropFirst(voiceTypedText.count))
-            if !delta.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: delta)) }
-            voiceTypedText = new
-            return
-        }
-        // Divergence: append only the part not already covered.
-        let common = Self.commonPrefix(new, voiceTypedText)
-        let tail = String(new.dropFirst(common.count))
-        if !tail.isEmpty {
-            broadcaster?.send(KeyEvent(action: .text, text: tail))
-            voiceTypedText += tail
-        }
+        voiceLastFull = ""
     }
 
     /// Explicitly remove the live-typed voice text (voice-command path).
@@ -1177,11 +1172,11 @@ final class CaptureEngine: ObservableObject {
                 try? await Task.sleep(for: .seconds(5))
                 self?.updateVoiceText("你好")          // first utterance
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("你好世界")      // grows normally
+                self?.updateVoiceText("你好世界")      // grows
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("世界")          // pause → recognizer reset
+                self?.updateVoiceText("你好世界，")    // revision (punctuation) — used to duplicate
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.finishVoiceText("你好世界")
+                self?.finishVoiceText("你好世界，")
                 Forensic.log("[e2e] voice sequence sent")
             }
         }

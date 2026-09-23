@@ -224,13 +224,10 @@ final class VoiceRecognizer {
     private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
             let sessionText = result.bestTranscription.formattedString
-            // After a pause the recognizer often starts a NEW utterance and
-            // `formattedString` no longer contains the earlier words. Keep
-            // them by committing the previous segment instead of letting
-            // the text shrink (which used to erase what the user said).
-            if !lastSessionText.isEmpty, !sessionText.hasPrefix(lastSessionText) {
-                committedText += lastSessionText
-            }
+            // The recognizer's `formattedString` is authoritative for the
+            // current task — it grows and REVISES (punctuation, word fixes).
+            // Do NOT try to "commit" on a non-prefix change: that misfires
+            // on ordinary revisions and duplicated the earlier words.
             lastSessionText = sessionText
             let full = committedText + sessionText
             partialText = full
