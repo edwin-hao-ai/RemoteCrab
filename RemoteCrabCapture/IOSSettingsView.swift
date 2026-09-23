@@ -16,6 +16,7 @@ struct IOSSettingsView: View {
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.keepScreenOn") private var keepScreenOn: Bool = true
     @AppStorage("remotecrab.ios.backgroundKeepAlive") private var backgroundKeepAlive: Bool = true
+    @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
     @AppStorage("remotecrab.ios.labAirMouse")   private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
     @AppStorage("remotecrab.ios.demoMode") private var demoMode = false
@@ -198,6 +199,14 @@ struct IOSSettingsView: View {
                         else { BackgroundKeepAlive.shared.stop() }
                     }
                 }
+
+            Picker(IBLocale.Settings.hapticStrength, selection: $hapticStrength) {
+                Text(IBLocale.Settings.hapticOff).tag(0)
+                Text(IBLocale.Settings.hapticLight).tag(1)
+                Text(IBLocale.Settings.hapticNormal).tag(2)
+                Text(IBLocale.Settings.hapticStrong).tag(3)
+            }
+            .accessibilityHint(IBLocale.Settings.hapticHint)
         } header: {
             Text(IBLocale.Settings.input)
         } footer: {

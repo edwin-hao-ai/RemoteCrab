@@ -6781,6 +6781,41 @@
         "en": { "stringUnit": { "state": "translated", "value": "Zoom Out" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "缩小" } }
       }
+    },
+    "Haptic Feedback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Haptic Feedback" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "触觉反馈" } }
+      }
+    },
+    "Light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Light" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "轻" } }
+      }
+    },
+    "Normal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Normal" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "标准" } }
+      }
+    },
+    "Strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Strong" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "强" } }
+      }
+    },
+    "iOS pauses haptics while the microphone or hold-to-talk is active.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iOS pauses haptics while the microphone or hold-to-talk is active." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风或按住说话开启时，iOS 会暂停触觉反馈。" } }
+      }
     }
   },
   "version": "1.0"

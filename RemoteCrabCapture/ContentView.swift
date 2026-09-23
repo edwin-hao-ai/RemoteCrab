@@ -459,9 +459,7 @@ struct ContentView: View {
     /// preview attached early — see `captureSessionReady`.
     private var cameraStartingPlaceholder: some View {
         VStack(spacing: IBSpace.l.pt) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(.white.opacity(0.8))
+            CrabMascot(size: 88)
             Text(IBLocale.Capture.cameraStarting)
                 .font(IBFont.eyebrowMono)
                 .ibEyebrowTracking()
@@ -673,6 +671,8 @@ struct ContentView: View {
         let subtitle: String?
         var linkTitle: String? = nil
         var linkURL: String? = nil
+        /// Show the crab mascot instead of the SF Symbol (waiting states).
+        var mascot: Bool = false
     }
 
     /// Non-nil only for states worth surfacing; connected/idle are silent.
@@ -694,7 +694,8 @@ struct ContentView: View {
                                title: IBLocale.Error.waitingForMac,
                                subtitle: IBLocale.Error.searchingHint,
                                linkTitle: IBLocale.Settings.downloadMac,
-                               linkURL: RemoteCrabLinks.productPage)
+                               linkURL: RemoteCrabLinks.productPage,
+                               mascot: true)
         case .failed:
             return StatusAlert(symbol: "exclamationmark.triangle.fill",
                                tint: IBColor.error,
@@ -717,10 +718,14 @@ struct ContentView: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
                 VStack(spacing: 10) {
-                Image(systemName: alert.symbol)
-                    .font(.system(size: 28, weight: .light))
-                    .foregroundStyle(alert.tint)
-                    .accessibilityHidden(true)
+                if alert.mascot {
+                    CrabMascot(size: 72)
+                } else {
+                    Image(systemName: alert.symbol)
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(alert.tint)
+                        .accessibilityHidden(true)
+                }
                 Text(alert.title)
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)

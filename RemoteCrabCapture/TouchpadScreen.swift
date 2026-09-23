@@ -13,6 +13,7 @@ struct TouchpadScreen: View {
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
+    @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
     @AppStorage("remotecrab.ios.labAirMouse") private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
 
@@ -107,6 +108,7 @@ struct TouchpadScreen: View {
                 sensitivity: trackpadSens,
                 scrollSensitivity: scrollSens,
                 naturalScroll: naturalScroll,
+                hapticStrength: hapticStrength,
                 airMouseEnabled: labAirMouse,
                 wheelScrollEnabled: labWheelScroll,
                 airMouseActive: airMouseActive,

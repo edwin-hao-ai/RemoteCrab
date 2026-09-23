@@ -13,6 +13,7 @@ struct KeyboardScreen: View {
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
+    @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
     /// Hold-vs-tap tracking for the modifier keys.
     @State private var pressingModifiers: Set<IBModifierBar.Modifier> = []
     @State private var heldModifiers: Set<IBModifierBar.Modifier> = []
@@ -181,6 +182,7 @@ struct KeyboardScreen: View {
             sensitivity: trackpadSens,
             scrollSensitivity: scrollSens,
             naturalScroll: naturalScroll,
+            hapticStrength: hapticStrength,
             onEvent: { engine.sendTouch($0) }
         )
         .frame(height: 96)

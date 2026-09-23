@@ -283,6 +283,12 @@ public enum IBLocale {
         public static let naturalScrollHint = IBL("Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.")
         public static let backgroundKeepAlive = IBL("Stay connected in the background")
         public static let backgroundKeepAliveHint = IBL("Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio.")
+        public static let hapticStrength = IBL("Haptic Feedback")
+        public static let hapticHint = IBL("iOS pauses haptics while the microphone or hold-to-talk is active.")
+        public static let hapticOff = IBL("Off")
+        public static let hapticLight = IBL("Light")
+        public static let hapticNormal = IBL("Normal")
+        public static let hapticStrong = IBL("Strong")
         public static let privacyPolicy = IBL("Privacy Policy")
         /// About-section link to the Mac receiver download page (vgoapp.com).
         public static let downloadMac = IBL("Download for Mac")

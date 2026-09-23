@@ -35,6 +35,8 @@ final class TouchSurfaceUIView: UIView {
     var naturalScroll: Bool = true
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
+    /// 0=off 1=light 2=normal 3=strong
+    var hapticStrength: Int = 2
 
     /// Labs: gyro air mouse. Bridged from @AppStorage by the host.
     var airMouseEnabled: Bool = false
@@ -167,7 +169,7 @@ final class TouchSurfaceUIView: UIView {
                 dragArmed = true
                 Self.log.debug("dragStart (double-tap-hold)")
                 emit(phase: .dragStart, at: location)
-                if clickHaptics { fire(heavyImpact) }
+                if clickHaptics { fire(.heavy) }
             }
             // Plain touch-down emits nothing: on the Mac a .down posts a
             // real leftMouseDown, so every casual slide used to arrive as
@@ -249,7 +251,7 @@ final class TouchSurfaceUIView: UIView {
         let dy: Float = abs(t.y) >= abs(t.x) ? (t.y > 0 ? -1 : 1) : 0
         Self.log.debug("threeFingerSwipe dx=\(dx, privacy: .public) dy=\(dy, privacy: .public)")
         emit(phase: .threeFingerSwipe, at: rec.location(in: self), dx: dx, dy: dy)
-        fire(mediumImpact)
+        fire(.medium)
     }
 
     /// Four-finger swipes emit the same phase as three-finger ones:
@@ -263,7 +265,7 @@ final class TouchSurfaceUIView: UIView {
         let dy: Float = abs(t.y) >= abs(t.x) ? (t.y > 0 ? -1 : 1) : 0
         Self.log.debug("fourFingerSwipe dx=\(dx, privacy: .public) dy=\(dy, privacy: .public)")
         emit(phase: .threeFingerSwipe, at: rec.location(in: self), dx: dx, dy: dy)
-        fire(mediumImpact)
+        fire(.medium)
     }
 
     @objc private func handlePinch(_ rec: UIPinchGestureRecognizer) {
@@ -280,7 +282,7 @@ final class TouchSurfaceUIView: UIView {
             }
             if !pinchBoundaryFired && abs(rec.scale - 1) > 0.5 {
                 pinchBoundaryFired = true
-                fire(mediumImpact)
+                fire(.medium)
             }
         case .ended, .cancelled, .failed:
             lastPinchScale = 1
@@ -299,19 +301,19 @@ final class TouchSurfaceUIView: UIView {
         lastTapLocation = location
         onTouch?(normalize(location), false)
         emit(phase: .click, at: location)
-        if clickHaptics { fire(mediumImpact) }
+        if clickHaptics { fire(.medium) }
     }
 
     @objc private func handleRightTap(_ rec: UITapGestureRecognizer) {
         let location = rec.location(in: self)
         emit(phase: .rightDown, at: location)
         emit(phase: .rightUp, at: location, timestampOffsetMicros: 1)
-        if clickHaptics { fire(mediumImpact) }
+        if clickHaptics { fire(.medium) }
     }
 
     @objc private func handleThreeTap(_ rec: UITapGestureRecognizer) {
         emit(phase: .threeFingerTap, at: rec.location(in: self))
-        fire(mediumImpact)
+        fire(.medium)
     }
 
     // MARK: - Drag state machine
@@ -416,7 +418,7 @@ final class TouchSurfaceUIView: UIView {
         dragArmed = false
         Self.log.debug("dragEnd")
         emit(phase: .up, at: location)
-        if clickHaptics { fire(lightImpact) }
+        if clickHaptics { fire(.light) }
     }
 
     /// Both pointer and scroll deltas are normalized by the surface's
@@ -474,7 +476,7 @@ final class TouchSurfaceUIView: UIView {
                 self.dragArmed = true
                 Self.log.debug("dragStart (long-press)")
                 self.emit(phase: .dragStart, at: at)
-                if self.clickHaptics { self.fire(self.heavyImpact) }
+                if self.clickHaptics { self.fire(.heavy) }
             }
             longPressDragWork?.cancel()
             longPressDragWork = hold
@@ -505,7 +507,7 @@ final class TouchSurfaceUIView: UIView {
         forceClickFiredThisSequence = true
         Self.log.debug("forceClick majorRadius=\(primary.majorRadius, privacy: .public)")
         emit(phase: .forceClick, at: primary.location(in: self))
-        fire(rigidImpact)
+        fire(.rigid)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -555,7 +557,7 @@ final class TouchSurfaceUIView: UIView {
     private func startAirMouse() {
         guard airMouseEnabled, motionManager.isDeviceMotionAvailable else { return }
         referenceAttitude = nil
-        fire(mediumImpact)
+        fire(.medium)
         Self.log.debug("air mouse activated")
         motionManager.deviceMotionUpdateInterval = 1.0 / 60.0
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
@@ -691,15 +693,41 @@ final class TouchSurfaceUIView: UIView {
         selectionFeedback.prepare()
     }
 
-    /// Generators go stale a few seconds after prepare(); re-arming
-    /// right before firing keeps the tap crisp instead of dropped.
-    private func fire(_ generator: UIImpactFeedbackGenerator) {
+    /// Haptic vocabulary for a trackpad event.
+    enum Impact {
+        case light, medium, heavy, rigid
+        var downgraded: Impact { self == .heavy ? .medium : (self == .rigid ? .medium : .light) }
+        var upgraded: Impact { self == .light ? .medium : .heavy }
+    }
+
+    /// Fire a tiered haptic, scaled by the user's strength setting
+    /// (0 = off, 1 = light, 2 = normal, 3 = strong). Generators go stale
+    /// a few seconds after prepare(), so re-arm right before firing.
+    ///
+    /// NOTE: iOS suppresses ALL app haptics while a record-capable audio
+    /// session is live (mic / hold-to-talk) — a platform limit, not a bug.
+    private func fire(_ impact: Impact) {
+        let strength = max(0, min(3, hapticStrength))
+        guard strength > 0 else { return }
+        let adjusted: Impact
+        switch strength {
+        case 1: adjusted = impact.downgraded
+        case 3: adjusted = impact.upgraded
+        default: adjusted = impact
+        }
+        let generator: UIImpactFeedbackGenerator
+        switch adjusted {
+        case .light:  generator = lightImpact
+        case .medium: generator = mediumImpact
+        case .heavy:  generator = heavyImpact
+        case .rigid:  generator = rigidImpact
+        }
         generator.prepare()
         generator.impactOccurred()
     }
 
     private func tickScrollHaptics(deltaPoints: CGPoint, speed: CGFloat) {
-        guard scrollTickHaptics else { return }
+        guard scrollTickHaptics, hapticStrength > 0 else { return }
         scrollTickAccumulator += hypot(deltaPoints.x, deltaPoints.y)
         // Adaptive spacing: fast flicks tick less often (no buzz), slow
         // scrubbing ticks tightly for precision.
@@ -796,6 +824,8 @@ struct TouchSurface: UIViewRepresentable {
     var naturalScroll: Bool = true
     var scrollTickHaptics: Bool = true
     var clickHaptics: Bool = true
+    /// 0=off 1=light 2=normal 3=strong
+    var hapticStrength: Int = 2
     var airMouseEnabled: Bool = false
     var wheelScrollEnabled: Bool = false
     var airMouseActive: Bool = false
@@ -825,6 +855,7 @@ struct TouchSurface: UIViewRepresentable {
         view.naturalScroll = naturalScroll
         view.scrollTickHaptics = scrollTickHaptics
         view.clickHaptics = clickHaptics
+        view.hapticStrength = hapticStrength
         view.airMouseEnabled = airMouseEnabled
         view.wheelScrollEnabled = wheelScrollEnabled
         view.airMouseActive = airMouseActive
