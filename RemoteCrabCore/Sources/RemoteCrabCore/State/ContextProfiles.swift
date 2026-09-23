@@ -234,10 +234,10 @@ public enum ContextProfiles {
         bundleIDs: ["com.apple.Music", "com.spotify.client"],
         actions: [
             .voiceHero(label: "Talk to Mac", symbol: "waveform"),
-            .key(label: "Previous", symbol: "backward.fill", keycode: 123, modifiers: 8), // ⌘← (menu-verified)
-            .key(label: "Next", symbol: "forward.fill", keycode: 124, modifiers: 8),      // ⌘→ (menu-verified)
-            .key(label: "Volume −", symbol: "speaker.minus.fill", keycode: 125, modifiers: 8), // ⌘↓ (menu-verified)
-            .key(label: "Volume +", symbol: "speaker.plus.fill", keycode: 126, modifiers: 8),  // ⌘↑ (menu-verified)
+            .key(label: "Previous Track", symbol: "backward.fill", keycode: 123, modifiers: 8), // ⌘← (menu-verified)
+            .key(label: "Next Track", symbol: "forward.fill", keycode: 124, modifiers: 8),      // ⌘→ (menu-verified)
+            .key(label: "Volume Down", symbol: "speaker.minus.fill", keycode: 125, modifiers: 8), // ⌘↓ (menu-verified)
+            .key(label: "Volume Up", symbol: "speaker.plus.fill", keycode: 126, modifiers: 8),  // ⌘↑ (menu-verified)
             .key(label: "Play / Pause", symbol: "playpause.fill", keycode: 49),           // Space (menu-verified)
             .key(label: "Mini Player", symbol: "rectangle.compress.vertical", keycode: 46, modifiers: 9), // ⇧⌘M
         ])
@@ -277,8 +277,8 @@ public enum ContextProfiles {
         bundleIDs: ["com.apple.Preview", "com.apple.Photos", "com.apple.QuickTimePlayerX"],
         actions: [
             .voiceHero(label: "Talk to Mac", symbol: "waveform"),
-            .key(label: "Previous", symbol: "chevron.left", keycode: 123),
-            .key(label: "Next", symbol: "chevron.right", keycode: 124),
+            .key(label: "Previous Image", symbol: "chevron.left", keycode: 123),
+            .key(label: "Next Image", symbol: "chevron.right", keycode: 124),
             .key(label: "Zoom In", symbol: "plus.magnifyingglass", keycode: 24, modifiers: 8),  // ⌘+
             .key(label: "Zoom Out", symbol: "minus.magnifyingglass", keycode: 27, modifiers: 8), // ⌘-
             .key(label: "Actual Size", symbol: "1.magnifyingglass", keycode: 29, modifiers: 8), // ⌘0
@@ -303,12 +303,12 @@ public enum ContextProfiles {
         bundleIDs: [],
         actions: [
             .voiceHero(label: "Talk to Mac", symbol: "waveform"),
-            .system(label: "Volume +", symbol: "speaker.plus.fill", command: .volumeUp),
-            .system(label: "Volume −", symbol: "speaker.minus.fill", command: .volumeDown),
+            .system(label: "Volume Up", symbol: "speaker.plus.fill", command: .volumeUp),
+            .system(label: "Volume Down", symbol: "speaker.minus.fill", command: .volumeDown),
             .system(label: "Mute", symbol: "speaker.slash.fill", command: .volumeMute),
             .system(label: "Play / Pause", symbol: "playpause.fill", command: .mediaPlayPause),
-            .system(label: "Brightness +", symbol: "sun.max.fill", command: .brightnessUp),
-            .system(label: "Brightness −", symbol: "sun.min.fill", command: .brightnessDown),
+            .system(label: "Brightness Up", symbol: "sun.max.fill", command: .brightnessUp),
+            .system(label: "Brightness Down", symbol: "sun.min.fill", command: .brightnessDown),
             .key(label: "Lock Screen", symbol: "lock.fill", keycode: 12, modifiers: 2 | 8), // ⌃⌘Q
             .system(label: "Safari", symbol: "safari.fill", command: .launchApp),
         ])

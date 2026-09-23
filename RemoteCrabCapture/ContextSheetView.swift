@@ -18,26 +18,36 @@ struct ContextSheetView: View {
     var body: some View {
         ZStack {
             IBGradient.canvasDark.ignoresSafeArea()
-            VStack(spacing: IBSpace.l.pt) {
-                header
-                // The voice hero spans the full width; a two-column grid
-                // cell would clip the capsule. The remaining actions pair
-                // up two-per-row (ContextProfiles keeps related controls
-                // adjacent).
-                if let hero = profile.voiceHero {
-                    actionButton(hero)
-                }
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                    ForEach(Array(profile.gridActions.enumerated()), id: \.offset) { _, action in
-                        actionButton(action)
+            ScrollView {
+                VStack(spacing: IBSpace.m.pt) {
+                    header
+                    // The voice hero spans the full width; a two-column
+                    // grid cell would clip the capsule. The remaining
+                    // actions pair up two-per-row (ContextProfiles keeps
+                    // related controls adjacent).
+                    if let hero = profile.voiceHero {
+                        actionButton(hero)
                     }
+
+                    // App-specific keys. The console profile IS the system
+                    // keys, so it renders only once (below).
+                    if !appActions.isEmpty {
+                        sectionLabel(IBLocale.Context.open)
+                        grid(appActions)
+                    }
+
+                    // System keys are ALWAYS present, below the app keys —
+                    // so switching apps never takes away volume/brightness.
+                    sectionLabel(IBLocale.Context.systemSection)
+                    grid(ContextProfiles.console.gridActions)
+
+                    Text(IBLocale.Context.footer)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.top, IBSpace.s.pt)
                 }
-                Spacer()
-                Text(IBLocale.Context.footer)
-                    .font(IBFont.caption)
-                    .foregroundStyle(.white.opacity(0.4))
+                .padding(IBSpace.l.pt)
             }
-            .padding(IBSpace.l.pt)
         }
         .onAppear {
             engine.requestMacApps()  // refresh the frontmost app
@@ -54,6 +64,27 @@ struct ContextSheetView: View {
         }
         .onDisappear {
             if voiceHeld { stopVoice() }
+        }
+    }
+
+    /// The frontmost app's keys, unless this profile already IS the
+    /// system console (then the system section is the only content).
+    private var appActions: [ContextAction] {
+        profile.id == ContextProfiles.console.id ? [] : profile.gridActions
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(IBFont.caption.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.55))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func grid(_ actions: [ContextAction]) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+            ForEach(Array(actions.enumerated()), id: \.offset) { _, action in
+                actionButton(action)
+            }
         }
     }
 
@@ -119,7 +150,7 @@ struct ContextSheetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: 19, weight: .medium))
-                Text(label)
+                Text(LocalizedStringKey(label))
                     .font(IBFont.caption.weight(.semibold))
             }
             .foregroundStyle(.white)
@@ -142,8 +173,13 @@ struct ContextSheetView: View {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .semibold))
                 .symbolEffect(.variableColor.iterative, isActive: voiceHeld)
-            Text(voiceHeld ? IBLocale.Voice.releaseToSend : label)
-                .font(IBFont.bodyMedium.weight(.semibold))
+            if voiceHeld {
+                Text(IBLocale.Voice.releaseToSend)
+                    .font(IBFont.bodyMedium.weight(.semibold))
+            } else {
+                Text(LocalizedStringKey(label))
+                    .font(IBFont.bodyMedium.weight(.semibold))
+            }
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity, minHeight: 56)

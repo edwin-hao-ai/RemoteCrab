@@ -476,6 +476,7 @@ public enum IBLocale {
     /// stay English until the V1.2 localization batch).
     public enum Context {
         public static let open = IBL("App shortcuts")
+        public static let systemSection = IBL("System")
         public static let footer = IBL("Buttons send keyboard or system events to your Mac")
         // Context-sheet profile titles (frontmost Mac app → suite).
         public static let profilePresentation = IBL("Presentation")

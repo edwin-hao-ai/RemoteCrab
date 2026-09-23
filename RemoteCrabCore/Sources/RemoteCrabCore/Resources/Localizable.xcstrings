@@ -6277,6 +6277,510 @@
           }
         }
       }
+    },
+    "Actual Size": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Actual Size" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "实际大小" } }
+      }
+    },
+    "Address Bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Address Bar" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "地址栏" } }
+      }
+    },
+    "Approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Approve" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "批准" } }
+      }
+    },
+    "Archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Archive" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "归档" } }
+      }
+    },
+    "Back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "后退" } }
+      }
+    },
+    "Black Screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Black Screen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "黑屏" } }
+      }
+    },
+    "Bold": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Bold" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "加粗" } }
+      }
+    },
+    "Brightness Down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Brightness Down" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "亮度 −" } }
+      }
+    },
+    "Brightness Up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Brightness Up" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "亮度 +" } }
+      }
+    },
+    "Checklist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checklist" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "核对清单" } }
+      }
+    },
+    "Clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "清屏" } }
+      }
+    },
+    "Close Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Tab" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关闭标签页" } }
+      }
+    },
+    "Command Palette": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Command Palette" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "命令面板" } }
+      }
+    },
+    "Comment": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Comment" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "注释" } }
+      }
+    },
+    "Copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "拷贝" } }
+      }
+    },
+    "Day": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Day" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "日" } }
+      }
+    },
+    "Delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Delete" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "删除" } }
+      }
+    },
+    "Escape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Escape" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Escape" } }
+      }
+    },
+    "Exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Exit" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "退出" } }
+      }
+    },
+    "Find": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Find" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "查找" } }
+      }
+    },
+    "Forward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forward" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "前进" } }
+      }
+    },
+    "Full Screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Full Screen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全屏" } }
+      }
+    },
+    "Go to Folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Go to Folder" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "前往文件夹" } }
+      }
+    },
+    "Interrupt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Interrupt" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "中断" } }
+      }
+    },
+    "Italic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Italic" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "斜体" } }
+      }
+    },
+    "Leave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Leave" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "离开" } }
+      }
+    },
+    "Lock Screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lock Screen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "锁定屏幕" } }
+      }
+    },
+    "Mini Player": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mini Player" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "迷你播放器" } }
+      }
+    },
+    "Month": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Month" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "月" } }
+      }
+    },
+    "Mute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Mute" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "静音" } }
+      }
+    },
+    "New Event": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Event" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建日程" } }
+      }
+    },
+    "New Folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Folder" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建文件夹" } }
+      }
+    },
+    "New Mail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Mail" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建邮件" } }
+      }
+    },
+    "New Message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Message" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新信息" } }
+      }
+    },
+    "New Note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Note" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建备忘录" } }
+      }
+    },
+    "New Tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Tab" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新建标签页" } }
+      }
+    },
+    "New Window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Window" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新窗口" } }
+      }
+    },
+    "Next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下一页" } }
+      }
+    },
+    "Next Image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next Image" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下一张" } }
+      }
+    },
+    "Next Track": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next Track" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下一首" } }
+      }
+    },
+    "Paste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "粘贴" } }
+      }
+    },
+    "Play / Exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Play / Exit" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "播放/退出" } }
+      }
+    },
+    "Play / Pause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Play / Pause" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "播放/暂停" } }
+      }
+    },
+    "Previous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Previous" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上一页" } }
+      }
+    },
+    "Previous Image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Previous Image" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上一张" } }
+      }
+    },
+    "Previous Track": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Previous Track" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上一首" } }
+      }
+    },
+    "Print": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Print" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打印" } }
+      }
+    },
+    "Quick Look": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quick Look" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "快速查看" } }
+      }
+    },
+    "Quick Open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Quick Open" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "快速打开" } }
+      }
+    },
+    "Reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reload" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重新载入" } }
+      }
+    },
+    "Rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rename" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重命名" } }
+      }
+    },
+    "Reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "回复" } }
+      }
+    },
+    "Run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Run" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "运行" } }
+      }
+    },
+    "Safari": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Safari" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Safari" } }
+      }
+    },
+    "Save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "保存" } }
+      }
+    },
+    "Search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "搜索" } }
+      }
+    },
+    "Send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "发送" } }
+      }
+    },
+    "Share Screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Share Screen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "共享屏幕" } }
+      }
+    },
+    "System": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "System" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "系统" } }
+      }
+    },
+    "Talk to Agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Talk to Agent" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "对 Agent 说话" } }
+      }
+    },
+    "Talk to Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Talk to Mac" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "对 Mac 说话" } }
+      }
+    },
+    "Terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "终端" } }
+      }
+    },
+    "Today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "今天" } }
+      }
+    },
+    "Underline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Underline" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下划线" } }
+      }
+    },
+    "Undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Undo" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "撤销" } }
+      }
+    },
+    "Volume Down": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Down" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "音量 −" } }
+      }
+    },
+    "Volume Up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Volume Up" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "音量 +" } }
+      }
+    },
+    "Week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Week" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "周" } }
+      }
+    },
+    "White Screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "White Screen" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "白屏" } }
+      }
+    },
+    "Year": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Year" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "年" } }
+      }
+    },
+    "Zoom In": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom In" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "放大" } }
+      }
+    },
+    "Zoom Out": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Zoom Out" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "缩小" } }
+      }
     }
   },
   "version": "1.0"
