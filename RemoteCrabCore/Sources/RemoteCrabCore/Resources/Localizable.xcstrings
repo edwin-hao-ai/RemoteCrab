@@ -449,13 +449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "If “%@” is still open, it may be waiting for a save confirmation on the Mac."
+            "value": "If “%@” is still open, it may be waiting for a save confirmation on the computer."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "如果「%@」仍未退出，可能正在等待 Mac 上的保存确认。"
+            "value": "如果「%@」仍未退出，可能正在等待 电脑 上的保存确认。"
           }
         }
       }
@@ -500,13 +500,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This immediately ends the app on the Mac. Unsaved changes will be lost."
+            "value": "This immediately ends the app on the computer. Unsaved changes will be lost."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这会立即结束 Mac 上的该应用，未保存的内容将丢失。"
+            "value": "这会立即结束 电脑 上的该应用，未保存的内容将丢失。"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Showing app icons — allow Screen Recording on the Mac to see window previews."
+            "value": "Showing app icons — allow Screen Recording on the computer to see window previews."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前只显示应用图标——在 Mac 上允许「屏幕录制」即可看到窗口预览。"
+            "value": "当前只显示应用图标——在 电脑 上允许「屏幕录制」即可看到窗口预览。"
           }
         }
       }
@@ -653,13 +653,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buttons send keyboard or system events to your Mac"
+            "value": "Buttons send keyboard or system events to your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按键将作为键盘或系统事件发送到 Mac"
+            "value": "按键将作为键盘或系统事件发送到 电脑"
           }
         }
       }
@@ -1231,13 +1231,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Control Mac cursor"
+            "value": "Control computer cursor"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制 Mac 光标"
+            "value": "控制 电脑 光标"
           }
         }
       }
@@ -1265,13 +1265,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy the Mac clipboard to the iPhone"
+            "value": "Copy the computer clipboard to the iPhone"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把 Mac 剪贴板复制到 iPhone"
+            "value": "把 电脑 剪贴板复制到 iPhone"
           }
         }
       }
@@ -1367,13 +1367,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Demo Mode — sample content. No Mac connected."
+            "value": "Demo Mode — sample content. No computer connected."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "演示模式 —— 示例画面，未连接 Mac。"
+            "value": "演示模式 —— 示例画面，未连接 电脑。"
           }
         }
       }
@@ -1452,13 +1452,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Discover & connect to your Mac"
+            "value": "Discover & connect to your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发现并连接你的 Mac"
+            "value": "发现并连接你的 电脑"
           }
         }
       }
@@ -2370,13 +2370,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature."
+            "value": "Hold the voice button to dictate text into your computer. Recognition happens on your iPhone — audio never leaves your device for this feature."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住语音按钮即可向 Mac 听写文字。识别在你的 iPhone 上完成——此功能的音频不会离开你的设备。"
+            "value": "按住语音按钮即可向 电脑 听写文字。识别在你的 iPhone 上完成——此功能的音频不会离开你的设备。"
           }
         }
       }
@@ -2727,13 +2727,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live iPhone feed to your Mac"
+            "value": "Live iPhone feed to your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 画面实时传到 Mac"
+            "value": "iPhone 画面实时传到 电脑"
           }
         }
       }
@@ -2846,13 +2846,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac receiver"
+            "value": "Computer receiver"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 接收端"
+            "value": "电脑 接收端"
           }
         }
       }
@@ -3101,13 +3101,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Macs paired yet. Pair one from its connection request."
+            "value": "No computers paired yet. Pair one from its connection request."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有配对的 Mac。首次连接请求时配对。"
+            "value": "还没有配对的 电脑。首次连接请求时配对。"
           }
         }
       }
@@ -3277,7 +3277,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在你的 Mac 上"
+            "value": "在你的 电脑 上"
           }
         }
       }
@@ -3322,13 +3322,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "On the Mac: menu bar → RemoteCrab → Connect by IP → %@"
+            "value": "On the computer: menu bar → RemoteCrab → Connect by IP → %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac 菜单栏 → RemoteCrab → 通过 IP 连接，输入 %@"
+            "value": "电脑 菜单栏 → RemoteCrab → 通过 IP 连接，输入 %@"
           }
         }
       }
@@ -3543,13 +3543,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Optional — without it, iPhone audio only plays through your Mac's speakers."
+            "value": "Optional — without it, iPhone audio only plays through your computer's speakers."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "可选——没有它，iPhone 音频只会通过 Mac 扬声器播放。"
+            "value": "可选——没有它，iPhone 音频只会通过 电脑 扬声器播放。"
           }
         }
       }
@@ -3560,13 +3560,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paired Macs"
+            "value": "Paired computers"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已配对的 Mac"
+            "value": "已配对的 电脑"
           }
         }
       }
@@ -4121,13 +4121,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime."
+            "value": "RemoteCrab can stream your iPhone's microphone to your computer. This is optional — toggle it off in the camera screen anytime."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 可将 iPhone 麦克风串流到 Mac。此功能可选，随时可在相机页面关闭。"
+            "value": "RemoteCrab 可将 iPhone 麦克风串流到 电脑。此功能可选，随时可在相机页面关闭。"
           }
         }
       }
@@ -4138,13 +4138,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab drives your Mac's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work."
+            "value": "RemoteCrab drives your computer's cursor and keyboard from your iPhone — macOS requires the Accessibility permission for that. This step can't be skipped: without it, the trackpad and keyboard don't work."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 需要从 iPhone 控制 Mac 的光标和键盘——macOS 要求授予辅助功能权限。此步骤不可跳过：没有它，触控板和键盘无法工作。"
+            "value": "RemoteCrab 需要从 iPhone 控制 电脑 的光标和键盘——macOS 要求授予辅助功能权限。此步骤不可跳过：没有它，触控板和键盘无法工作。"
           }
         }
       }
@@ -4189,13 +4189,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi."
+            "value": "RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your computer — nothing leaves your WiFi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 需要使用摄像头、麦克风和本地网络。数据只会发送到你的 Mac，不会离开你的 WiFi。"
+            "value": "RemoteCrab 需要使用摄像头、麦克风和本地网络。数据只会发送到你的 电脑，不会离开你的 WiFi。"
           }
         }
       }
@@ -4223,13 +4223,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab turns your iPhone into a camera, microphone, trackpad and keyboard for this Mac. This short setup grants what macOS needs."
+            "value": "RemoteCrab turns your iPhone into a camera, microphone, trackpad and keyboard for this computer. This short setup grants what macOS needs."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 将你的 iPhone 变成这台 Mac 的摄像头、麦克风、触控板和键盘。本向导将完成 macOS 所需的授权。"
+            "value": "RemoteCrab 将你的 iPhone 变成这台 电脑 的摄像头、麦克风、触控板和键盘。本向导将完成 macOS 所需的授权。"
           }
         }
       }
@@ -4240,13 +4240,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded."
+            "value": "RemoteCrab turns your iPhone's camera into a high-quality webcam for your computer. We use it in real time — nothing is recorded or uploaded."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 将你的 iPhone 摄像头变成 Mac 的高质量摄像头，实时使用，不录制、不上传。"
+            "value": "RemoteCrab 将你的 iPhone 摄像头变成 电脑 的高质量摄像头，实时使用，不录制、不上传。"
           }
         }
       }
@@ -4257,13 +4257,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other."
+            "value": "RemoteCrab uses Bonjour to find your computer on the same WiFi. Without this, the two devices can't talk to each other."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 使用 Bonjour 在同一 WiFi 上查找你的 Mac。没有此权限，两台设备无法通信。"
+            "value": "RemoteCrab 使用 Bonjour 在同一 WiFi 上查找你的 电脑。没有此权限，两台设备无法通信。"
           }
         }
       }
@@ -4426,13 +4426,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send Clipboard to Mac"
+            "value": "Send Clipboard to computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送剪贴板到 Mac"
+            "value": "发送剪贴板到 电脑"
           }
         }
       }
@@ -4460,13 +4460,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send a photo, video, or file to the Mac"
+            "value": "Send a photo, video, or file to the computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把照片、视频或文件发送到 Mac"
+            "value": "把照片、视频或文件发送到 电脑"
           }
         }
       }
@@ -4477,13 +4477,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to Mac"
+            "value": "Send to computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送到 Mac"
+            "value": "发送到 电脑"
           }
         }
       }
@@ -4596,13 +4596,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Several Macs are on this network. Pick one — it takes over on its next connect; others see \"busy\"."
+            "value": "Several computers are on this network. Pick one — it takes over on its next connect; others see \"busy\"."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个网络里有多台 Mac。选择一台——它会在下次连接时接管；其他 Mac 会看到自己“被占用”。"
+            "value": "这个网络里有多台 电脑。选择一台——它会在下次连接时接管；其他 电脑 会看到自己“被占用”。"
           }
         }
       }
@@ -4681,13 +4681,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows sample camera content so you can explore RemoteCrab without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running."
+            "value": "Shows sample camera content so you can explore RemoteCrab without a computer. Live streaming, trackpad and keyboard need the computer receiver running."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在未连接 Mac 时显示示例摄像头画面，方便你体验 RemoteCrab。实时推流、触控板和键盘需要运行 Mac 接收端。"
+            "value": "在未连接 电脑 时显示示例摄像头画面，方便你体验 RemoteCrab。实时推流、触控板和键盘需要运行 电脑 接收端。"
           }
         }
       }
@@ -5021,13 +5021,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stream iPhone mic to Mac speakers"
+            "value": "Stream iPhone mic to computer speakers"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 麦克风串流到 Mac 扬声器"
+            "value": "iPhone 麦克风串流到 电脑 扬声器"
           }
         }
       }
@@ -5038,13 +5038,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stream the iPhone microphone to your Mac"
+            "value": "Stream the iPhone microphone to your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将 iPhone 麦克风流式传输到你的 Mac"
+            "value": "将 iPhone 麦克风流式传输到你的 电脑"
           }
         }
       }
@@ -5174,13 +5174,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch to a running app on the Mac"
+            "value": "Switch to a running app on the computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换到 Mac 上正在运行的应用"
+            "value": "切换到 电脑 上正在运行的应用"
           }
         }
       }
@@ -5214,7 +5214,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在 Mac 上输入"
+            "value": "正在 电脑 上输入"
           }
         }
       }
@@ -5327,13 +5327,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This iPhone is already in use by another Mac"
+            "value": "This iPhone is already in use by another computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 iPhone 正被另一台 Mac 占用"
+            "value": "这台 iPhone 正被另一台 电脑 占用"
           }
         }
       }
@@ -5361,13 +5361,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Touch directly to move the Mac cursor"
+            "value": "Touch directly to move the computer cursor"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接触摸以移动 Mac 光标"
+            "value": "直接触摸以移动 电脑 光标"
           }
         }
       }
@@ -5480,13 +5480,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi."
+            "value": "Turn your iPhone into a camera, microphone, trackpad and keyboard for your computer — over WiFi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将你的 iPhone 变成 Mac 的摄像头、麦克风、触控板和键盘 —— 通过 WiFi。"
+            "value": "将你的 iPhone 变成 电脑 的摄像头、麦克风、触控板和键盘 —— 通过 WiFi。"
           }
         }
       }
@@ -5531,13 +5531,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Type on the Mac"
+            "value": "Type on the computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 Mac 上输入"
+            "value": "在 电脑 上输入"
           }
         }
       }
@@ -5871,13 +5871,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for your Mac"
+            "value": "Waiting for your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "等待 Mac 连接"
+            "value": "等待 电脑 连接"
           }
         }
       }
@@ -5888,13 +5888,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "We need Accessibility to drive your Mac's cursor and keyboard from your iPhone."
+            "value": "We need Accessibility to drive your computer's cursor and keyboard from your iPhone."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "我们需要辅助功能权限，才能从 iPhone 控制 Mac 的光标和键盘。"
+            "value": "我们需要辅助功能权限，才能从 iPhone 控制 电脑 的光标和键盘。"
           }
         }
       }
@@ -6176,13 +6176,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab can send your latest screenshots straight to the Mac. Only the screenshots you send are read — nothing is uploaded."
+            "value": "RemoteCrab can send your latest screenshots straight to the computer. Only the screenshots you send are read — nothing is uploaded."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 可以把你的最新截图直接发送到 Mac。只有你发送的截图会被读取，绝不上传。"
+            "value": "RemoteCrab 可以把你的最新截图直接发送到 电脑。只有你发送的截图会被读取，绝不上传。"
           }
         }
       }
@@ -6193,13 +6193,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send recent screenshots to your Mac"
+            "value": "Send recent screenshots to your computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把最近截图发送到 Mac"
+            "value": "把最近截图发送到 电脑"
           }
         }
       }
@@ -6533,13 +6533,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction."
+            "value": "Content follows your fingers, like the computer's natural scrolling. Turn off if your computer uses the classic direction."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "内容跟随手指移动，与 Mac 的「自然滚动」一致。若你的 Mac 用的是传统方向，请关闭此项。"
+            "value": "内容跟随手指移动，与 电脑 的「自然滚动」一致。若你的 电脑 用的是传统方向，请关闭此项。"
           }
         }
       }
@@ -6567,13 +6567,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio."
+            "value": "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your computer can always connect. Plays silent audio."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换 App 或锁屏后仍保持可连接，让 Mac 随时能找到。会播放静音音频。"
+            "value": "切换 App 或锁屏后仍保持可连接，让 电脑 随时能找到。会播放静音音频。"
           }
         }
       }
@@ -7604,13 +7604,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Talk to Mac"
+            "value": "Talk to computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "对 Mac 说话"
+            "value": "对 电脑 说话"
           }
         }
       }
