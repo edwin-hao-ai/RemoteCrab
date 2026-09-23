@@ -1009,7 +1009,7 @@ final class CaptureEngine: ObservableObject {
             // a dead-but-still-"ready" owner never blocks anyone.
             let sameMac = (connectedMacId != nil && connectedMacId == hello.id)
             if existing.state == .ready && !sameMac {
-                replyBusy(on: conn, ownerName: connectedMacName ?? "another Mac")
+                replyBusy(on: conn, ownerName: connectedMacName ?? "another computer")
                 return
             }
             existing.cancel()
@@ -1017,7 +1017,7 @@ final class CaptureEngine: ObservableObject {
         }
         // A second Mac showed up while the first was mid-handshake.
         if pendingConnection != nil && pendingConnection !== conn {
-            replyBusy(on: conn, ownerName: pendingMacName ?? "another Mac")
+            replyBusy(on: conn, ownerName: pendingMacName ?? "another computer")
             return
         }
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
@@ -1074,7 +1074,7 @@ final class CaptureEngine: ObservableObject {
 
         ownerMac = mac
         connection = conn
-        connectedMacName = mac?.name ?? "Mac (legacy)"
+        connectedMacName = mac?.name ?? "Computer (legacy)"
         connectedMacId = mac?.id
         connectionState = .connected
         startOwnerWatchdog()

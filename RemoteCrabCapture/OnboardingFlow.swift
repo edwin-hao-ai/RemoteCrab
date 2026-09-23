@@ -345,7 +345,7 @@ private struct PairMacIllustration: View {
         HStack(spacing: 32) {
             deviceColumn(icon: "iphone.gen3", label: "iPhone", side: .left)
             wifRemoteCrab
-            deviceColumn(icon: "macbook.gen2", label: "Mac", side: .right)
+            deviceColumn(icon: "macbook.gen2", label: "Computer", side: .right)
         }
         .frame(height: 320)
         .padding(.horizontal, 24)

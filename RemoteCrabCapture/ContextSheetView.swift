@@ -99,7 +99,7 @@ struct ContextSheetView: View {
                         .fill(Color.accentColor.gradient)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(engine.frontmostMacApp?.name ?? "Mac")
+                Text(engine.frontmostMacApp?.name ?? "Computer")
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
                 Text(profile.title.uppercased())

@@ -253,7 +253,7 @@ struct KeyboardScreen: View {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 13, weight: .semibold))
-                Text(engine.frontmostMacApp?.name ?? "Mac")
+                Text(engine.frontmostMacApp?.name ?? "Computer")
                     .font(IBFont.caption.weight(.semibold))
                     .lineLimit(1)
             }

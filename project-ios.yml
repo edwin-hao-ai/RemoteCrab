@@ -65,11 +65,11 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
-        NSCameraUsageDescription: RemoteCrab turns your iPhone into a WiFi camera for your Mac.
-        NSMicrophoneUsageDescription: RemoteCrab streams your iPhone microphone to your Mac.
-        NSSpeechRecognitionUsageDescription: RemoteCrab recognizes your speech on-device to type into your Mac.
-        NSPhotoLibraryUsageDescription: RemoteCrab reads your latest screenshot to send it to your Mac.
-        NSLocalNetworkUsageDescription: RemoteCrab discovers your Mac on the local WiFi network.
+        NSCameraUsageDescription: RemoteCrab turns your iPhone into a WiFi camera for your computer.
+        NSMicrophoneUsageDescription: RemoteCrab streams your iPhone microphone to your computer.
+        NSSpeechRecognitionUsageDescription: RemoteCrab recognizes your speech on-device to type into your computer.
+        NSPhotoLibraryUsageDescription: RemoteCrab reads your latest screenshot to send it to your computer.
+        NSLocalNetworkUsageDescription: RemoteCrab discovers your computer on the local WiFi network.
         UIBackgroundModes:
           - audio
         NSBonjourServices:

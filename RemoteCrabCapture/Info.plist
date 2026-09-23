@@ -34,15 +34,15 @@
 		<string>_remotecrab._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>RemoteCrab turns your iPhone into a WiFi camera for your Mac.</string>
+	<string>RemoteCrab turns your iPhone into a WiFi camera for your computer.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>RemoteCrab discovers your Mac on the local WiFi network.</string>
+	<string>RemoteCrab discovers your computer on the local WiFi network.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>RemoteCrab streams your iPhone microphone to your Mac.</string>
+	<string>RemoteCrab streams your iPhone microphone to your computer.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>RemoteCrab reads your latest screenshot to send it to your Mac.</string>
+	<string>RemoteCrab reads your latest screenshot to send it to your computer.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>RemoteCrab recognizes your speech on-device to type into your Mac.</string>
+	<string>RemoteCrab recognizes your speech on-device to type into your computer.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
