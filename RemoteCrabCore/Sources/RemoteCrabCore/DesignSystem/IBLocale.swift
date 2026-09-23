@@ -72,7 +72,7 @@ public enum IBLocale {
         public static let accessibility = IBL("Accessibility Permission")
         public static let accessibilityReason = IBL("We need Accessibility to drive your Mac's cursor and keyboard from your iPhone.")
 
-        public static let allow = IBL("Allow")
+        public static let allow = IBL("Continue")
         public static let notNow = IBL("Not now")
         public static let granted = IBL("Granted")
         /// Local-network probe: the system keeps the dialog up past our
@@ -95,7 +95,7 @@ public enum IBLocale {
         public static let getStarted = IBL("Get Started")
         public static let skip = IBL("Skip")
         public static let nextBtn = IBL("Continue")
-        public static let allowAndConnect = IBL("Allow Permissions & Connect")
+        public static let allowAndConnect = IBL("Continue")
         /// Pair-page illustration: both devices must share a network.
         public static let sameWiFi = IBL("Same WiFi")
 

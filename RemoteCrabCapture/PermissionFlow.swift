@@ -96,15 +96,15 @@ struct PermissionFlow: View {
         let result: PermissionResult
         switch stage {
         case .camera:
-            result = await requestCamera()
+            result = await Self.probeCamera()
         case .microphone:
-            result = await requestMicrophone()
+            result = await Self.probeMicrophone()
         case .speech:
-            result = await requestSpeech()
+            result = await Self.probeSpeech()
         case .photos:
-            result = await requestPhotos()
+            result = await Self.probePhotos()
         case .localNetwork:
-            result = await requestLocalNetwork()
+            result = await Self.probeLocalNetwork()
         }
         results[stage] = result
         try? await Task.sleep(nanoseconds: 600_000_000)
@@ -128,9 +128,15 @@ struct PermissionFlow: View {
         Stage.allCases.firstIndex(of: stage) ?? 0
     }
 
-    // MARK: - OS permission calls
+    // MARK: - OS permission calls (nonisolated)
+    //
+    // These MUST be nonisolated: TCC answers on a private XPC queue, and
+    // resuming a MainActor-isolated continuation from there traps in
+    // swift_task_checkIsolated (SIGTRAP) — exactly the crash App Review hit
+    // on the speech prompt (crash log: _dispatch_assert_queue_fail →
+    // swift_task_checkIsolated → TCC __TCCAccessRequest_block_invoke).
 
-    private func requestCamera() async -> PermissionResult {
+    private nonisolated static func probeCamera() async -> PermissionResult {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {
         case .authorized: return .granted
@@ -145,7 +151,7 @@ struct PermissionFlow: View {
         }
     }
 
-    private func requestMicrophone() async -> PermissionResult {
+    private nonisolated static func probeMicrophone() async -> PermissionResult {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
         case .authorized: return .granted
@@ -160,7 +166,7 @@ struct PermissionFlow: View {
         }
     }
 
-    private func requestSpeech() async -> PermissionResult {
+    private nonisolated static func probeSpeech() async -> PermissionResult {
         let status = SFSpeechRecognizer.authorizationStatus()
         switch status {
         case .authorized: return .granted
@@ -178,7 +184,7 @@ struct PermissionFlow: View {
     /// Photos: `.limited` ("selected photos only") counts as granted —
     /// the user can still send a screenshot they've allowed; the send
     /// path falls back to the picker if the latest one isn't in scope.
-    private func requestPhotos() async -> PermissionResult {
+    private nonisolated static func probePhotos() async -> PermissionResult {
         switch PHPhotoLibrary.authorizationStatus(for: .readWrite) {
         case .authorized, .limited:
             return .granted
@@ -195,34 +201,40 @@ struct PermissionFlow: View {
     /// Local-network permission can't be queried directly. Triggering
     /// a Bonjour browser is the only way to make iOS show the dialog.
     /// We create a transient browser and immediately cancel it.
-    private func requestLocalNetwork() async -> PermissionResult {
-        await withCheckedContinuation { (cont: CheckedContinuation<PermissionResult, Never>) in
-            let browser = NWBrowser(
-                for: .bonjour(type: "_remotecrab-probe._tcp", domain: nil),
-                using: .tcp
-            )
+    private nonisolated static func probeLocalNetwork() async -> PermissionResult {
+        // Sendable box so the browser + one-shot flag can be touched from
+        // NWBrowser's queue and the timeout without Swift 6 complaints.
+        final class Box: @unchecked Sendable {
             let lock = NSLock()
-            var resolved = false
-            let resolve: (PermissionResult) -> Void = { result in
-                lock.lock()
-                defer { lock.unlock() }
-                if !resolved {
-                    resolved = true
-                    browser.cancel()
-                    cont.resume(returning: result)
-                }
+            var done = false
+            var browser: NWBrowser?
+        }
+        let box = Box()
+        let browser = NWBrowser(
+            for: .bonjour(type: "_remotecrab-probe._tcp", domain: nil),
+            using: .tcp
+        )
+        box.browser = browser
+        return await withCheckedContinuation { (cont: CheckedContinuation<PermissionResult, Never>) in
+            let resolve: @Sendable (PermissionResult) -> Void = { result in
+                box.lock.lock()
+                let first = !box.done
+                box.done = true
+                box.lock.unlock()
+                guard first else { return }
+                box.browser?.cancel()
+                cont.resume(returning: result)
             }
             browser.stateUpdateHandler = { state in
                 switch state {
-                case .ready:            resolve(.granted)
+                case .ready:              resolve(.granted)
                 case .failed, .cancelled: resolve(.denied)
                 default:                  break
                 }
             }
             browser.start(queue: .global())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                // The system prompt may still be on screen — the probe
-                // timed out without a verdict, so report inconclusive.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
+                // The system prompt may still be on screen — no verdict.
                 resolve(.inconclusive)
             }
         }
@@ -293,28 +305,20 @@ private struct PermissionCard: View {
             // text at large Dynamic Type pushes the buttons down instead
             // of sliding underneath them.
             if result == nil {
-                VStack(spacing: 10) {
-                    Button(action: onAllow) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.shield")
-                            Text(IBLocale.Permission.allow)
-                        }
-                        .font(IBFont.bodyMedium.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .background { Capsule().fill(Color.accentColor) }
+                Button(action: onAllow) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.shield")
+                        Text(IBLocale.Permission.allow)
                     }
-                    .buttonStyle(.plain)
-
-                    Button(IBLocale.Permission.notNow, action: onSkip)
-                        .font(IBFont.bodySmall)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    .font(IBFont.bodyMedium.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+                    .background { Capsule().fill(Color.accentColor) }
                 }
+                .buttonStyle(.plain)
+                // No "Not now": the review guideline requires the user to
+                // always proceed to the system permission request.
             }
         }
         .padding(28)
