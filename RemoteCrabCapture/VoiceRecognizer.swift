@@ -61,6 +61,9 @@ final class VoiceRecognizer {
     /// Text from recognition tasks already finalized at the ~1 min cap
     /// during THIS hold — the base the current task appends to.
     private var committedText = ""
+    /// The current task's own transcription, so a pause-induced reset
+    /// (which shrinks it) can be detected and committed.
+    private var lastSessionText = ""
 
     /// Guards against double-firing onFinal between the isFinal
     /// callback and the 1.5 s fallback timer.
@@ -177,11 +180,14 @@ final class VoiceRecognizer {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        request.taskHint = .dictation
+        request.addsPunctuation = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
         requestBox.request = request
         self.request = request
+        lastSessionText = ""
         finalDelivered = false
         stopRequested = false
         sessionGeneration += 1
@@ -217,6 +223,14 @@ final class VoiceRecognizer {
     private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
             let sessionText = result.bestTranscription.formattedString
+            // After a pause the recognizer often starts a NEW utterance and
+            // `formattedString` no longer contains the earlier words. Keep
+            // them by committing the previous segment instead of letting
+            // the text shrink (which used to erase what the user said).
+            if !lastSessionText.isEmpty, !sessionText.hasPrefix(lastSessionText) {
+                committedText += lastSessionText
+            }
+            lastSessionText = sessionText
             let full = committedText + sessionText
             partialText = full
             finalText = full
@@ -227,6 +241,7 @@ final class VoiceRecognizer {
                 // its ~1 min cap. At the cap while still holding, commit
                 // and chain a new task so nothing is lost.
                 committedText = full
+                lastSessionText = ""
                 if isRunning && !stopRequested {
                     beginRecognitionTask()
                     return

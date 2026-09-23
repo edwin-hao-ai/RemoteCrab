@@ -312,18 +312,45 @@ final class CaptureEngine: ObservableObject {
     /// Final transcription for the hold.
     func finishVoiceText(_ final: String) {
         if handleVoiceCommand(final) {
-            typeVoiceDelta(to: "")   // erase anything typed live
-            voiceTypedText = ""
+            eraseVoiceText()   // remove anything typed live, then run it
             return
         }
         typeVoiceDelta(to: final)
         voiceTypedText = ""
     }
 
+    /// Append-only: interim recognition frequently REWRITES or shortens
+    /// its text (especially after a pause), and a plain diff would then
+    /// backspace away words the user already said. Never delete here —
+    /// only send text that extends what we've typed.
     private func typeVoiceDelta(to new: String) {
-        let events = TextDiff.events(from: voiceTypedText, to: new)
-        for event in events { broadcaster?.send(event) }
-        voiceTypedText = new
+        guard new != voiceTypedText else { return }
+        if new.hasPrefix(voiceTypedText) {
+            let delta = String(new.dropFirst(voiceTypedText.count))
+            if !delta.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: delta)) }
+            voiceTypedText = new
+            return
+        }
+        // Divergence: append only the part not already covered.
+        let common = Self.commonPrefix(new, voiceTypedText)
+        let tail = String(new.dropFirst(common.count))
+        if !tail.isEmpty {
+            broadcaster?.send(KeyEvent(action: .text, text: tail))
+            voiceTypedText += tail
+        }
+    }
+
+    /// Explicitly remove the live-typed voice text (voice-command path).
+    private func eraseVoiceText() {
+        guard !voiceTypedText.isEmpty else { return }
+        for event in TextDiff.events(from: voiceTypedText, to: "") { broadcaster?.send(event) }
+        voiceTypedText = ""
+    }
+
+    private static func commonPrefix(_ a: String, _ b: String) -> String {
+        var result = ""
+        for (ca, cb) in zip(a, b) where ca == cb { result.append(ca) }
+        return result
     }
 
     private func looksLikeVoiceCommand(_ text: String) -> Bool {

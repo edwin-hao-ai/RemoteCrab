@@ -1201,6 +1201,11 @@ final class ReceiverSession: ObservableObject {
             case .key:
                 if let event = try? IBWire.decodeKey(frame) {
                     keyEventCount += 1
+                    // Modifier keys are diagnostic gold when a held ⌥/⌘/⌃/⇧
+                    // isn't reaching an input method — log every one.
+                    if let code = event.keycode, (55...62).contains(code) {
+                        Self.log.info("modifier key event: keycode=\(code) action=\(String(describing: event.action), privacy: .public)")
+                    }
                     if keyEventCount == 1 || keyEventCount % 20 == 0 {
                         Self.log.info("key events received: \(self.keyEventCount) (action=\(String(describing: event.action), privacy: .public) text=\(event.text ?? "", privacy: .public))")
                     }

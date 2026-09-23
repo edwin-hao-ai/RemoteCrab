@@ -722,6 +722,7 @@ final class TouchSurfaceUIView: UIView {
         case .heavy:  generator = heavyImpact
         case .rigid:  generator = rigidImpact
         }
+        Forensic.log("[haptic] fire strength=\(strength) kind=\(adjusted)")
         generator.prepare()
         generator.impactOccurred()
     }
