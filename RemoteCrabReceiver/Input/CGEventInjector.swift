@@ -258,7 +258,33 @@ public final class CGEventInjector: InputInjector {
         up?.post(tap: .cghidEventTap)
     }
 
+    /// Modifier virtual keycodes → the device-independent flag they set.
+    private static func modifierFlag(for code: UInt16) -> CGEventFlags? {
+        switch code {
+        case 55, 54: return .maskCommand      // ⌘ / right ⌘
+        case 56, 60: return .maskShift        // ⇧ / right ⇧
+        case 58, 61: return .maskAlternate    // ⌥ / right ⌥
+        case 59, 62: return .maskControl      // ⌃ / right ⌃
+        default: return nil
+        }
+    }
+
+    /// Current modifier state, so a flagsChanged event carries the FULL
+    /// set (macOS replaces the state each event).
+    private var heldModifierFlags: CGEventFlags = []
+
     private func postKey(code: UInt16, down: Bool, flags: CGEventFlags = []) {
+        // A modifier key press is a `flagsChanged` event, NOT a keyDown —
+        // posting keyDown for ⌥/⌘/⌃/⇧ does nothing (so a held ⌥ never
+        // reached an input method like 豆包输入法). Emulate the real thing.
+        if let flag = Self.modifierFlag(for: code) {
+            if down { heldModifierFlags.insert(flag) } else { heldModifierFlags.remove(flag) }
+            let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+            event?.type = .flagsChanged
+            event?.flags = heldModifierFlags
+            event?.post(tap: .cghidEventTap)
+            return
+        }
         let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
         event?.flags = flags
         event?.post(tap: .cghidEventTap)

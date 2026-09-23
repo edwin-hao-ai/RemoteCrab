@@ -16,6 +16,11 @@ import Speech
 /// engine, so a long hold keeps flowing. Interim text is surfaced via
 /// `onPartial` so the Mac is typed word-by-word instead of only at the
 /// end — a dropped session can no longer lose a whole paragraph.
+///
+/// The audio tap is installed ONCE, before the engine starts, and appends
+/// to whatever request the `requestBox` currently holds — chaining swaps
+/// the request instead of reinstalling a tap on a running engine (which
+/// crashed).
 @MainActor
 @Observable
 final class VoiceRecognizer {
@@ -48,6 +53,10 @@ final class VoiceRecognizer {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+
+    /// Holds the request the (single) audio tap appends to, so a new
+    /// recognition task can take over without touching the tap.
+    private let requestBox = RecognitionRequestBox()
 
     /// Text from recognition tasks already finalized at the ~1 min cap
     /// during THIS hold — the base the current task appends to.
@@ -125,11 +134,24 @@ final class VoiceRecognizer {
         finalDelivered = false
         stopRequested = false
 
+        // Install the tap BEFORE the engine runs (installing it after
+        // start() traps), and route it through the box so chaining never
+        // has to reinstall it.
+        let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+        let format = inputNode.outputFormat(forBus: 0)
+        let box = requestBox
+        let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
+            box.request?.append(buffer)
+        }
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
+
         audioEngine.prepare()
         do {
             try audioEngine.start()
         } catch {
             Self.log.error("audio engine start failed: \(error.localizedDescription, privacy: .public)")
+            inputNode.removeTap(onBus: 0)
             self.recognizer = nil
             if !BackgroundKeepAlive.shared.restoreAfterRecording() {
                 try? session.setActive(false, options: .notifyOthersOnDeactivation)
@@ -144,39 +166,25 @@ final class VoiceRecognizer {
         return true
     }
 
-    /// Create a fresh recognition task bound to the (already running)
-    /// audio engine. Called at start() and again at each ~1 min cap so a
-    /// long hold continues seamlessly.
+    /// Create a fresh recognition task bound to the live audio engine.
+    /// Called at start() and again at each ~1 min cap so a long hold
+    /// continues seamlessly. The audio tap keeps feeding `requestBox`.
     private func beginRecognitionTask() {
         guard let recognizer else { return }
 
         task?.cancel()
         task = nil
-        request = nil
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
+        requestBox.request = request
         self.request = request
         finalDelivered = false
         stopRequested = false
         sessionGeneration += 1
-
-        let inputNode = audioEngine.inputNode
-        inputNode.removeTap(onBus: 0)
-        let format = inputNode.outputFormat(forBus: 0)
-        // The tap block runs on the audio realtime thread. Without an
-        // explicit @Sendable type it inherits @MainActor isolation from
-        // the enclosing type and traps in swift_task_checkIsolated on the
-        // first buffer. `request` isn't Sendable, so box it — appending
-        // from the tap callback is the documented Speech pattern.
-        let requestBox = UnsafeSendableBox(value: request)
-        let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
-            requestBox.value.append(buffer)
-        }
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
 
         self.task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
@@ -269,6 +277,7 @@ final class VoiceRecognizer {
         task?.cancel()
         task = nil
         request = nil
+        requestBox.request = nil
         recognizer = nil
         stopRequested = false
         if !BackgroundKeepAlive.shared.restoreAfterRecording() {
@@ -293,9 +302,15 @@ final class VoiceRecognizer {
     }
 }
 
-/// Lets a value cross into a `@Sendable` tap block when the type
-/// isn't Sendable but the usage pattern (single realtime thread,
-/// append-only) is safe by construction.
-private struct UnsafeSendableBox<T>: @unchecked Sendable {
-    let value: T
+/// Lets the audio tap reach the current request across the chaining swap.
+/// The tap runs on the realtime thread; the swap happens on the main
+/// actor, so access is locked (append-only otherwise).
+private final class RecognitionRequestBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _request: SFSpeechAudioBufferRecognitionRequest?
+
+    var request: SFSpeechAudioBufferRecognitionRequest? {
+        get { lock.lock(); defer { lock.unlock() }; return _request }
+        set { lock.lock(); _request = newValue; lock.unlock() }
+    }
 }

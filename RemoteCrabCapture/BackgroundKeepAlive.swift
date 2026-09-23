@@ -48,7 +48,16 @@ final class BackgroundKeepAlive: @unchecked Sendable {
                 return
             }
             silence.frameLength = 44_100   // 1 s of silence, looped
+            // Guarantee true silence: zero every channel AND mute the
+            // mixer, so nothing can ever be audible (a non-silent buffer
+            // would come out as a constant hum).
+            if let ch = silence.floatChannelData {
+                for c in 0..<Int(format.channelCount) {
+                    memset(ch[c], 0, Int(silence.frameLength) * MemoryLayout<Float>.size)
+                }
+            }
             engine.connect(player, to: engine.mainMixerNode, format: format)
+            engine.mainMixerNode.outputVolume = 0
             try engine.start()
             player.scheduleBuffer(silence, at: nil, options: [.loops], completionHandler: nil)
             player.play()
