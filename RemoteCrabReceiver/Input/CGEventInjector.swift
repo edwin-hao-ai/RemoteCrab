@@ -79,10 +79,50 @@ public final class CGEventInjector: InputInjector {
                 postKey(code: code, down: false, flags: eventFlags(for: key.modifiers))
             }
         case .text:
-            if let text = key.text {
-                typeText(text)
+            guard let text = key.text else { return }
+            let flags = eventFlags(for: key.modifiers)
+            if key.modifiers != 0 {
+                // A locked/held modifier must produce a REAL key chord, or
+                // macOS won't match a menu shortcut (⌘A, ⇧←…). Unicode-string
+                // events never do — send keycode events instead, and fall
+                // back to the string for characters with no US keycode (CJK).
+                for char in text {
+                    guard let (code, needsShift) = Self.keycode(forCharacter: char) else {
+                        typeText(String(char), flags: flags)
+                        continue
+                    }
+                    var f = flags
+                    if needsShift { f.insert(.maskShift) }
+                    postKey(code: code, down: true, flags: f)
+                    postKey(code: code, down: false, flags: f)
+                }
+            } else {
+                typeText(text, flags: flags)
             }
         }
+    }
+
+    /// US-ANSI character → (virtual keycode, needsShift). Enough for the
+    /// letters/digits/punctuation that make up shortcuts.
+    private static func keycode(forCharacter ch: Character) -> (UInt16, Bool)? {
+        let lower: [Character: UInt16] = [
+            "a":0,"s":1,"d":2,"f":3,"h":4,"g":5,"z":6,"x":7,"c":8,"v":9,"b":11,
+            "q":12,"w":13,"e":14,"r":15,"y":16,"t":17,
+            "1":18,"2":19,"3":20,"4":21,"6":22,"5":23,"=":24,"9":25,"7":26,
+            "-":27,"8":28,"0":29,"]":30,"o":31,"u":32,"[":33,"i":34,"p":35,
+            "l":37,"j":38,"'":39,"k":40,";":41,"\\":42,",":43,"/":44,"n":45,
+            "m":46,".":47,"`":50," ":49,
+        ]
+        let shifted: [Character: UInt16] = [
+            "!":18,"@":19,"#":20,"$":21,"^":22,"%":23,"+":24,"(":25,"&":26,
+            "_":27,"*":28,")":29,"}":30,"{":33,":":41,"\"":39,"<":43,">":47,
+            "?":44,"~":50,"|":42,
+        ]
+        if let code = lower[ch] { return (code, false) }
+        if let code = shifted[ch] { return (code, true) }
+        let s = String(ch)
+        if s.count == 1, let l = s.lowercased().first, let code = lower[l] { return (code, true) } // uppercase
+        return nil
     }
 
     // MARK: - Helpers
@@ -251,10 +291,10 @@ public final class CGEventInjector: InputInjector {
     }
 
     private func postKeyCombo(code: CGKeyCode, flags: CGEventFlags) {
-        let down = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true)
+        let down = CGEvent(keyboardEventSource: keySource, virtualKey: code, keyDown: true)
         down?.flags = flags
         down?.post(tap: .cghidEventTap)
-        let up = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: false)
+        let up = CGEvent(keyboardEventSource: keySource, virtualKey: code, keyDown: false)
         up?.post(tap: .cghidEventTap)
     }
 
@@ -273,32 +313,64 @@ public final class CGEventInjector: InputInjector {
     /// set (macOS replaces the state each event).
     private var heldModifierFlags: CGEventFlags = []
 
+    /// Dedicated HID event source. Posting ⌘-flagged events through the
+    /// shared system state can LATCH the modifier onto later synthetic
+    /// events; our own source + explicitly setting `flags` on every event
+    /// avoids that (lan-mouse #450, agent-remote-hands #96).
+    private let keySource = CGEventSource(stateID: .hidSystemState)
+
+    /// Device-dependent low-word modifier bits. Real hardware sets these
+    /// alongside the device-independent flag; some consumers (input
+    /// methods, VM guests) read them, so a synthetic FlagsChanged without
+    /// them can be ignored (lan-mouse #450).
+    private static func deviceBits(for code: UInt16) -> CGEventFlags {
+        let raw: UInt64
+        switch code {
+        case 59: raw = 0x0000_0001   // left control
+        case 56: raw = 0x0000_0002   // left shift
+        case 60: raw = 0x0000_0004   // right shift
+        case 55: raw = 0x0000_0008   // left command
+        case 54: raw = 0x0000_0010   // right command
+        case 58: raw = 0x0000_0020   // left option
+        case 61: raw = 0x0000_0040   // right option
+        case 62: raw = 0x0000_2000   // right control
+        default: raw = 0
+        }
+        return CGEventFlags(rawValue: raw)
+    }
+
     private func postKey(code: UInt16, down: Bool, flags: CGEventFlags = []) {
         // A modifier key press is a `flagsChanged` event, NOT a keyDown —
         // posting keyDown for ⌥/⌘/⌃/⇧ does nothing (so a held ⌥ never
-        // reached an input method like 豆包输入法). Emulate the real thing.
+        // reached an input method like 豆包输入法). Emulate the real thing,
+        // including the device-dependent bits real hardware carries.
         if let flag = Self.modifierFlag(for: code) {
             if down { heldModifierFlags.insert(flag) } else { heldModifierFlags.remove(flag) }
-            let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+            let event = CGEvent(keyboardEventSource: keySource, virtualKey: CGKeyCode(code), keyDown: down)
             event?.type = .flagsChanged
-            event?.flags = heldModifierFlags
+            var f = heldModifierFlags
+            if down { f.insert(Self.deviceBits(for: code)) }
+            f.insert(.maskNonCoalesced)
+            event?.flags = f
             event?.post(tap: .cghidEventTap)
             return
         }
-        let event = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(code), keyDown: down)
+        let event = CGEvent(keyboardEventSource: keySource, virtualKey: CGKeyCode(code), keyDown: down)
         event?.flags = flags
         event?.post(tap: .cghidEventTap)
     }
 
-    private func typeText(_ text: String) {
+    private func typeText(_ text: String, flags: CGEventFlags = []) {
         for char in text.unicodeScalars {
             let utf16 = Array(String(char).utf16)
             guard utf16.count <= 2 else { continue }
-            let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+            let down = CGEvent(keyboardEventSource: keySource, virtualKey: 0, keyDown: true)
+            down?.flags = flags
             down?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
             down?.post(tap: .cghidEventTap)
 
-            let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false)
+            let up = CGEvent(keyboardEventSource: keySource, virtualKey: 0, keyDown: false)
+            up?.flags = flags
             up?.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
             up?.post(tap: .cghidEventTap)
         }
