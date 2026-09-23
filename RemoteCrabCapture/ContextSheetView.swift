@@ -41,8 +41,11 @@ struct ContextSheetView: View {
         }
         .onAppear {
             engine.requestMacApps()  // refresh the frontmost app
+            voice.onPartial = { text in
+                engine.updateVoiceText(text)
+            }
             voice.onFinal = { text in
-                engine.sendVoiceText(text)
+                engine.finishVoiceText(text)
             }
             voice.onInterrupted = {
                 voiceHeld = false

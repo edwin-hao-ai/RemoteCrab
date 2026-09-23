@@ -13,6 +13,9 @@ struct KeyboardScreen: View {
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
+    /// Hold-vs-tap tracking for the modifier keys.
+    @State private var pressingModifiers: Set<IBModifierBar.Modifier> = []
+    @State private var heldModifiers: Set<IBModifierBar.Modifier> = []
 
     /// Lockable modifier state — locked modifiers ride on every
     /// subsequent key / text / touch event.
@@ -304,32 +307,60 @@ struct KeyboardScreen: View {
 
     private func modifierKey(_ modifier: IBModifierBar.Modifier) -> some View {
         let locked = modifiers.contains(modifier)
-        return Button {
-            if locked { modifiers.remove(modifier) }
-            else { modifiers.insert(modifier) }
-        } label: {
-            Text(modifier.rawValue)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(locked ? .white : .white.opacity(0.65))
-                .frame(width: 44, height: 44)
-                .background {
-                    if locked {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.accentColor)
-                            .shadow(color: Color.accentColor.opacity(0.4), radius: 6)
-                    } else {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.white.opacity(0.08))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 10)
-                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                            }
-                    }
+        return Text(modifier.rawValue)
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(locked ? .white : .white.opacity(0.65))
+            .frame(width: 44, height: 44)
+            .background {
+                if locked {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.accentColor)
+                        .shadow(color: Color.accentColor.opacity(0.4), radius: 6)
+                } else {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white.opacity(0.08))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10)
+                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                        }
                 }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in beginModifierPress(modifier) }
+                    .onEnded { _ in endModifierPress(modifier) }
+            )
+            .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
+            .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
+    }
+
+    /// Hold sends a REAL modifier key down/up (so a held ⌥ opens an input
+    /// method's panel, like a physical keyboard); a quick tap toggles the
+    /// sticky modifier.
+    private func beginModifierPress(_ m: IBModifierBar.Modifier) {
+        guard !pressingModifiers.contains(m) else { return }
+        pressingModifiers.insert(m)
+        heldModifiers.remove(m)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard pressingModifiers.contains(m) else { return }
+            heldModifiers.insert(m)
+            engine.sendKey(KeyEvent(action: .down, keycode: m.keycode))
+            modifiers.insert(m)
         }
-        .buttonStyle(IBPressButtonStyle(scale: 0.9))
-        .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
-        .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
+    }
+
+    private func endModifierPress(_ m: IBModifierBar.Modifier) {
+        guard pressingModifiers.contains(m) else { return }
+        pressingModifiers.remove(m)
+        if heldModifiers.contains(m) {
+            heldModifiers.remove(m)
+            engine.sendKey(KeyEvent(action: .up, keycode: m.keycode))
+            modifiers.remove(m)
+        } else {
+            if modifiers.contains(m) { modifiers.remove(m) } else { modifiers.insert(m) }
+        }
     }
 
     private func modifierAccessibilityLabel(for modifier: IBModifierBar.Modifier) -> String {

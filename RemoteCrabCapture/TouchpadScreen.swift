@@ -188,10 +188,16 @@ struct TouchpadScreen: View {
                             // next reach is always "edit" or "send".
                             quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
                             quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+                            // esc sits right after ⏎/⌫ — the quickest way
+                            // to cancel a dialog, menu or search field.
+                            quickKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
                             Rectangle()
                                 .fill(IBColor.borderSubtle)
                                 .frame(width: 1, height: 28)
-                            IBModifierBar(activeModifiers: $modifiers)
+                            IBModifierBar(activeModifiers: $modifiers,
+                                          onModifierKey: { code, down in
+                                              engine.sendKey(KeyEvent(action: down ? .down : .up, keycode: code))
+                                          })
                             quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                             quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
                         }

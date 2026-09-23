@@ -8,24 +8,36 @@ import Speech
 /// Wraps SFSpeechRecognizer + a dedicated AVAudioEngine. While a
 /// recognition session is live it owns the mic, so CaptureEngine
 /// yields the MicrophoneEncoder stream (see `syncMicrophone`).
+///
+/// SFSpeechRecognizer caps a single task at roughly one minute. Rather
+/// than tear the hold down at the cap (which used to lose everything the
+/// user said next), `handleRecognition` commits the text so far and
+/// **chains a fresh recognition task** onto the still-running audio
+/// engine, so a long hold keeps flowing. Interim text is surfaced via
+/// `onPartial` so the Mac is typed word-by-word instead of only at the
+/// end — a dropped session can no longer lose a whole paragraph.
 @MainActor
 @Observable
 final class VoiceRecognizer {
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "VoiceRecognizer")
 
-    /// Live interim transcription, bound by the floating UI card.
+    /// Live transcription for the whole hold (committed segments plus the
+    /// current one), bound by the floating UI card.
     private(set) var partialText = ""
     private(set) var isRunning = false
+
+    /// Fired on every interim update with the FULL text so far. The Mac
+    /// is typed incrementally from this.
+    var onPartial: ((String) -> Void)?
 
     /// Fired exactly once per stop() with the trimmed final text.
     /// Empty results never fire.
     var onFinal: ((String) -> Void)?
 
-    /// Fired when a live session ends on its own — the recognizer
-    /// finalized at the ~1 min system cap, or a mid-session error tore
-    /// the session down — instead of via a user-initiated stop().
-    /// The dock uses this to reset its held/glowing state.
+    /// Fired when a live session ends on its own for good — a mid-session
+    /// error, not the routine ~1 min chaining — instead of via a
+    /// user-initiated stop(). The dock uses this to reset its held state.
     var onInterrupted: (() -> Void)?
 
     /// Set when a mid-session error kills the recognition session;
@@ -37,6 +49,10 @@ final class VoiceRecognizer {
     private var task: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
 
+    /// Text from recognition tasks already finalized at the ~1 min cap
+    /// during THIS hold — the base the current task appends to.
+    private var committedText = ""
+
     /// Guards against double-firing onFinal between the isFinal
     /// callback and the 1.5 s fallback timer.
     private var finalDelivered = false
@@ -47,8 +63,8 @@ final class VoiceRecognizer {
     /// a re-entrant start() can't orphan an in-flight recognition task.
     private var isStarting = false
 
-    /// Incremented per start(); the stop() fallback timer compares
-    /// against it so a stale timer can't tear down a newer session.
+    /// Incremented per recognition task; the stop() fallback timer
+    /// compares against it so a stale timer can't tear down a newer task.
     private var sessionGeneration = 0
 
     // MARK: - Recognizer selection
@@ -101,17 +117,49 @@ final class VoiceRecognizer {
             return false
         }
 
+        self.recognizer = recognizer
+        partialText = ""
+        finalText = ""
+        committedText = ""
+        lastError = nil
+        finalDelivered = false
+        stopRequested = false
+
+        audioEngine.prepare()
+        do {
+            try audioEngine.start()
+        } catch {
+            Self.log.error("audio engine start failed: \(error.localizedDescription, privacy: .public)")
+            self.recognizer = nil
+            if !BackgroundKeepAlive.shared.restoreAfterRecording() {
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
+            isStarting = false
+            return false
+        }
+
+        beginRecognitionTask()
+        isRunning = true
+        isStarting = false
+        return true
+    }
+
+    /// Create a fresh recognition task bound to the (already running)
+    /// audio engine. Called at start() and again at each ~1 min cap so a
+    /// long hold continues seamlessly.
+    private func beginRecognitionTask() {
+        guard let recognizer else { return }
+
+        task?.cancel()
+        task = nil
+        request = nil
+
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
-
-        self.recognizer = recognizer
         self.request = request
-        partialText = ""
-        finalText = ""
-        lastError = nil
         finalDelivered = false
         stopRequested = false
         sessionGeneration += 1
@@ -121,9 +169,9 @@ final class VoiceRecognizer {
         let format = inputNode.outputFormat(forBus: 0)
         // The tap block runs on the audio realtime thread. Without an
         // explicit @Sendable type it inherits @MainActor isolation from
-        // start() and traps in swift_task_checkIsolated on the first
-        // buffer. `request` isn't Sendable, so box it — appending from
-        // the tap callback is the documented Speech pattern.
+        // the enclosing type and traps in swift_task_checkIsolated on the
+        // first buffer. `request` isn't Sendable, so box it — appending
+        // from the tap callback is the documented Speech pattern.
         let requestBox = UnsafeSendableBox(value: request)
         let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
             requestBox.value.append(buffer)
@@ -135,27 +183,6 @@ final class VoiceRecognizer {
                 self?.handleRecognition(result: result, error: error)
             }
         }
-
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-        } catch {
-            Self.log.error("audio engine start failed: \(error.localizedDescription, privacy: .public)")
-            task?.cancel()
-            task = nil
-            self.request = nil
-            self.recognizer = nil
-            inputNode.removeTap(onBus: 0)
-            if !BackgroundKeepAlive.shared.restoreAfterRecording() {
-                try? session.setActive(false, options: .notifyOthersOnDeactivation)
-            }
-            isStarting = false
-            return false
-        }
-
-        isRunning = true
-        isStarting = false
-        return true
     }
 
     /// Ends the recognition session. The final text arrives via
@@ -181,18 +208,20 @@ final class VoiceRecognizer {
 
     private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
-            partialText = result.bestTranscription.formattedString
-            finalText = partialText
+            let sessionText = result.bestTranscription.formattedString
+            let full = committedText + sessionText
+            partialText = full
+            finalText = full
+            onPartial?(full)
+
             if result.isFinal {
-                if isRunning {
-                    // Recognizer finalized on its own (Speech caps
-                    // sessions at ~1 min) while the user is still
-                    // holding — tear the audio side down like the
-                    // mid-session error path; onFinal still fires.
-                    isRunning = false
-                    audioEngine.stop()
-                    audioEngine.inputNode.removeTap(onBus: 0)
-                    onInterrupted?()
+                // Either the user released (stopRequested) or Speech hit
+                // its ~1 min cap. At the cap while still holding, commit
+                // and chain a new task so nothing is lost.
+                committedText = full
+                if isRunning && !stopRequested {
+                    beginRecognitionTask()
+                    return
                 }
                 deliverFinal()
                 return
@@ -203,9 +232,9 @@ final class VoiceRecognizer {
             if stopRequested {
                 deliverFinal()
             } else if isRunning {
-                // Session died mid-dictation; tear down without
-                // firing onFinal — the user hasn't released yet.
-                // Surface the error so the dock can un-stick itself.
+                // Session died mid-dictation; tear down without firing
+                // onFinal — the user hasn't released yet. Surface the
+                // error so the dock can un-stick itself.
                 isRunning = false
                 lastError = error.localizedDescription
                 audioEngine.stop()
@@ -216,14 +245,14 @@ final class VoiceRecognizer {
         }
     }
 
-    /// Fallback-timer entry point: delivers only if the session that
+    /// Fallback-timer entry point: delivers only if the task that
     /// scheduled it is still the current one.
     private func deliverFinalIfCurrent(generation: Int) {
         guard generation == sessionGeneration else { return }
         deliverFinal()
     }
 
-    /// Fires onFinal at most once per session, with non-empty
+    /// Fires onFinal at most once per hold, with non-empty
     /// trimmed text only.
     private func deliverFinal() {
         guard !finalDelivered else { return }

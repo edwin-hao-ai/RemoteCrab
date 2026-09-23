@@ -289,16 +289,49 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(command)
     }
 
-    /// Voice dictation result. Ships as a `.text` KeyEvent over the
-    /// same wire channel as the keyboard, but is deliberately NOT
-    /// gated on `keyboardOn` — voice is its own feature and must work
-    /// from any surface.
+    /// Voice dictation. Ships as `.text` KeyEvents over the same wire
+    /// channel as the keyboard, but is deliberately NOT gated on
+    /// `keyboardOn` — voice is its own feature and must work from any
+    /// surface.
     ///
-    /// Also doubles as a tiny voice-command surface: "open X" /
-    /// "切换到 X" activates a running Mac app instead of typing.
-    func sendVoiceText(_ text: String) {
-        if handleVoiceCommand(text) { return }
-        broadcaster?.send(KeyEvent(action: .text, text: text))
+    /// Interim results are typed as they arrive (word-by-word) so a long
+    /// hold can't lose a paragraph if a session dies; the delta is
+    /// computed against what we've already typed. Also doubles as a tiny
+    /// voice-command surface: "open X" / "切换到 X" activates a running
+    /// Mac app, "改写…" transforms the Mac's selection.
+    private var voiceTypedText = ""
+
+    /// Interim transcription (full text so far) — type only the delta.
+    func updateVoiceText(_ full: String) {
+        // Don't type live while the utterance looks like a command;
+        // wait for the final so the command words never hit the Mac.
+        guard !looksLikeVoiceCommand(full) else { return }
+        typeVoiceDelta(to: full)
+    }
+
+    /// Final transcription for the hold.
+    func finishVoiceText(_ final: String) {
+        if handleVoiceCommand(final) {
+            typeVoiceDelta(to: "")   // erase anything typed live
+            voiceTypedText = ""
+            return
+        }
+        typeVoiceDelta(to: final)
+        voiceTypedText = ""
+    }
+
+    private func typeVoiceDelta(to new: String) {
+        let events = TextDiff.events(from: voiceTypedText, to: new)
+        for event in events { broadcaster?.send(event) }
+        voiceTypedText = new
+    }
+
+    private func looksLikeVoiceCommand(_ text: String) -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let prefixes = ["切换到", "打开", "跳转到", "switch to ", "open ", "launch ", "go to ",
+                        "改写", "格式化", "变成", "转成", "改成",
+                        "rewrite", "reformat", "format", "make it", "make this"]
+        return prefixes.contains { t.hasPrefix($0) }
     }
 
     private func handleVoiceCommand(_ text: String) -> Bool {

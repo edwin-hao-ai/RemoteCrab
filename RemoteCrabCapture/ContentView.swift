@@ -173,11 +173,15 @@ struct ContentView: View {
             Text(screenshotError ?? "")
         }
         .onAppear {
-            // Finalized dictation is typed into the Mac as a `.text`
-            // KeyEvent — the same channel the keyboard surface uses,
-            // but via `sendVoiceText` so it isn't gated on keyboardOn.
+            // Dictation is typed into the Mac as `.text` KeyEvents — the
+            // same channel the keyboard uses, but via the voice methods
+            // so it isn't gated on keyboardOn. Interim results type
+            // word-by-word; the final handles voice commands.
+            voice.onPartial = { text in
+                engine.updateVoiceText(text)
+            }
             voice.onFinal = { text in
-                engine.sendVoiceText(text)
+                engine.finishVoiceText(text)
                 voiceSentFlash = true
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(800))
