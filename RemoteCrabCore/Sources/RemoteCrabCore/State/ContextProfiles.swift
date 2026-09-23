@@ -87,6 +87,7 @@ public enum ContextProfiles {
             "com.mitchellh.ghostty", "dev.warp.Warp-Stable",
             "com.anthropic.claudefordesktop", "com.openai.chat",
             "ai.opencode.desktop", "com.minimax.agent.cn",
+            "com.workbuddy.workbuddy-ai",
         ],
         actions: [
             .voiceHero(label: "Talk to Agent", symbol: "waveform"),

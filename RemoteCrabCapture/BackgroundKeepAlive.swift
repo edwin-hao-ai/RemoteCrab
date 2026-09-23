@@ -36,6 +36,10 @@ final class BackgroundKeepAlive: @unchecked Sendable {
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            // Without this, an active audio session suppresses ALL app
+            // haptics — the reported "buzz/no vibration". Documented since
+            // iOS 13.
+            try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true)
             Forensic.log("[keepalive] session playback active")
 

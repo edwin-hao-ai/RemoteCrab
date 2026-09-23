@@ -36,6 +36,7 @@ final class MicrophoneEncoder: @unchecked Sendable {
             // activation with "Session activation failed" (561017449).
             // The mic only records, so `.record` is the right category.
             try session.setCategory(.record, mode: .default, options: [])
+            try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true)
         } catch {
             Self.log.error("audio session setup failed: \(error, privacy: .public)")

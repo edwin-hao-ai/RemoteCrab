@@ -121,7 +121,8 @@ final class VoiceRecognizer {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setCategory(.record, mode: .measurement, options: .mixWithOthers)
+            try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             Self.log.error("audio session setup failed: \(error.localizedDescription, privacy: .public)")

@@ -53,59 +53,42 @@ public struct IBModifierBar: View {
 
     /// Press-and-hold threshold before a press counts as a real hold.
     private let holdThreshold: TimeInterval = 0.18
-    @State private var holdTasks: [Modifier: Task<Void, Never>] = [:]
     @State private var held: Set<Modifier> = []
 
     public var body: some View {
         HStack(spacing: IBSpace.s.pt) {
             ForEach(Modifier.allCases, id: \.self) { modifier in
-                Button {
-                    // No action here: tap vs hold is decided in the style's
-                    // press callback, so no gesture competes with a parent
-                    // ScrollView's horizontal drag.
-                } label: {
-                    Text(modifier.rawValue)
-                        .font(.system(size: 17, weight: .medium))
-                        .frame(width: 48, height: 48)
-                        .foregroundStyle(activeModifiers.contains(modifier) ? .white : IBColor.textPrimary)
-                        .background {
-                            keyBackground(isActive: activeModifiers.contains(modifier))
-                        }
-                }
-                .buttonStyle(PressReportingStyle { pressed in
-                    handlePress(modifier, pressed)
-                })
-                .accessibilityLabel(accessibilityLabel(for: modifier))
-                .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
+                keyView(modifier)
             }
         }
     }
 
-    /// Hold sends a REAL modifier key down/up (so a held ⌥ opens an input
-    /// method's panel, like a physical keyboard); a quick tap toggles the
-    /// sticky modifier. Driven by `isPressed` — NOT a DragGesture, which
-    /// would swallow the enclosing ScrollView's drag.
-    private func handlePress(_ m: Modifier, _ pressed: Bool) {
-        if pressed {
-            holdTasks[m]?.cancel()
-            holdTasks[m] = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(holdThreshold * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                held.insert(m)
-                onModifierKey?(m.keycode, true)
-                withAnimation(IBAnimation.snappy) { activeModifiers.insert(m) }
+    /// Tap toggles the sticky modifier; a press-and-hold sends a REAL
+    /// modifier key down/up (so a held ⌥ opens an input method's panel).
+    /// `onLongPressGesture` with a `maximumDistance` yields to an enclosing
+    /// ScrollView's drag (a DragGesture would swallow it), and the explicit
+    /// press callback is more reliable than a ButtonStyle's `isPressed`.
+    private func keyView(_ modifier: Modifier) -> some View {
+        let active = activeModifiers.contains(modifier)
+        return Text(modifier.rawValue)
+            .font(.system(size: 17, weight: .medium))
+            .frame(width: 48, height: 48)
+            .foregroundStyle(active ? .white : IBColor.textPrimary)
+            .background { keyBackground(isActive: active) }
+            .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
+            .onTapGesture { toggle(modifier) }
+            .onLongPressGesture(minimumDuration: holdThreshold, maximumDistance: 12) {
+                held.insert(modifier)
+                onModifierKey?(modifier.keycode, true)
+                withAnimation(IBAnimation.snappy) { activeModifiers.insert(modifier) }
+            } onPressingChanged: { pressing in
+                guard !pressing, held.contains(modifier) else { return }
+                held.remove(modifier)
+                onModifierKey?(modifier.keycode, false)
+                withAnimation(IBAnimation.snappy) { activeModifiers.remove(modifier) }
             }
-        } else {
-            holdTasks[m]?.cancel()
-            holdTasks[m] = nil
-            if held.contains(m) {
-                held.remove(m)
-                onModifierKey?(m.keycode, false)
-                withAnimation(IBAnimation.snappy) { activeModifiers.remove(m) }
-            } else {
-                toggle(m)   // quick tap → sticky modifier
-            }
-        }
+            .accessibilityLabel(accessibilityLabel(for: modifier))
+            .accessibilityValue(active ? IBLocale.A11y.on : IBLocale.A11y.off)
     }
 
     private func accessibilityLabel(for modifier: Modifier) -> String {

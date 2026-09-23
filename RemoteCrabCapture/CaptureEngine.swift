@@ -1167,6 +1167,22 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[e2e] quit requested: \(target)")
             }
         }
+        // E2E: exercise the modifier path — REMOTECRAB_E2E_MODIFIER=<keycode>
+        // holds it, types "a" with it, then releases. The Mac log confirms
+        // "modifier key event: keycode=…" and the key events.
+        if let raw = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MODIFIER"],
+           let code = UInt16(raw) {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                let mask: UInt8 = code == 58 ? 4 : (code == 55 ? 8 : (code == 59 ? 2 : 1))
+                self?.sendKey(KeyEvent(action: .down, keycode: code))
+                try? await Task.sleep(for: .milliseconds(200))
+                self?.sendKey(KeyEvent(action: .down, keycode: 0, modifiers: mask))
+                self?.sendKey(KeyEvent(action: .up, keycode: 0, modifiers: mask))
+                self?.sendKey(KeyEvent(action: .up, keycode: code))
+                Forensic.log("[e2e] modifier sequence sent: \(code) mask=\(mask)")
+            }
+        }
         // E2E: request the window list so the Mac's capture path is
         // verifiable from its log ("published N windows (M with previews…)").
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_WINDOWS"] == "1" {
