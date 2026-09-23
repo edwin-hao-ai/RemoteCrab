@@ -53,53 +53,58 @@ public struct IBModifierBar: View {
 
     /// Press-and-hold threshold before a press counts as a real hold.
     private let holdThreshold: TimeInterval = 0.18
-    @State private var pressing: Set<Modifier> = []
+    @State private var holdTasks: [Modifier: Task<Void, Never>] = [:]
     @State private var held: Set<Modifier> = []
 
     public var body: some View {
         HStack(spacing: IBSpace.s.pt) {
             ForEach(Modifier.allCases, id: \.self) { modifier in
-                Text(modifier.rawValue)
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 48, height: 48)
-                    .foregroundStyle(activeModifiers.contains(modifier) ? .white : IBColor.textPrimary)
-                    .background {
-                        keyBackground(isActive: activeModifiers.contains(modifier))
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in beginPress(modifier) }
-                            .onEnded { _ in endPress(modifier) }
-                    )
-                    .accessibilityLabel(accessibilityLabel(for: modifier))
-                    .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
+                Button {
+                    // No action here: tap vs hold is decided in the style's
+                    // press callback, so no gesture competes with a parent
+                    // ScrollView's horizontal drag.
+                } label: {
+                    Text(modifier.rawValue)
+                        .font(.system(size: 17, weight: .medium))
+                        .frame(width: 48, height: 48)
+                        .foregroundStyle(activeModifiers.contains(modifier) ? .white : IBColor.textPrimary)
+                        .background {
+                            keyBackground(isActive: activeModifiers.contains(modifier))
+                        }
+                }
+                .buttonStyle(PressReportingStyle { pressed in
+                    handlePress(modifier, pressed)
+                })
+                .accessibilityLabel(accessibilityLabel(for: modifier))
+                .accessibilityValue(activeModifiers.contains(modifier) ? IBLocale.A11y.on : IBLocale.A11y.off)
             }
         }
     }
 
-    private func beginPress(_ m: Modifier) {
-        guard !pressing.contains(m) else { return }
-        pressing.insert(m)
-        held.remove(m)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(holdThreshold * 1_000_000_000))
-            guard pressing.contains(m) else { return }   // released already
-            held.insert(m)
-            onModifierKey?(m.keycode, true)
-            withAnimation(IBAnimation.snappy) { activeModifiers.insert(m) }
-        }
-    }
-
-    private func endPress(_ m: Modifier) {
-        guard pressing.contains(m) else { return }
-        pressing.remove(m)
-        if held.contains(m) {
-            held.remove(m)
-            onModifierKey?(m.keycode, false)
-            withAnimation(IBAnimation.snappy) { activeModifiers.remove(m) }
+    /// Hold sends a REAL modifier key down/up (so a held ⌥ opens an input
+    /// method's panel, like a physical keyboard); a quick tap toggles the
+    /// sticky modifier. Driven by `isPressed` — NOT a DragGesture, which
+    /// would swallow the enclosing ScrollView's drag.
+    private func handlePress(_ m: Modifier, _ pressed: Bool) {
+        if pressed {
+            holdTasks[m]?.cancel()
+            holdTasks[m] = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(holdThreshold * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                held.insert(m)
+                onModifierKey?(m.keycode, true)
+                withAnimation(IBAnimation.snappy) { activeModifiers.insert(m) }
+            }
         } else {
-            toggle(m)   // quick tap → sticky modifier
+            holdTasks[m]?.cancel()
+            holdTasks[m] = nil
+            if held.contains(m) {
+                held.remove(m)
+                onModifierKey?(m.keycode, false)
+                withAnimation(IBAnimation.snappy) { activeModifiers.remove(m) }
+            } else {
+                toggle(m)   // quick tap → sticky modifier
+            }
         }
     }
 
@@ -149,6 +154,25 @@ public struct IBModifierBar: View {
         IBModifierBar(activeModifiers: binding)
             .padding()
             .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+    }
+}
+
+/// Reports a Button's pressed state without adding a gesture, so the
+/// button still lets an enclosing ScrollView handle a horizontal drag
+/// (a `DragGesture(minimumDistance: 0)` would swallow it).
+public struct PressReportingStyle: ButtonStyle {
+    public var onPressChange: (Bool) -> Void
+
+    public init(onPressChange: @escaping (Bool) -> Void) {
+        self.onPressChange = onPressChange
+    }
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .contentShape(Rectangle())
+            .onChange(of: configuration.isPressed) { _, pressed in
+                onPressChange(pressed)
+            }
     }
 }
 

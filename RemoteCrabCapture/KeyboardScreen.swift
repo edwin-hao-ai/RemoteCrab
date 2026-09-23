@@ -15,7 +15,7 @@ struct KeyboardScreen: View {
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
     /// Hold-vs-tap tracking for the modifier keys.
-    @State private var pressingModifiers: Set<IBModifierBar.Modifier> = []
+    @State private var modifierHoldTasks: [IBModifierBar.Modifier: Task<Void, Never>] = [:]
     @State private var heldModifiers: Set<IBModifierBar.Modifier> = []
 
     /// Lockable modifier state — locked modifiers ride on every
@@ -309,59 +309,60 @@ struct KeyboardScreen: View {
 
     private func modifierKey(_ modifier: IBModifierBar.Modifier) -> some View {
         let locked = modifiers.contains(modifier)
-        return Text(modifier.rawValue)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(locked ? .white : .white.opacity(0.65))
-            .frame(width: 44, height: 44)
-            .background {
-                if locked {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.accentColor)
-                        .shadow(color: Color.accentColor.opacity(0.4), radius: 6)
-                } else {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(0.08))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 10)
-                                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                        }
+        return Button {
+            // tap vs hold decided in the press callback (no gesture, so the
+            // shortcut row still scrolls).
+        } label: {
+            Text(modifier.rawValue)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(locked ? .white : .white.opacity(0.65))
+                .frame(width: 44, height: 44)
+                .background {
+                    if locked {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.accentColor)
+                            .shadow(color: Color.accentColor.opacity(0.4), radius: 6)
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(0.08))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                            }
+                    }
                 }
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in beginModifierPress(modifier) }
-                    .onEnded { _ in endModifierPress(modifier) }
-            )
-            .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
-            .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
+        }
+        .buttonStyle(PressReportingStyle { pressed in
+            handleModifierPress(modifier, pressed)
+        })
+        .accessibilityLabel(modifierAccessibilityLabel(for: modifier))
+        .accessibilityValue(locked ? IBLocale.A11y.on : IBLocale.A11y.off)
     }
 
     /// Hold sends a REAL modifier key down/up (so a held ⌥ opens an input
     /// method's panel, like a physical keyboard); a quick tap toggles the
-    /// sticky modifier.
-    private func beginModifierPress(_ m: IBModifierBar.Modifier) {
-        guard !pressingModifiers.contains(m) else { return }
-        pressingModifiers.insert(m)
-        heldModifiers.remove(m)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            guard pressingModifiers.contains(m) else { return }
-            heldModifiers.insert(m)
-            engine.sendKey(KeyEvent(action: .down, keycode: m.keycode))
-            modifiers.insert(m)
-        }
-    }
-
-    private func endModifierPress(_ m: IBModifierBar.Modifier) {
-        guard pressingModifiers.contains(m) else { return }
-        pressingModifiers.remove(m)
-        if heldModifiers.contains(m) {
-            heldModifiers.remove(m)
-            engine.sendKey(KeyEvent(action: .up, keycode: m.keycode))
-            modifiers.remove(m)
+    /// sticky modifier. Driven by `isPressed`, not a DragGesture, so the
+    /// enclosing shortcut row keeps scrolling.
+    private func handleModifierPress(_ m: IBModifierBar.Modifier, _ pressed: Bool) {
+        if pressed {
+            modifierHoldTasks[m]?.cancel()
+            modifierHoldTasks[m] = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                guard !Task.isCancelled else { return }
+                heldModifiers.insert(m)
+                engine.sendKey(KeyEvent(action: .down, keycode: m.keycode))
+                modifiers.insert(m)
+            }
         } else {
-            if modifiers.contains(m) { modifiers.remove(m) } else { modifiers.insert(m) }
+            modifierHoldTasks[m]?.cancel()
+            modifierHoldTasks[m] = nil
+            if heldModifiers.contains(m) {
+                heldModifiers.remove(m)
+                engine.sendKey(KeyEvent(action: .up, keycode: m.keycode))
+                modifiers.remove(m)
+            } else {
+                if modifiers.contains(m) { modifiers.remove(m) } else { modifiers.insert(m) }
+            }
         }
     }
 
