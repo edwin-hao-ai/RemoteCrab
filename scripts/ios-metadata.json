@@ -12,16 +12,16 @@
       "promotionalText": "Your iPhone is the peripheral your computer is missing — camera, mic, trackpad & keyboard over local WiFi. No cloud, no account, no subscription."
     },
     "zh-Hans": {
-      "description": "RemoteCrab 把你的 iPhone / iPad 变成 computer 的摄像头、麦克风、触控板和键盘——全部通过本地 WiFi 直连。没有云端、没有账号、没有订阅、没有数据分析。你的画面、声音和按键，永远不离开你的局域网。\n\n【这些场景，你可能正需要它】\n• 台式 computer 没有摄像头？旧 iPhone 就是一枚 1080p 高清摄像头，在 Zoom、Teams、FaceTime、OBS 里直接选择「RemoteCrab Camera」。\n• 会议太长？躺在沙发上用完整触控板控制接电视的 computer：拖动、双指滚动、右键、三指手势、⌃⌥⌘⇧ 修饰键。\n• computer 麦克风太远太吵？iPhone 就是一支无线麦克风——按住说话，语音还能实时变成 computer 上的文字。\n• 用你最熟悉的输入法打字——中文、听写都支持——文字直接出现在 computer 光标处。\n\n【功能】\n• 摄像头：1080p 30fps，硬件 H.264 编码；安装随附的虚拟摄像头组件后，在任何 computer App 里作为标准摄像头出现。\n• 麦克风：实时串流；一键安装虚拟麦克风驱动后全系统可用。\n• 触控板：顺滑加速曲线、惯性滚动、拖拽、双指缩放、三指手势、触觉反馈。\n• 键盘：系统输入法、快捷键条（⌘C ⌘V ⌘Z ⌘⇥）、迷你触控板。\n• 按住说话：端侧语音识别，说话直接变成 computer 上的文字。\n• 剪贴板：两端剪贴板一键互发。\n• 文件：照片和文件直发 computer，自动存入下载文件夹并在 Finder 中显示。\n• App 切换：在 iPhone 上点一下，computer 上对应 App 立即置前。\n\n【隐私】\nRemoteCrab 是纯本地应用：不跑服务器、不需要账号、不收集任何数据、没有内购和订阅。一切都在你自己的 WiFi 里。\n\n【开始使用】\n需要搭配免费的 computer 端 RemoteCrab Receiver（App 内有获取链接）。两端打开后自动发现，点一下即可配对。",
+      "description": "RemoteCrab 把你的 iPhone / iPad 变成 电脑 的摄像头、麦克风、触控板和键盘——全部通过本地 WiFi 直连。没有云端、没有账号、没有订阅、没有数据分析。你的画面、声音和按键，永远不离开你的局域网。\n\n【这些场景，你可能正需要它】\n• 台式 电脑 没有摄像头？旧 iPhone 就是一枚 1080p 高清摄像头，在 Zoom、Teams、FaceTime、OBS 里直接选择「RemoteCrab Camera」。\n• 会议太长？躺在沙发上用完整触控板控制接电视的 电脑：拖动、双指滚动、右键、三指手势、⌃⌥⌘⇧ 修饰键。\n• 电脑 麦克风太远太吵？iPhone 就是一支无线麦克风——按住说话，语音还能实时变成 电脑 上的文字。\n• 用你最熟悉的输入法打字——中文、听写都支持——文字直接出现在 电脑 光标处。\n\n【功能】\n• 摄像头：1080p 30fps，硬件 H.264 编码；安装随附的虚拟摄像头组件后，在任何 电脑 App 里作为标准摄像头出现。\n• 麦克风：实时串流；一键安装虚拟麦克风驱动后全系统可用。\n• 触控板：顺滑加速曲线、惯性滚动、拖拽、双指缩放、三指手势、触觉反馈。\n• 键盘：系统输入法、快捷键条（⌘C ⌘V ⌘Z ⌘⇥）、迷你触控板。\n• 按住说话：端侧语音识别，说话直接变成 电脑 上的文字。\n• 剪贴板：两端剪贴板一键互发。\n• 文件：照片和文件直发 电脑，自动存入下载文件夹并在 Finder 中显示。\n• App 切换：在 iPhone 上点一下，电脑 上对应 App 立即置前。\n\n【隐私】\nRemoteCrab 是纯本地应用：不跑服务器、不需要账号、不收集任何数据、没有内购和订阅。一切都在你自己的 WiFi 里。\n\n【开始使用】\n需要搭配免费的 电脑 端 RemoteCrab Receiver（App 内有获取链接）。两端打开后自动发现，点一下即可配对。",
       "keywords": "摄像头,麦克风,触控板,键盘,视频会议,网络摄像头,无线鼠标,遥控,直播,办公",
       "marketingUrl": "https://vgoapp.com/remotecrab/",
       "supportUrl": "https://vgoapp.com/remotecrab/",
-      "promotionalText": "你的 iPhone 就是 computer 最好的外设：摄像头、麦克风、触控板、键盘，本地 WiFi 直连，无云无订阅。"
+      "promotionalText": "你的 iPhone 就是 电脑 最好的外设：摄像头、麦克风、触控板、键盘，本地 WiFi 直连，无云无订阅。"
     }
   },
   "subtitles": {
     "en-US": "computer camera, mic & trackpad",
-    "zh-Hans": "iPhone 变 computer 的摄像头与触控板"
+    "zh-Hans": "iPhone 变电脑的摄像头与触控板"
   },
   "screenshots": {
     "iphone67": [
@@ -48,7 +48,7 @@
   "screenshotTitles": {
     "01-concept": {
       "en-US": "Your iPhone is your computer's camera, mic, trackpad & keyboard",
-      "zh-Hans": "你的 iPhone,computer 的摄像头·麦克风·触控板·键盘"
+      "zh-Hans": "你的 iPhone,电脑 的摄像头·麦克风·触控板·键盘"
     },
     "02-camera": {
       "en-US": "Turn a spare iPhone into a 1080p webcam",
@@ -56,19 +56,19 @@
     },
     "03-mic": {
       "en-US": "A wireless microphone for your computer",
-      "zh-Hans": "iPhone 就是 computer 的无线麦克风"
+      "zh-Hans": "iPhone 就是 电脑 的无线麦克风"
     },
     "04-trackpad": {
       "en-US": "Control your computer from the couch",
-      "zh-Hans": "躺在沙发上,控制那台 computer"
+      "zh-Hans": "躺在沙发上,控制那台 电脑"
     },
     "05-keyboard": {
       "en-US": "Type on iPhone, text lands on your computer",
-      "zh-Hans": "手机上打字,computer 上出字"
+      "zh-Hans": "手机上打字,电脑 上出字"
     },
     "06-voice": {
       "en-US": "Hold to talk — your computer types",
-      "zh-Hans": "按住说话,computer 替你打字"
+      "zh-Hans": "按住说话,电脑 替你打字"
     },
     "07-files": {
       "en-US": "Files & clipboard flow between devices",
