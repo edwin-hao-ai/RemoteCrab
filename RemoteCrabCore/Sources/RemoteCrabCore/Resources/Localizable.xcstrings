@@ -6816,6 +6816,41 @@
         "en": { "stringUnit": { "state": "translated", "value": "iOS pauses haptics while the microphone or hold-to-talk is active." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "麦克风或按住说话开启时，iOS 会暂停触觉反馈。" } }
       }
+    },
+    "AI": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "AI" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "AI" } }
+      }
+    },
+    "New Chat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New Chat" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "新会话" } }
+      }
+    },
+    "Stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Stop" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "停止" } }
+      }
+    },
+    "Cut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cut" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "剪切" } }
+      }
+    },
+    "Select All": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Select All" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全选" } }
+      }
     }
   },
   "version": "1.0"

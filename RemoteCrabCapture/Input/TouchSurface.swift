@@ -37,6 +37,8 @@ final class TouchSurfaceUIView: UIView {
     var clickHaptics: Bool = true
     /// 0=off 1=light 2=normal 3=strong
     var hapticStrength: Int = 2
+    /// Called when a drag (likely a text selection) finishes.
+    var onDragEnded: (() -> Void)?
 
     /// Labs: gyro air mouse. Bridged from @AppStorage by the host.
     var airMouseEnabled: Bool = false
@@ -419,6 +421,9 @@ final class TouchSurfaceUIView: UIView {
         Self.log.debug("dragEnd")
         emit(phase: .up, at: location)
         if clickHaptics { fire(.light) }
+        // A drag just finished — the host may offer copy/paste for what
+        // was (likely) selected on the Mac.
+        onDragEnded?()
     }
 
     /// Both pointer and scroll deltas are normalized by the surface's
@@ -827,6 +832,8 @@ struct TouchSurface: UIViewRepresentable {
     var clickHaptics: Bool = true
     /// 0=off 1=light 2=normal 3=strong
     var hapticStrength: Int = 2
+    /// Called when a drag (likely a text selection) finishes.
+    var onDragEnded: (() -> Void)?
     var airMouseEnabled: Bool = false
     var wheelScrollEnabled: Bool = false
     var airMouseActive: Bool = false
@@ -857,6 +864,7 @@ struct TouchSurface: UIViewRepresentable {
         view.scrollTickHaptics = scrollTickHaptics
         view.clickHaptics = clickHaptics
         view.hapticStrength = hapticStrength
+        view.onDragEnded = onDragEnded
         view.airMouseEnabled = airMouseEnabled
         view.wheelScrollEnabled = wheelScrollEnabled
         view.airMouseActive = airMouseActive

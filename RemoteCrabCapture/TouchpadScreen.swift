@@ -14,6 +14,8 @@ struct TouchpadScreen: View {
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
+    @State private var showSelectionBar = false
+    @State private var selectionBarTask: Task<Void, Never>?
     @AppStorage("remotecrab.ios.labAirMouse") private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
 
@@ -109,6 +111,7 @@ struct TouchpadScreen: View {
                 scrollSensitivity: scrollSens,
                 naturalScroll: naturalScroll,
                 hapticStrength: hapticStrength,
+                onDragEnded: { flashSelectionBar() },
                 airMouseEnabled: labAirMouse,
                 wheelScrollEnabled: labWheelScroll,
                 airMouseActive: airMouseActive,
@@ -175,6 +178,11 @@ struct TouchpadScreen: View {
                         .transition(.opacity)
                         .padding(.bottom, IBSpace.s.pt)
                 }
+                if showSelectionBar {
+                    selectionBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .padding(.bottom, IBSpace.s.pt)
+                }
                 // One horizontally-scrollable key row: the modifiers
                 // (leftmost, needed for trackpad gestures) then the
                 // common typing keys. A single row instead of two keeps
@@ -215,6 +223,60 @@ struct TouchpadScreen: View {
         // so the system overlays stay hidden (which also defers edge
         // gestures) while this surface is up.
         .persistentSystemOverlays(.hidden)
+    }
+
+    // MARK: - Selection actions
+
+    /// Shown for a few seconds after a drag (a likely text selection on
+    /// the Mac), offering the copy/paste chords you'd get from a system
+    /// edit menu.
+    private var selectionBar: some View {
+        HStack(spacing: IBSpace.s.pt) {
+            selectionAction("Copy", "doc.on.doc", 8)          // ⌘C
+            selectionAction("Cut", "scissors", 7)             // ⌘X
+            selectionAction("Paste", "doc.on.clipboard", 9)   // ⌘V
+            selectionAction("Select All", "selection.pin.in.out", 0) // ⌘A
+        }
+        .padding(6)
+        .background {
+            IBMaterial.glass(in: Capsule(), tint: IBColor.accent, interactive: true)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func selectionAction(_ label: String, _ symbol: String, _ keycode: UInt16) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: 8))
+            engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: 8))
+            hideSelectionBar()
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium))
+                Text(LocalizedStringKey(label)).font(IBFont.caption)
+            }
+            .foregroundStyle(.white)
+            .frame(minWidth: 56, minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.92))
+        .accessibilityLabel(label)
+    }
+
+    private func flashSelectionBar() {
+        withAnimation(IBAnimation.snappy) { showSelectionBar = true }
+        selectionBarTask?.cancel()
+        selectionBarTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            hideSelectionBar()
+        }
+    }
+
+    private func hideSelectionBar() {
+        selectionBarTask?.cancel()
+        selectionBarTask = nil
+        withAnimation(IBAnimation.snappy) { showSelectionBar = false }
     }
 
     // MARK: - Cursor preview

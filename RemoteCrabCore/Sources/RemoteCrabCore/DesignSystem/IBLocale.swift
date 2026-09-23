@@ -487,6 +487,7 @@ public enum IBLocale {
         // Context-sheet profile titles (frontmost Mac app → suite).
         public static let profilePresentation = IBL("Presentation")
         public static let profileAgent = IBL("Agent")
+        public static let profileAI = IBL("AI")
         public static let profileFinder = IBL("Finder")
         public static let profileNotes = IBL("Notes")
         public static let profileBrowser = IBL("Browser")

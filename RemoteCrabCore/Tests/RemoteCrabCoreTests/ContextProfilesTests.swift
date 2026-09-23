@@ -25,10 +25,11 @@ final class ContextProfilesTests: XCTestCase {
         }
     }
 
-    func testAgentClientsMatchAgent() {
+    func testAgentClientsMatchAI() {
         for id in ["com.anthropic.claudefordesktop", "com.openai.chat",
-                   "ai.opencode.desktop", "com.minimax.agent.cn"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "agent", id)
+                   "ai.opencode.desktop", "com.minimax.agent.cn",
+                   "com.workbuddy.workbuddy-ai"] {
+            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "ai", id)
         }
     }
 

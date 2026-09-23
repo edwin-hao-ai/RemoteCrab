@@ -85,9 +85,6 @@ public enum ContextProfiles {
         bundleIDs: [
             "com.apple.Terminal", "com.googlecode.iterm2",
             "com.mitchellh.ghostty", "dev.warp.Warp-Stable",
-            "com.anthropic.claudefordesktop", "com.openai.chat",
-            "ai.opencode.desktop", "com.minimax.agent.cn",
-            "com.workbuddy.workbuddy-ai",
         ],
         actions: [
             .voiceHero(label: "Talk to Agent", symbol: "waveform"),
@@ -97,6 +94,26 @@ public enum ContextProfiles {
             .key(label: "Paste", symbol: "doc.on.clipboard", keycode: 9, modifiers: 8), // ⌘V
             .key(label: "Clear", symbol: "eraser", keycode: 37, modifiers: 2),       // ⌃L
             .key(label: "Escape", symbol: "escape", keycode: 53),
+        ])
+
+    /// GUI AI assistants (Claude/ChatGPT/WorkBuddy/OpenCode/MiniMax). The
+    /// terminal keys (⌃C/⌃L) mean nothing here, so this suite is
+    /// chat-shaped: send, new, search, copy/paste, stop.
+    public static let ai = ContextProfile(
+        id: "ai", title: IBLocale.Context.profileAI,
+        bundleIDs: [
+            "com.anthropic.claudefordesktop", "com.openai.chat",
+            "ai.opencode.desktop", "com.minimax.agent.cn",
+            "com.workbuddy.workbuddy-ai",
+        ],
+        actions: [
+            .voiceHero(label: "Talk to Agent", symbol: "waveform"),
+            .key(label: "Send", symbol: "paperplane.fill", keycode: 36),               // ⏎
+            .key(label: "New Chat", symbol: "square.and.pencil", keycode: 45, modifiers: 8), // ⌘N
+            .key(label: "Copy", symbol: "doc.on.doc", keycode: 8, modifiers: 8),       // ⌘C
+            .key(label: "Paste", symbol: "doc.on.clipboard", keycode: 9, modifiers: 8), // ⌘V
+            .key(label: "Search", symbol: "magnifyingglass", keycode: 3, modifiers: 8), // ⌘F
+            .key(label: "Stop", symbol: "stop.fill", keycode: 53),                      // esc
         ])
 
     public static let finder = ContextProfile(
@@ -317,7 +334,7 @@ public enum ContextProfiles {
     /// Built-in suites, most specific first. A marketplace would append
     /// developer-supplied profiles here (or merge them ahead of these).
     public static let all: [ContextProfile] = [
-        presentation, agent, finder, notes, browser, mail, messages, calendar,
+        presentation, agent, ai, finder, notes, browser, mail, messages, calendar,
         xcode, editor, text, media, chat, meeting, image, notebook, console,
     ]
 
