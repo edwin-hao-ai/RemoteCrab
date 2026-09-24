@@ -227,6 +227,7 @@ struct TouchpadScreen: View {
         // so the system overlays stay hidden (which also defers edge
         // gestures) while this surface is up.
         .persistentSystemOverlays(.hidden)
+        .onAppear { presentWheelTutorialIfNeeded() }
     }
 
     // MARK: - Selection actions
@@ -394,6 +395,15 @@ struct TouchpadScreen: View {
 
     /// Press-and-hold lab button. Holds `held` true for the duration of
     /// the press; the surface reacts to the bridged state.
+    /// The (inline) wheel has no button any more, so explain it once.
+    private func presentWheelTutorialIfNeeded() {
+        guard labWheelScroll, !wheelTutShown else { return }
+        wheelTutShown = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            showLabHint(IBLocale.Labs.wheelTutorial)
+        }
+    }
+
     private func showLabHint(_ text: String) {
         withAnimation(IBAnimation.snappy) { labHint = text }
         labHintTask?.cancel()
