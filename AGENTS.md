@@ -1403,6 +1403,45 @@ is tracked in the Roadmap section — don't duplicate it here.
     so each suite must have an EVEN grid-action count (tested), and
     related controls must be adjacent (same row).
 
+53. **App Store rejection 1.0 (2026-09-24) — three fixes, all in-app.**
+    (a) **2.1(a) crash on the speech permission prompt**: the crash log is
+    `_dispatch_assert_queue_fail → swift_task_checkIsolated → TCC
+    __TCCAccessRequest_block_invoke`. TCC answers on a *private XPC queue*,
+    and `PermissionFlow` is a SwiftUI View (implicitly @MainActor) — resuming
+    its `withCheckedContinuation` from there traps (SIGTRAP). Fix: make every
+    permission probe `nonisolated static` (camera/mic happen to call back on
+    main; Speech's does not). This is the same class as lesson 2.
+    (b) **5.1.1 permission UX**: the pre-permission card's button must not say
+    "Allow" (use "Continue") and must not offer "Not now" — the user always
+    proceeds to the system request.
+    (c) **5.2.5 "Mac" trademark**: Apple flagged "Mac" in the name/subtitle.
+    It is the *user-visible copy* that matters, so sweep ALL of it — the app
+    catalog **values** (not just keys), `project-ios.yml` **Info.plist usage
+    descriptions** (shown in the system dialogs — easy to miss),
+    `scripts/ios-metadata.json`, the **website** copy, AND the **screenshot
+    composer's own title strings** (`compose-asc-screenshots.py` paints them
+    INTO the PNGs, so the reviewer sees them). Use "computer"/"电脑".
+
+54. **ASC screenshot uploads fail intermittently with
+    `SSL: UNEXPECTED_EOF_WHILE_READING` (2026-09-24).** Apple's API + the
+    pre-signed upload host drop the TLS connection under a burst of calls.
+    curl and single Python calls are fine, so it looks like rate limiting.
+    Fix: retry with backoff and a FRESH `ssl.create_default_context()` on
+    every call — in `ios-app-store-metadata.py` BOTH the `request()` helper
+    AND the raw chunk `urlopen` to the pre-signed URL (the latter is easy to
+    forget; it blocked uploads on its own). Also: `ExportOptions.plist` must
+    be `method: app-store-connect`; a leftover `debugging` produces a
+    dev-signed IPA that ASC rejects with `90161 Invalid Provisioning Profile`.
+
+55. **The Labs features are two-step and were never device-tested
+    (2026-09-24).** Settings → Labs only enables them; the user must ALSO tap
+    the lab button that then appears at the bottom of the trackpad
+    (`TouchpadScreen` shows it when `remotecrab.ios.labAirMouse` /
+    `labWheelScroll` is on) to ARM air-mouse/wheel. Air mouse uses
+    `CMMotionManager` (no simulator gyro), wheel uses an angle-around-origin
+    recognizer — neither is covered by `e2e-device.sh`, so treat them as
+    unverified.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1497,7 +1536,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-23 (V1.3 SHIPPED + context sheet grew to 17 suites: added media/chat/meeting/image/notebook and split the old `editor` into `xcode`/`editor`/`text` so ⌘B means build/bold/toggle-sidebar correctly; every shortcut checked against the app's real menu bar via AppleScript where installed (caught Mail ⌘⌫, Messages ⌘⏎, Notes ⇧⌘N); the silent-glass hit-area bug fixed in the button styles (whole card is tappable now). Earlier the same day: trackpad scroll-feel pass, Mac App Sandbox REMOVED (window-picker Quit works) + `SandboxDefaultsMigration`, the Mac dials ANY discovered iPhone, a 6 s handshake timeout, an iPhone owner watchdog, and **`UIBackgroundModes: [audio]` + a silent keep-alive** so the app survives background/lock (the mic must use `.record`; the capture session must not own the audio session) — lessons 39-52; 151 tests green + both targets build + real-device e2e 10/10.)_
+_Last updated: 2026-09-24 (App Store 1.0 REJECTED then fixed + resubmitted: (a) SIGTRAP on the speech permission prompt — TCC answers on a private XPC queue and the SwiftUI View's continuation was @MainActor-isolated, so all permission probes are now `nonisolated static`; (b) 5.1.1 — the pre-permission button says "Continue" and there is no "Not now"; (c) 5.2.5 — swept "Mac" out of the app catalog values, project-ios.yml usage strings, ios-metadata.json, the website, AND the screenshot composer's baked-in titles. Build 2026092401 archived/exported/uploaded (ExportOptions must be `app-store-connect`), metadata + 32 re-shot screenshots pushed to ASC. Mac 1.1 notarized DMG republished to vgoapp.com; website de-trademarked + SEO + product screenshots deployed (verified by hash). Lessons 53-55.)
+
+_Previous: 2026-09-23 (V1.3 SHIPPED + context sheet grew to 17 suites
 
 _Previous: 2026-09-22 (V1.2 SHIPPED: context sheet expanded to 10 suites — presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console — with `Codable` + self-describing profiles (marketplace-forward), 2-column row pairing (volume/brightness pairs share a row), full-width voice hero; multi-select file/photo send via a serial `SerialFileSender`; "Latest Screenshot" one-tap send + Photos permission in onboarding; connection-sheet "Choose a Mac" entry. Bug fixes: glass backgrounds are not hit-testable → every glass button now has `.contentShape` (the ⌨️ toggle's tap target was ~16 pt), and keyboard mode no longer renders the PTT row over KeyboardScreen's shortcut bar — lessons 39-43; 130 tests green + both app targets build + real-device e2e 10/10.)_
 
