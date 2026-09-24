@@ -164,6 +164,15 @@ struct TouchpadScreen: View {
                 }
                 if labWheelScroll || labAirMouse {
                     HStack {
+                        if labWheelScroll {
+                            // Inline wheel: this button is just a quick on/off
+                            // for it (it never "arms" a mode any more).
+                            labButton(symbol: "dial.low", active: labWheelScroll, label: IBLocale.Labs.wheelScroll) { active in
+                                labWheelScroll = active
+                                if active, !wheelTutShown { wheelTutShown = true; showLabHint(IBLocale.Labs.wheelTutorial) }
+                            }
+                        }
+                        Spacer()
                         if labAirMouse {
                             labButton(symbol: "gyroscope", active: airMouseActive, label: IBLocale.Labs.airMouse) { active in
                                 airMouseActive = active
