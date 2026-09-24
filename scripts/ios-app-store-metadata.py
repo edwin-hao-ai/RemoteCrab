@@ -113,15 +113,27 @@ class ASCClient:
         }
 
     def request(self, method, url, data=None):
+        import time, ssl
         body = json.dumps(data).encode() if data is not None else None
-        req = urllib.request.Request(url, data=body, headers=self.headers, method=method)
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                return json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            print(f"HTTP {e.code} {method} {url}", file=sys.stderr)
-            print(e.read().decode()[:1200], file=sys.stderr)
-            raise
+        last = None
+        # Apple's API intermittently drops the TLS connection mid-flow
+        # (SSL: UNEXPECTED_EOF_WHILE_READING) under a burst of calls —
+        # retry with backoff and a fresh context each time.
+        for attempt in range(5):
+            try:
+                req = urllib.request.Request(url, data=body, headers=self.headers, method=method)
+                ctx = ssl.create_default_context()
+                with urllib.request.urlopen(req, timeout=120, context=ctx) as r:
+                    return json.loads(r.read().decode())
+            except urllib.error.HTTPError as e:
+                print(f"HTTP {e.code} {method} {url}", file=sys.stderr)
+                print(e.read().decode()[:1200], file=sys.stderr)
+                raise
+            except Exception as e:
+                last = e
+                print(f"  retry {attempt+1}/5 {method} ({type(e).__name__})", file=sys.stderr)
+                time.sleep(2 * (attempt + 1))
+        raise last
 
     def get(self, url): return self.request("GET", url)
     def post(self, url, data): return self.request("POST", url, data)
