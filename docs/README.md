@@ -21,6 +21,11 @@ below in the order suggested for someone picking up the project cold.
 6. **[SESSION_MEMORY.md](SESSION_MEMORY.md)** — A timeline of this
    development session, with the key decisions and lessons captured as
    they happened.
+7. **[WINDOWS_PORT_PLAN.md](WINDOWS_PORT_PLAN.md)** — Windows receiver
+   feasibility + UX-first architecture (Rust + Tauri). Read before
+   starting any Windows work: protocol spec, the 6 user-facing surfaces
+   to replicate, macOS→Windows setup mapping, and the cross-project
+   dependencies (iOS copy that must change).
 
 ## Top-level docs (one level up)
 
