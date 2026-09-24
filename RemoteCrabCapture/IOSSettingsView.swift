@@ -201,20 +201,6 @@ struct IOSSettingsView: View {
                     }
                 }
 
-            Button {
-                // Fire every generator + the guaranteed vibrate, so the user
-                // can tell "system Haptics off" from a code problem.
-                UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-                UISelectionFeedbackGenerator().selectionChanged()
-                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-            } label: {
-                HStack {
-                    Image(systemName: "waveform")
-                    Text(IBLocale.Settings.testHaptics)
-                }
-            }
-            .accessibilityHint(IBLocale.Settings.testHapticsHint)
-
             Picker(IBLocale.Settings.hapticStrength, selection: $hapticStrength) {
                 Text(IBLocale.Settings.hapticOff).tag(0)
                 Text(IBLocale.Settings.hapticLight).tag(1)
