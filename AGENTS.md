@@ -541,9 +541,9 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - ~~**V1.1** — UI restructure: dock removed (top-bar toggles + PTT row), context sheet (presentation/agent/console suites), `systemCommand` 0x19, Mac settings wired (launchAtLogin/autoReconnect/AWDL)~~ ✅ (2026-09-22)
 - ~~**V1.2** — context sheet expanded to 10 suites (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), profiles made `Codable` + self-describing (`bundleIDs`) ahead of a future plugin marketplace, 2-column row pairing, full-width voice hero; multi-select file/photo send with a serial queue; "Latest Screenshot" one-tap send (+ Photos permission in onboarding); connection-sheet "Choose a Mac" entry; glass-button hit-area + keyboard-mode PTT overlap fixes~~ ✅ (2026-09-22)
 - ~~**V1.3** — trackpad scroll-feel pass (velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, "tap during a glide brakes instead of clicking"); Mac sandbox removed (Quit works) + defaults migration; window picker drops a quit app; connection resilience (dial-any-discovered, owner watchdog, ping timeout)~~ ✅ (2026-09-23)
-- **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry)
+- **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry); ~~iOS 26 `SpeechAnalyzer` backend (opportunistic — use it when the model is already installed, never download; see lesson 63)~~ ✅ (2026-09-24, device confirmation of engine selection still pending)
 - **V1.5** — Windows support (DirectShow virtual camera)
-- **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog
+- **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog (the possible "phone = attention-router for background agents" Aha — see the 2026-09-24 memory note)
 
 ---
 
@@ -1488,6 +1488,86 @@ is tracked in the Roadmap section — don't duplicate it here.
     keys always pinned below the app keys. All verified with the
     `REMOTECRAB_E2E_VOICE` / `REMOTECRAB_E2E_MODIFIER` hooks + e2e 10/10.
 
+61. **Voice "sudden disconnect" on pauses + long holds (2026-09-24, real-device
+    traced).** The old symptom — "说完一句、停顿、说第二句就断/必须重按" — was
+    THREE separate bugs, found by writing voice lifecycle markers through
+    `Forensic.log` (pull `Documents/forensic.log`) because `idevicesyslog`
+    can't see the device and `os_log` doesn't reach the Mac's log store:
+    (a) **every mid-hold `kAFAssistantErrorDomain` error tore the session
+    down** (203 = the ~1 min cap, 1110 = silence, 1101/1107/216 = transient),
+    even though they're routine — `VoiceRecognizer.recoverFromError` now
+    commits + quietly restarts the task on the same audio engine, giving up
+    (→ `onInterrupted`) only after 5 *rapid* failures; plus a task-identity
+    guard (`sessionGeneration`) so a superseded task's late cancellation
+    error can't kill the fresh one, and `AVAudioSession.interruptionNotification`
+    handling so a call/Siri doesn't end the hold.
+    (b) **The on-device recognizer DISCARDS its transcript on a pause (iOS 18)
+    and starts the next utterance from ""** — `result.speechRecognitionMetadata != nil`
+    marks the closed segment; `VoiceRecognizer` folds each closed segment into
+    `committedText` so `onPartial` only ever GROWS (a shrinking string stalled
+    CaptureEngine's prefix typing). `onPartial` now carries the committed
+    prefix LENGTH.
+    (c) **Typing must be tail-only** — macOS keystrokes only land at the
+    cursor, so `TextDiff.events(from:to:)`'s common-suffix optimisation is
+    invalid (it edits the middle); added `TextDiff.tailEvents` (backspace the
+    changed tail, retype it, tested). `CaptureEngine` types the finalized
+    prefix + the one-update-stable live prefix live (append-only, no
+    mid-sentence deletes) and does ONE exact tail reconcile per segment
+    boundary and at release, so a pause never loses or duplicates chars.
+    `beginVoiceSession()` resets the trackers each hold so an interrupted
+    session can't make the next one backspace the previous text.
+    (d) **Long holds degrade**: the on-device recognizer goes sparse/drops
+    results after ~30-40 s and hard-caps at ~1 min. `VoiceRecognizer` now
+    **proactively rolls the task at a natural segment boundary once it is
+    >20 s old** (commit + fresh task, `throttled` 180 ms so the recognizer
+    releases the old task — an immediate recreate used to fail and cascade).
+    Verified on device: 2 rollovers over a 58 s hold, all reconciles forward
+    (zero backspaces) → no loss. The voice card also shows the recent TAIL
+    (`…` prefix) instead of truncating the head to "…".
+    **Do NOT log recognized speech to forensic.log** — an early instrumented
+    build wrote `«the text»` into it; the committed logs carry counts only.
+
+62. **Camera now remembers the user's choice (2026-09-24).** `FeatureStore.cameraOn`
+    still defaults OFF on a fresh install, but `CaptureEngine.setCameraEnabled(_:)`
+    persists explicit UI toggles to `remotecrab.ios.cameraOn` and restores them
+    at startup (`restoreStreamHabits`). Automatic offs — backgrounding,
+    disconnect, `REMOTECRAB_AUTOSTREAM` — go through `features.set` directly and
+    must NOT overwrite the habit. Deliberately **camera-only**: restoring `micOn`
+    would start recording the moment the app launches (privacy / App-Review
+    risk). The UI toggles (top-bar cam/mic, the camera-off "turn on" button)
+    route through these helpers.
+
+63. **iOS 26 SpeechAnalyzer compatibility layer (2026-09-24).** Voice now has
+    two backends behind a `VoiceEngine` protocol, chosen at `start()` and
+    **never** requiring a download:
+    - `VoiceEngineSelector` (`RemoteCrabCore/Input/`, pure + unit-tested)
+      returns `.analyzer` only when `#available(iOS 26)` AND
+      `SpeechTranscriber.isAvailable` AND a model for `zh-Hans`/`en-US` is
+      **already installed** (`installedLocales`), else `.legacy`.
+    - `AnalyzerVoiceEngine` (`@available(iOS 26)`) wraps `SpeechAnalyzer` +
+      `SpeechTranscriber(preset: .progressiveTranscription)`. Its result
+      model maps 1:1 onto ours: `result.isFinal` → append to committed,
+      volatile → the live tail, emitted as `onPartial(full, committed)`.
+      It has **no ~1 min cap**, so iOS 26 skips the `proactiveRollover`.
+      Audio: mic tap → `AVAudioConverter` → `AnalyzerInput` yielded into an
+      `AsyncStream`; finish with `finalizeAndFinishThroughEndOfInput()`.
+    - `VoiceRecognizer`'s public API is unchanged (UI/`CaptureEngine`
+      untouched): it tries the analyzer engine, and silently falls back to
+      the legacy `SFSpeechRecognizer` path if it's unavailable or `start()`
+      fails. **Old OS/device = today's behaviour, zero change.**
+    **The model is NOT preinstalled with iOS** but is downloaded on demand,
+    shared system-wide, and stored outside the app bundle — many devices
+    (Notes / Apple Intelligence use it) already have it, which is why we
+    only *read* `installedLocales` and never prompt. Do not add a download
+    flow without revisiting App Review (undisclosed-download rejection).
+    v1 trade-off: the analyzer path ends the hold on an audio interruption
+    (the legacy path auto-resumes); revisit if it matters.
+    New files: `RemoteCrabCapture/VoiceEngine.swift`,
+    `RemoteCrabCapture/AnalyzerVoiceEngine.swift`,
+    `RemoteCrabCore/Sources/RemoteCrabCore/Input/VoiceEngineSelector.swift`.
+    **`xcodegen generate --spec project-ios.yml` is required after adding
+    files** — a stale `.xcodeproj` fails with "cannot find type in scope".
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1582,7 +1662,11 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-24 (later session — 1.0 re-submitted as build **2026092402**: Mac-picker duplicate fixed; haptics every ON level now vibrates (System Haptics vs silent-switch explained); Labs: air-mouse `NSMotionUsageDescription` + tap-to-toggle gyro button + gain /3.5, wheel is now inline (classify ≥120° turn, no mode); voice no longer deletes or duplicates (stable-prefix typing); modifier keys (locked = real key down + keycode text path + device bits); selection copy/paste bar; context sheet system keys pinned. Lessons 56-60. Build 2026092402 uploaded to ASC; user attaches it to version 1.0 and submits.)
+_Last updated: 2026-09-24 (later session — iOS 26 `SpeechAnalyzer` compatibility layer: a `VoiceEngine` protocol with `AnalyzerVoiceEngine` (used only when the model is already installed, never downloaded) and the legacy `SFSpeechRecognizer` path as the fallback; pure `VoiceEngineSelector` + tests; `VoiceRecognizer` public API unchanged. 161 tests + both apps build; device confirmation of engine selection pending. Lessons 61-63.)_
+
+_Previous: 2026-09-24 (voice long-dictation debugging session — pauses and long holds no longer drop chars or disconnect: recoverable-error restart loop + task-identity guard + interruption handling, on-device pause-reset accumulation, tail-only typing (`TextDiff.tailEvents`) with one reconcile per segment boundary, and a >20 s proactive segment-boundary task rollover. Camera now remembers the user's on/off choice (`remotecrab.ios.cameraOn`, explicit toggles only). 156 tests + both apps build; verified on a real iPhone (2 rollovers / 58 s hold, zero backspaces). Lessons 61-62.)_
+
+_Previous: 2026-09-24 (later session — 1.0 re-submitted as build **2026092402**: Mac-picker duplicate fixed; haptics every ON level now vibrates (System Haptics vs silent-switch explained); Labs: air-mouse `NSMotionUsageDescription` + tap-to-toggle gyro button + gain /3.5, wheel is now inline (classify ≥120° turn, no mode); voice no longer deletes or duplicates (stable-prefix typing); modifier keys (locked = real key down + keycode text path + device bits); selection copy/paste bar; context sheet system keys pinned. Lessons 56-60. Build 2026092402 uploaded to ASC; user attaches it to version 1.0 and submits.)
 
 _Previous: 2026-09-23 (V1.3 SHIPPED + context sheet grew to 17 suites
 

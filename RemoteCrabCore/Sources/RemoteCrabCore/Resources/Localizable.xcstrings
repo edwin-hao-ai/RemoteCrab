@@ -4947,6 +4947,23 @@
         }
       }
     },
+    "Still listening…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still listening…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续聆听…"
+          }
+        }
+      }
+    },
     "Stop Recording": {
       "extractionState": "manual",
       "localizations": {

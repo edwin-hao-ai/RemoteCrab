@@ -48,11 +48,15 @@ struct ContextSheetView: View {
                 }
                 .padding(IBSpace.l.pt)
             }
+            // While the voice hero is held, the finger must not be able to
+            // scroll the sheet — a small drift used to hand the gesture to
+            // the ScrollView and end the hold ("suddenly disconnected").
+            .scrollDisabled(voiceHeld)
         }
         .onAppear {
             engine.requestMacApps()  // refresh the frontmost app
-            voice.onPartial = { text in
-                engine.updateVoiceText(text)
+            voice.onPartial = { text, committed in
+                engine.updateVoiceText(text, committed: committed)
             }
             voice.onFinal = { text in
                 engine.finishVoiceText(text)
@@ -174,7 +178,7 @@ struct ContextSheetView: View {
                 .font(.system(size: 17, weight: .semibold))
                 .symbolEffect(.variableColor.iterative, isActive: voiceHeld)
             if voiceHeld {
-                Text(IBLocale.Voice.releaseToSend)
+                Text(voice.isRecovering ? IBLocale.Voice.recovering : IBLocale.Voice.releaseToSend)
                     .font(IBFont.bodyMedium.weight(.semibold))
             } else {
                 Text(LocalizedStringKey(label))
@@ -199,6 +203,7 @@ struct ContextSheetView: View {
         guard !voiceHeld else { return }
         voiceHeld = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        engine.beginVoiceSession()
         engine.features.set(feature: .voice, enabled: true)
         Task { @MainActor in
             let started = await voice.start()

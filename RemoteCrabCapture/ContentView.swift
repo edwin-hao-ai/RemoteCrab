@@ -177,8 +177,8 @@ struct ContentView: View {
             // same channel the keyboard uses, but via the voice methods
             // so it isn't gated on keyboardOn. Interim results type
             // word-by-word; the final handles voice commands.
-            voice.onPartial = { text in
-                engine.updateVoiceText(text)
+            voice.onPartial = { text, committed in
+                engine.updateVoiceText(text, committed: committed)
             }
             voice.onFinal = { text in
                 engine.finishVoiceText(text)
@@ -224,6 +224,8 @@ struct ContentView: View {
             // The voice flag round-trips to the Mac so the run is
             // visible in the receiver log.
             if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_VOICE"] == "1" {
+                let holdSeconds = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_VOICE_SECONDS"]
+                    .flatMap(Double.init) ?? 5
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(5))
                     engine.features.set(feature: .voice, enabled: true)
@@ -231,7 +233,7 @@ struct ContentView: View {
                     if !started {
                         engine.features.set(feature: .voice, enabled: false)
                     }
-                    try? await Task.sleep(for: .seconds(5))
+                    try? await Task.sleep(for: .seconds(holdSeconds))
                     voice.stop()
                     engine.features.set(feature: .voice, enabled: false)
                 }
@@ -478,7 +480,7 @@ struct ContentView: View {
                 .ibEyebrowTracking()
                 .foregroundStyle(.white.opacity(0.7))
             Button {
-                engine.features.set(feature: .camera, enabled: true)
+                engine.setCameraEnabled(true)
             } label: {
                 Text(IBLocale.Capture.turnCameraOn)
                     .font(IBFont.eyebrowMono)
@@ -539,7 +541,7 @@ struct ContentView: View {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(IBAnimation.snappy) {
-                    engine.features.set(feature: .camera, enabled: !engine.features.cameraOn)
+                    engine.setCameraEnabled(!engine.features.cameraOn)
                 }
             } label: {
                 topBarIcon("video.fill", tint: .white,
@@ -850,6 +852,7 @@ struct ContentView: View {
         guard !voiceHeld else { return }
         voiceHeld = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        engine.beginVoiceSession()
         engine.features.set(feature: .voice, enabled: true)
         Task { @MainActor in
             let started = await voice.start()
@@ -889,11 +892,7 @@ struct ContentView: View {
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(voiceErrorFlash ? IBColor.error : (voiceSentFlash ? IBColor.success : IBColor.recording))
                 .symbolEffect(.pulse, isActive: voice.isRunning)
-            Text(voiceErrorFlash
-                 ? IBLocale.Voice.stopped
-                 : (voiceSentFlash
-                    ? IBLocale.Voice.sent
-                    : (voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)))
+            Text(voiceCardText)
                 .font(IBFont.bodyMedium)
                 .foregroundStyle(.white)
                 .lineLimit(2)
@@ -914,7 +913,21 @@ struct ContentView: View {
                             ? "\(IBLocale.A11y.voiceInputError). \(voice.lastError ?? "")"
                             : (voiceSentFlash
                                ? IBLocale.A11y.dictationSent
-                               : "\(IBLocale.A11y.voiceInput). \(voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText)"))
+                               : "\(IBLocale.A11y.voiceInput). \(voice.isRecovering ? IBLocale.Voice.recovering : (voice.partialText.isEmpty ? IBLocale.Voice.listening : voice.partialText))"))
+    }
+
+    /// Live transcription card text. For a long hold the transcript
+    /// outgrows the two-line card; show the RECENT tail (prefixed with an
+    /// ellipsis) so the user always sees what is being recognised now,
+    /// instead of a head that truncates to "…".
+    private var voiceCardText: String {
+        if voiceErrorFlash { return IBLocale.Voice.stopped }
+        if voiceSentFlash { return IBLocale.Voice.sent }
+        if voice.isRecovering { return IBLocale.Voice.recovering }
+        let text = voice.partialText
+        if text.isEmpty { return IBLocale.Voice.listening }
+        let limit = 48
+        return text.count > limit ? "…" + String(text.suffix(limit)) : text
     }
 
     /// New bottom stack: 48pt PTT row + 16pt padding; the trackpad's

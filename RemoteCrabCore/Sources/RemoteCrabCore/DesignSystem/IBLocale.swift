@@ -169,8 +169,12 @@ public enum IBLocale {
         public static let sent = IBL("Sent")
         public static let holdToTalk = IBL("Hold to talk")
         public static let releaseToSend = IBL("Release to send")
+        /// Shown while a routine recognizer hiccup (or an audio-session
+        /// interruption) is being recovered. The hold is still active —
+        /// the user must not release and press again.
+        public static let recovering = IBL("Still listening…")
         /// Voice card error state. The raw recognizer error goes to
-        // os_log, never to the UI.
+        /// os_log, never to the UI.
         public static let stopped = IBL("Voice input stopped")
     }
 

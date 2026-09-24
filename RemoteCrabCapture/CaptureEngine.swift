@@ -154,6 +154,29 @@ final class CaptureEngine: ObservableObject {
     /// and mutated by remote FeatureControl frames alike.
     let features = FeatureStore()
 
+    /// Remembers the user's camera choice across launches (a fresh
+    /// install still defaults to off). Written ONLY by explicit toggles
+    /// via `setCameraEnabled` — automatic offs (backgrounding, disconnect,
+    /// e2e) go through `features.set` and never overwrite the habit.
+    ///
+    /// Deliberately camera-only: restoring `micOn` would start recording
+    /// the moment the app launches, which is a privacy surprise.
+    private static let cameraHabitKey = "remotecrab.ios.cameraOn"
+
+    /// User-initiated camera toggle: apply it AND remember it.
+    func setCameraEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: Self.cameraHabitKey)
+        features.set(feature: .camera, enabled: enabled)
+    }
+
+    /// Restore the remembered camera choice once at startup. Called
+    /// before any connection; first launch keeps the off default.
+    private func restoreStreamHabits() {
+        if UserDefaults.standard.bool(forKey: Self.cameraHabitKey) {
+            features.set(feature: .camera, enabled: true)
+        }
+    }
+
     private let parser = IBWire.Parser()
 
     // MARK: - Lifecycle
@@ -172,6 +195,7 @@ final class CaptureEngine: ObservableObject {
         features.onChange = { [weak self] snapshot in
             self?.handleFeaturesChanged(snapshot)
         }
+        restoreStreamHabits()
         refreshPairedMacs()
 
         await requestPermissions()
@@ -294,49 +318,94 @@ final class CaptureEngine: ObservableObject {
     /// `keyboardOn` — voice is its own feature and must work from any
     /// surface.
     ///
-    /// Interim results are typed as they arrive (word-by-word) so a long
-    /// hold can't lose a paragraph if a session dies; the delta is
-    /// computed against what we've already typed. Also doubles as a tiny
-    /// voice-command surface: "open X" / "切换到 X" activates a running
-    /// Mac app, "改写…" transforms the Mac's selection.
+    /// Interim results are typed as they arrive (word-by-word) so the Mac
+    /// feels live. Two rules keep it lossless even though the on-device
+    /// recognizer rewrites text mid-utterance:
+    ///
+    ///  * **Live pass is append-only.** We type the finalized prefix plus
+    ///    the part of the live segment that has been stable for one update;
+    ///    we never delete mid-sentence, so revision churn can't drop chars.
+    ///  * **One exact reconcile per segment boundary** (and at release).
+    ///    When a segment finalizes — including the on-device recognizer
+    ///    discarding its transcript on a pause — we tail-sync the Mac's
+    ///    insertion point to the finalized text (backspace+retype the
+    ///    volatile tail there and only there).
+    ///
+    /// Also doubles as a tiny voice-command surface: "open X" / "切换到 X"
+    /// activates a running Mac app, "改写…" transforms the Mac's selection.
     private var voiceTypedText = ""
-    /// The previous full interim text, so we can tell which prefix is stable.
-    private var voiceLastFull = ""
+    /// Live-segment transcript from the previous update (stability check).
+    private var voiceLastLive = ""
+    /// Committed prefix length from the previous update (boundary detect).
+    private var voiceLastCommitted = 0
 
-    /// Interim transcription (full text so far). Type only the part that
-    /// has been STABLE across the last two updates: the tail is still being
-    /// revised by the recognizer (punctuation, word fixes), and typing it
-    /// would duplicate when it changes. The remaining tail is typed by
-    /// `finishVoiceText`. Never deletes.
-    func updateVoiceText(_ full: String) {
+    /// Reset the trackers at the start of every hold, so a session that
+    /// ended without a clean final (e.g. interrupted) can't make the next
+    /// hold backspace the previous one's text.
+    func beginVoiceSession() {
+        voiceTypedText = ""
+        voiceLastLive = ""
+        voiceLastCommitted = 0
+    }
+
+    /// Interim transcription. `committed` is the length of the FINALIZED
+    /// prefix of `full` (segments the recognizer has closed).
+    func updateVoiceText(_ full: String, committed: Int) {
         // Don't type live while the utterance looks like a command;
         // wait for the final so the command words never hit the Mac.
         guard !looksLikeVoiceCommand(full) else { return }
-        let stable = Self.commonPrefix(full, voiceLastFull)
-        voiceLastFull = full
-        guard stable.count > voiceTypedText.count else { return }
-        let delta = String(stable.dropFirst(voiceTypedText.count))
-        if !delta.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: delta)) }
-        voiceTypedText = stable
+
+        let committedText = String(full.prefix(committed))
+        let live = String(full.dropFirst(committed))
+
+        // Segment boundary: reconcile exactly to the finalized prefix
+        // (bounded tail correction — the volatile tail is at the end).
+        let boundary = voiceLastCommitted != committed
+        voiceLastCommitted = committed
+        if boundary {
+            reconcileVoiceText(to: committedText)
+            voiceLastLive = ""
+        }
+
+        // Live tail: type only what has been stable for one update,
+        // append-only. The last (still-revising) partial is deferred.
+        let stableLive = Self.commonPrefix(live, voiceLastLive)
+        voiceLastLive = live
+        let desired = committedText + stableLive
+        guard desired.hasPrefix(voiceTypedText) else { return }
+        guard desired.count > voiceTypedText.count else { return }
+        let add = String(desired.dropFirst(voiceTypedText.count))
+        if !add.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: add)) }
+        voiceTypedText = desired
     }
 
     /// Final transcription for the hold.
     func finishVoiceText(_ final: String) {
-        if handleVoiceCommand(final) {
-            // Deliberately do NOT erase what was typed: a long dictation
-            // that merely starts with a command-like word was being
-            // mis-detected here and the whole paragraph got backspaced
-            // away. A stray prefix word is far better than data loss.
+        defer {
             voiceTypedText = ""
-            voiceLastFull = ""
+            voiceLastLive = ""
+            voiceLastCommitted = 0
+        }
+        if handleVoiceCommand(final) {
+            // Deliberately do NOT erase what the live pass typed: a long
+            // dictation that merely starts with a command-like word was
+            // being mis-detected here and the whole paragraph got
+            // backspaced away. A stray prefix word beats data loss.
             return
         }
-        // Type whatever is left after the already-typed stable prefix.
-        let common = Self.commonPrefix(final, voiceTypedText)
-        let tail = String(final.dropFirst(common.count))
-        if !tail.isEmpty { broadcaster?.send(KeyEvent(action: .text, text: tail)) }
-        voiceTypedText = ""
-        voiceLastFull = ""
+        // Type the volatile tail the live pass never typed; also repairs
+        // any late rewrite. Final, so a tail-only diff is safe here.
+        reconcileVoiceText(to: final)
+    }
+
+    /// Tail-only sync of the Mac's insertion point to `desired`.
+    private func reconcileVoiceText(to desired: String) {
+        guard desired != voiceTypedText else { return }
+        for event in TextDiff.tailEvents(from: voiceTypedText, to: desired) {
+            broadcaster?.send(event)
+        }
+        Forensic.log("[voice] reconcile \(voiceTypedText.count)→\(desired.count)")
+        voiceTypedText = desired
     }
 
     private static func commonPrefix(_ a: String, _ b: String) -> String {
@@ -1160,23 +1229,21 @@ final class CaptureEngine: ObservableObject {
             }
         }
         // E2E: exercise the voice pipeline without real speech —
-        // REMOTECRAB_E2E_VOICE=1 simulates "say → pause (recognizer resets
-        // and shrinks) → keep talking", which used to backspace away the
-        // earlier words. The Mac log must show the full text and NO
-        // backspace from the pause.
+        // REMOTECRAB_E2E_VOICE=1 simulates "say → pause (recognizer closes
+        // the segment and starts a fresh one) → keep talking". The Mac log
+        // must show the full text and NO backspace from the pause.
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_VOICE"] == "1" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.updateVoiceText("前面输入的内容")   // first utterance
+                self?.beginVoiceSession()
+                self?.updateVoiceText("前面输入的内容", committed: 7)   // utterance finalized → typed
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("前面输入的内容")   // stable -> typed
+                self?.updateVoiceText("前面输入的内容新词", committed: 7) // pause: live tail, not typed yet
                 try? await Task.sleep(for: .milliseconds(400))
-                self?.updateVoiceText("新词")             // LONG PAUSE: recognizer reset (shrank)
-                try? await Task.sleep(for: .milliseconds(400))
-                self?.finishVoiceText("新词")
+                self?.finishVoiceText("前面输入的内容新词")              // final flushes the tail
                 try? await Task.sleep(for: .milliseconds(300))
-                // And a final that LOOKS like a command — must not erase.
-                self?.updateVoiceText("变成大写")
+                // A final that LOOKS like a command — must not erase.
+                self?.updateVoiceText("变成大写", committed: 4)
                 try? await Task.sleep(for: .milliseconds(300))
                 self?.finishVoiceText("变成大写")
                 Forensic.log("[e2e] voice sequence sent")
