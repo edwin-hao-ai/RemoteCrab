@@ -30,10 +30,27 @@ enum WindowCapture {
     @discardableResult
     static func requestAccess() -> Bool { CGRequestScreenCaptureAccess() }
 
+    /// A window we intend to capture. `SCWindow` isn't `Sendable`, but the
+    /// concurrent capture tasks only read it, so it's boxed to cross the
+    /// task boundary.
+    private struct UnsafeWindow: @unchecked Sendable {
+        let window: SCWindow
+    }
+
+    /// Resolved window metadata, kept alongside the `SCWindow` so the
+    /// parallel capture results can be zipped back in order.
+    private struct Candidate {
+        let scWindow: SCWindow
+        let pid: pid_t
+        let appId: String
+        let appName: String
+        let isActive: Bool
+    }
+
     /// Build the list the iPhone renders. Falls back to one app-level
     /// entry per running app when Screen Recording is not granted (window
     /// titles and pixels are unreadable without it).
-    static func buildList(maxWidth: CGFloat = 480, maxWindows: Int = 16) async -> IBWindowList {
+    static func buildList(maxWidth: CGFloat = 960, maxWindows: Int = 16) async -> IBWindowList {
         guard isAuthorized else {
             return IBWindowList(windows: appLevelEntries(), canCapture: false)
         }
@@ -45,7 +62,7 @@ enum WindowCapture {
         let myPID = ProcessInfo.processInfo.processIdentifier
         let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         var activeMarked = false
-        var windows: [IBWindowInfo] = []
+        var candidates: [Candidate] = []
 
         for scWindow in content.windows {
             guard scWindow.windowLayer == 0,
@@ -62,16 +79,29 @@ enum WindowCapture {
                 isActive = true
                 activeMarked = true
             }
-            let jpeg = await capture(scWindow, maxWidth: maxWidth)
-            windows.append(IBWindowInfo(id: "\(owner.processID):\(scWindow.windowID)",
+            candidates.append(Candidate(scWindow: scWindow,
+                                        pid: owner.processID,
                                         appId: bundleID,
                                         appName: owner.applicationName,
-                                        title: scWindow.title ?? "",
-                                        isActive: isActive,
-                                        width: Double(scWindow.frame.width),
-                                        height: Double(scWindow.frame.height),
-                                        snapshotJPEG: jpeg))
-            if windows.count >= maxWindows { break }
+                                        isActive: isActive))
+            if candidates.count >= maxWindows { break }
+        }
+
+        // Capture every preview concurrently (bounded), preserving order —
+        // sequential capture made switching-app thumbnails slow.
+        let previews = await capturePreviews(candidates.map { UnsafeWindow(window: $0.scWindow) },
+                                             maxWidth: maxWidth)
+
+        var windows: [IBWindowInfo] = []
+        for (index, candidate) in candidates.enumerated() {
+            windows.append(IBWindowInfo(id: "\(candidate.pid):\(candidate.scWindow.windowID)",
+                                        appId: candidate.appId,
+                                        appName: candidate.appName,
+                                        title: candidate.scWindow.title ?? "",
+                                        isActive: candidate.isActive,
+                                        width: Double(candidate.scWindow.frame.width),
+                                        height: Double(candidate.scWindow.frame.height),
+                                        snapshotJPEG: previews[index]))
         }
 
         // Active first, then windows with a real preview, then grouped by
@@ -95,9 +125,32 @@ enum WindowCapture {
         let listedAppIds = Set(windows.map(\.appId))
         windows.append(contentsOf: appLevelEntries().filter { !listedAppIds.contains($0.appId) })
 
-        let previews = windows.filter { $0.snapshotJPEG != nil }.count
-        log.info("window list: \(windows.count, privacy: .public) windows from \(content.windows.count, privacy: .public) SC windows, \(previews, privacy: .public) with previews")
+        let previewCount = windows.filter { $0.snapshotJPEG != nil }.count
+        log.info("window list: \(windows.count, privacy: .public) windows from \(content.windows.count, privacy: .public) SC windows, \(previewCount, privacy: .public) with previews")
         return IBWindowList(windows: windows, canCapture: true)
+    }
+
+    /// Capture every window's JPEG with at most four in flight at once,
+    /// returning the results in the original order.
+    private static func capturePreviews(_ windows: [UnsafeWindow], maxWidth: CGFloat) async -> [Data?] {
+        var results = [Data?](repeating: nil, count: windows.count)
+        guard !windows.isEmpty else { return results }
+        let maxConcurrent = min(4, windows.count)
+        await withTaskGroup(of: (Int, Data?).self) { group in
+            for index in 0..<maxConcurrent {
+                group.addTask { (index, await capture(windows[index].window, maxWidth: maxWidth)) }
+            }
+            var next = maxConcurrent
+            for await (index, jpeg) in group {
+                results[index] = jpeg
+                if next < windows.count {
+                    let index = next
+                    group.addTask { (index, await capture(windows[index].window, maxWidth: maxWidth)) }
+                    next += 1
+                }
+            }
+        }
+        return results
     }
 
     /// One entry per running regular app, used when Screen Recording is off.
@@ -117,7 +170,7 @@ enum WindowCapture {
     /// the stream for a window (`-3811`), so retry once before giving up.
     private static func capture(_ window: SCWindow, maxWidth: CGFloat) async -> Data? {
         if let data = await attemptCapture(window, maxWidth: maxWidth) { return data }
-        try? await Task.sleep(for: .milliseconds(150))
+        try? await Task.sleep(for: .milliseconds(80))
         return await attemptCapture(window, maxWidth: maxWidth)
     }
 
@@ -130,7 +183,7 @@ enum WindowCapture {
         config.showsCursor = false
         do {
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-            return NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.6])
+            return NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.72])
         } catch {
             let name = window.owningApplication?.applicationName ?? "?"
             log.error("captureImage failed (\(name, privacy: .public) — \(window.title ?? "", privacy: .public)): \(String(describing: error), privacy: .public)")

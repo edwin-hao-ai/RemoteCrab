@@ -186,6 +186,8 @@ public enum IBFeature: String, Codable, Sendable, CaseIterable {
     case voice
     case trackpad
     case keyboard
+    /// Mac app-window mirror (`screenControl` / `screenInput` / `screenInfo`).
+    case screen
 }
 
 /// Mac → iPhone: toggle a feature remotely (kind 0x07).
@@ -223,6 +225,8 @@ public enum Surface: String, Codable, Sendable {
     case trackpad
     case keyboard
     case cameraPreview
+    /// Live mirror of the Mac's frontmost application window.
+    case screen
 }
 
 /// iPhone → Mac: full feature-state snapshot (kind 0x08), sent on
@@ -233,6 +237,9 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
     public let voiceOn: Bool
     public let trackpadOn: Bool
     public let keyboardOn: Bool
+    /// Whether the Mac app-window mirror is live. Defaults to false for
+    /// snapshots from older builds.
+    public let screenOn: Bool
     public let activeSurface: Surface
     /// Which camera is streaming. Defaults to `.back` when absent so
     /// snapshots from older builds still decode.
@@ -246,6 +253,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         trackpadOn: Bool,
         keyboardOn: Bool,
         activeSurface: Surface,
+        screenOn: Bool = false,
         cameraPosition: IBCameraPosition = .back,
         timestampMicros: UInt64
     ) {
@@ -254,6 +262,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         self.voiceOn = voiceOn
         self.trackpadOn = trackpadOn
         self.keyboardOn = keyboardOn
+        self.screenOn = screenOn
         self.activeSurface = activeSurface
         self.cameraPosition = cameraPosition
         self.timestampMicros = timestampMicros
@@ -266,6 +275,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         voiceOn = try c.decode(Bool.self, forKey: .voiceOn)
         trackpadOn = try c.decode(Bool.self, forKey: .trackpadOn)
         keyboardOn = try c.decode(Bool.self, forKey: .keyboardOn)
+        screenOn = try c.decodeIfPresent(Bool.self, forKey: .screenOn) ?? false
         activeSurface = try c.decode(Surface.self, forKey: .activeSurface)
         cameraPosition = try c.decodeIfPresent(IBCameraPosition.self, forKey: .cameraPosition) ?? .back
         timestampMicros = try c.decode(UInt64.self, forKey: .timestampMicros)
@@ -503,5 +513,118 @@ public struct IBSystemCommand: Codable, Sendable, Equatable {
     public init(command: Command, argument: String? = nil) {
         self.command = command
         self.argument = argument
+    }
+}
+
+// MARK: - App screen mirror (Mac ↔ iPhone)
+
+/// Where the Mac is in serving a screen-mirror request.
+public enum IBScreenStatus: String, Codable, Sendable, Equatable {
+    /// A window is being streamed.
+    case ok
+    /// macOS has not granted Screen Recording to the Mac app.
+    case permissionDenied
+    /// The frontmost app currently has no capturable window.
+    case noWindow
+}
+
+/// iPhone → Mac: control the screen mirror (kind 0x1D).
+public struct IBScreenControl: Codable, Sendable, Equatable {
+    public enum Command: String, Codable, Sendable {
+        case start
+        case stop
+        /// Pin a specific window (by `IBWindowInfo.id`); nil = follow frontmost app.
+        case select
+    }
+    public let command: Command
+    public let windowId: String?
+
+    public init(command: Command, windowId: String? = nil) {
+        self.command = command
+        self.windowId = windowId
+    }
+}
+
+/// iPhone → Mac: one direct-manipulation input (kind 0x1E).
+///
+/// `u`/`v` are normalized `0...1` inside the mirrored window's content.
+/// iOS computes them from its own zoom/pan state, so the Mac never needs
+/// to know the phone's gesture state. `dx`/`dy` are normalized deltas
+/// used by `.scroll`.
+public struct IBScreenInput: Codable, Sendable, Equatable {
+    public enum Action: String, Codable, Sendable {
+        case click        // tap = absolute left click
+        case dragStart    // begin an absolute left drag
+        case dragMove     // continue the drag at a new (u,v)
+        case dragEnd      // release the left button
+        case rightClick   // two-finger tap / long press
+        case scroll       // two-finger drag at the view's pan boundary
+    }
+    public let action: Action
+    public let u: Float
+    public let v: Float
+    public let dx: Float
+    public let dy: Float
+    public let modifiers: UInt8
+    public let timestampMicros: UInt64
+
+    public init(action: Action,
+                u: Float = 0, v: Float = 0,
+                dx: Float = 0, dy: Float = 0,
+                modifiers: UInt8 = 0,
+                timestampMicros: UInt64 = 0) {
+        self.action = action
+        self.u = u
+        self.v = v
+        self.dx = dx
+        self.dy = dy
+        self.modifiers = modifiers
+        self.timestampMicros = timestampMicros
+    }
+}
+
+/// Mac → iPhone: the current mirror target + geometry (kind 0x1F). Sent
+/// on start, on every target change (app switch), and whenever the
+/// mirrored window is moved or resized. `originX/Y` + `width/height` are
+/// the window's frame in Mac screen points, needed to translate the
+/// normalized `(u,v)` back to a global cursor position.
+public struct IBScreenInfo: Codable, Sendable, Equatable {
+    public let status: IBScreenStatus
+    public let windowId: String?
+    public let appId: String?
+    public let appName: String?
+    public let title: String?
+    public let originX: Double
+    public let originY: Double
+    public let width: Double
+    public let height: Double
+    public let pixelWidth: Int
+    public let pixelHeight: Int
+    public let showsCursor: Bool
+
+    public init(status: IBScreenStatus,
+                windowId: String? = nil,
+                appId: String? = nil,
+                appName: String? = nil,
+                title: String? = nil,
+                originX: Double = 0,
+                originY: Double = 0,
+                width: Double = 0,
+                height: Double = 0,
+                pixelWidth: Int = 0,
+                pixelHeight: Int = 0,
+                showsCursor: Bool = true) {
+        self.status = status
+        self.windowId = windowId
+        self.appId = appId
+        self.appName = appName
+        self.title = title
+        self.originX = originX
+        self.originY = originY
+        self.width = width
+        self.height = height
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.showsCursor = showsCursor
     }
 }

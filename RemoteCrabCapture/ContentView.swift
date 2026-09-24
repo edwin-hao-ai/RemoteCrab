@@ -433,6 +433,46 @@ struct ContentView: View {
             TouchpadScreen()
         case .keyboard:
             KeyboardScreen()
+        case .screen:
+            screenSurface
+        }
+    }
+
+    // MARK: - Screen mirror surface
+
+    @ViewBuilder
+    private var screenSurface: some View {
+        if let info = engine.screenInfo, info.status == .ok {
+            ScreenShareView(displayView: engine.screenDisplayView,
+                            info: info,
+                            onInput: { engine.sendScreenInput($0) })
+                .ignoresSafeArea()
+        } else if let info = engine.screenInfo, info.status == .permissionDenied {
+            screenPlaceholder(icon: "lock.shield",
+                              text: "Turn on Screen Recording for RemoteCrab on your computer, then reopen this mirror.")
+        } else if engine.screenInfo?.status == .noWindow {
+            screenPlaceholder(icon: "rectangle.slash",
+                              text: "This app has no window to show.")
+        } else {
+            screenPlaceholder(icon: "rectangle.on.rectangle",
+                              text: "Waiting for your computer…")
+        }
+    }
+
+    /// Placeholder card shown while the mirror has no live target, styled
+    /// after `cameraStartingPlaceholder` / `cameraOffPlaceholder`.
+    private func screenPlaceholder(icon: String, text: LocalizedStringKey) -> some View {
+        VStack(spacing: IBSpace.l.pt) {
+            Image(systemName: icon)
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.white.opacity(0.5))
+                .accessibilityHidden(true)
+            Text(text)
+                .font(IBFont.eyebrowMono)
+                .ibEyebrowTracking()
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.white.opacity(0.7))
+                .padding(.horizontal, IBSpace.xl.pt)
         }
     }
 
@@ -569,6 +609,25 @@ struct ContentView: View {
             .accessibilityLabel(IBLocale.A11y.microphone)
             .accessibilityValue(engine.features.micOn ? IBLocale.A11y.on : IBLocale.A11y.off)
             .accessibilityAddTraits(engine.features.micOn ? .isSelected : [])
+
+            // App-window mirror: enters the full-screen `.screen` surface
+            // and asks the computer to start streaming its frontmost
+            // window. Same level as the camera/mic stream toggles.
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(IBAnimation.snappy) {
+                    engine.toggleScreenMirror()
+                }
+            } label: {
+                topBarIcon("rectangle.on.rectangle", tint: .white,
+                           active: engine.features.screenOn)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .buttonStyle(IBPressButtonStyle())
+            .accessibilityLabel("App window mirror")
+            .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+            .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.
@@ -939,7 +998,9 @@ struct ContentView: View {
     // MARK: - PiP camera preview
 
     private var showsPiP: Bool {
-        engine.features.cameraOn && engine.features.activeSurface != .cameraPreview
+        engine.features.cameraOn
+            && engine.features.activeSurface != .cameraPreview
+            && engine.features.activeSurface != .screen
     }
 
     private func pip(in size: CGSize, view: CameraPreview.PreviewView) -> some View {

@@ -44,6 +44,12 @@ public enum IBWire {
         case windowListRequest = 0x17 // JSON IBWindowListRequest (iPhone → Mac)
         case windowList    = 0x18    // JSON IBWindowList (Mac → iPhone)
         case systemCommand = 0x19    // JSON IBSystemCommand (iPhone → Mac)
+        case screenVideo   = 0x1A    // Mac → iPhone: one H.264 NAL unit
+        case screenSPS     = 0x1B    // Mac → iPhone: H.264 SPS
+        case screenPPS     = 0x1C    // Mac → iPhone: H.264 PPS
+        case screenControl = 0x1D    // JSON IBScreenControl (iPhone → Mac)
+        case screenInput   = 0x1E    // JSON IBScreenInput (iPhone → Mac)
+        case screenInfo    = 0x1F    // JSON IBScreenInfo (Mac → iPhone)
     }
 
     // MARK: - Encoding
@@ -186,6 +192,35 @@ public enum IBWire {
     /// Encode a system command (iPhone → Mac).
     public static func encode(systemCommand: IBSystemCommand) throws -> Data {
         encodeFrame(kind: .systemCommand, payload: try JSONEncoder().encode(systemCommand))
+    }
+
+    /// Encode a screen-mirror NAL frame (Mac → iPhone). Reuses
+    /// `IBNalFrame.Kind` so the iOS decoder path matches the camera's,
+    /// but maps onto the mirror's dedicated kinds so the two directions
+    /// can never be confused.
+    public static func encodeScreen(frame: IBNalFrame) -> Data {
+        let kind: Kind
+        switch frame.kind {
+        case .video: kind = .screenVideo
+        case .sps:   kind = .screenSPS
+        case .pps:   kind = .screenPPS
+        }
+        return encodeFrame(kind: kind, payload: frame.data)
+    }
+
+    /// Encode a screen-mirror control command (iPhone → Mac).
+    public static func encode(screenControl: IBScreenControl) throws -> Data {
+        encodeFrame(kind: .screenControl, payload: try JSONEncoder().encode(screenControl))
+    }
+
+    /// Encode a screen-mirror input event (iPhone → Mac).
+    public static func encode(screenInput: IBScreenInput) throws -> Data {
+        encodeFrame(kind: .screenInput, payload: try JSONEncoder().encode(screenInput))
+    }
+
+    /// Encode the current mirror target + geometry (Mac → iPhone).
+    public static func encode(screenInfo: IBScreenInfo) throws -> Data {
+        encodeFrame(kind: .screenInfo, payload: try JSONEncoder().encode(screenInfo))
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -363,6 +398,21 @@ public enum IBWire {
     /// Decode a `.systemCommand` frame's payload.
     public static func decodeSystemCommand(_ frame: Frame) throws -> IBSystemCommand {
         try JSONDecoder().decode(IBSystemCommand.self, from: frame.payload)
+    }
+
+    /// Decode a `.screenControl` frame's payload.
+    public static func decodeScreenControl(_ frame: Frame) throws -> IBScreenControl {
+        try JSONDecoder().decode(IBScreenControl.self, from: frame.payload)
+    }
+
+    /// Decode a `.screenInput` frame's payload.
+    public static func decodeScreenInput(_ frame: Frame) throws -> IBScreenInput {
+        try JSONDecoder().decode(IBScreenInput.self, from: frame.payload)
+    }
+
+    /// Decode a `.screenInfo` frame's payload.
+    public static func decodeScreenInfo(_ frame: Frame) throws -> IBScreenInfo {
+        try JSONDecoder().decode(IBScreenInfo.self, from: frame.payload)
     }
 
     /// Decode a `.ping` frame's payload into the sender timestamp.

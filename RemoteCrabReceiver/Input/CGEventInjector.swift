@@ -104,6 +104,45 @@ public final class CGEventInjector: InputInjector {
         }
     }
 
+    /// Absolute input for the app-screen mirror. Unlike the relative
+    /// trackpad path, `u`/`v` are normalized against the mirrored
+    /// window's content and map directly to a global cursor position
+    /// (`windowOrigin + (u·w, v·h)`), so a tap lands exactly where the
+    /// user touched on the mirror.
+    public func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {
+        let global = CGPoint(x: windowOrigin.x + CGFloat(screenInput.u) * windowSize.width,
+                             y: windowOrigin.y + CGFloat(screenInput.v) * windowSize.height)
+        switch screenInput.action {
+        case .click:
+            post(type: .leftMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .leftMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            lastCursor = global
+        case .dragStart:
+            post(type: .leftMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
+            lastCursor = global
+            isDragging = true
+        case .dragMove:
+            lastCursor = global
+            post(type: .leftMouseDragged, at: global)
+        case .dragEnd:
+            post(type: .leftMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            isDragging = false
+        case .rightClick:
+            post(type: .rightMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .rightMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            lastCursor = global
+        case .scroll:
+            // Put the cursor over the window first so the scroll lands in
+            // the intended app, then reuse the trackpad scroll path.
+            let screenSize = NSScreen.screens.first(where: { $0.frame.contains(global) })?.frame.size
+                ?? NSScreen.main?.frame.size
+                ?? CGSize(width: 1920, height: 1080)
+            moveCursor(to: global, screenSize: screenSize)
+            postScroll(dx: screenInput.dx, dy: screenInput.dy, commandHeld: false,
+                       momentum: false, screenHeight: windowSize.height)
+        }
+    }
+
     /// US-ANSI character → (virtual keycode, needsShift). Enough for the
     /// letters/digits/punctuation that make up shortcuts.
     private static let log = Logger(subsystem: "com.remotecrab", category: "injector")
