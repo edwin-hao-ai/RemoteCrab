@@ -179,7 +179,9 @@ public enum IBLocale {
         public static let title = IBL("Labs")
         public static let airMouse = IBL("Air mouse")
         public static let wheelScroll = IBL("Wheel scrolling")
-        public static let footer = IBL("Experimental gestures. Air mouse: hold the floating button on the trackpad and tilt your iPhone to move the cursor. Wheel scrolling: hold the edge button and draw circles to scroll.")
+        public static let footer = IBL("Experimental gestures. TAP the button that appears on the trackpad to turn one on, then tilt your iPhone (Air mouse) or draw circles (Wheel scrolling). Tap it again to turn it off.")
+        public static let airMouseTutorial = IBL("Air mouse is ON — tilt your iPhone to move the cursor; hold a tilt to keep moving. Tap the button again to stop.")
+        public static let wheelTutorial = IBL("Wheel scrolling is ON — draw circles on the trackpad to scroll (clockwise = down). Tap the button again to exit.")
     }
 
     /// Camera-preview placeholder (eyebrow style — rendered in caps

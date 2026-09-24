@@ -7971,6 +7971,57 @@
           }
         }
       }
+    },
+    "Experimental gestures. TAP the button that appears on the trackpad to turn one on, then tilt your iPhone (Air mouse) or draw circles (Wheel scrolling). Tap it again to turn it off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimental gestures. TAP the button that appears on the trackpad to turn one on, then tilt your iPhone (Air mouse) or draw circles (Wheel scrolling). Tap it again to turn it off."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验性手势。点一下触控板上出现的按钮开启，然后倾斜手机（空中鼠标）或画圈（滚轮滚动）。再点一下关闭。"
+          }
+        }
+      }
+    },
+    "Air mouse is ON — tilt your iPhone to move the cursor; hold a tilt to keep moving. Tap the button again to stop.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Air mouse is ON — tilt your iPhone to move the cursor; hold a tilt to keep moving. Tap the button again to stop."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空中鼠标已开启 —— 倾斜手机移动光标；保持倾角会持续移动。再点按钮停止。"
+          }
+        }
+      }
+    },
+    "Wheel scrolling is ON — draw circles on the trackpad to scroll (clockwise = down). Tap the button again to exit.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wheel scrolling is ON — draw circles on the trackpad to scroll (clockwise = down). Tap the button again to exit."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚轮滚动已开启 —— 在触控板上画圈滚动（顺时针向下）。再点按钮退出。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

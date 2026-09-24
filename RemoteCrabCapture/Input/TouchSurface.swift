@@ -473,6 +473,11 @@ final class TouchSurfaceUIView: UIView {
         if (event?.allTouches?.count ?? 0) > 1 {
             // A second finger means scroll/pinch, never a hold.
             cancelLongPressDrag()
+        } else if wheelScrollEnabled && wheelArmed {
+            // Wheel mode: a single finger steers the wheel — never arm a
+            // drag, or a slight move turned the wheel into a drag (the
+            // "画圈一下就变拖动" bug).
+            cancelLongPressDrag()
         } else if !dragArmed, let touch = touches.first {
             pressOrigin = touch.location(in: self)
             longPressCurrent = pressOrigin
@@ -558,7 +563,7 @@ final class TouchSurfaceUIView: UIView {
     /// Screen-width fraction of cursor travel per radian of tilt
     /// (π rad ≈ 0.35 screen widths). Sign/direction to be calibrated
     /// on a real device (方向待真机校准).
-    private let tiltGain: Float = 0.35 / .pi
+    private let tiltGain: Float = 0.10 / .pi
 
     private func startAirMouse() {
         guard airMouseEnabled, motionManager.isDeviceMotionAvailable else { return }

@@ -14,6 +14,10 @@ struct TouchpadScreen: View {
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
     @AppStorage("remotecrab.ios.hapticStrength") private var hapticStrength: Int = 2
+    @AppStorage("remotecrab.ios.labAirMouseTutorial") private var airMouseTutShown = false
+    @AppStorage("remotecrab.ios.labWheelTutorial") private var wheelTutShown = false
+    @State private var labHint: String?
+    @State private var labHintTask: Task<Void, Never>?
     @State private var showSelectionBar = false
     @State private var selectionBarTask: Task<Void, Never>?
     @AppStorage("remotecrab.ios.labAirMouse") private var labAirMouse = false
@@ -153,17 +157,24 @@ struct TouchpadScreen: View {
 
             VStack {
                 Spacer()
+                if let labHint {
+                    hintPill(symbol: "lightbulb", text: labHint)
+                        .transition(.opacity)
+                        .padding(.bottom, IBSpace.s.pt)
+                }
                 if labWheelScroll || labAirMouse {
                     HStack {
                         if labWheelScroll {
-                            labButton(symbol: "dial.low", active: wheelArmed, label: IBLocale.Labs.wheelScroll) {
-                                wheelArmed = $0
+                            labButton(symbol: "dial.low", active: wheelArmed, label: IBLocale.Labs.wheelScroll) { active in
+                                wheelArmed = active
+                                if active, !wheelTutShown { wheelTutShown = true; showLabHint(IBLocale.Labs.wheelTutorial) }
                             }
                         }
                         Spacer()
                         if labAirMouse {
-                            labButton(symbol: "gyroscope", active: airMouseActive, label: IBLocale.Labs.airMouse) {
-                                airMouseActive = $0
+                            labButton(symbol: "gyroscope", active: airMouseActive, label: IBLocale.Labs.airMouse) { active in
+                                airMouseActive = active
+                                if active, !airMouseTutShown { airMouseTutShown = true; showLabHint(IBLocale.Labs.airMouseTutorial) }
                             }
                         }
                     }
@@ -390,6 +401,16 @@ struct TouchpadScreen: View {
 
     /// Press-and-hold lab button. Holds `held` true for the duration of
     /// the press; the surface reacts to the bridged state.
+    private func showLabHint(_ text: String) {
+        withAnimation(IBAnimation.snappy) { labHint = text }
+        labHintTask?.cancel()
+        labHintTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            withAnimation(IBAnimation.snappy) { labHint = nil }
+        }
+    }
+
     private func labButton(
         symbol: String,
         active: Bool,
