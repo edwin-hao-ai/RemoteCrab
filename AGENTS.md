@@ -1442,6 +1442,52 @@ is tracked in the Roadmap section — don't duplicate it here.
     recognizer — neither is covered by `e2e-device.sh`, so treat them as
     unverified.
 
+56. **Haptics vs the silent switch vs "System Haptics" (2026-09-24).**
+    `UIImpactFeedbackGenerator` plays **only when Settings → Sounds & Haptics
+    → System Haptics is ON**, and it is NOT affected by the ringer/silent
+    switch. `AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)` DOES respect
+    the silent switch (vibrates only if "Vibrate on Silent" is on). So a
+    device with System Haptics OFF feels nothing from generators and only
+    feels the fallback when not silenced — which reads as "Normal level does
+    nothing but Strong works". Fix: EVERY non-Off level also plays
+    `kSystemSoundID_Vibrate` (graded generator + guaranteed buzz); Off = none.
+    Also check Accessibility → Touch → Vibration and Low Power Mode.
+
+57. **A control must never toggle the flag that gates its own visibility
+    (2026-09-24).** The Labs wheel button was rendered `if labWheelScroll`
+    and its tap set `labWheelScroll = false` — so tapping it deleted itself
+    from the row ("图标点一下就消失"). Rule: visibility is driven by a
+    *config* flag; the control toggles a separate *session* flag
+    (`wheelInlineOn`). Same shape as the modifier-key lesson (state that
+    outlives the gesture).
+
+58. **Labs are two-step + inline-wheel design (2026-09-24).** Settings → Labs
+    only *enables* a feature; air mouse ALSO needs the gyroscope button on
+    the trackpad tapped (it must be tap-to-toggle — a `DragGesture` momentary
+    hold made it impossible to hold the button AND tilt the phone). Air mouse
+    needs `NSMotionUsageDescription` in `project-ios.yml` or CMMotionManager
+    silently delivers nothing (iOS 17+). Wheel scrolling is now INLINE: it
+    classifies a gesture as a wheel only after ~120° of turn around the
+    touch-down point, otherwise the finger moves the cursor as usual (no
+    mode, nothing gets swallowed); its trackpad button is a session on/off.
+    Air-mouse `tiltGain` is `0.10/π` (was `0.35/π`, ~2900px/s — far too fast).
+
+59. **The Mac picker listed the connected Mac twice (2026-09-24).** The
+    sheet renders `preferred` / `session` (current owner) / `paired`
+    (allow-list); the connected Mac appeared in the session row AND the
+    paired row. Filter the paired list by `id != connectedMacId &&
+    name != pendingMacName`.
+
+60. **This session's later device-pass fixes (2026-09-24).** Voice: interim
+    typing is APPEND-ONLY of the STABLE prefix (never delete, never
+    duplicate); the voice-command path no longer erases the hold. Modifier
+    keys: a locked modifier emits a REAL key down (unlock = up), and the
+    Mac injector sends modified `.text` as real keycodes + `flagsChanged`
+    with device-dependent bits from its own `CGEventSource`. Selection: a
+    drag end shows a Copy/Cut/Paste/Select-All bar. Context sheet: system
+    keys always pinned below the app keys. All verified with the
+    `REMOTECRAB_E2E_VOICE` / `REMOTECRAB_E2E_MODIFIER` hooks + e2e 10/10.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1536,7 +1582,7 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-24 (App Store 1.0 REJECTED then fixed + resubmitted: (a) SIGTRAP on the speech permission prompt — TCC answers on a private XPC queue and the SwiftUI View's continuation was @MainActor-isolated, so all permission probes are now `nonisolated static`; (b) 5.1.1 — the pre-permission button says "Continue" and there is no "Not now"; (c) 5.2.5 — swept "Mac" out of the app catalog values, project-ios.yml usage strings, ios-metadata.json, the website, AND the screenshot composer's baked-in titles. Build 2026092401 archived/exported/uploaded (ExportOptions must be `app-store-connect`), metadata + 32 re-shot screenshots pushed to ASC. Mac 1.1 notarized DMG republished to vgoapp.com; website de-trademarked + SEO + product screenshots deployed (verified by hash). Lessons 53-55.)
+_Last updated: 2026-09-24 (later session — 1.0 re-submitted as build **2026092402**: Mac-picker duplicate fixed; haptics every ON level now vibrates (System Haptics vs silent-switch explained); Labs: air-mouse `NSMotionUsageDescription` + tap-to-toggle gyro button + gain /3.5, wheel is now inline (classify ≥120° turn, no mode); voice no longer deletes or duplicates (stable-prefix typing); modifier keys (locked = real key down + keycode text path + device bits); selection copy/paste bar; context sheet system keys pinned. Lessons 56-60. Build 2026092402 uploaded to ASC; user attaches it to version 1.0 and submits.)
 
 _Previous: 2026-09-23 (V1.3 SHIPPED + context sheet grew to 17 suites
 
