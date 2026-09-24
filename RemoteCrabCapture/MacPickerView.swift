@@ -99,7 +99,11 @@ struct MacPickerView: View {
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(engine.pairedMacs) { mac in
+                // Skip the Mac already shown in the session section above —
+                // otherwise the same Mac appeared twice ("两台其实是同一台").
+                ForEach(engine.pairedMacs.filter {
+                    $0.id != engine.connectedMacId && $0.name != engine.pendingMacName
+                }) { mac in
                     let isConnected = engine.connectedMacId == mac.id
                     Button {
                         engine.setPreferredMac(id: mac.id)
