@@ -45,6 +45,8 @@ final class TouchSurfaceUIView: UIView {
     var airMouseEnabled: Bool = false
     /// Labs: circular wheel scrolling. Bridged from @AppStorage by the host.
     var wheelScrollEnabled: Bool = false
+    /// Inline-wheel on/off for this session (no mode side effects).
+    var wheelInlineEnabled: Bool = true
 
     /// Set by the host while its floating air-mouse button is held.
     /// Starts/stops device-motion updates on change.
@@ -454,7 +456,7 @@ final class TouchSurfaceUIView: UIView {
             touchCount: event?.allTouches?.count ?? touches.count,
             at: touches.first?.location(in: self)
         )
-        if wheelScrollEnabled, let touch = touches.first {
+        if wheelScrollEnabled && wheelInlineEnabled, let touch = touches.first {
             wheelOrigin = touch.location(in: self)
             wheelTouch = touch
             wheelLastAngle = nil
@@ -495,7 +497,7 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesMoved(touches, with: event)
-        if wheelScrollEnabled, !dragArmed, (event?.allTouches?.count ?? 1) == 1,
+        if wheelScrollEnabled && wheelInlineEnabled, !dragArmed, (event?.allTouches?.count ?? 1) == 1,
            handleWheelClassifyOrTick(touches) {
             return   // consumed by the wheel
         }
@@ -856,6 +858,8 @@ struct TouchSurface: UIViewRepresentable {
     var onDragEnded: (() -> Void)?
     var airMouseEnabled: Bool = false
     var wheelScrollEnabled: Bool = false
+    /// Inline-wheel on/off for this session (no mode side effects).
+    var wheelInlineEnabled: Bool = true
     var airMouseActive: Bool = false
     var wheelArmed: Bool = false
     var onEvent: ((TouchEvent) -> Void)?
@@ -887,6 +891,7 @@ struct TouchSurface: UIViewRepresentable {
         view.onDragEnded = onDragEnded
         view.airMouseEnabled = airMouseEnabled
         view.wheelScrollEnabled = wheelScrollEnabled
+        view.wheelInlineEnabled = wheelInlineEnabled
         view.airMouseActive = airMouseActive
         view.wheelArmed = wheelArmed
         view.onEvent = onEvent

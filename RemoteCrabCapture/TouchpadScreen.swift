@@ -31,6 +31,9 @@ struct TouchpadScreen: View {
     @State private var trail: [(point: CGPoint, at: Date)] = []
     @State private var airMouseActive = false
     @State private var wheelArmed = false
+    /// Inline-wheel on/off for this session (separate from the Settings toggle,
+    /// so toggling it never hides the button itself).
+    @State private var wheelInlineOn = true
     /// True while a double-tap-hold selection drag is armed; the
     /// cursor preview shows a selection ring.
     @State private var dragArmed = false
@@ -118,6 +121,7 @@ struct TouchpadScreen: View {
                 onDragEnded: { flashSelectionBar() },
                 airMouseEnabled: labAirMouse,
                 wheelScrollEnabled: labWheelScroll,
+                wheelInlineEnabled: wheelInlineOn,
                 airMouseActive: airMouseActive,
                 wheelArmed: wheelArmed,
                 onEvent: { event in
@@ -165,10 +169,11 @@ struct TouchpadScreen: View {
                 if labWheelScroll || labAirMouse {
                     HStack {
                         if labWheelScroll {
-                            // Inline wheel: this button is just a quick on/off
-                            // for it (it never "arms" a mode any more).
-                            labButton(symbol: "dial.low", active: labWheelScroll, label: IBLocale.Labs.wheelScroll) { active in
-                                labWheelScroll = active
+                            // Visible whenever the Labs toggle is on; toggling
+                            // it flips the SESSION flag only, so the button
+                            // never removes itself.
+                            labButton(symbol: "dial.low", active: wheelInlineOn, label: IBLocale.Labs.wheelScroll) { active in
+                                wheelInlineOn = active
                                 if active, !wheelTutShown { wheelTutShown = true; showLabHint(IBLocale.Labs.wheelTutorial) }
                             }
                         }
