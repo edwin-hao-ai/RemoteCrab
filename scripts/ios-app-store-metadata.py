@@ -233,9 +233,22 @@ def upload_screenshot(client, set_id, path):
         with open(path, "rb") as f:
             f.seek(offset)
             chunk = f.read(length)
-        req = urllib.request.Request(upload_url, data=chunk, headers=upload_headers, method=method)
-        with urllib.request.urlopen(req, timeout=120) as r:
-            r.read()
+        # The pre-signed upload host also drops TLS intermittently — retry.
+        import time, ssl
+        last = None
+        for attempt in range(6):
+            try:
+                req = urllib.request.Request(upload_url, data=chunk, headers=upload_headers, method=method)
+                with urllib.request.urlopen(req, timeout=120, context=ssl.create_default_context()) as r:
+                    r.read()
+                last = None
+                break
+            except Exception as e:
+                last = e
+                print(f"  chunk retry {attempt+1}/6 ({type(e).__name__})", file=sys.stderr)
+                time.sleep(2 * (attempt + 1))
+        if last is not None:
+            raise last
     client.patch(f"https://api.appstoreconnect.apple.com/v1/appScreenshots/{shot_id}", {
         "data": {
             "type": "appScreenshots",

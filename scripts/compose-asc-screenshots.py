@@ -73,7 +73,7 @@ SUBTITLES = {
                     "en-US": "Full IME support — Chinese & dictation"},
     "06-voice":    {"zh-Hans": "端侧语音识别,不上云",
                     "en-US": "On-device recognition, nothing leaves the LAN"},
-    "07-files":    {"zh-Hans": "照片文件直发 Mac,Finder 自动打开",
+    "07-files":    {"zh-Hans": "照片文件直发 电脑,Finder 自动打开",
                     "en-US": "Files land in Downloads, revealed in Finder"},
     "08-privacy":  {"zh-Hans": "你的数据,永远不离开你的局域网",
                     "en-US": "Your data never leaves your network"},
@@ -86,8 +86,8 @@ SLOTS = ["01-concept", "02-camera", "03-mic", "04-trackpad",
 # stays the iPhone single source of truth)
 TITLE_OVERRIDES = {
     "ipad129": {
-        "01-concept": {"en-US": "Your iPad is your Mac's camera, mic, trackpad & keyboard",
-                       "zh-Hans": "你的 iPad,Mac 的摄像头·麦克风·触控板·键盘"},
+        "01-concept": {"en-US": "Your iPad is your computer's camera, mic, trackpad & keyboard",
+                       "zh-Hans": "你的 iPad,电脑 的摄像头·麦克风·触控板·键盘"},
         "02-camera": {"en-US": "Turn a spare iPad into a 1080p webcam",
                       "zh-Hans": "旧 iPad,变身高清会议摄像头"},
     },
@@ -158,7 +158,7 @@ SRC = {
         "scene_rect": (0, 352, 1320, 2280),      # below top icons, above PTT
         "mic_icon": (572, 2621, 71),             # dock mic icon center + radius
         "ptt_rect": (48, 2364, 1271, 2496),      # hold-to-talk capsule
-        "erase_card": (150, 1240, 1170, 1700),   # zh-Hans "waiting for Mac" card
+        "erase_card": (150, 1240, 1170, 1700),   # zh-Hans "waiting for computer" card
     },
     "ipad129": {   # 2064x2752
         "dir": "ipad",
@@ -403,7 +403,7 @@ def make_device(screenshot, screen_w):
 
 
 def make_mac_card(path, target_w=None, target_h=None, crop=True):
-    """Mac window inside a soft-shadowed rounded card (window kept as-is)."""
+    """computer window inside a soft-shadowed rounded card (window kept as-is)."""
     im = Image.open(path).convert("RGBA")
     if crop:
         im = crop_to_alpha(im, pad=2)
