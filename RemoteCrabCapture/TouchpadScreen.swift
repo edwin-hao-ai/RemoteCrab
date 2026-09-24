@@ -396,23 +396,32 @@ struct TouchpadScreen: View {
         label: String,
         onHold: @escaping (Bool) -> Void
     ) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(active ? Color.accentColor : .white.opacity(0.8))
-            .frame(width: 48, height: 48)
-            .background {
-                IBMaterial.bar(in: Circle())
-                    .overlay(Circle().strokeBorder(.white.opacity(active ? 0.5 : 0.12)))
-            }
-            .contentShape(Circle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in onHold(true) }
-                    .onEnded { _ in onHold(false) }
-            )
-            .accessibilityLabel(label)
-            .accessibilityHint(IBLocale.A11y.holdToActivate)
-            .accessibilityAddTraits(active ? .isSelected : [])
+        // TAP TO TOGGLE, not hold. It used to be a momentary
+        // DragGesture(minimumDistance:0) — so the highlight only showed
+        // while pressed, and air mouse was impossible to use (you'd have
+        // to hold the button AND tilt the phone at once).
+        Button {
+            onHold(!active)
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(active ? .white : .white.opacity(0.8))
+                .frame(width: 48, height: 48)
+                .background {
+                    if active {
+                        Circle().fill(Color.accentColor)
+                            .overlay(Circle().strokeBorder(.white.opacity(0.5)))
+                    } else {
+                        IBMaterial.bar(in: Circle())
+                            .overlay(Circle().strokeBorder(.white.opacity(0.12)))
+                    }
+                }
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.92))
+        .contentShape(Circle())
+        .accessibilityLabel(label)
+        .accessibilityHint(IBLocale.A11y.holdToActivate)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
 
