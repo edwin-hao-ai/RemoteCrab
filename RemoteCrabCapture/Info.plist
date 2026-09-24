@@ -39,6 +39,8 @@
 	<string>RemoteCrab discovers your computer on the local WiFi network.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>RemoteCrab streams your iPhone microphone to your computer.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>RemoteCrab uses the gyroscope for the optional Air Mouse lab so you can move the cursor by tilting your iPhone.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>RemoteCrab reads your latest screenshot to send it to your computer.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -70,6 +70,7 @@ targets:
         NSSpeechRecognitionUsageDescription: RemoteCrab recognizes your speech on-device to type into your computer.
         NSPhotoLibraryUsageDescription: RemoteCrab reads your latest screenshot to send it to your computer.
         NSLocalNetworkUsageDescription: RemoteCrab discovers your computer on the local WiFi network.
+        NSMotionUsageDescription: RemoteCrab uses the gyroscope for the optional Air Mouse lab so you can move the cursor by tilting your iPhone.
         UIBackgroundModes:
           - audio
         NSBonjourServices:
