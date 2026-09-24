@@ -8056,6 +8056,23 @@
           }
         }
       }
+    },
+    "Experimental gestures. Wheel scrolling works inline — just draw a circle on the trackpad. Air mouse: tap the gyroscope button on the trackpad, then tilt your iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Experimental gestures. Wheel scrolling works inline — just draw a circle on the trackpad. Air mouse: tap the gyroscope button on the trackpad, then tilt your iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "实验性手势。滚轮滚动是内联的——在触控板上直接画圈即可。空中鼠标：点触控板上的陀螺仪按钮，然后倾斜手机。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

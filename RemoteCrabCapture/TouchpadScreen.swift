@@ -164,13 +164,6 @@ struct TouchpadScreen: View {
                 }
                 if labWheelScroll || labAirMouse {
                     HStack {
-                        if labWheelScroll {
-                            labButton(symbol: "dial.low", active: wheelArmed, label: IBLocale.Labs.wheelScroll) { active in
-                                wheelArmed = active
-                                if active, !wheelTutShown { wheelTutShown = true; showLabHint(IBLocale.Labs.wheelTutorial) }
-                            }
-                        }
-                        Spacer()
                         if labAirMouse {
                             labButton(symbol: "gyroscope", active: airMouseActive, label: IBLocale.Labs.airMouse) { active in
                                 airMouseActive = active

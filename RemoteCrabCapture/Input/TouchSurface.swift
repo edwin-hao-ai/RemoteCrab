@@ -454,10 +454,13 @@ final class TouchSurfaceUIView: UIView {
             touchCount: event?.allTouches?.count ?? touches.count,
             at: touches.first?.location(in: self)
         )
-        if wheelScrollEnabled && wheelArmed, let touch = touches.first {
+        if wheelScrollEnabled, let touch = touches.first {
             wheelOrigin = touch.location(in: self)
             wheelTouch = touch
             wheelLastAngle = nil
+            wheelAccumulator = 0
+            wheelTurn = 0
+            wheelClassified = false
         }
         if primaryTouch == nil, let touch = touches.first {
             primaryTouch = touch
@@ -472,11 +475,6 @@ final class TouchSurfaceUIView: UIView {
         // text" bug). Cancelled by any real movement before the delay.
         if (event?.allTouches?.count ?? 0) > 1 {
             // A second finger means scroll/pinch, never a hold.
-            cancelLongPressDrag()
-        } else if wheelScrollEnabled && wheelArmed {
-            // Wheel mode: a single finger steers the wheel — never arm a
-            // drag, or a slight move turned the wheel into a drag (the
-            // "画圈一下就变拖动" bug).
             cancelLongPressDrag()
         } else if !dragArmed, let touch = touches.first {
             pressOrigin = touch.location(in: self)
@@ -497,9 +495,9 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesMoved(touches, with: event)
-        if wheelScrollEnabled && wheelArmed {
-            handleWheelMove(touches)
-            return
+        if wheelScrollEnabled, !dragArmed, (event?.allTouches?.count ?? 1) == 1,
+           handleWheelClassifyOrTick(touches) {
+            return   // consumed by the wheel
         }
         // Movement before the hold delay means "positioning the
         // cursor", not "holding to drag" — drop the long-press arm.
@@ -598,6 +596,10 @@ final class TouchSurfaceUIView: UIView {
     private weak var wheelTouch: UITouch?
     private var wheelLastAngle: CGFloat?
     private var wheelAccumulator: CGFloat = 0
+    /// Inline wheel (Labs): a deliberate circle classifies the gesture as
+    /// a wheel; anything else stays a normal cursor move.
+    private var wheelTurn: CGFloat = 0
+    private var wheelClassified = false
     /// One scroll tick per 45° of rotation around the hold origin.
     private let wheelTickAngle: CGFloat = .pi / 4
     private let wheelTickDelta: Float = 0.02
@@ -605,35 +607,43 @@ final class TouchSurfaceUIView: UIView {
     /// jittery there to accumulate meaningfully.
     private let wheelMinRadius: CGFloat = 20
 
-    private func handleWheelMove(_ touches: Set<UITouch>) {
+    /// Inline wheel: returns true when the gesture is (or became) a wheel
+    /// and was consumed; false lets the normal cursor move proceed.
+    private func handleWheelClassifyOrTick(_ touches: Set<UITouch>) -> Bool {
         guard let origin = wheelOrigin,
               let touch = wheelTouch,
-              touches.contains(touch) else { return }
+              touches.contains(touch) else { return false }
         let p = touch.location(in: self)
         let dx = p.x - origin.x
         let dy = p.y - origin.y
-        guard hypot(dx, dy) >= wheelMinRadius else { return }
+        guard hypot(dx, dy) >= wheelMinRadius else { return false }
         let angle = atan2(dy, dx)
         defer { wheelLastAngle = angle }
-        guard let last = wheelLastAngle else { return }
-        // Wrap the angular delta to ±π so crossing the ±π seam of
-        // atan2 doesn't emit a full-turn tick.
+        guard let last = wheelLastAngle else { return false }
         var diff = angle - last
         while diff > .pi { diff -= 2 * .pi }
         while diff < -.pi { diff += 2 * .pi }
+        wheelTurn += abs(diff)
+        if !wheelClassified {
+            // Wait for a clear circle (~120°) before stealing the gesture,
+            // so ordinary moves/drags still move the cursor.
+            guard wheelTurn >= .pi * 2 / 3 else { return false }
+            wheelClassified = true
+            fire(.medium)
+        }
         // Screen coordinates (y down): increasing angle = clockwise.
-        // Clockwise positive → dy +0.02 per tick (natural scroll down).
         wheelAccumulator += diff
         while wheelAccumulator >= wheelTickAngle {
             wheelAccumulator -= wheelTickAngle
-            emit(phase: .scroll, at: nil, dy: wheelTickDelta)
+            emit(phase: .scroll, at: nil, dy: naturalScroll ? wheelTickDelta : -wheelTickDelta)
             if scrollTickHaptics { selectionFeedback.selectionChanged() }
         }
         while wheelAccumulator <= -wheelTickAngle {
             wheelAccumulator += wheelTickAngle
-            emit(phase: .scroll, at: nil, dy: -wheelTickDelta)
+            emit(phase: .scroll, at: nil, dy: naturalScroll ? -wheelTickDelta : wheelTickDelta)
             if scrollTickHaptics { selectionFeedback.selectionChanged() }
         }
+        return true
     }
 
     // MARK: - Momentum
