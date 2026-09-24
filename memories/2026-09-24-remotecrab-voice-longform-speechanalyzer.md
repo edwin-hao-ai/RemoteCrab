@@ -52,9 +52,12 @@
 
 ## 验证状态
 - `./scripts/test.sh`：**161 单测**全绿 + iOS/Mac 两 target 构建通过。
-- **未完成**：真机上确认到底选中 `engine=analyzer` 还是回落 legacy（取决于该机是否已装 zh-Hans 模型）。
-  设备当时 `unavailable`，待重连后跑：启动带 `REMOTECRAB_E2E_VOICE=1` → 拉 forensic 看
-  `engine=analyzer` / `engine=analyzer start failed; using legacy`。
+- **真机已确认（iPhone 14 / iOS 26）**：`engine=analyzer`，~45s 真实长句输入、
+  reconcile 全部向前（46→48 … 165→166，零回退），用户确认「能正常输入」。
+- **踩坑（浪费一个真机 cycle）**：设备已装的模型报 `zh-CN`，而我们申请 `zh-Hans`——
+  语义等价但字符串不等，朴素匹配会永远回落 legacy。必须先用
+  `SpeechTranscriber.supportedLocale(equivalentTo:)` 把目标 locale 归一，
+  再去比 `installedLocales`。设备实测 `installed=["zh-CN","zh-TW"]`、`desired=["zh-CN","en-US"]` → analyzer。
 
 ## 产品思考（未落文档，先记着）
 - 「让用户不愿用原生键鼠」是错的目标（触屏打字/精确定位永远打不过）。

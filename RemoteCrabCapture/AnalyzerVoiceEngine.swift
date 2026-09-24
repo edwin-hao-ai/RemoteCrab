@@ -231,7 +231,7 @@ final class AnalyzerVoiceEngine: VoiceEngine {
 
     private static func resolveInstalledLocale() async -> Locale? {
         let installed = await SpeechTranscriber.installedLocales.map { $0.identifier(.bcp47).lowercased() }
-        for identifier in ["zh-Hans", "en-US"] {
+        for identifier in ["zh-Hans", "zh-CN", "en-US"] {
             guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) else { continue }
             if installed.contains(locale.identifier(.bcp47).lowercased()) { return locale }
         }

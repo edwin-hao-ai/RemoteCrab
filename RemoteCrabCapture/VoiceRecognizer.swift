@@ -146,15 +146,31 @@ final class VoiceRecognizer {
     /// AND a model for one of our locales is ALREADY installed — we never
     /// trigger a download (`VoiceEngineSelector` encodes that policy).
     private static func makeAnalyzerEngine() async -> (any VoiceEngine)? {
-        guard #available(iOS 26.0, *) else { return nil }
-        guard SpeechTranscriber.isAvailable else { return nil }
+        guard #available(iOS 26.0, *) else {
+            Forensic.log("[voice] analyzer: no (iOS < 26)")
+            return nil
+        }
+        guard SpeechTranscriber.isAvailable else {
+            Forensic.log("[voice] analyzer: no (SpeechTranscriber.isAvailable = false)")
+            return nil
+        }
         let installed = await SpeechTranscriber.installedLocales.map { $0.identifier(.bcp47) }
+        // Canonicalize what we want: the device reports `zh-CN` while we
+        // ask for `zh-Hans` — equivalent, so resolve through Speech before
+        // matching, or we'd wrongly fall back to legacy forever.
+        var desired: [String] = []
+        for identifier in ["zh-Hans", "en-US"] {
+            if let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: identifier)) {
+                desired.append(locale.identifier(.bcp47))
+            }
+        }
         let kind = VoiceEngineSelector.choose(
             osSupportsAnalyzer: true,
             analyzerHardwareAvailable: true,
             installedLocales: installed,
-            desiredLocales: ["zh-Hans", "en-US"]
+            desiredLocales: desired
         )
+        Forensic.log("[voice] analyzer: installed=\(installed) desired=\(desired) → \(kind)")
         return kind == .analyzer ? AnalyzerVoiceEngine() : nil
     }
 
