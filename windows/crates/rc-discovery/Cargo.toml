@@ -1,0 +1,11 @@
+[package]
+name = "rc-discovery"
+description = "RemoteCrab peer discovery — mDNS browse + direct-IP fallback."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mdns-sd.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
