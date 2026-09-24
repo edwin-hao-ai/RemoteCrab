@@ -291,6 +291,8 @@ public enum IBLocale {
         public static let hapticLight = IBL("Light")
         public static let hapticNormal = IBL("Normal")
         public static let hapticStrong = IBL("Strong")
+        public static let testHaptics = IBL("Test haptics")
+        public static let testHapticsHint = IBL("If you don't feel this, turn on Settings → Sounds & Haptics → System Haptics (UIFeedbackGenerator only plays when it's on).")
         public static let privacyPolicy = IBL("Privacy Policy")
         /// About-section link to the Mac receiver download page (vgoapp.com).
         public static let downloadMac = IBL("Download for Mac")

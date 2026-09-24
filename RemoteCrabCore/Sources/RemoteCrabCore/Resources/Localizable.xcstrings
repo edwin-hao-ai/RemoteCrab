@@ -8022,6 +8022,40 @@
           }
         }
       }
+    },
+    "Test haptics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test haptics"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "测试震动"
+          }
+        }
+      }
+    },
+    "If you don't feel this, turn on Settings → Sounds & Haptics → System Haptics (UIFeedbackGenerator only plays when it's on).": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you don't feel this, turn on Settings → Sounds & Haptics → System Haptics (UIFeedbackGenerator only plays when it's on)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果感觉不到：请打开 设置 → 声音与触感 → 系统触感反馈（只有开启时系统才会播放震动）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
