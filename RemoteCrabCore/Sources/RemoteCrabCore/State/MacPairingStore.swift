@@ -16,6 +16,30 @@ public struct PairedMac: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// A computer this iPhone has *seen* connect, whether or not it was ever
+/// approved. Powers the "Choose a Computer" picker so a brand-new machine
+/// (e.g. a Windows PC that has never paired) is still selectable — the
+/// user shouldn't have to know the difference between "seen" and "paired".
+public struct SeenComputer: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public var name: String
+    /// `"macos"` | `"windows"` | `"linux"`. Defaults to `"macos"` for
+    /// older senders that omit the field.
+    public var platform: String
+    public var lastSeen: Date
+
+    public init(id: String, name: String, platform: String, lastSeen: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.platform = platform
+        self.lastSeen = lastSeen
+    }
+
+    /// A display-ready label that says which OS it is, so a user with both
+    /// a Mac and a PC on the network can tell them apart at a glance.
+    public var isWindows: Bool { platform.lowercased() == "windows" }
+}
+
 /// The owner decision for an incoming Mac connection.
 public enum PairingDecision: Equatable, Sendable {
     /// Known Mac (id + token match) — serve it.
@@ -78,15 +102,55 @@ public final class MacPairingStore {
     private let key: String
     private let preferredIdKey: String
     private let preferredAtKey: String
+    private let seenKey: String
 
-    public private(set) var paired: [PairedMac]
+    /// Every computer that has ever connected (paired or not), newest
+    /// first. Capped so a long-lived install can't grow it without bound.
+    public private(set) var seen: [SeenComputer]
+
+    /// How many entries `seen` keeps. Enough to cover a home/office LAN
+    /// without hoarding stale machines forever.
+    public static let seenLimit = 20
 
     public init(defaults: UserDefaults = .standard, key: String = "remotecrab.ios.pairedMacs") {
         self.defaults = defaults
         self.key = key
         self.preferredIdKey = key + ".preferredId"
         self.preferredAtKey = key + ".preferredAt"
+        self.seenKey = key + ".seenComputers"
         self.paired = Self.load(from: defaults, key: key)
+        self.seen = Self.loadSeen(from: defaults, key: key + ".seenComputers")
+    }
+
+    /// Record/refresh a computer in the seen list. Called on every
+    /// `clientHello` — before any approval — so the picker can list a
+    /// machine the user has never paired.
+    @discardableResult
+    public func noteSeen(_ hello: IBClientHello) -> SeenComputer {
+        let platform = hello.platform ?? "macos"
+        let entry = SeenComputer(
+            id: hello.id,
+            name: hello.name,
+            platform: platform,
+            lastSeen: Date()
+        )
+        seen.removeAll { $0.id == hello.id }
+        seen.insert(entry, at: 0)
+        if seen.count > Self.seenLimit {
+            seen = Array(seen.prefix(Self.seenLimit))
+        }
+        saveSeen()
+        return entry
+    }
+
+    /// The platform we last saw for a given computer id.
+    public func platform(for id: String) -> String? {
+        seen.first(where: { $0.id == id })?.platform
+    }
+
+    public func forgetSeen(id: String) {
+        seen.removeAll { $0.id == id }
+        saveSeen()
     }
 
     /// How long a "switch to this Mac" preference stays armed. After
@@ -161,6 +225,20 @@ public final class MacPairingStore {
     private static func load(from defaults: UserDefaults, key: String) -> [PairedMac] {
         guard let data = defaults.data(forKey: key),
               let value = try? JSONDecoder().decode([PairedMac].self, from: data) else {
+            return []
+        }
+        return value
+    }
+
+    private func saveSeen() {
+        if let data = try? JSONEncoder().encode(seen) {
+            defaults.set(data, forKey: seenKey)
+        }
+    }
+
+    private static func loadSeen(from defaults: UserDefaults, key: String) -> [SeenComputer] {
+        guard let data = defaults.data(forKey: key),
+              let value = try? JSONDecoder().decode([SeenComputer].self, from: data) else {
             return []
         }
         return value

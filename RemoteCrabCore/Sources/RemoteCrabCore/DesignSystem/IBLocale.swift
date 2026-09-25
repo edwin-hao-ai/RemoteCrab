@@ -537,28 +537,36 @@ public enum IBLocale {
         public static let photosDenied = IBL("Photos access is off. Enable it in iOS Settings → Privacy → Photos, or pick a photo instead.")
     }
 
-    /// Multi-Mac pairing prompts and settings.
+    /// Multi-computer pairing prompts and settings.
+    ///
+    /// Note the wording: the peer can be a Mac **or a Windows PC**, so the
+    /// user-facing copy says "computer" wherever the two are interchangeable.
+    /// "Mac" only survives where it is genuinely macOS-specific.
     public enum Pairing {
-        public static let requestTitle = IBL("A Mac wants to connect")
+        public static let requestTitle = IBL("A computer wants to connect")
         public static func allowPrompt(_ name: String) -> String {
             String(format: IBL("Allow %@ to connect?"), name)
         }
         public static let allow = IBL("Allow")
         public static let deny = IBL("Deny")
-        public static let pairedMacs = IBL("Paired Macs")
-        public static let connectedMac = IBL("Connected Mac")
+        public static let pairedMacs = IBL("Paired computers")
+        public static let connectedMac = IBL("Connected computer")
         public static let disconnect = IBL("Disconnect")
-        public static let nonePaired = IBL("No Macs paired yet. Pair one from its connection request.")
+        public static let nonePaired = IBL("No computers paired yet. Pair one from its connection request.")
         public static let forget = IBL("Forget")
-        // iOS Mac picker (several Macs on one network).
-        public static let macPickerTitle = IBL("Choose a Mac")
+        // iOS computer picker (several computers on one network).
+        public static let macPickerTitle = IBL("Choose a computer")
         public static let connectedNow = IBL("Connected")
         public static let waitingBadge = IBL("Preferred")
         public static func waitingForPreferred(_ name: String) -> String {
-            String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu bar."), name)
+            String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu."), name)
         }
         public static let cancelPreferred = IBL("Cancel Preference")
-        public static let pickerFooter = IBL("Several Macs are on this network. Pick one — it takes over on its next connect; others see \"busy\".")
+        public static let pickerFooter = IBL("Several computers are on this network. Pick one — it takes over on its next connect; the others see \"in use\".")
+        /// Section header for computers seen on the network, paired or not.
+        public static let seenComputers = IBL("On this network")
+        /// Badge for a computer that has never been paired (first contact).
+        public static let notPairedBadge = IBL("New")
     }
 
     public enum Error {

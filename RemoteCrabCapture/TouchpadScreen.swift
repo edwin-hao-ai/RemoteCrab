@@ -222,10 +222,12 @@ struct TouchpadScreen: View {
                             Rectangle()
                                 .fill(IBColor.borderSubtle)
                                 .frame(width: 1, height: 28)
-                            IBModifierBar(activeModifiers: $modifiers,
-                                          onModifierKey: { code, down in
-                                              engine.sendKey(KeyEvent(action: down ? .down : .up, keycode: code))
-                                          })
+                            IBModifierBar(
+                                activeModifiers: $modifiers,
+                                platform: engine.connectedIsWindows ? .windows : .mac,
+                                onModifierKey: { code, down in
+                                    engine.sendKey(KeyEvent(action: down ? .down : .up, keycode: code))
+                                })
                             quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                             quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
                         }

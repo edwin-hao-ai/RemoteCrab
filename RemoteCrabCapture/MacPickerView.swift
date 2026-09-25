@@ -1,13 +1,17 @@
 import SwiftUI
 import RemoteCrabCore
 
-/// Pick which Mac this iPhone serves when several are on the network.
+/// Pick which computer (Mac **or** Windows PC) this iPhone serves.
 ///
-/// The iPhone is the TCP server, so "switching Mac" means: arm a
-/// preference for the chosen Mac, drop the current owner, and answer
-/// every other Mac "busy" until the chosen one reconnects (or the
-/// preference expires). The chosen Mac takes over on its next connect —
-/// automatically, or after the user clicks Retry in its menu bar.
+/// The iPhone is the TCP server, so "switching" means: arm a preference for
+/// the chosen computer, drop the current owner, and answer every other one
+/// "in use" until the chosen one reconnects (or the preference expires). The
+/// chosen computer takes over on its next connect — automatically, or after
+/// the user clicks Retry in its menu.
+///
+/// The list is **every computer we've seen** (`seenComputers`), not just the
+/// paired ones — otherwise a brand-new Windows PC could never be selected
+/// while a Mac held the session, which is the exact dead-end users hit.
 struct MacPickerView: View {
     @EnvironmentObject var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
@@ -21,7 +25,7 @@ struct MacPickerView: View {
                 if engine.connectedMacName != nil || engine.pendingMacName != nil {
                     sessionSection
                 }
-                pairedSection
+                seenSection
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
             .toolbar {
@@ -35,8 +39,8 @@ struct MacPickerView: View {
         }
     }
 
-    /// Banner while a switch is armed: who we're waiting for + a way
-    /// to give up and let any Mac pair normally again.
+    /// Banner while a switch is armed: who we're waiting for + a way to
+    /// give up and let any computer pair normally again.
     private func preferredSection(_ preferred: PairedMac) -> some View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
@@ -56,13 +60,13 @@ struct MacPickerView: View {
         }
     }
 
-    /// The live session: current owner (with disconnect) and a Mac
+    /// The live session: current owner (with disconnect) and a computer
     /// waiting for approval (with allow / deny).
     private var sessionSection: some View {
         Section {
             if let connected = engine.connectedMacName {
                 HStack {
-                    Label(connected, systemImage: "laptopcomputer")
+                    computerIcon(for: connected, platform: engine.connectedPlatform)
                     Spacer()
                     Text(IBLocale.Pairing.connectedNow)
                         .font(IBFont.caption)
@@ -90,35 +94,42 @@ struct MacPickerView: View {
         }
     }
 
-    /// The allow-list. Tapping a row arms the switch; badges show who
-    /// is connected right now.
-    private var pairedSection: some View {
+    /// Every computer seen on the network. Paired ones show a shield;
+    /// brand-new ones are still tappable so first contact works even while
+    /// another machine holds the session.
+    private var seenSection: some View {
         Section {
-            if engine.pairedMacs.isEmpty {
+            if engine.seenComputers.isEmpty {
                 Text(IBLocale.Pairing.nonePaired)
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             } else {
-                // Skip the Mac already shown in the session section above —
-                // otherwise the same Mac appeared twice ("两台其实是同一台").
-                ForEach(engine.pairedMacs.filter {
+                ForEach(engine.seenComputers.filter {
                     $0.id != engine.connectedMacId && $0.name != engine.pendingMacName
-                }) { mac in
-                    let isConnected = engine.connectedMacId == mac.id
+                }) { computer in
+                    let isConnected = engine.connectedMacId == computer.id
+                    let isPaired = engine.pairedMacs.contains { $0.id == computer.id }
                     Button {
-                        engine.setPreferredMac(id: mac.id)
+                        engine.setPreferredComputer(id: computer.id)
                     } label: {
                         HStack {
-                            Image(systemName: "laptopcomputer")
-                                .foregroundStyle(.secondary)
-                            Text(mac.name)
-                                .foregroundStyle(.primary)
+                            computerIcon(for: computer.name, platform: computer.platform)
+                            if !isPaired {
+                                Text(IBLocale.Pairing.notPairedBadge)
+                                    .font(IBFont.caption)
+                                    .foregroundStyle(Color.accentColor)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background {
+                                        Capsule().fill(Color.accentColor.opacity(0.15))
+                                    }
+                            }
                             Spacer()
                             if isConnected {
                                 Text(IBLocale.Pairing.connectedNow)
                                     .font(IBFont.caption)
                                     .foregroundStyle(.green)
-                            } else if engine.preferredMac?.id == mac.id {
+                            } else if engine.preferredMac?.id == computer.id {
                                 Text(IBLocale.Pairing.waitingBadge)
                                     .font(IBFont.caption)
                                     .foregroundStyle(Color.accentColor)
@@ -133,9 +144,21 @@ struct MacPickerView: View {
                 }
             }
         } header: {
-            Text(IBLocale.Pairing.pairedMacs)
+            Text(IBLocale.Pairing.seenComputers)
         } footer: {
             Text(IBLocale.Pairing.pickerFooter)
+        }
+    }
+
+    /// A platform-appropriate glyph + name, so a user with both a Mac and a
+    /// PC on the network can tell them apart at a glance.
+    private func computerIcon(for name: String, platform: String) -> some View {
+        let isWindows = platform.lowercased() == "windows"
+        return Label {
+            Text(name).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: isWindows ? "pc" : "laptopcomputer")
+                .foregroundStyle(.secondary)
         }
     }
 }
