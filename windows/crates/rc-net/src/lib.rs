@@ -107,6 +107,10 @@ pub enum Event {
     FeatureState(FeatureStateSnapshot),
     AppList(rc_protocol::AppList),
     WindowList(rc_protocol::WindowList),
+    /// The iPhone asked for a fresh app list — the app layer answers with a
+    /// `send_frame(encode_app_list(...))`.
+    AppListRequested,
+    WindowListRequested,
     FileOffer(rc_protocol::FileOffer),
     FileChunk(Vec<u8>),
     FileComplete(rc_protocol::FileComplete),
@@ -199,6 +203,12 @@ impl Session {
     pub fn switch_camera(&self) {
         let _ = self.cmd_tx.send(Command::SwitchCamera);
     }
+
+    /// Send a raw pre-encoded frame to the iPhone (used for replies such as
+    /// `fileAck` / `clipboard` / `appList` that only the app can build).
+    pub fn send_frame(&self, frame: Vec<u8>) {
+        let _ = self.cmd_tx.send(Command::SendFrame(frame));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +223,7 @@ enum Command {
     Retry,
     SetFeature { feature: Feature, enabled: bool },
     SwitchCamera,
+    SendFrame(Vec<u8>),
 }
 
 #[derive(Debug)]
@@ -410,6 +421,11 @@ async fn supervisor(
                     {
                         let _ = conn.outbound_tx.send(frame);
                     }
+                }
+            }
+            Action::Cmd(Command::SendFrame(frame)) => {
+                if let Some(conn) = &active {
+                    let _ = conn.outbound_tx.send(frame);
                 }
             }
             Action::Conn(ConnMsg::Connected { host }) => {
@@ -910,6 +926,23 @@ fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>) {
         Kind::SystemCommand => {
             if let Ok(c) = decode_system_command(frame) {
                 emit(events_tx, Event::SystemCommand(c));
+            }
+        }
+        Kind::AppListRequest => {
+            // The iPhone wants a fresh app list; the app layer answers.
+            emit(events_tx, Event::AppListRequested);
+        }
+        Kind::WindowListRequest => {
+            emit(events_tx, Event::WindowListRequested);
+        }
+        Kind::AppList => {
+            if let Ok(list) = rc_protocol::decode_app_list(frame) {
+                emit(events_tx, Event::AppList(list));
+            }
+        }
+        Kind::WindowList => {
+            if let Ok(list) = rc_protocol::decode_window_list(frame) {
+                emit(events_tx, Event::WindowList(list));
             }
         }
         Kind::FileOffer => {

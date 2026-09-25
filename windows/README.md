@@ -4,9 +4,10 @@ A Windows receiver for RemoteCrab. It speaks the **same wire protocol** the
 existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
-Status: **P1 — video preview + audio + trackpad + keyboard work.** Not yet
-implemented: file transfer, clipboard, app switcher, virtual camera/microphone
-(see `docs/WINDOWS_PORT_PLAN.md`).
+Status: **P2 — video preview, audio, trackpad, keyboard, clipboard, file
+transfer, system keys and the app switcher all work.** Not yet implemented:
+window-list thumbnails, virtual camera/microphone, tray UI (see
+`docs/WINDOWS_PORT_PLAN.md`).
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
 **Opus** decoder + **cpal/WASAPI** — no system FFmpeg, no CMake, no FFI.
@@ -139,6 +140,7 @@ windows/
 │   ├── rc-input/      SendInput injection + CGKeyCode→VK mapping
 │   ├── rc-render/     H.264 decode (OpenH264) + the preview window
 │   ├── rc-audio/      Opus decode (pure Rust) + cpal/WASAPI playback
+│   ├── rc-os/         clipboard, file receive, system keys, app list, selection
 │   ├── rc-testkit/    a fake iPhone for end-to-end tests
 │   └── rc-app/        the `remotecrab` binary (CLI + status + preview + audio)
 └── README.md
@@ -148,7 +150,7 @@ windows/
 
 ```powershell
 cd E:\RemoteCrab\windows
-cargo test                                  # 86 tests
+cargo test                                  # 96 tests
 cargo clippy --all-targets -- -D warnings   # clean
 ```
 
@@ -177,7 +179,7 @@ Two Windows-specific caveats:
 | Phase | Contents |
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
-| P2 | audio playback, clipboard, file transfer, app switcher, window list, system keys |
-| P3 | virtual camera (DirectShow / MF), virtual microphone, installer + code signing |
+| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, app switcher, system keys, selection rewrite |
+| P3 | window-list thumbnails, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).

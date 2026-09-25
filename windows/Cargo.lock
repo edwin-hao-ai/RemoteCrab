@@ -875,6 +875,7 @@ dependencies = [
  "rc-discovery",
  "rc-input",
  "rc-net",
+ "rc-os",
  "rc-protocol",
  "rc-render",
  "rc-testkit",
@@ -921,6 +922,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "rc-os"
+version = "0.1.0"
+dependencies = [
+ "rc-protocol",
+ "windows",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use rc_net::{Config, Event, Session, State};
+use rc_protocol::{encode_app_list, encode_file_ack};
 
 #[derive(Debug, Default)]
 struct Args {
@@ -160,6 +161,9 @@ async fn main() -> ExitCode {
         println!("  (audio is muted by default to avoid feedback — --unmute to hear it)");
     }
 
+    // Receives files from the iPhone into ~/Downloads/RemoteCrab.
+    let mut file_rx = rc_os::files::FileReceiver::new(rc_os::incoming_directory());
+
     let mut last_label = String::new();
     let mut video_frames: u64 = 0;
     // While another computer owns the iPhone we retry quietly — printing a
@@ -283,6 +287,66 @@ async fn main() -> ExitCode {
                             last_spike_report = std::time::Instant::now();
                             println!("  latency spike: {ms} ms");
                         }
+                    }
+                    // --- P2: clipboard / files / system commands / app list ---
+                    Event::Clipboard(c) => {
+                        #[cfg(windows)]
+                        {
+                            if rc_os::clipboard::set_text(&c.text) {
+                                println!("  clipboard: received {} chars from iPhone", c.text.chars().count());
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &c;
+                    }
+                    Event::FileOffer(offer) => {
+                        let ack = file_rx.begin(offer.clone());
+                        session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                        println!("  file: receiving {} ({} bytes)…", offer.name, offer.size);
+                    }
+                    Event::FileChunk(data) => {
+                        if let Some(ack) = file_rx.append(&data) {
+                            // Only ack progress periodically to avoid flooding.
+                            if ack.received_bytes % (256 * 1024) < data.len() as i64 {
+                                session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                            }
+                        }
+                    }
+                    Event::FileComplete(done) => {
+                        if let Some((ack, path)) = file_rx.complete(&done.id) {
+                            session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                            println!("  file: saved to {}", path.display());
+                            #[cfg(windows)]
+                            rc_os::files::reveal(&path);
+                        }
+                    }
+                    Event::SystemCommand(cmd) => {
+                        #[cfg(windows)]
+                        if !rc_os::system_keys::handle(&cmd) {
+                            println!("  system command not supported on Windows: {:?}", cmd.command);
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &cmd;
+                    }
+                    Event::TextCommand(cmd) => {
+                        #[cfg(windows)]
+                        match rc_os::selection::rewrite_selection(cmd.command) {
+                            Some((before, after)) => println!(
+                                "  text command {:?}: {} chars rewritten",
+                                cmd.command,
+                                before.chars().count().max(after.chars().count())
+                            ),
+                            None => println!("  text command: nothing selected"),
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &cmd;
+                    }
+                    Event::AppListRequested => {
+                        #[cfg(windows)]
+                        let list = rc_os::apps::build_app_list();
+                        #[cfg(not(windows))]
+                        let list = rc_protocol::AppList { apps: vec![] };
+                        session.send_frame(encode_app_list(&list).unwrap_or_default());
                     }
                     Event::State(_) => {}
                     _ => {}
