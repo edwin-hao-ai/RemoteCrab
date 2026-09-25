@@ -14,6 +14,10 @@ struct ContentView: View {
     @State private var showAppSwitcher = false
     @State private var showMacPicker = false
     @State private var showTrackpadGuide = false
+    /// Where the keyboard surface was opened from, so its "back" button
+    /// returns there. Opened from the mirror it overlays the mirror
+    /// instead of replacing it (the mirror keeps streaming behind).
+    @State private var keyboardReturnSurface: Surface = .trackpad
     @AppStorage("remotecrab.ios.trackpadGuideShown") private var trackpadGuideShown = false
     @State private var showSendDialog = false
     @State private var showFileImporter = false
@@ -42,7 +46,14 @@ struct ContentView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                surface(topInset: geo.safeAreaInsets.top)
+                surface(topInset: geo.safeAreaInsets.top, bottomInset: geo.safeAreaInsets.bottom)
+
+                // Privacy shield: only the app-switcher snapshot needs it —
+                // when the app is backgrounded while the mirror is up, the
+                // last mac window frame must not sit in the snapshot.
+                if engine.privacyCover {
+                    privacyCoverView
+                }
 
                 VStack {
                     topBar
@@ -240,6 +251,13 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            // Privacy shield while the mirror is the active surface: the
+            // app-switcher snapshot must not show the mirrored window.
+            if phase == .active {
+                engine.privacyCover = false
+            } else if engine.features.activeSurface == .screen {
+                engine.privacyCover = true
+            }
             // Privacy rule: the camera NEVER resumes by itself. iOS
             // hard-stops capture in the background anyway; on return the
             // stream stays off until the user turns it back on from the
@@ -393,7 +411,7 @@ struct ContentView: View {
     // MARK: - Surfaces
 
     @ViewBuilder
-    private func surface(topInset: CGFloat) -> some View {
+    private func surface(topInset: CGFloat, bottomInset: CGFloat) -> some View {
         switch engine.features.activeSurface {
         case .cameraPreview:
             if demoMode {
@@ -432,20 +450,43 @@ struct ContentView: View {
         case .trackpad:
             TouchpadScreen()
         case .keyboard:
-            KeyboardScreen()
+            // When opened from the mirror, keep the mirror visible behind a
+            // translucent keyboard layer so you can see what you're typing
+            // into, and return to the mirror on close.
+            ZStack {
+                if keyboardReturnSurface == .screen {
+                    screenSurface(interactive: false)
+                }
+                KeyboardScreen(returnSurface: keyboardReturnSurface,
+                               translucent: keyboardReturnSurface == .screen)
+            }
         case .screen:
-            screenSurface
+            screenSurface(topInset: topInset, bottomInset: bottomInset)
         }
     }
 
     // MARK: - Screen mirror surface
 
     @ViewBuilder
-    private var screenSurface: some View {
+    private func screenSurface(interactive: Bool = true,
+                               topInset: CGFloat = 0,
+                               bottomInset: CGFloat = 0) -> some View {
         if let info = engine.screenInfo, info.status == .ok {
             ScreenShareView(displayView: engine.screenDisplayView,
                             info: info,
-                            onInput: { engine.sendScreenInput($0) })
+                            onInput: { engine.sendScreenInput($0) },
+                            inputEnabled: interactive,
+                            onModifierKey: { code, down in
+                                engine.sendKey(KeyEvent(action: down ? .down : .up,
+                                                        keycode: code,
+                                                        text: nil))
+                            },
+                            windows: engine.screenWindows,
+                            pinnedWindowId: engine.screenPinnedWindowId,
+                            onSelectWindow: { engine.selectScreenWindow(id: $0) },
+                            onFollowFrontmost: { engine.followFrontmostScreenWindow() },
+                            topInset: topInset,
+                            bottomInset: bottomInset)
                 .ignoresSafeArea()
         } else if let info = engine.screenInfo, info.status == .permissionDenied {
             screenPlaceholder(icon: "lock.shield",
@@ -474,6 +515,22 @@ struct ContentView: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.horizontal, IBSpace.xl.pt)
         }
+    }
+
+    /// Full-screen shield rendered over the mirror while the app is
+    /// backgrounded, so the last mirrored frame can't leak into the
+    /// app-switcher snapshot.
+    private var privacyCoverView: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+            Image(systemName: "lock.fill")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(.white.opacity(0.8))
+                .accessibilityHidden(true)
+        }
+        .transition(.opacity)
     }
 
     /// Camera flip. Styled identically to the top-bar icons
@@ -847,8 +904,12 @@ struct ContentView: View {
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(IBAnimation.snappy) {
-                    engine.features.activeSurface =
-                        engine.features.activeSurface == .keyboard ? .trackpad : .keyboard
+                    if engine.features.activeSurface == .keyboard {
+                        engine.features.activeSurface = keyboardReturnSurface
+                    } else {
+                        keyboardReturnSurface = engine.features.activeSurface
+                        engine.features.activeSurface = .keyboard
+                    }
                 }
             } label: {
                 Image(systemName: "keyboard")

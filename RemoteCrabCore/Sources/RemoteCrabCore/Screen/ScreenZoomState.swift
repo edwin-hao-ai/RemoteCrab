@@ -23,20 +23,27 @@ public struct ScreenZoomState: Equatable, Sendable {
     public private(set) var zoom: Double
     /// Current pan offset in view points, applied after zoom about center.
     public private(set) var pan: CGSize
+    /// false = fit the whole window (letterboxed); true = fill the view
+    /// (crop the overflowing axis, pannable at zoom 1).
+    public let fillsView: Bool
 
     public init(windowWidth: Double, windowHeight: Double,
-                viewSize: CGSize, zoom: Double = 1, pan: CGSize = .zero) {
+                viewSize: CGSize, zoom: Double = 1, pan: CGSize = .zero,
+                fillsView: Bool = false) {
         self.windowSize = CGSize(width: max(1, windowWidth), height: max(1, windowHeight))
         self.viewSize = viewSize
         self.zoom = min(max(zoom, Self.minZoom), Self.maxZoom)
+        self.fillsView = fillsView
         self.pan = pan
         self.pan = clampedPan(pan)
     }
 
-    /// Largest size with the window's aspect ratio that fits in the view.
+    /// Largest size with the window's aspect ratio that fits in the view
+    /// (`fillsView` flips this to the smallest size that covers the view).
     public var fitSize: CGSize {
-        let scale = min(viewSize.width / windowSize.width,
-                        viewSize.height / windowSize.height)
+        let sx = viewSize.width / windowSize.width
+        let sy = viewSize.height / windowSize.height
+        let scale = fillsView ? max(sx, sy) : min(sx, sy)
         return CGSize(width: windowSize.width * scale,
                       height: windowSize.height * scale)
     }
@@ -79,6 +86,62 @@ public struct ScreenZoomState: Equatable, Sendable {
     public mutating func setZoom(_ z: Double) {
         zoom = min(max(z, Self.minZoom), Self.maxZoom)
         pan = clampedPan(pan)
+    }
+
+    /// Zoom while keeping the content point under `anchor` fixed on screen
+    /// (the pinch / double-tap anchor). `anchor == nil` zooms about center.
+    public mutating func setZoom(_ z: Double, anchor: CGPoint?) {
+        let newZoom = min(max(z, Self.minZoom), Self.maxZoom)
+        guard let anchor else {
+            zoom = newZoom
+            pan = clampedPan(pan)
+            return
+        }
+        let r = displayedContentRect
+        guard r.width > 0, r.height > 0 else {
+            zoom = newZoom
+            pan = clampedPan(pan)
+            return
+        }
+        let u = (anchor.x - r.minX) / r.width
+        let v = (anchor.y - r.minY) / r.height
+        zoom = newZoom
+        let s = fitSize
+        let w = s.width * newZoom
+        let h = s.height * newZoom
+        pan = clampedPan(CGSize(
+            width: anchor.x - (viewSize.width - w) / 2 - u * w,
+            height: anchor.y - (viewSize.height - h) / 2 - v * h))
+    }
+
+    /// Double-tap zoom: 1× → 2× at the tap, otherwise back to 1×.
+    public mutating func toggleZoom(at anchor: CGPoint?) {
+        if zoom > 1.01 {
+            setZoom(1)
+        } else {
+            setZoom(min(2, Self.maxZoom), anchor: anchor)
+        }
+    }
+
+    /// Flip fit ⇄ fill, preserving the content point under `anchor`.
+    public mutating func setFillsView(_ fills: Bool, anchor: CGPoint?) {
+        guard fills != fillsView else { return }
+        let r = displayedContentRect
+        let u = r.width > 0 ? (anchor.map { ($0.x - r.minX) / r.width } ?? 0.5) : 0.5
+        let v = r.height > 0 ? (anchor.map { ($0.y - r.minY) / r.height } ?? 0.5) : 0.5
+        var rebuilt = ScreenZoomState(windowWidth: windowSize.width,
+                                      windowHeight: windowSize.height,
+                                      viewSize: viewSize, zoom: zoom,
+                                      pan: pan, fillsView: fills)
+        if let anchor {
+            let s = rebuilt.fitSize
+            let w = s.width * rebuilt.zoom
+            let h = s.height * rebuilt.zoom
+            rebuilt.pan = rebuilt.clampedPan(CGSize(
+                width: anchor.x - (viewSize.width - w) / 2 - u * w,
+                height: anchor.y - (viewSize.height - h) / 2 - v * h))
+        }
+        self = rebuilt
     }
 
     public mutating func commitPan(_ p: CGSize) {

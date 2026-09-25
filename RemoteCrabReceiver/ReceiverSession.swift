@@ -344,6 +344,7 @@ final class ReceiverSession: ObservableObject {
                 screenStreamer = streamer
                 Self.log.info("screen mirror created")
             }
+            screenStreamer?.setMaxPixel(control.maxPixel)
             screenStreamer?.start()
         case .stop:
             screenStreamer?.stop()
@@ -351,9 +352,9 @@ final class ReceiverSession: ObservableObject {
             lastScreenInfo = nil
             Self.log.info("screen mirror stopped")
         case .select:
-            if let windowId = control.windowId {
-                screenStreamer?.select(windowId: windowId)
-            }
+            screenStreamer?.select(windowId: control.windowId ?? "")
+        case .follow:
+            screenStreamer?.follow()
         }
     }
 

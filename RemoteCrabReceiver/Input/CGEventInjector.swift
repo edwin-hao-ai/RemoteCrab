@@ -112,24 +112,32 @@ public final class CGEventInjector: InputInjector {
     public func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {
         let global = CGPoint(x: windowOrigin.x + CGFloat(screenInput.u) * windowSize.width,
                              y: windowOrigin.y + CGFloat(screenInput.v) * windowSize.height)
+        Self.log.info("screen input \(screenInput.action.rawValue, privacy: .public) u=\(screenInput.u, privacy: .public) v=\(screenInput.v, privacy: .public) -> global \(Int(global.x), privacy: .public),\(Int(global.y), privacy: .public) (origin \(Int(windowOrigin.x), privacy: .public),\(Int(windowOrigin.y), privacy: .public) size \(Int(windowSize.width), privacy: .public)x\(Int(windowSize.height), privacy: .public))")
+        let flags = eventFlags(for: screenInput.modifiers)
+        // macOS reads the click count from the event's clickState field,
+        // not from timing, so a double/triple click is expressed by
+        // stamping the same count on both the down and the up event. A
+        // synthetic double click must therefore be at least the pair
+        // down(clickState=2)/up(clickState=2) at the identical point.
+        let clicks = max(1, screenInput.clickCount)
         switch screenInput.action {
         case .click:
-            post(type: .leftMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
-            post(type: .leftMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .leftMouseDown, at: global, flags: flags, clickCount: clicks)
+            post(type: .leftMouseUp, at: global, flags: flags, clickCount: clicks)
             lastCursor = global
         case .dragStart:
-            post(type: .leftMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .leftMouseDown, at: global, flags: flags)
             lastCursor = global
             isDragging = true
         case .dragMove:
             lastCursor = global
-            post(type: .leftMouseDragged, at: global)
+            post(type: .leftMouseDragged, at: global, flags: flags)
         case .dragEnd:
-            post(type: .leftMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .leftMouseUp, at: global, flags: flags)
             isDragging = false
         case .rightClick:
-            post(type: .rightMouseDown, at: global, flags: eventFlags(for: screenInput.modifiers))
-            post(type: .rightMouseUp, at: global, flags: eventFlags(for: screenInput.modifiers))
+            post(type: .rightMouseDown, at: global, flags: flags, clickCount: clicks)
+            post(type: .rightMouseUp, at: global, flags: flags, clickCount: clicks)
             lastCursor = global
         case .scroll:
             // Put the cursor over the window first so the scroll lands in
@@ -187,7 +195,8 @@ public final class CGEventInjector: InputInjector {
         move?.post(tap: .cghidEventTap)
     }
 
-    private func post(type: CGEventType, at point: CGPoint, flags: CGEventFlags = []) {
+    private func post(type: CGEventType, at point: CGPoint, flags: CGEventFlags = [],
+                      clickCount: Int = 1) {
         // The button must match the event type — a rightMouseDown
         // built with .left confuses apps that read the button field.
         let button: CGMouseButton
@@ -200,6 +209,8 @@ public final class CGEventInjector: InputInjector {
         let event = CGEvent(mouseEventSource: nil, mouseType: type,
                             mouseCursorPosition: point, mouseButton: button)
         event?.flags = flags
+        event?.setIntegerValueField(.mouseEventClickState,
+                                    value: Int64(max(1, clickCount)))
         event?.post(tap: .cghidEventTap)
     }
 

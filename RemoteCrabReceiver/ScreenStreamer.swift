@@ -48,10 +48,15 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     private var observers: [NSObjectProtocol] = []
     private var debounceWork: DispatchWorkItem?
     private var restartAttempts = 0
+    /// Re-reads the target window's global frame so taps track a moved
+    /// window (see `refreshTargetFrame`).
+    private var frameTimer: DispatchSourceTimer?
 
     private var pinnedWindowNumber: Int?
     private var previous: ScreenWindowDescriptor?
     private var currentTarget: ScreenWindowDescriptor?
+    /// Phone-requested long-edge pixel cap. `nil` = `defaultMaxPixel`.
+    private var maxPixelOverride: Int?
 
     // MARK: - Geometry (lock-guarded)
 
@@ -77,6 +82,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     private var encodingBusy = false
     private var generation = 0
     private var lastRecreationAt = Date.distantPast
+    /// Encoded video frames actually sent — a cheap e2e/latency marker.
+    private var sentFrameCount = 0
 
     init(send: @escaping @Sendable (Data) -> Void) {
         self.send = send
@@ -84,6 +91,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     }
 
     deinit {
+        frameTimer?.cancel()
         if let encoder { VTCompressionSessionInvalidate(encoder) }
         let center = NSWorkspace.shared.notificationCenter
         for token in observers { center.removeObserver(token) }
@@ -141,19 +149,63 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
     }
 
+    /// Set the phone's preferred long-edge pixel cap (clamped to
+    /// `1280...3840`, forced even; `nil` restores the 1920 default). Used
+    /// by the `capAndEven` sizing path. If a stream is already running and
+    /// the cap actually changed, the target is reconfigured so it takes
+    /// effect immediately.
+    @MainActor
+    func setMaxPixel(_ pixels: Int?) {
+        let normalized = pixels.map { min(max($0, 1280), 3840) & ~1 }
+        let changed = withLock { () -> Bool in
+            guard maxPixelOverride != normalized else { return false }
+            maxPixelOverride = normalized
+            return true
+        }
+        guard changed, withLock({ isRunning }) else { return }
+        Self.log.info("maxPixel changed to \(normalized.map { String($0) } ?? "default", privacy: .public)")
+        Task { @MainActor in await resolveAndStart(reason: "maxPixel", force: true) }
+    }
+
     /// Pin a window (by `IBWindowInfo.id`, `"<pid>:<windowNumber>"`),
-    /// keeping it until `stop()`. Falls back to following the frontmost
-    /// app again if the pinned window disappears.
+    /// keeping it until `stop()` or `follow()`. Falls back to following
+    /// the frontmost app again if the pinned window disappears.
     @MainActor
     func select(windowId: String) {
-        let number = windowId.split(separator: ":").last.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        withLock { pinnedWindowNumber = number }
-        guard number != nil else {
+        let parts = windowId.split(separator: ":")
+        guard parts.count == 2,
+              let pid = Int32(parts[0].trimmingCharacters(in: .whitespaces)),
+              let number = Int(parts[1].trimmingCharacters(in: .whitespaces)) else {
             Self.log.info("select ignored (unparseable windowId \(windowId, privacy: .public))")
             return
         }
-        Self.log.info("pinned window \(number!, privacy: .public)")
+        // Confirm the window is actually present before pinning, so a
+        // stale picker entry doesn't wedge us into a dead target.
+        let snapshot = Self.windowSnapshot()
+        guard let window = snapshot.descriptors.first(where: {
+            $0.windowNumber == number && $0.pid == pid
+        }) else {
+            Self.log.info("select ignored (window \(windowId, privacy: .public) not found)")
+            return
+        }
+        withLock {
+            pinnedWindowNumber = number
+            previous = window
+        }
+        Self.log.info("pinned window \(number, privacy: .public) (pid \(pid, privacy: .public))")
         Task { @MainActor in await resolveAndStart(reason: "select") }
+    }
+
+    /// Clear any pin and immediately re-resolve the Mac's frontmost app,
+    /// resuming the follow behaviour.
+    @MainActor
+    func follow() {
+        withLock {
+            pinnedWindowNumber = nil
+            previous = nil
+        }
+        Self.log.info("screen mirror following frontmost app")
+        Task { @MainActor in await resolveAndStart(reason: "follow") }
     }
 
     // MARK: - Observers / follow frontmost
@@ -186,12 +238,15 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             Task { @MainActor in await self?.recheckFrontmost() }
         }
         debounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
 
     @MainActor
     private func recheckFrontmost() async {
         guard withLock({ isRunning }) else { return }
+        // A pinned window ignores app activation — only `follow()` (or the
+        // pinned window disappearing) may change the target.
+        guard withLock({ pinnedWindowNumber }) == nil else { return }
         let front = NSWorkspace.shared.frontmostApplication
         let myPID = ProcessInfo.processInfo.processIdentifier
         // Ignore our own app and non-regular (accessory/background) apps —
@@ -205,7 +260,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     // MARK: - Target resolution
 
     @MainActor
-    private func resolveAndStart(reason: String) async {
+    private func resolveAndStart(reason: String, force: Bool = false) async {
         let snapshot = Self.windowSnapshot()
         let descriptors = snapshot.descriptors
         let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
@@ -251,7 +306,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             previous = target
             return isRunning && currentTarget?.windowNumber == target.windowNumber
         }
-        if same { return }
+        if same && !force { return }
 
         await configureStream(for: target, reason: reason)
     }
@@ -278,12 +333,15 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         let scale = Self.backingScale(for: frame)
         var pixelW = Int((frame.width * scale).rounded())
         var pixelH = Int((frame.height * scale).rounded())
-        Self.capAndEven(&pixelW, &pixelH)
+        capAndEven(&pixelW, &pixelH)
 
         let config = SCStreamConfiguration()
         config.width = pixelW
         config.height = pixelH
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
+        // 24 fps is plenty for remote control and leaves CPU/GPU headroom
+        // on the phone for the on-device speech recognizer (lesson: a 30 fps
+        // 2.6K mirror + camera encode + dictation contended and dropped words).
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 24)
         config.queueDepth = 2
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
@@ -318,6 +376,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             targetTitle = title
         }
 
+        Self.log.info("target frame global=\(Int(frame.origin.x), privacy: .public),\(Int(frame.origin.y), privacy: .public) \(Int(frame.width), privacy: .public)x\(Int(frame.height), privacy: .public)pt")
         createEncoder(width: pixelW, height: pixelH)
 
         do {
@@ -332,6 +391,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             isRunning = true
             restartAttempts = 0
         }
+        startFrameTimer()
         Self.log.info("streaming window \(target.windowNumber, privacy: .public) (\(appName, privacy: .public)) \(pixelW)x\(pixelH) reason=\(reason, privacy: .public)")
         buildAndSendOKInfo()
     }
@@ -340,6 +400,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     /// target so a reconfigure can resume it.
     @MainActor
     private func stopStreamOnly() async {
+        stopFrameTimer()
         let oldStream: SCStream? = withLock { () -> SCStream? in
             isRunning = false
             let running = stream
@@ -365,14 +426,11 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
 
         let changed = withLock { () -> Bool in
             var changed = false
-            if let (rect, _) = Self.contentRect(from: sampleBuffer),
+            if let (rect, scale) = Self.contentRect(from: sampleBuffer),
                !Self.approxEqual(rect, lastContentRect) {
                 lastContentRect = rect
-                originX = Double(rect.origin.x)
-                originY = Double(rect.origin.y)
-                pointWidth = Double(rect.size.width)
-                pointHeight = Double(rect.size.height)
                 changed = true
+                Self.log.info("contentRect raw origin=\(Int(rect.origin.x), privacy: .public),\(Int(rect.origin.y), privacy: .public) size=\(Int(rect.width), privacy: .public)x\(Int(rect.height), privacy: .public) scale=\(scale, privacy: .public)")
             }
             if pixelWidth != width || pixelHeight != height {
                 pixelWidth = width
@@ -381,9 +439,58 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             }
             return changed
         }
-        if changed { buildAndSendOKInfo() }
+        if changed {
+            refreshTargetFrame()
+            buildAndSendOKInfo()
+        }
 
         encode(sampleBuffer, imageBuffer: imageBuffer, width: width, height: height)
+    }
+
+    /// Re-read the target window's **global** frame from `CGWindowList` and
+    /// publish it if it moved or resized.
+    ///
+    /// `contentRect` is in the window's own coordinate space (origin is
+    /// `(0,0)` for every app observed), so it can only tell us *that*
+    /// something changed — never *where* the window is. Mapping taps needs
+    /// the global origin, which only the window list provides.
+    private func refreshTargetFrame() {
+        guard let number = withLock({ currentTarget?.windowNumber }) else { return }
+        let frames = Self.windowSnapshot().frames
+        guard let frame = frames[number] else { return }
+        withLock {
+            originX = Double(frame.origin.x)
+            originY = Double(frame.origin.y)
+            pointWidth = Double(frame.width)
+            pointHeight = Double(frame.height)
+        }
+    }
+
+    /// Periodic safety net: a moved/resized window that produced no
+    /// `contentRect` change (e.g. moved without resizing) still gets picked
+    /// up within a second so taps stay aligned.
+    private func startFrameTimer() {
+        withLock {
+            frameTimer?.cancel()
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now() + 1, repeating: 1.0, leeway: .milliseconds(200))
+            timer.setEventHandler { [weak self] in
+                guard let self, self.withLock({ self.isRunning }) else { return }
+                let before = self.withLock { (self.originX, self.originY, self.pointWidth, self.pointHeight) }
+                self.refreshTargetFrame()
+                let after = self.withLock { (self.originX, self.originY, self.pointWidth, self.pointHeight) }
+                if before != after { self.buildAndSendOKInfo() }
+            }
+            frameTimer = timer
+            timer.resume()
+        }
+    }
+
+    private func stopFrameTimer() {
+        withLock {
+            frameTimer?.cancel()
+            frameTimer = nil
+        }
     }
 
     // MARK: - SCStreamDelegate
@@ -429,7 +536,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let duration = CMTime(value: 1, timescale: 30)
+        let duration = CMTime(value: 1, timescale: 24)
         let status = VTCompressionSessionEncodeFrame(
             session,
             imageBuffer: imageBuffer,
@@ -487,8 +594,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
         let props: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime: true,
-            kVTCompressionPropertyKey_AverageBitRate: 4_000_000,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval: 120,
+            kVTCompressionPropertyKey_AverageBitRate: 3_000_000,
+            kVTCompressionPropertyKey_MaxKeyFrameInterval: 96,
             kVTCompressionPropertyKey_ProfileLevel: kVTProfileLevel_H264_High_AutoLevel,
             kVTCompressionPropertyKey_AllowFrameReordering: false,
         ]
@@ -582,6 +689,13 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
                 send(IBWire.encodeScreen(frame: IBNalFrame(kind: .video,
                                                            data: slice,
                                                            timestampMicros: micros)))
+                let sent = withLock { () -> Int in
+                    sentFrameCount += 1
+                    return sentFrameCount
+                }
+                if sent == 1 || sent % 60 == 0 {
+                    Self.log.info("screen frames sent: \(sent, privacy: .public)")
+                }
             }
             offset = nalEnd
         }
@@ -710,10 +824,16 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         NSScreen.screens.first { $0.frame.intersects(frame) }?.backingScaleFactor ?? 2
     }
 
-    private static func capAndEven(_ width: inout Int, _ height: inout Int) {
+    /// Default long-edge cap. The extra pixels beyond this cost real
+    /// decode/compositing on the phone for little visual gain at phone
+    /// scale, and competed with voice recognition.
+    private static let defaultMaxPixel = 1920
+
+    private func capAndEven(_ width: inout Int, _ height: inout Int) {
+        let cap = withLock { maxPixelOverride } ?? Self.defaultMaxPixel
         let longEdge = max(width, height)
-        if longEdge > 2560 {
-            let factor = 2560.0 / Double(longEdge)
+        if longEdge > cap {
+            let factor = Double(cap) / Double(longEdge)
             width = Int((Double(width) * factor).rounded())
             height = Int((Double(height) * factor).rounded())
         }

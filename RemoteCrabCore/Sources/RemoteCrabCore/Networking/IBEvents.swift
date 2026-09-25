@@ -535,13 +535,19 @@ public struct IBScreenControl: Codable, Sendable, Equatable {
         case stop
         /// Pin a specific window (by `IBWindowInfo.id`); nil = follow frontmost app.
         case select
+        /// Resume following the Mac's frontmost app (clear a pin).
+        case follow
     }
     public let command: Command
     public let windowId: String?
+    /// The phone's preferred long-edge pixel cap, so an iPad can ask for a
+    /// sharper mirror than an iPhone. nil = let the Mac use its default.
+    public let maxPixel: Int?
 
-    public init(command: Command, windowId: String? = nil) {
+    public init(command: Command, windowId: String? = nil, maxPixel: Int? = nil) {
         self.command = command
         self.windowId = windowId
+        self.maxPixel = maxPixel
     }
 }
 
@@ -566,12 +572,16 @@ public struct IBScreenInput: Codable, Sendable, Equatable {
     public let dx: Float
     public let dy: Float
     public let modifiers: UInt8
+    /// 1 = single click, 2 = double (select word), 3 = triple (select
+    /// paragraph). Only meaningful for `.click`.
+    public let clickCount: Int
     public let timestampMicros: UInt64
 
     public init(action: Action,
                 u: Float = 0, v: Float = 0,
                 dx: Float = 0, dy: Float = 0,
                 modifiers: UInt8 = 0,
+                clickCount: Int = 1,
                 timestampMicros: UInt64 = 0) {
         self.action = action
         self.u = u
@@ -579,6 +589,7 @@ public struct IBScreenInput: Codable, Sendable, Equatable {
         self.dx = dx
         self.dy = dy
         self.modifiers = modifiers
+        self.clickCount = clickCount
         self.timestampMicros = timestampMicros
     }
 }

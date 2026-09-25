@@ -314,6 +314,7 @@ final class ScreenDecoder: @unchecked Sendable {
         if !emittedAny {
             emittedAny = true
             Self.log.info("first screen frame decoded OK")
+            Forensic.log("[e2e] first screen frame decoded OK")
         }
         let box = ScreenSendableBox(value: output)
         queue.async { [weak self] in

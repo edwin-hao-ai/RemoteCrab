@@ -11,16 +11,24 @@ public protocol InputInjector: AnyObject {
     /// Post a key event (down/up for keycodes, text for IME strings).
     func inject(key: KeyEvent)
 
+    /// Post an absolute direct-manipulation input inside the mirrored
+    /// window (screen mirror). `windowOrigin`/`windowSize` are the
+    /// window frame in Mac screen points; `u`/`v` are normalized `0...1`
+    /// inside the window content.
+    ///
+    /// NOTE: this must be a protocol *requirement*, not just an extension
+    /// method — an extension-only method dispatches statically, so a call
+    /// through `any InputInjector` would silently invoke the no-op default
+    /// instead of `CGEventInjector`'s real implementation.
+    func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize)
+
     /// Last cursor position — tests read this back to verify movement.
     var lastCursor: CGPoint { get }
 }
 
 public extension InputInjector {
-    /// Post an absolute direct-manipulation input inside the mirrored
-    /// window (screen mirror). `windowOrigin`/`windowSize` are the
-    /// window frame in Mac screen points; `u`/`v` are normalized `0...1`
-    /// inside the window content. Default is a no-op so injectors that
-    /// don't model the mirror still conform.
+    /// Default no-op so injectors that don't model the mirror still
+    /// conform (e.g. a future test double).
     func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {}
 }
 

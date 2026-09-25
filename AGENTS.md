@@ -1601,11 +1601,46 @@ is tracked in the Roadmap section — don't duplicate it here.
     zoom/pan state. Window-picker thumbnails were also improved (960 px JPEG
     @ 0.72, parallel `withTaskGroup` ≤4). **Requires Screen Recording** on the
     Mac (already requested for thumbnails); `screenInfo.status` reports
-    `permissionDenied` / `noWindow`. **Device-verify caveat**: the click
-    origin derives from `SCWindow.frame` then updates from
-    `SCStreamFrameInfo.contentRect` — if taps land offset by the title bar on
-    a real Mac, that update path is the single place to revisit. E2E:
+     `permissionDenied` / `noWindow`. E2E:
     `REMOTECRAB_E2E_SCREEN=1`. 181 tests green + both apps build.
+
+65. **Screen mirror device debugging + polish (2026-09-25).** Three real
+    bugs and a batch of UX gaps, all found/fixed on-device:
+    (a) **Taps did nothing** — `inject(screenInput:...)` was declared only
+    in an `InputInjector` *extension*, so a call on `any InputInjector`
+    dispatched **statically to the no-op default** and `CGEventInjector`
+    was never invoked. A protocol-extension method is NOT dynamically
+    dispatched unless it is a protocol *requirement* — it is now, and
+    `RecordingInputInjector` records it (tested).
+    (b) **Clicks landed in the wrong place** — `SCStreamFrameInfo.contentRect`
+    is in the **window's own coordinate space** (origin `(0,0)` for every
+    app observed), and the code overwrote the window's **global** origin
+    with it, mapping `(u,v)` near the screen corner. The global origin now
+    comes from `CGWindowList` (`refreshTargetFrame`), re-read when the
+    content rect changes and every 1 s; `contentRect` is only a change
+    trigger. Verified on device: window at `(270,136)`, click at
+    `u=v=0.5` → `global 719,360`.
+    (c) **Voice dictation got laggy / dropped words with the mirror on** —
+    the phone was simultaneously camera-encoding 1080p@30, decoding the
+    mirror (~2.6K@30) and running on-device speech recognition (decode was
+    already off the main actor, so it was CPU/GPU contention, not a stall).
+    Mirror cost cut to 1920 long edge / 24 fps / 3 Mbps and
+    `AVSampleBufferDisplayLayer.enqueue` moved off the main actor into the
+    decoder queue.
+    (d) **Polish batch**: mirror modifier bar (`IBModifierBar`, mask on
+    every input + real modifier key down/up), double/triple-click
+    (`IBScreenInput.clickCount` → `mouseEventClickState`), fit/fill toggle +
+    anchored double-tap zoom (`ScreenZoomState.fillsView` /
+    `setZoom(_:anchor:)` / `toggleZoom(at:)`), device-aware pixel cap
+    (`IBScreenControl.maxPixel`: iPad 2560 / iPhone 1920), mirror window
+    picker + **pin** (`.select`/`.follow`; `ScreenStreamer` stops following
+    the frontmost app while pinned), background privacy cover, and a
+    first-use coach mark. Keyboard opened from the mirror is a translucent
+    overlay that returns to the mirror (not the trackpad).
+    **Deferred** (need design/hardware): Apple Pencil passthrough, iPad
+    hardware-keyboard passthrough, auto-keyboard on text-field focus,
+    multi-display mapping, DRM-black detection, motion-adaptive fps.
+    186 tests green + both apps build; base mirror device e2e 16/16.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):

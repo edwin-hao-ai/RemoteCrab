@@ -36,6 +36,21 @@ final class ScreenMirrorWireTests: XCTestCase {
         XCTAssertEqual(try IBWire.decodeScreenInfo(frames[0]), original)
     }
 
+    func testClickCountAndControlOptionsRoundTrip() throws {
+        let input = IBScreenInput(action: .click, u: 0.4, v: 0.6,
+                                  modifiers: 8, clickCount: 2)
+        let data = try IBWire.encode(screenInput: input)
+        let decoded = try IBWire.decodeScreenInput(IBWire.Parser().append(data)[0])
+        XCTAssertEqual(decoded, input)
+        XCTAssertEqual(decoded.clickCount, 2)
+
+        let control = IBScreenControl(command: .follow, maxPixel: 2560)
+        let cdata = try IBWire.encode(screenControl: control)
+        let cdecoded = try IBWire.decodeScreenControl(IBWire.Parser().append(cdata)[0])
+        XCTAssertEqual(cdecoded, control)
+        XCTAssertEqual(cdecoded.maxPixel, 2560)
+    }
+
     func testNoPermissionStatusRoundTrips() throws {
         let original = IBScreenInfo(status: .permissionDenied)
         let data = try IBWire.encode(screenInfo: original)

@@ -73,4 +73,49 @@ final class ScreenZoomStateTests: XCTestCase {
         XCTAssertEqual(r.pan.width, 200, accuracy: 0.01)          // clamped at edge
         XCTAssertEqual(r.scrollDX, 30.0 / 400.0, accuracy: 0.001) // 50 - 20 residual
     }
+
+    // MARK: - Fit vs fill
+
+    func testFillModeCoversTheViewAndAllowsPanAtZoom1() {
+        let s = ScreenZoomState(windowWidth: 1600, windowHeight: 900,
+                                viewSize: CGSize(width: 400, height: 800),
+                                fillsView: true)
+        XCTAssertEqual(s.fitSize.width, 1600.0 * 800.0 / 900.0, accuracy: 0.5)
+        XCTAssertEqual(s.fitSize.height, 800, accuracy: 0.01)
+        XCTAssertEqual(s.maxPan.width, (1422.22 - 400) / 2, accuracy: 1.0)
+        XCTAssertEqual(s.maxPan.height, 0, accuracy: 0.01)
+        XCTAssertTrue(s.canPan)
+    }
+
+    func testSetFillsViewPreservesAnchoredContentPoint() throws {
+        var s = makeState()   // fit
+        let anchor = CGPoint(x: 100, y: 400)
+        let before = try XCTUnwrap(s.contentUV(forViewPoint: anchor))
+        s.setFillsView(true, anchor: anchor)
+        XCTAssertTrue(s.fillsView)
+        let after = try XCTUnwrap(s.contentUV(forViewPoint: anchor))
+        XCTAssertEqual(after.u, before.u, accuracy: 0.02)
+        XCTAssertEqual(after.v, before.v, accuracy: 0.02)
+    }
+
+    // MARK: - Anchored zoom
+
+    func testAnchoredZoomKeepsTheTouchedPointFixed() throws {
+        var s = makeState()   // 16:9 fit, content rect (0, 287.5, 400, 225)
+        let anchor = CGPoint(x: 300, y: 400)
+        let before = try XCTUnwrap(s.contentUV(forViewPoint: anchor))
+        s.setZoom(2, anchor: anchor)
+        XCTAssertEqual(s.zoom, 2, accuracy: 0.001)
+        let after = try XCTUnwrap(s.contentUV(forViewPoint: anchor))
+        XCTAssertEqual(after.u, before.u, accuracy: 0.001)
+        XCTAssertEqual(after.v, before.v, accuracy: 0.001)
+    }
+
+    func testToggleZoomGoesToTwoThenBackToOne() {
+        var s = makeState()
+        s.toggleZoom(at: CGPoint(x: 200, y: 400))
+        XCTAssertEqual(s.zoom, 2, accuracy: 0.001)
+        s.toggleZoom(at: CGPoint(x: 200, y: 400))
+        XCTAssertEqual(s.zoom, 1, accuracy: 0.001)
+    }
 }

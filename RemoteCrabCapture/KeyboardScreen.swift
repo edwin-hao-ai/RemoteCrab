@@ -10,6 +10,11 @@ import RemoteCrabCore
 struct KeyboardScreen: View {
     @EnvironmentObject private var engine: CaptureEngine
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// Surface the keyboard was opened from; its back button returns here.
+    var returnSurface: Surface = .trackpad
+    /// When true, use a translucent backdrop so an underlying surface (the
+    /// app-window mirror) stays visible while typing into it.
+    var translucent: Bool = false
     @AppStorage("remotecrab.ios.trackpadSens") private var trackpadSens: Int = 3
     @AppStorage("remotecrab.ios.scrollSens") private var scrollSens: Int = 3
     @AppStorage("remotecrab.ios.naturalScroll") private var naturalScroll: Bool = true
@@ -38,8 +43,14 @@ struct KeyboardScreen: View {
 
     var body: some View {
         ZStack {
-            IBGradient.canvasDark
-                .ignoresSafeArea()
+            if translucent {
+                // Let the mirrored window stay visible behind the keyboard.
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+            } else {
+                IBGradient.canvasDark
+                    .ignoresSafeArea()
+            }
 
             GeometryReader { geo in
                 // Cap the preview so the header + preview + mini trackpad
@@ -96,10 +107,11 @@ struct KeyboardScreen: View {
 
     private var header: some View {
         HStack {
-            // Back to the trackpad — the system keyboard covers the
-            // bottom PTT row, so the exit needs to live up here.
+            // Back to where the keyboard was opened from (trackpad, or the
+            // app-window mirror). The system keyboard covers the bottom PTT
+            // row, so the exit lives up here.
             Button {
-                engine.features.activeSurface = .trackpad
+                engine.features.activeSurface = returnSurface
             } label: {
                 Image(systemName: "hand.point.up.left.fill")
                     .font(.system(size: 14, weight: .medium))
@@ -110,7 +122,9 @@ struct KeyboardScreen: View {
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .buttonStyle(IBPressButtonStyle())
-            .accessibilityLabel(IBLocale.Mode.trackpad)
+            .accessibilityLabel(returnSurface == .screen
+                                ? Text("App window mirror")
+                                : Text(IBLocale.Mode.trackpad))
             Spacer()
             Text(IBLocale.Keyboard.typingOnMac)
                 .font(IBFont.eyebrowMono)
