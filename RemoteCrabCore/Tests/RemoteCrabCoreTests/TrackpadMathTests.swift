@@ -10,10 +10,11 @@ final class TrackpadMathTests: XCTestCase {
     }
 
     func testAccelerateFastMoveGainsMore() {
-        let slow = TrackpadMath.accelerate(dx: 0.002, dy: 0, sensitivity: 3).dx
-        let fast = TrackpadMath.accelerate(dx: 0.02, dy: 0, sensitivity: 3).dx
-        // Fast flicks gain proportionally more than slow drags.
-        XCTAssertGreaterThan(fast / 0.02, slow / 0.002)
+        // Acceleration is velocity-driven: same delta, higher finger speed
+        // → higher gain.
+        let slow = TrackpadMath.accelerate(dx: 0.002, dy: 0, sensitivity: 3, pointerSpeed: 0.1).dx / 0.002
+        let fast = TrackpadMath.accelerate(dx: 0.002, dy: 0, sensitivity: 3, pointerSpeed: 1.8).dx / 0.002
+        XCTAssertGreaterThan(fast, slow)
     }
 
     func testSensitivityOrdering() {
@@ -126,11 +127,15 @@ final class TrackpadMathTests: XCTestCase {
     }
 
     func testAccelerateMaxBoostCapsSpeedGain() {
-        let boosted = TrackpadMath.accelerate(dx: 0.05, dy: 0, sensitivity: 3).dx
-        let capped = TrackpadMath.accelerate(dx: 0.05, dy: 0, sensitivity: 3, maxBoost: 0).dx
+        let boosted = TrackpadMath.accelerate(dx: 0.05, dy: 0, sensitivity: 3, pointerSpeed: 2.0).dx
+        let capped = TrackpadMath.accelerate(dx: 0.05, dy: 0, sensitivity: 3, pointerSpeed: 2.0, maxBoost: 0).dx
         XCTAssertLessThan(capped, boosted)
         // maxBoost 0 = constant base gain at any speed.
-        let slowCapped = TrackpadMath.accelerate(dx: 0.002, dy: 0, sensitivity: 3, maxBoost: 0).dx
+        let slowCapped = TrackpadMath.accelerate(dx: 0.002, dy: 0, sensitivity: 3, pointerSpeed: 0, maxBoost: 0).dx
         XCTAssertEqual(capped / 0.05, slowCapped / 0.002, accuracy: 0.01)
+        // Full boost is capped at 1 + maxBoost.
+        let full = TrackpadMath.accelerate(dx: 0.05, dy: 0, sensitivity: 3, pointerSpeed: 99).dx / 0.05
+        let base: Float = 0.6 + 0.35 * 2
+        XCTAssertEqual(full, base * (1 + 2.5), accuracy: 0.01)
     }
 }

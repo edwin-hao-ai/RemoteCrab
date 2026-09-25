@@ -455,9 +455,16 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     /// something changed — never *where* the window is. Mapping taps needs
     /// the global origin, which only the window list provides.
     private func refreshTargetFrame() {
-        guard let number = withLock({ currentTarget?.windowNumber }) else { return }
-        let frames = Self.windowSnapshot().frames
-        guard let frame = frames[number] else { return }
+        guard let target = withLock({ currentTarget }) else { return }
+        let snapshot = Self.windowSnapshot()
+        // Window numbers are reused, and a stale/foreign frame would misplace
+        // every later tap: only accept a frame that still belongs to the
+        // target window (same pid) and is large enough to be a real window.
+        guard let descriptor = snapshot.descriptors.first(where: { $0.windowNumber == target.windowNumber }),
+              descriptor.pid == target.pid,
+              descriptor.width >= ScreenTargetResolver.minWidth,
+              descriptor.height >= ScreenTargetResolver.minHeight,
+              let frame = snapshot.frames[target.windowNumber] else { return }
         withLock {
             originX = Double(frame.origin.x)
             originY = Double(frame.origin.y)

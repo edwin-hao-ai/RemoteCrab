@@ -1307,7 +1307,13 @@ final class CaptureEngine: ObservableObject {
                 // each injected input, so the receiver-log assertion proves
                 // the full wire → CGEventPost chain.
                 if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SCREEN_INPUT"] == "1" {
-                    try? await Task.sleep(for: .seconds(5))
+                    // Wait until the Mac has published a usable target
+                    // (`screenInfo.status == .ok`); input sent before that is
+                    // silently dropped and makes the e2e flaky.
+                    for _ in 0..<30 {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        if self?.screenInfo?.status == .ok { break }
+                    }
                     self?.sendScreenInput(IBScreenInput(action: .click, u: 0.5, v: 0.5))
                     Forensic.log("[e2e] screen input click sent")
                     try? await Task.sleep(for: .milliseconds(400))

@@ -37,8 +37,8 @@ check() { # check <marker> <label>
 echo "== RemoteCrab device e2e =="
 
 echo "[1/5] devices"
-if ! xcrun devicectl list devices 2>/dev/null | grep -q "$DEVICE.*available"; then
-  echo "  device $DEVICE not available — connect + unlock the iPhone"; exit 2
+if ! xcrun devicectl list devices 2>/dev/null | grep -Eq "$DEVICE.*(available|connected)"; then
+  echo "  device $DEVICE not available — connect + unlock it"; exit 2
 fi
 
 echo "[2/5] build (signed)"
@@ -101,4 +101,11 @@ check "-> global"                         "mirror input injected on Mac"
 echo
 echo "== $pass passed, $fail failed =="
 echo "log: $LOG"
+
+# Leave the app terminated. A headless run launches with REMOTECRAB_AUTO_START=1,
+# which skips onboarding; if that instance stays alive, a later manual tap on
+# the icon just resumes it and the user never sees onboarding ("居然没有
+# onboarding 页面" — it was the e2e instance, not a missing flow).
+xcrun devicectl device process terminate --device "$DEVICE" "$BUNDLE_IOS" >/dev/null 2>&1 || true
+
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

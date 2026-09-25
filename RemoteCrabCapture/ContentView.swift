@@ -131,6 +131,15 @@ struct ContentView: View {
         }
         .onChange(of: engine.features.activeSurface) { _, surface in
             if surface == .trackpad { presentTrackpadGuideIfNeeded() }
+            // The mirror is strictly on-demand: it costs the Mac a
+            // ScreenCaptureKit stream + H.264 encode and the phone a decode,
+            // so stop it the moment the user is no longer looking at it.
+            // Exception: the keyboard opened FROM the mirror keeps the mirror
+            // visible behind it, so it stays streaming.
+            let keyboardOverMirror = surface == .keyboard && keyboardReturnSurface == .screen
+            if surface != .screen && !keyboardOverMirror && engine.features.screenOn {
+                engine.stopScreenMirror()
+            }
         }
         .task { presentTrackpadGuideIfNeeded() }
         .sheet(isPresented: $showMacPicker) {
@@ -309,6 +318,7 @@ struct ContentView: View {
             case "trackpad": engine.features.activeSurface = .trackpad
             case "keyboard": engine.features.activeSurface = .keyboard
             case "camera":   engine.features.activeSurface = .cameraPreview
+            case "screen":   engine.features.activeSurface = .screen
             default:         break
             }
         }
@@ -481,6 +491,7 @@ struct ContentView: View {
                                                         keycode: code,
                                                         text: nil))
                             },
+                            onKey: { engine.sendKey($0) },
                             windows: engine.screenWindows,
                             pinnedWindowId: engine.screenPinnedWindowId,
                             onSelectWindow: { engine.selectScreenWindow(id: $0) },

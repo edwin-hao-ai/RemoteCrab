@@ -195,10 +195,15 @@ final class TouchSurfaceUIView: UIView {
             lastDragLocation = location
             onTouch?(normalize(location), true)
             // Selection drags use the precision curve: low fixed gain,
-            // no acceleration boost, no momentum.
+            // no acceleration boost, no momentum. Pointer moves accelerate
+            // on the finger's VELOCITY (norm units/second), not this
+            // event's tiny delta.
+            let velocity = rec.velocity(in: self)
+            let pointerSpeed = Float(hypot(velocity.x, velocity.y)) / Float(uniformReference)
             let (dx, dy) = dragArmed
                 ? TrackpadMath.selectionAccelerate(dx: rawDX, dy: rawDY)
-                : TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity)
+                : TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity,
+                                          pointerSpeed: pointerSpeed)
             emit(phase: .move, at: location, dx: dx, dy: dy)
         case .ended, .cancelled, .failed:
             cancelLongPressDrag()

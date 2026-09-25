@@ -6,16 +6,23 @@ import Foundation
 public enum TrackpadMath {
 
     /// Pointer acceleration: slow drags stay precise, fast flicks
-    /// travel further. `sensitivity` is the 1...5 settings value.
-    /// `maxBoost` caps the speed multiplier — pass 0 for a constant
-    /// gain (precision work such as text selection).
+    /// travel further. `sensitivity` is the 1...5 settings value;
+    /// `pointerSpeed` is the finger's speed in normalized-screen-units
+    /// per second (0 = no speed boost).
+    ///
+    /// The boost is a function of **velocity**, NOT of the per-event
+    /// delta. A single touch-move event carries only a few points, so a
+    /// magnitude threshold on it (the old `speed*6`) never reached the
+    /// cap and acceleration silently never engaged — hence "no
+    /// acceleration, several swipes to cross the screen".
     /// Input/output are normalized screen units (0...1 per axis).
     public static func accelerate(dx: Float, dy: Float, sensitivity: Int,
-                                  maxBoost: Float = 2.0) -> (dx: Float, dy: Float) {
+                                  pointerSpeed: Float = 0,
+                                  maxBoost: Float = 2.5) -> (dx: Float, dy: Float) {
         let s = Float(max(1, min(5, sensitivity)))
         let baseGain: Float = 0.6 + 0.35 * (s - 1)   // 0.6 … 2.0
-        let speed = sqrtf(dx * dx + dy * dy)
-        let boost: Float = 1 + min(speed * 6, max(0, maxBoost))
+        let t = min(max(pointerSpeed / 2.0, 0), 1)   // 2 units/s = full boost
+        let boost: Float = 1 + t * max(0, maxBoost)
         let gain = baseGain * boost
         return (dx * gain, dy * gain)
     }

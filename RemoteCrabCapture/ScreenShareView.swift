@@ -50,6 +50,8 @@ struct ScreenShareView: View {
     /// injector sends them as physical keys so an input method's panel
     /// opens, exactly like the trackpad's bar).
     var onModifierKey: ((UInt16, Bool) -> Void)?
+    /// Quick keys (⏎ ⌫ esc ，。) forwarded to the Mac as KeyEvents.
+    var onKey: ((KeyEvent) -> Void)?
     /// Mac windows offered by the window chip (already filtered/sorted).
     var windows: [IBWindowInfo] = []
     /// The window the user pinned; nil = following the Mac's frontmost app.
@@ -162,9 +164,12 @@ struct ScreenShareView: View {
                 Spacer(minLength: 0)
             }
 
-            // Modifier bar — floats above the bottom keyboard/PTT row.
-            VStack {
+            // Quick keys + modifier bar — float above the bottom PTT row.
+            // The mirror needs the same "edit / send / punctuate" reach the
+            // keyboard surface has: ⏎ ⌫ esc ，。 then ⌃⌥⌘⇧.
+            VStack(spacing: 6) {
                 Spacer(minLength: 0)
+                quickKeys
                 IBModifierBar(activeModifiers: $modifiers, onModifierKey: onModifierKey)
             }
             .padding(.bottom, controlsBottomPad)
@@ -173,6 +178,52 @@ struct ScreenShareView: View {
                 coachMark
             }
         }
+    }
+
+    /// ⏎ / ⌫ / esc / ，/ 。 — the keys that actually get used while
+    /// driving a mirrored app. Keycode taps ride the current modifier
+    /// mask; the punctuation keys send text (IME-safe).
+    private var quickKeys: some View {
+        HStack(spacing: 6) {
+            quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
+            quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
+            quickKey(accessibility: IBLocale.A11y.escapeKey, keycode: 53, text: "esc")
+            quickKey(accessibility: "逗号", text: "，")
+            quickKey(accessibility: "句号", text: "。")
+        }
+    }
+
+    private func quickKey(symbol: String? = nil, accessibility: String,
+                          keycode: UInt16? = nil, text: String? = nil,
+                          prominent: Bool = false) -> some View {
+        Button {
+            if let text {
+                onKey?(KeyEvent(action: .text, keycode: nil, text: text, modifiers: modifierMask))
+            } else if let keycode {
+                onKey?(KeyEvent(action: .down, keycode: keycode, modifiers: modifierMask))
+                onKey?(KeyEvent(action: .up, keycode: keycode, modifiers: modifierMask))
+            }
+        } label: {
+            Group {
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 15, weight: .medium))
+                } else {
+                    Text(text ?? "").font(.system(size: 15, weight: .medium))
+                }
+            }
+            .foregroundStyle(prominent ? .white : .white.opacity(0.8))
+            .frame(minWidth: 44, minHeight: 44)
+            .background {
+                if prominent {
+                    RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous).fill(Color.accentColor)
+                } else {
+                    IBMaterial.bar(in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
+                }
+            }
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.9))
+        .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
+        .accessibilityLabel(Text(accessibility))
     }
 
     private var chipTitle: String {
