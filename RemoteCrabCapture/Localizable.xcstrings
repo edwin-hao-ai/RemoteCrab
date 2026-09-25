@@ -1,6 +1,74 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "App window mirror": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App window mirror"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用窗口镜像"
+          }
+        }
+      }
+    },
+    "This app has no window to show.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app has no window to show."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该应用当前没有可显示的窗口。"
+          }
+        }
+      }
+    },
+    "Turn on Screen Recording for RemoteCrab on your computer, then reopen this mirror.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on Screen Recording for RemoteCrab on your computer, then reopen this mirror."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在电脑上为 RemoteCrab 开启「屏幕录制」权限，然后重新打开镜像。"
+          }
+        }
+      }
+    },
+    "Waiting for your computer…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your computer…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待电脑…"
+          }
+        }
+      }
+    },
     "About": {
       "extractionState": "manual",
       "localizations": {

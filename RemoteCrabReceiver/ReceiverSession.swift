@@ -66,6 +66,13 @@ final class ReceiverSession: ObservableObject {
     /// silence as a dead link (see `startPingLoop`).
     private var lastPongAt: Date?
 
+    /// Mac → iPhone app-screen mirror. nil until the iPhone sends
+    /// `screenControl(.start)`; torn down on `.stop` and on disconnect.
+    private var screenStreamer: ScreenStreamer?
+    /// Last geometry the mirror published, used to translate `screenInput`
+    /// coordinates back to global cursor positions.
+    private var lastScreenInfo: IBScreenInfo?
+
     /// Last file received from the iPhone (menu bar → Show in Finder).
     @Published private(set) var lastReceivedFileURL: URL?
 
@@ -315,6 +322,51 @@ final class ReceiverSession: ObservableObject {
         guard let at = lastWindowListRequestAt,
               Date().timeIntervalSince(at) < 30 else { return }
         publishMacWindows()
+    }
+
+    // MARK: - App screen mirror (Mac → iPhone)
+
+    /// Handle `screenControl` (0x1D): start / stop / select.
+    private func handleScreenControl(_ control: IBScreenControl) {
+        switch control.command {
+        case .start:
+            if screenStreamer == nil {
+                // Capture the live connection so the streamer never has to
+                // know about `ReceiverSession`; frames go out on the same
+                // socket as every other event.
+                let conn = connection
+                let streamer = ScreenStreamer { data in
+                    conn?.send(content: data, completion: .contentProcessed { _ in })
+                }
+                streamer.onInfo = { [weak self] info in
+                    Task { @MainActor in self?.lastScreenInfo = info }
+                }
+                screenStreamer = streamer
+                Self.log.info("screen mirror created")
+            }
+            screenStreamer?.setMaxPixel(control.maxPixel)
+            screenStreamer?.start()
+        case .stop:
+            screenStreamer?.stop()
+            screenStreamer = nil
+            lastScreenInfo = nil
+            Self.log.info("screen mirror stopped")
+        case .select:
+            screenStreamer?.select(windowId: control.windowId ?? "")
+        case .follow:
+            screenStreamer?.follow()
+        }
+    }
+
+    /// Handle `screenInput` (0x1E): absolute clicks / drags / scroll inside
+    /// the mirrored window, translated through the last known geometry.
+    private func handleScreenInput(_ input: IBScreenInput) {
+        guard let info = lastScreenInfo, info.status == .ok else { return }
+        let origin = CGPoint(x: info.originX, y: info.originY)
+        let size = CGSize(width: info.width, height: info.height)
+        // Protocol method (default no-op) so a test injector can record
+        // screen input without a macOS-specific cast.
+        inputInjector.inject(screenInput: input, windowOrigin: origin, windowSize: size)
     }
 
     /// Resolve an app by bundle id, or `pid:<n>` when it has no bundle id.
@@ -1113,6 +1165,9 @@ final class ReceiverSession: ObservableObject {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         featureState = nil
+        screenStreamer?.stop()
+        screenStreamer = nil
+        lastScreenInfo = nil
         connection = nil
         connectedPhoneName = nil
         sessionGranted = false
@@ -1301,6 +1356,14 @@ final class ReceiverSession: ObservableObject {
             case .systemCommand:
                 if let command = try? IBWire.decodeSystemCommand(frame) {
                     SystemCommandHandler.handle(command)
+                }
+            case .screenControl:
+                if let control = try? IBWire.decodeScreenControl(frame) {
+                    handleScreenControl(control)
+                }
+            case .screenInput:
+                if let input = try? IBWire.decodeScreenInput(frame) {
+                    handleScreenInput(input)
                 }
             case .windowListRequest:
                 publishMacWindows()

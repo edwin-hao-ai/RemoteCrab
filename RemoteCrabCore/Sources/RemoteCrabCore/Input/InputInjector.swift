@@ -11,8 +11,25 @@ public protocol InputInjector: AnyObject {
     /// Post a key event (down/up for keycodes, text for IME strings).
     func inject(key: KeyEvent)
 
+    /// Post an absolute direct-manipulation input inside the mirrored
+    /// window (screen mirror). `windowOrigin`/`windowSize` are the
+    /// window frame in Mac screen points; `u`/`v` are normalized `0...1`
+    /// inside the window content.
+    ///
+    /// NOTE: this must be a protocol *requirement*, not just an extension
+    /// method — an extension-only method dispatches statically, so a call
+    /// through `any InputInjector` would silently invoke the no-op default
+    /// instead of `CGEventInjector`'s real implementation.
+    func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize)
+
     /// Last cursor position — tests read this back to verify movement.
     var lastCursor: CGPoint { get }
+}
+
+public extension InputInjector {
+    /// Default no-op so injectors that don't model the mirror still
+    /// conform (e.g. a future test double).
+    func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {}
 }
 
 /// Records every input event for inspection in tests. Lives in
@@ -46,6 +63,23 @@ public final class RecordingInputInjector: InputInjector, @unchecked Sendable {
     public private(set) var keys: [RecordedKey] = []
     public private(set) var lastCursor: CGPoint = .zero
 
+    /// One recorded absolute mirror input, plus the global cursor point it
+    /// resolved to. Lets tests assert the normalized→global mapping.
+    public struct RecordedScreen: Equatable {
+        public let action: IBScreenInput.Action
+        public let u: Float
+        public let v: Float
+        public let cursor: CGPoint
+        public init(action: IBScreenInput.Action, u: Float, v: Float, cursor: CGPoint) {
+            self.action = action
+            self.u = u
+            self.v = v
+            self.cursor = cursor
+        }
+    }
+
+    public private(set) var screens: [RecordedScreen] = []
+
     public init() {}
 
     public func inject(touch: TouchEvent, screenSize: CGSize) {
@@ -57,5 +91,14 @@ public final class RecordingInputInjector: InputInjector, @unchecked Sendable {
 
     public func inject(key: KeyEvent) {
         keys.append(.init(action: key.action, keycode: key.keycode, text: key.text))
+    }
+
+    public func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {
+        let absX = windowOrigin.x + CGFloat(screenInput.u) * windowSize.width
+        let absY = windowOrigin.y + CGFloat(screenInput.v) * windowSize.height
+        lastCursor = CGPoint(x: absX, y: absY)
+        screens.append(.init(action: screenInput.action,
+                             u: screenInput.u, v: screenInput.v,
+                             cursor: lastCursor))
     }
 }

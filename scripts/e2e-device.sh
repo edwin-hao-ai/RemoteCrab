@@ -27,7 +27,7 @@ LOG=/tmp/remotecrab-e2e.log
 
 pass=0; fail=0
 check() { # check <marker> <label>
-  if grep -aq "$1" "$LOG"; then
+  if grep -aq -- "$1" "$LOG"; then
     printf '  \033[32m✓\033[0m %s\n' "$2"; pass=$((pass+1))
   else
     printf '  \033[31m✗\033[0m %s  (missing: %s)\n' "$2" "$1"; fail=$((fail+1))
@@ -65,11 +65,20 @@ env REMOTECRAB_E2E_RECORD=1 /Applications/RemoteCrab.app/Contents/MacOS/RemoteCr
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
-  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit"}' \
+  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
-echo "  waiting 22s for the scripted run…"
-sleep 22
+echo "  waiting 26s for the scripted run…"
+sleep 26
 pkill -f "log stream --predicate" 2>/dev/null
+
+# Best-effort: pull the iPhone's forensic log so we can assert the mirror
+# actually DECODED on the device (not just that the Mac encoded + sent).
+IOS_LOG=/tmp/remotecrab-ios-forensic.log
+rm -f "$IOS_LOG"
+xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
+  --domain-identifier "$BUNDLE_IOS" --source Documents/forensic.log \
+  --destination "$IOS_LOG" >/dev/null 2>&1 || true
+[ -f "$IOS_LOG" ] && cat "$IOS_LOG" >> "$LOG"
 
 echo "[5/5] assertions"
 check "sessionReply: accepted"            "iPhone accepted the Mac (handshake)"
@@ -82,6 +91,12 @@ check "file saved"                        "file saved + Finder revealed"
 check "clipboard received from iPhone"    "clipboard iPhone → Mac"
 check "activated app"                     "app switch (activateApp)"
 check "recording saved"                   "recording written to ~/Movies/RemoteCrab"
+check "screen mirror created"             "screen mirror requested (screenControl.start)"
+check "screenInfo status=ok"              "frontmost window resolved"
+check "streaming window"                  "ScreenCaptureKit stream started"
+check "screen frames sent:"               "mirror frames encoded + sent"
+check "first screen frame decoded OK"     "mirror frame decoded on iPhone"
+check "-> global"                         "mirror input injected on Mac"
 
 echo
 echo "== $pass passed, $fail failed =="

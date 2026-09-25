@@ -220,6 +220,12 @@ frames defined in `RemoteCrabCore/Networking/IBWire.swift`:
 | clipboardSet | `0x13` | **both** | UTF-8 JSON `IBClipboard` `{text}` — replace the peer's clipboard |
 | textCommand | `0x14` | iOS | UTF-8 JSON `IBTextCommandMessage` `{command}` — rewrite the Mac's selection |
 | systemCommand | `0x19` | iOS | UTF-8 JSON `IBSystemCommand` `{command, argument?}` — Mac 系统控制（音量/亮度/媒体键/启动 app）; `0x15`–`0x18` are cameraCommand / quitApp / windowListRequest / windowList |
+| screenVideo | `0x1A` | **Mac** | One H.264 NAL unit of the mirrored app window |
+| screenSPS | `0x1B` | **Mac** | H.264 SPS |
+| screenPPS | `0x1C` | **Mac** | H.264 PPS |
+| screenControl | `0x1D` | iOS | UTF-8 JSON `IBScreenControl` `{command: start/stop/select, windowId?}` |
+| screenInput | `0x1E` | iOS | UTF-8 JSON `IBScreenInput` `{action, u, v, dx, dy, modifiers}` — `u,v` normalized in the window |
+| screenInfo | `0x1F` | **Mac** | UTF-8 JSON `IBScreenInfo` `{status, windowId?, originX/Y, width/height, pixelWidth/Height, showsCursor}` |
 
 The protocol is bidirectional since V0.3: Mac can toggle iPhone
 features and measure latency.
@@ -1576,6 +1582,66 @@ is tracked in the Roadmap section — don't duplicate it here.
     **`xcodegen generate --spec project-ios.yml` is required after adding
     files** — a stale `.xcodeproj` fails with "cannot find type in scope".
 
+64. **App screen mirror (branch `feature/screen-mirror`, 2026-09-25).** The
+    iPhone can mirror the Mac's **frontmost app window** live and interact
+    with it directly. Mac side: `RemoteCrabReceiver/ScreenStreamer.swift` —
+    resolves the frontmost app's frontmost eligible window
+    (`ScreenTargetResolver`, pure), follows `NSWorkspace` activation changes
+    (300 ms debounce), captures with `SCStream` (`desktopIndependentWindow`,
+    Retina scale capped at 2560 px, 1/30, `queueDepth 2`, cursor shown),
+    H.264 hardware-encodes (reuses the camera encoder's session-invalidation
+    fix), and sends `screenSPS/PPS/video` + `screenInfo`. iOS side:
+    `ScreenDecoder.swift` (VTDecompressionSession → `AVSampleBufferDisplayLayer`)
+    + `ScreenShareView.swift` (UIKit gesture overlay: 1-finger tap=absolute
+    click, 1-finger drag=drag, long-press/two-finger tap=right click,
+    2-finger drag=pan-first-then-scroll, pinch=local zoom) driven entirely by
+    the pure `RemoteCrabCore/Screen/ScreenZoomState.swift`. New top-bar
+    `rectangle.on.rectangle` toggle enters the `.screen` surface; touches are
+    mapped to normalized window `(u,v)` so the Mac never learns the phone's
+    zoom/pan state. Window-picker thumbnails were also improved (960 px JPEG
+    @ 0.72, parallel `withTaskGroup` ≤4). **Requires Screen Recording** on the
+    Mac (already requested for thumbnails); `screenInfo.status` reports
+     `permissionDenied` / `noWindow`. E2E:
+    `REMOTECRAB_E2E_SCREEN=1`. 181 tests green + both apps build.
+
+65. **Screen mirror device debugging + polish (2026-09-25).** Three real
+    bugs and a batch of UX gaps, all found/fixed on-device:
+    (a) **Taps did nothing** — `inject(screenInput:...)` was declared only
+    in an `InputInjector` *extension*, so a call on `any InputInjector`
+    dispatched **statically to the no-op default** and `CGEventInjector`
+    was never invoked. A protocol-extension method is NOT dynamically
+    dispatched unless it is a protocol *requirement* — it is now, and
+    `RecordingInputInjector` records it (tested).
+    (b) **Clicks landed in the wrong place** — `SCStreamFrameInfo.contentRect`
+    is in the **window's own coordinate space** (origin `(0,0)` for every
+    app observed), and the code overwrote the window's **global** origin
+    with it, mapping `(u,v)` near the screen corner. The global origin now
+    comes from `CGWindowList` (`refreshTargetFrame`), re-read when the
+    content rect changes and every 1 s; `contentRect` is only a change
+    trigger. Verified on device: window at `(270,136)`, click at
+    `u=v=0.5` → `global 719,360`.
+    (c) **Voice dictation got laggy / dropped words with the mirror on** —
+    the phone was simultaneously camera-encoding 1080p@30, decoding the
+    mirror (~2.6K@30) and running on-device speech recognition (decode was
+    already off the main actor, so it was CPU/GPU contention, not a stall).
+    Mirror cost cut to 1920 long edge / 24 fps / 3 Mbps and
+    `AVSampleBufferDisplayLayer.enqueue` moved off the main actor into the
+    decoder queue.
+    (d) **Polish batch**: mirror modifier bar (`IBModifierBar`, mask on
+    every input + real modifier key down/up), double/triple-click
+    (`IBScreenInput.clickCount` → `mouseEventClickState`), fit/fill toggle +
+    anchored double-tap zoom (`ScreenZoomState.fillsView` /
+    `setZoom(_:anchor:)` / `toggleZoom(at:)`), device-aware pixel cap
+    (`IBScreenControl.maxPixel`: iPad 2560 / iPhone 1920), mirror window
+    picker + **pin** (`.select`/`.follow`; `ScreenStreamer` stops following
+    the frontmost app while pinned), background privacy cover, and a
+    first-use coach mark. Keyboard opened from the mirror is a translucent
+    overlay that returns to the mirror (not the trackpad).
+    **Deferred** (need design/hardware): Apple Pencil passthrough, iPad
+    hardware-keyboard passthrough, auto-keyboard on text-field focus,
+    multi-display mapping, DRM-black detection, motion-adaptive fps.
+    186 tests green + both apps build; base mirror device e2e 16/16.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1605,6 +1671,9 @@ Headless e2e launch envs for the iOS app (via
 - `REMOTECRAB_E2E_TEXT_COMMAND=<command>` — Mac applies a text transform to
   the current selection 10 s after the session is accepted (select text
   in TextEdit first)
+- `REMOTECRAB_E2E_SCREEN=1` — enter the app-window mirror ~3 s after the
+  session is accepted (verifies the Mac capture path from the receiver log;
+  needs Screen Recording granted on the Mac)
 
 Runbook for real-device testing:
 - `./scripts/install-to-iphone.sh` builds + installs + launches

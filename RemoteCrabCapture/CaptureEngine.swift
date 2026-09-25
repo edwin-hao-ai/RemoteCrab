@@ -154,6 +154,61 @@ final class CaptureEngine: ObservableObject {
     /// and mutated by remote FeatureControl frames alike.
     let features = FeatureStore()
 
+    // MARK: - App screen mirror
+
+    /// The app's single screen-mirror display view. Owned by the engine so
+    /// SwiftUI can reparent it without recreating the
+    /// `AVSampleBufferDisplayLayer` (same shared-view pattern as the
+    /// camera preview).
+    let screenDisplayView = ScreenDisplayUIView(frame: .zero)
+
+    /// Live mirror target geometry, pushed by the Mac (`screenInfo`, 0x1F).
+    @Published private(set) var screenInfo: IBScreenInfo?
+    /// Whether `screenControl.start` has been sent for the current link.
+    @Published private(set) var screenActive = false
+    /// The Mac window the user pinned from the mirror's window chip; nil
+    /// means the Mac follows its own frontmost app.
+    @Published private(set) var screenPinnedWindowId: String?
+    /// Set by `ContentView` while the app is backgrounded on the mirror
+    /// surface, so the last mirrored frame is covered instead of leaking
+    /// into the app-switcher snapshot.
+    @Published var privacyCover = false
+
+    /// The phone's preferred long-edge pixel cap for the mirror: an iPad
+    /// has the screen estate (and bandwidth) for a sharper stream.
+    var preferredMaxPixel: Int {
+        UIDevice.current.userInterfaceIdiom == .pad ? 2560 : 1920
+    }
+
+    /// Real Mac windows offered by the mirror's window chip: the current
+    /// app's windows when known (non-empty), otherwise every real window.
+    /// App-level placeholder entries (no `:` in the id) are dropped, and
+    /// the active window sorts first.
+    var screenWindows: [IBWindowInfo] {
+        let real = macWindows.filter { $0.id.contains(":") }
+        let sameApp = screenInfo?.appId.map { appId in real.filter { $0.appId == appId } } ?? []
+        let pool = sameApp.isEmpty ? real : sameApp
+        return pool.sorted { ($0.isActive ? 0 : 1) < ($1.isActive ? 0 : 1) }
+    }
+
+    /// Decodes the Mac→iPhone mirror stream into the display layer. Built
+    /// lazily so the decoder's `onSampleBuffer` can capture `self`.
+    lazy var screenDecoder: ScreenDecoder = {
+        let decoder = ScreenDecoder()
+        // `onSampleBuffer` fires on the decoder's serial queue. Enqueue to
+        // the display layer from there instead of hopping to the main actor
+        // ~24×/s — that main-thread churn competed with voice dictation and
+        // made typing laggy / drop characters. The layer isn't Sendable, so
+        // box it (the decoder queue is serial, so access stays serialized).
+        let layerBox = ScreenSendableBox(value: screenDisplayView.displayLayer)
+        decoder.onSampleBuffer = { sample in
+            let layer = layerBox.value
+            if layer.status == .failed { layer.flush() }
+            layer.enqueue(sample)
+        }
+        return decoder
+    }()
+
     /// Remembers the user's camera choice across launches (a fresh
     /// install still defaults to off). Written ONLY by explicit toggles
     /// via `setCameraEnabled` — automatic offs (backgrounding, disconnect,
@@ -470,6 +525,69 @@ final class CaptureEngine: ObservableObject {
         let text = UIPasteboard.general.string ?? ""
         guard !text.isEmpty else { return }
         broadcaster?.send(IBClipboard(text: text))
+    }
+
+    // MARK: - App screen mirror
+
+    /// Enter the mirror surface and ask the Mac to start streaming its
+    /// frontmost window. Safe to call while disconnected — the surface
+    /// shows a "waiting for your computer" placeholder until the Mac
+    /// sends `screenInfo`.
+    func startScreenMirror() {
+        screenPinnedWindowId = nil
+        if !features.screenOn {
+            features.set(feature: .screen, enabled: true)
+        } else if !screenActive {
+            // Already on, but the link was re-established without the
+            // start frame going out — send it now (with our pixel cap).
+            syncScreen()
+        }
+        features.activeSurface = .screen
+    }
+
+    /// Leave the mirror and ask the Mac to stop streaming.
+    func stopScreenMirror() {
+        screenPinnedWindowId = nil
+        if features.screenOn {
+            features.set(feature: .screen, enabled: false)
+        } else {
+            syncScreen()
+        }
+        screenDecoder.reset()
+        screenInfo = nil
+        screenDisplayView.displayLayer.flushAndRemoveImage()
+        if features.activeSurface == .screen {
+            features.activeSurface = .trackpad
+        }
+    }
+
+    /// Pin the mirror to one specific Mac window (window-chip selection).
+    func selectScreenWindow(id: String) {
+        screenPinnedWindowId = id
+        Forensic.log("[e2e] screen select window \(id)")
+        broadcaster?.send(IBScreenControl(command: .select, windowId: id))
+    }
+
+    /// Resume following the Mac's frontmost app (clear a pin).
+    func followFrontmostScreenWindow() {
+        screenPinnedWindowId = nil
+        Forensic.log("[e2e] screen follow frontmost")
+        broadcaster?.send(IBScreenControl(command: .follow))
+    }
+
+    func toggleScreenMirror() {
+        if features.screenOn {
+            stopScreenMirror()
+        } else {
+            startScreenMirror()
+        }
+    }
+
+    /// Forward one direct-manipulation input to the Mac.
+    func sendScreenInput(_ input: IBScreenInput) {
+        guard connection?.state == .ready else { return }
+        Forensic.log("[e2e] screen input \(input.action.rawValue) u=\(input.u) v=\(input.v)")
+        broadcaster?.send(input)
     }
 
     func startStreaming() async {
@@ -1174,6 +1292,30 @@ final class CaptureEngine: ObservableObject {
             features.set(feature: .camera, enabled: true)
         }
         syncMicrophone(features.micOn && !features.voiceOn)
+        // Resume the mirror if it was on when the link dropped. No-op when
+        // the feature is off or `start` was already sent.
+        syncScreen()
+        // E2E: auto-start the mirror ~3 s after the session is accepted so
+        // the Mac's capture path is verifiable from the receiver log.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SCREEN"] == "1", !features.screenOn {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                self?.startScreenMirror()
+                Forensic.log("[e2e] screen mirror start requested")
+                // Exercise the absolute-input path without a human finger:
+                // a click at the window centre plus a scroll. The Mac logs
+                // each injected input, so the receiver-log assertion proves
+                // the full wire → CGEventPost chain.
+                if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SCREEN_INPUT"] == "1" {
+                    try? await Task.sleep(for: .seconds(5))
+                    self?.sendScreenInput(IBScreenInput(action: .click, u: 0.5, v: 0.5))
+                    Forensic.log("[e2e] screen input click sent")
+                    try? await Task.sleep(for: .milliseconds(400))
+                    self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
+                    Forensic.log("[e2e] screen input scroll sent")
+                }
+            }
+        }
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_INPUT"] == "1" {
             runE2EInputSequence()
         }
@@ -1583,6 +1725,14 @@ final class CaptureEngine: ObservableObject {
         ownerMac = nil
         connectedMacName = nil
         connectedMacId = nil
+        // The mirror can't survive a dropped link. Keep `screenOn` so it
+        // resumes on reconnect (grant() calls syncScreen), but drop the
+        // decoder state + target.
+        screenActive = false
+        screenPinnedWindowId = nil
+        screenInfo = nil
+        screenDecoder.reset()
+        screenDisplayView.displayLayer.flushAndRemoveImage()
     }
 
     /// Release the session when the owner goes silent. The Mac pings
@@ -1672,6 +1822,30 @@ final class CaptureEngine: ObservableObject {
                         }
                     }
                 }
+            case .screenSPS:
+                screenDecoder.feed(IBNalFrame(kind: .sps, data: frame.payload, timestampMicros: 0))
+            case .screenPPS:
+                screenDecoder.feed(IBNalFrame(kind: .pps, data: frame.payload, timestampMicros: 0))
+            case .screenVideo:
+                screenDecoder.feed(IBNalFrame(kind: .video, data: frame.payload, timestampMicros: 0))
+            case .screenInfo:
+                if let info = try? IBWire.decodeScreenInfo(frame) {
+                    let old = screenInfo
+                    // A different window or resolution needs a fresh
+                    // decoder session — SPS/PPS will follow.
+                    let targetChanged = old?.windowId != info.windowId
+                        || old?.pixelWidth != info.pixelWidth
+                        || old?.pixelHeight != info.pixelHeight
+                    screenInfo = info
+                    if targetChanged {
+                        // Reset the decoder so the new window's SPS/PPS
+                        // rebuild it, but DO NOT flush the display layer:
+                        // keeping the previous frame visible avoids a black
+                        // flash while the Mac restarts capture on the new
+                        // window.
+                        screenDecoder.reset()
+                    }
+                }
             case .clipboardSet:
                 if let clip = try? IBWire.decodeClipboard(frame) {
                     UIPasteboard.general.string = clip.text
@@ -1703,6 +1877,31 @@ final class CaptureEngine: ObservableObject {
         wasCameraOn = snapshot.cameraOn
         broadcaster?.send(snapshot)
         syncMicrophone(snapshot.micOn && !snapshot.voiceOn)
+        syncScreen()
+    }
+
+    /// React to `.screen` flipping — from the local top-bar toggle or a
+    /// remote `featureControl` alike. Sends exactly one start/stop per
+    /// actual change; the `screenActive` guard keeps this from re-entering
+    /// the setter (which would loop).
+    private func syncScreen() {
+        guard let broadcaster else {
+            screenActive = false
+            return
+        }
+        let want = features.screenOn
+        guard want != screenActive else { return }
+        screenActive = want
+        Forensic.log("[e2e] syncScreen(\(want))")
+        if want {
+            broadcaster.send(IBScreenControl(command: .start, maxPixel: preferredMaxPixel))
+        } else {
+            screenPinnedWindowId = nil
+            broadcaster.send(IBScreenControl(command: .stop))
+            screenDecoder.reset()
+            screenInfo = nil
+            screenDisplayView.displayLayer.flushAndRemoveImage()
+        }
     }
 
     private func syncMicrophone(_ enabled: Bool) {

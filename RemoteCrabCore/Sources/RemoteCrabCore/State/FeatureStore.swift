@@ -21,6 +21,9 @@ public final class FeatureStore {
     public private(set) var voiceOn = false
     public private(set) var trackpadOn = true
     public private(set) var keyboardOn = true
+    /// Mac app-window mirror. Off by default; turning it on starts the
+    /// Mac-side capture (the engine sends `screenControl.start`).
+    public private(set) var screenOn = false
 
     /// Which physical camera is streaming (front/back).
     public private(set) var cameraPosition: IBCameraPosition = .back
@@ -53,6 +56,8 @@ public final class FeatureStore {
             changed = trackpadOn != enabled; trackpadOn = enabled
         case .keyboard:
             changed = keyboardOn != enabled; keyboardOn = enabled
+        case .screen:
+            changed = screenOn != enabled; screenOn = enabled
         }
         if changed { notify() }
     }
@@ -77,6 +82,7 @@ public final class FeatureStore {
             trackpadOn: trackpadOn,
             keyboardOn: keyboardOn,
             activeSurface: activeSurface,
+            screenOn: screenOn,
             cameraPosition: cameraPosition,
             timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)
         )

@@ -97,6 +97,28 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .ping) { IBWire.encodeFrame(kind: .ping, payload: payload) }
     }
 
+    // MARK: - App screen mirror
+
+    /// Mac → iPhone: one H.264 NAL of the mirrored window.
+    public func sendScreen(frame: IBNalFrame) {
+        send(kind: .screenVideo) { IBWire.encodeScreen(frame: frame) }
+    }
+
+    /// iPhone → Mac: start / stop / select the mirror target.
+    public func send(_ control: IBScreenControl) {
+        send(kind: .screenControl) { try IBWire.encode(screenControl: control) }
+    }
+
+    /// iPhone → Mac: one direct-manipulation input event.
+    public func send(_ input: IBScreenInput) {
+        send(kind: .screenInput) { try IBWire.encode(screenInput: input) }
+    }
+
+    /// Mac → iPhone: current mirror target + geometry.
+    public func send(_ info: IBScreenInfo) {
+        send(kind: .screenInfo) { try IBWire.encode(screenInfo: info) }
+    }
+
     private func send(kind: IBWire.Kind, _ encode: () throws -> Data) {
         guard connection.state == .ready else { return }
         do {
