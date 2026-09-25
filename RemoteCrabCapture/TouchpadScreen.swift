@@ -62,48 +62,6 @@ struct TouchpadScreen: View {
     }
 
     /// A one-shot key (down + up) carrying any locked modifiers.
-    private func sendKeyTap(_ keycode: UInt16) {
-        let mask = modifierMask
-        engine.sendKey(KeyEvent(action: .down, keycode: keycode, modifiers: mask))
-        engine.sendKey(KeyEvent(action: .up, keycode: keycode, modifiers: mask))
-    }
-
-    /// A compact key button styled like the modifier bar (comma, period,
-    /// delete, return — the keys you reach for while navigating).
-    /// `prominent` fills the key with the accent color (used for ⏎).
-    private func quickKey(text: String? = nil, symbol: String? = nil, accessibility: String, keycode: UInt16, prominent: Bool = false) -> some View {
-        Button {
-            sendKeyTap(keycode)
-        } label: {
-            Group {
-                if let symbol {
-                    Image(systemName: symbol).font(.system(size: 18, weight: .medium))
-                } else {
-                    Text(text ?? "").font(.system(size: 17, weight: .medium))
-                }
-            }
-            .frame(width: 48, height: 48)
-            .foregroundStyle(prominent ? .white : IBColor.textPrimary)
-            .background {
-                if prominent {
-                    RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous)
-                        .fill(Color.accentColor)
-                } else {
-                    IBMaterial.glass(
-                        in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
-                        tint: IBColor.accent,
-                        interactive: true
-                    )
-                }
-            }
-            // On the LABEL: a custom ButtonStyle hit-tests the label's
-            // content shape, not the outer button bounds.
-            .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
-        }
-        .buttonStyle(IBPressButtonStyle())
-        .accessibilityLabel(accessibility)
-    }
-
     var body: some View {
         ZStack {
             // Subtle background — dark with a hint of color, so the
@@ -202,36 +160,15 @@ struct TouchpadScreen: View {
                         .padding(.bottom, IBSpace.s.pt)
                 }
                 // One horizontally-scrollable key row: the modifiers
-                // (leftmost, needed for trackpad gestures) then the
-                // common typing keys. A single row instead of two keeps
-                // the touch surface clear. "Hold to talk" is deliberately
-                // NOT here — it stays a fixed, easy-to-reach control.
-                // The context chip is pinned OUTSIDE the ScrollView so it
-                // never scrolls away.
-                HStack(spacing: IBSpace.s.pt) {
-                    contextChip
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: IBSpace.s.pt) {
-                            // ⏎/⌫ lead the row: after voice dictation the
-                            // next reach is always "edit" or "send".
-                            quickKey(symbol: "return", accessibility: IBLocale.A11y.returnKey, keycode: 36, prominent: true)
-                            quickKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
-                            // esc sits right after ⏎/⌫ — the quickest way
-                            // to cancel a dialog, menu or search field.
-                            quickKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
-                            Rectangle()
-                                .fill(IBColor.borderSubtle)
-                                .frame(width: 1, height: 28)
-                            IBModifierBar(activeModifiers: $modifiers,
-                                          onModifierKey: { code, down in
-                                              engine.sendKey(KeyEvent(action: down ? .down : .up, keycode: code))
-                                          })
-                            quickKey(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
-                            quickKey(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
-                        }
-                        .padding(.horizontal, 2)
-                    }
-                }
+                // Shared with the app-window mirror (IBShortcutBar): pinned
+                // context chip + ONE horizontally-scrollable key row.
+                IBShortcutBar(activeModifiers: $modifiers,
+                              contextTitle: engine.frontmostMacApp?.name ?? "Computer",
+                              onContext: { engine.showContextSheet = true },
+                              onKey: { engine.sendKey($0) },
+                              onModifierKey: { code, down in
+                                  engine.sendKey(KeyEvent(action: down ? .down : .up, keycode: code))
+                              })
                 .padding(.bottom, dockClearance)
             }
             .padding(.horizontal, IBSpace.xl.pt)
@@ -299,35 +236,6 @@ struct TouchpadScreen: View {
     }
 
     // MARK: - Cursor preview
-
-    /// Frontmost-app context chip, pinned left of the key row. Opens
-    /// the context sheet (Task 7). Data: engine.frontmostMacApp.
-    private var contextChip: some View {
-        Button {
-            engine.showContextSheet = true
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(engine.frontmostMacApp?.name ?? "Computer")
-                    .font(IBFont.caption.weight(.semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 12)
-            .frame(height: 48)
-            .background {
-                IBMaterial.glass(
-                    in: RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous),
-                    tint: IBColor.accent,
-                    interactive: true
-                )
-            }
-            .contentShape(RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous))
-        }
-        .buttonStyle(IBPressButtonStyle(scale: 0.9))
-        .accessibilityLabel(IBLocale.Context.open)
-    }
 
     /// Live cursor preview. While a finger is down the dot follows it
     /// with a fading motion trail; on lift the dot springs back to

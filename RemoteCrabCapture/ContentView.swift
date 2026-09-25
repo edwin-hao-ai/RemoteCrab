@@ -492,6 +492,7 @@ struct ContentView: View {
                                                         text: nil))
                             },
                             onKey: { engine.sendKey($0) },
+                            onOpenContext: { engine.showContextSheet = true },
                             windows: engine.screenWindows,
                             pinnedWindowId: engine.screenPinnedWindowId,
                             onSelectWindow: { engine.selectScreenWindow(id: $0) },
