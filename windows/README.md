@@ -5,8 +5,9 @@ existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
 Status: **P2 — video preview, audio, trackpad, keyboard, clipboard, file
-transfer, system keys and the app switcher all work.** Not yet implemented:
-window-list thumbnails, virtual camera/microphone, tray UI (see
+transfer, system keys, the app switcher (list + activate/quit) and live
+feature control all work.** Not yet implemented: window-list thumbnails,
+virtual camera/microphone, tray UI, recording (see
 `docs/WINDOWS_PORT_PLAN.md`).
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
@@ -127,6 +128,27 @@ Other flags:
 > On first run Windows may show the usual "Unknown publisher" prompt (the
 > binary isn't code-signed yet); this is expected in development.
 
+### Live feature control (console commands)
+
+While the receiver is running, type a command and press Enter — the same
+toggles the Mac exposes in its menu bar:
+
+| Command | Effect |
+|---|---|
+| `camera` / `camera on` / `camera off` | Toggle / set the iPhone camera stream |
+| `mic [on\|off]` | Toggle / set the iPhone microphone |
+| `voice [on\|off]` | Toggle / set the iPhone hold-to-talk voice |
+| `trackpad [on\|off]` | Toggle / set the trackpad surface |
+| `keyboard [on\|off]` | Toggle / set the keyboard surface |
+| `switch-camera` | Flip between the front and back iPhone camera |
+| `help` | List the commands |
+| `quit` | Shut down (same as Ctrl-C) |
+
+The iPhone's **app switcher** also works in both directions: the list shows
+this PC's running apps, and tapping one brings it to the front (holding /
+using the quit action terminates it). `--no-input` suppresses both, like it
+does for cursor and keyboard injection.
+
 ---
 
 ## Layout
@@ -179,7 +201,7 @@ Two Windows-specific caveats:
 | Phase | Contents |
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
-| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, app switcher, system keys, selection rewrite |
+| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, app switcher (list + activate/quit), system keys, selection rewrite, live feature control |
 | P3 | window-list thumbnails, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).

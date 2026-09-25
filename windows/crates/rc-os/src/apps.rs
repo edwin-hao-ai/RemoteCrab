@@ -7,7 +7,8 @@ use rc_protocol::{AppInfo, AppList};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, MAX_PATH};
 use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+    OpenProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
@@ -64,6 +65,36 @@ pub fn activate_pid(pid: u32) -> bool {
         }
     } else {
         false
+    }
+}
+
+/// Parse an `AppInfo.id` (`pid:<n>`) back to the process id it names.
+pub fn pid_from_id(id: &str) -> Option<u32> {
+    id.strip_prefix("pid:")?.parse().ok()
+}
+
+/// Bring the app named by an `AppInfo.id` (`pid:<n>`) to the front. This is
+/// how the iPhone's app switcher (`activateApp`, kind `0x0E`) takes effect.
+pub fn activate_id(id: &str) -> bool {
+    pid_from_id(id).is_some_and(activate_pid)
+}
+
+/// Terminate the process named by an `AppInfo.id` (`pid:<n>`), for the
+/// iPhone's "quit" action (`quitApp`, kind `0x16`). Windows has no graceful
+/// close request here, so the process is terminated (`force` is accepted for
+/// protocol parity but does not change the behaviour).
+pub fn quit_id(id: &str, force: bool) -> bool {
+    let _ = force;
+    let Some(pid) = pid_from_id(id) else {
+        return false;
+    };
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) else {
+            return false;
+        };
+        let ok = TerminateProcess(handle, 1).as_bool();
+        let _ = CloseHandle(handle);
+        ok
     }
 }
 

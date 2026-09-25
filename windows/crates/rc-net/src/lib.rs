@@ -17,11 +17,12 @@ use std::time::Duration;
 
 use rc_discovery::{DiscoveredPhone, DiscoveryEvent};
 use rc_protocol::{
-    decode_audio, decode_clipboard, decode_feature_state, decode_file_complete, decode_file_offer,
-    decode_key, decode_metadata, decode_session_reply, decode_system_command, decode_text_command,
-    decode_touch, encode_client_hello, encode_feature_control, encode_ping, encode_camera_command,
-    ClientHello, Feature, FeatureControl, FeatureStateSnapshot, Frame, Kind, NalFrame, NalKind,
-    Parser, SessionReplyResult, StreamMetadata, TouchEvent,
+    decode_activate_app, decode_audio, decode_clipboard, decode_feature_state, decode_file_complete,
+    decode_file_offer, decode_key, decode_metadata, decode_quit_app, decode_session_reply,
+    decode_system_command, decode_text_command, decode_touch, encode_client_hello,
+    encode_feature_control, encode_ping, encode_camera_command, ActivateApp, ClientHello, Feature,
+    FeatureControl, FeatureStateSnapshot, Frame, Kind, NalFrame, NalKind, Parser, QuitApp,
+    SessionReplyResult, StreamMetadata, TouchEvent,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -117,6 +118,12 @@ pub enum Event {
     Clipboard(rc_protocol::Clipboard),
     TextCommand(rc_protocol::TextCommandMessage),
     SystemCommand(rc_protocol::SystemCommand),
+    /// The iPhone's app switcher wants an app brought to the front (kind
+    /// `0x0E`). The app layer resolves the `pid:` id and calls
+    /// `rc_os::apps::activate_id`.
+    ActivateApp(ActivateApp),
+    /// The iPhone asked for an app to quit (kind `0x16`).
+    QuitApp(QuitApp),
     Latency(i64),
 }
 
@@ -932,6 +939,16 @@ fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>) {
                 emit(events_tx, Event::SystemCommand(c));
             }
         }
+        Kind::ActivateApp => {
+            if let Ok(a) = decode_activate_app(frame) {
+                emit(events_tx, Event::ActivateApp(a));
+            }
+        }
+        Kind::QuitApp => {
+            if let Ok(q) = decode_quit_app(frame) {
+                emit(events_tx, Event::QuitApp(q));
+            }
+        }
         Kind::AppListRequest => {
             // The iPhone wants a fresh app list; the app layer answers.
             emit(events_tx, Event::AppListRequested);
@@ -981,3 +998,51 @@ fn now_micros() -> u64 {
 }
 
 
+#[cfg(test)]
+mod dispatch_tests {
+    //! Regression: `activateApp` (0x0E) and `quitApp` (0x16) used to fall
+    //! through `dispatch_frame`'s catch-all, so the iPhone's app switcher
+    //! silently did nothing on Windows.
+    use super::*;
+    use rc_protocol::{encode_activate_app, encode_quit_app, ActivateApp, QuitApp};
+
+    fn parse_one(bytes: Vec<u8>) -> Frame {
+        let mut parser = Parser::new();
+        let mut frames = parser.append(&bytes);
+        assert_eq!(frames.len(), 1, "expected exactly one frame");
+        frames.remove(0)
+    }
+
+    #[test]
+    fn activate_app_is_dispatched_not_dropped() {
+        let bytes = encode_activate_app(&ActivateApp {
+            id: "pid:42".to_string(),
+            window_title: None,
+        })
+        .unwrap();
+        let (tx, mut rx) = broadcast::channel(16);
+        dispatch_frame(&parse_one(bytes), &tx);
+        match rx.try_recv() {
+            Ok(Event::ActivateApp(a)) => assert_eq!(a.id, "pid:42"),
+            other => panic!("expected ActivateApp, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn quit_app_is_dispatched_not_dropped() {
+        let bytes = encode_quit_app(&QuitApp {
+            id: "pid:7".to_string(),
+            force: true,
+        })
+        .unwrap();
+        let (tx, mut rx) = broadcast::channel(16);
+        dispatch_frame(&parse_one(bytes), &tx);
+        match rx.try_recv() {
+            Ok(Event::QuitApp(q)) => {
+                assert_eq!(q.id, "pid:7");
+                assert!(q.force);
+            }
+            other => panic!("expected QuitApp, got {other:?}"),
+        }
+    }
+}

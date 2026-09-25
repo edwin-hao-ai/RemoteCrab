@@ -77,8 +77,81 @@ fn print_help() {
          \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
          \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
          \n\
+         While running, type these console commands (then Enter):\n\
+         \x20 camera [on|off]  mic [on|off]  voice [on|off]  trackpad [on|off]\n\
+         \x20 keyboard [on|off]  switch-camera  help  quit\n\
+         \n\
          Run the RemoteCrab iOS app first; both devices must share the same WiFi."
     );
+}
+
+/// Read stdin on a background thread and forward each non-empty line over a
+/// channel, so the main `tokio::select!` can accept console commands without
+/// blocking. The thread exits on EOF (e.g. when stdin is a pipe).
+fn spawn_console_reader() -> tokio::sync::mpsc::UnboundedReceiver<String> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let stdin = std::io::stdin();
+        for line in stdin.lock().lines() {
+            let Ok(line) = line else { break };
+            let line = line.trim().to_string();
+            if !line.is_empty() && tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    rx
+}
+
+fn print_console_help() {
+    println!(
+        "  commands: camera [on|off] · mic [on|off] · voice [on|off] · \
+         trackpad [on|off] · keyboard [on|off] · switch-camera · help · quit"
+    );
+}
+
+/// Apply one console command: toggle (or explicitly set) an iPhone feature,
+/// flip the camera, print help, or request shutdown.
+fn handle_console_command(
+    line: &str,
+    session: &Session,
+    last_features: &mut Option<rc_protocol::FeatureStateSnapshot>,
+    quit_requested: &mut bool,
+) {
+    let mut parts = line.split_whitespace();
+    let Some(cmd) = parts.next() else { return };
+    let want = match parts.next() {
+        None => None,
+        Some("on") | Some("1") | Some("true") => Some(true),
+        Some("off") | Some("0") | Some("false") => Some(false),
+        Some(other) => {
+            println!("  unknown state '{other}' (use on/off)");
+            return;
+        }
+    };
+    let feature = |which: rc_protocol::Feature, cur: bool, name: &str| {
+        let on = want.unwrap_or(!cur);
+        session.set_feature(which, on);
+        println!("  → {name} {}", if on { "on" } else { "off" });
+    };
+    let get = |pick: fn(&rc_protocol::FeatureStateSnapshot) -> bool| -> bool {
+        last_features.as_ref().map(pick).unwrap_or(false)
+    };
+    match cmd {
+        "camera" => feature(rc_protocol::Feature::Camera, get(|f| f.camera_on), "camera"),
+        "mic" | "microphone" => feature(rc_protocol::Feature::Microphone, get(|f| f.mic_on), "mic"),
+        "voice" => feature(rc_protocol::Feature::Voice, get(|f| f.voice_on), "voice"),
+        "trackpad" => feature(rc_protocol::Feature::Trackpad, get(|f| f.trackpad_on), "trackpad"),
+        "keyboard" => feature(rc_protocol::Feature::Keyboard, get(|f| f.keyboard_on), "keyboard"),
+        "switch-camera" | "flip-camera" => {
+            session.switch_camera();
+            println!("  → switching camera");
+        }
+        "help" | "?" => print_console_help(),
+        "quit" | "exit" => *quit_requested = true,
+        other => println!("  unknown command '{other}' — type `help`"),
+    }
 }
 
 #[tokio::main]
@@ -175,6 +248,14 @@ async fn main() -> ExitCode {
     // actually changes.
     let mut stuck_owner: Option<String> = None;
     let mut last_spike_report = std::time::Instant::now();
+
+    // Console feature control: the receiver can toggle the iPhone's camera /
+    // mic / voice / surfaces the same way the Mac menu bar does.
+    let mut console_rx = spawn_console_reader();
+    let mut console_alive = true;
+    let mut last_features: Option<rc_protocol::FeatureStateSnapshot> = None;
+    let mut quit_requested = false;
+    println!("Type `help` for live iPhone feature commands.");
 
     loop {
         tokio::select! {
@@ -352,6 +433,37 @@ async fn main() -> ExitCode {
                         let list = rc_protocol::AppList { apps: vec![] };
                         session.send_frame(encode_app_list(&list).unwrap_or_default());
                     }
+                    Event::ActivateApp(a) => {
+                        #[cfg(windows)]
+                        {
+                            if args.no_input {
+                                println!("  app switch ignored (--no-input)");
+                            } else if rc_os::apps::activate_id(&a.id) {
+                                println!("  activated app {}", a.id);
+                            } else {
+                                println!("  app switch failed: {}", a.id);
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &a;
+                    }
+                    Event::QuitApp(q) => {
+                        #[cfg(windows)]
+                        {
+                            if args.no_input {
+                                println!("  app quit ignored (--no-input)");
+                            } else if rc_os::apps::quit_id(&q.id, q.force) {
+                                println!("  quit app {}", q.id);
+                            } else {
+                                println!("  app quit failed: {}", q.id);
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &q;
+                    }
+                    Event::FeatureState(s) => {
+                        last_features = Some(s);
+                    }
                     Event::State(_) => {}
                     _ => {}
                 }
@@ -359,6 +471,20 @@ async fn main() -> ExitCode {
             _ = tokio::signal::ctrl_c() => {
                 println!("\nShutting down…");
                 break;
+            }
+            line = console_rx.recv(), if console_alive => {
+                match line {
+                    Some(l) => {
+                        handle_console_command(&l, &session, &mut last_features, &mut quit_requested);
+                        if quit_requested {
+                            println!("\nShutting down…");
+                            break;
+                        }
+                    }
+                    // The reader thread hit EOF (stdin was a pipe) — stop
+                    // polling a closed channel or `select!` would spin.
+                    None => console_alive = false,
+                }
             }
         }
     }
