@@ -22,11 +22,15 @@ final class H264Decoder: @unchecked Sendable {
     private var sps: Data?
     private var pps: Data?
     private let queue = DispatchQueue(label: "com.remotecrab.h264-decoder")
-    /// When VideoToolbox reports a session malfunction (`-12909`) we tear
-    /// the session down and rebuild it from the cached SPS/PPS. The video
-    /// stream is driving a live preview, so we throttle rebuilds and give
-    /// up for a moment if it keeps failing rather than spinning.
-    private var lastSessionRebuildAt = Date.distantPast
+    /// Decides which NAL units are valid samples and drops P-slices until
+    /// the first keyframe (the iPhone stream's leading non-IDR frame used
+    /// to trip -12909). Only touched on `queue`.
+    private var frameGate = H264FrameGate()
+    /// Set off-queue by the decode callback when VideoToolbox reports a
+    /// dead session; consumed on `queue` (see `markNeedsRebuild`). The
+    /// rebuild itself must NOT run inside the callback —
+    /// `VTDecompressionSessionInvalidate` deadlocks there.
+    private var needsRebuild = false
     private var malfunctionCount = 0
 
     init() {}
@@ -41,15 +45,17 @@ final class H264Decoder: @unchecked Sendable {
 
     func feedSPS(_ data: Data) {
         queue.async { [weak self] in
-            self?.sps = data
-            self?.tryCreateSession()
+            guard let self, self.sps != data else { return }
+            self.sps = data
+            self.tryCreateSession()
         }
     }
 
     func feedPPS(_ data: Data) {
         queue.async { [weak self] in
-            self?.pps = data
-            self?.tryCreateSession()
+            guard let self, self.pps != data else { return }
+            self.pps = data
+            self.tryCreateSession()
         }
     }
 
@@ -132,6 +138,24 @@ final class H264Decoder: @unchecked Sendable {
     // MARK: - Decode
 
     private func decode(data: Data) {
+        guard let nalHeader = data.first else { return }
+
+        // Run a pending rebuild here, on the decoder queue — never inside
+        // the VideoToolbox callback (see `markNeedsRebuild`).
+        if needsRebuild {
+            needsRebuild = false
+            rebuildSession()
+        }
+
+        // Only VCL slices are valid samples, and a P-slice can't precede
+        // the first keyframe (see `H264FrameGate`).
+        switch frameGate.classify(nalHeader: nalHeader) {
+        case .decode:
+            break
+        case .dropNonVCL, .dropBeforeKeyframe:
+            return
+        }
+
         guard let session, let formatDescription else { return }
 
         // The wire carries a raw NAL unit (the iOS encoder strips the
@@ -212,10 +236,11 @@ final class H264Decoder: @unchecked Sendable {
                     let head = data.prefix(8).map { String(format: "%02x", $0) }.joined()
                     Self.log.error("decode callback error: \(status) nalType=\(data.first.map { $0 & 0x1F } ?? 0, privacy: .public) len=\(data.count, privacy: .public) head=\(head, privacy: .public)")
                     // -12909 (kVTVideoDecoderMalfunctionErr): the session is
-                    // dead. It arrives as a burst at stream start and would
-                    // otherwise leave the preview/recording black forever.
+                    // dead. We cannot invalidate it here — doing so from
+                    // inside the callback deadlocks — so hand it to the
+                    // decoder queue.
                     if status == -12909 {
-                        self?.handleMalfunction()
+                        self?.markNeedsRebuild()
                     }
                 }
                 return
@@ -225,17 +250,27 @@ final class H264Decoder: @unchecked Sendable {
 
         if decodeStatus != noErr {
             Self.log.error("decode frame failed: \(decodeStatus) (nal \(data.count, privacy: .public) bytes)")
-            if decodeStatus == -12909 { handleMalfunction() }
+            if decodeStatus == -12909 { markNeedsRebuild() }
         }
     }
 
-    /// Rebuild the decoder session after a `kVTVideoDecoderMalfunctionErr`
-    /// (`-12909`). Throttled to once per second and bounded to 5 rapid
-    /// attempts, so a genuinely undecodable stream can't spin the CPU.
-    private func handleMalfunction() {
-        let now = Date()
-        guard now.timeIntervalSince(lastSessionRebuildAt) > 1.0 else { return }
-        lastSessionRebuildAt = now
+    /// Called off-queue (from the VideoToolbox decode callback) when the
+    /// session reports `kVTVideoDecoderMalfunctionErr`. It only records the
+    /// request; the actual teardown/rebuild runs on `queue` because
+    /// `VTDecompressionSessionInvalidate` deadlocks if invoked from within
+    /// a decode callback.
+    private func markNeedsRebuild() {
+        queue.async { [weak self] in
+            self?.needsRebuild = true
+            self?.frameGate.reset()
+        }
+    }
+
+    /// Rebuild the decoder session from the cached SPS/PPS. Runs on
+    /// `queue`. Bounded to 5 consecutive attempts so a genuinely
+    /// undecodable stream can't spin (a successful create resets the
+    /// count).
+    private func rebuildSession() {
         malfunctionCount += 1
         guard malfunctionCount <= 5 else {
             Self.log.error("decoder malfunction persisted — giving up on this stream")

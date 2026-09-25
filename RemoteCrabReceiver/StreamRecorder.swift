@@ -116,26 +116,41 @@ final class StreamRecorder {
             writer = nil
             return
         }
+        // Capture into locals: the properties are cleared below, so the
+        // async completion can't read them back.
+        let writer = self.writer
+        let finishedURL = self.outputURL
         lastRecordingURL = outputURL
-        let finished = outputURL
+
         writer?.finishWriting { [weak self] in
             guard self != nil else { return }
-            Self.log.info("recording saved: \(finished?.path ?? "-", privacy: .public)")
-            if let url = finished {
+            if writer?.status == .completed, let finished = finishedURL {
+                Self.log.info("recording saved: \(finished.path, privacy: .public)")
                 Task { @MainActor in
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                    NSWorkspace.shared.activateFileViewerSelecting([finished])
                 }
+            } else {
+                Self.log.error("recording failed: status=\(writer?.status.rawValue ?? -1, privacy: .public) error=\(writer?.error?.localizedDescription ?? "-", privacy: .public)")
             }
         }
-        writer = nil
+        self.writer = nil
         videoInput = nil
         audioInput = nil
         pixelBufferAdaptor = nil
     }
 
     private func ensureWriter(width: Int, height: Int) {
-        guard writer == nil, let url = outputURL,
-              let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return }
+        guard writer == nil, let url = outputURL else { return }
+        let writer: AVAssetWriter
+        do {
+            writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        } catch {
+            // Silent-failure guard (AGENTS): never swallow this — a failed
+            // writer creation means every later append is a no-op and the
+            // recording vanishes with no trace.
+            Self.log.error("recorder: AVAssetWriter create failed for \(url.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return
+        }
 
         let videoSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
@@ -144,7 +159,10 @@ final class StreamRecorder {
         ]
         let vInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         vInput.expectsMediaDataInRealTime = true
-        guard writer.canAdd(vInput) else { return }
+        guard writer.canAdd(vInput) else {
+            Self.log.error("recorder: cannot add video input (\(width, privacy: .public)x\(height, privacy: .public))")
+            return
+        }
         writer.add(vInput)
 
         let audioSettings: [String: Any] = [
@@ -165,6 +183,7 @@ final class StreamRecorder {
 
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
+        Self.log.info("recorder: writer started \(width, privacy: .public)x\(height, privacy: .public) at \(url.lastPathComponent, privacy: .public)")
         self.writer = writer
         self.videoInput = vInput
         self.audioInput = aInput
