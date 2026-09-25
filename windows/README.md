@@ -4,12 +4,12 @@ A Windows receiver for RemoteCrab. It speaks the **same wire protocol** the
 existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
-Status: **P1 — video preview + trackpad + keyboard work.** Not yet
-implemented: audio playback, file transfer, clipboard, app switcher, virtual
-camera/microphone (see `docs/WINDOWS_PORT_PLAN.md`).
+Status: **P1 — video preview + audio + trackpad + keyboard work.** Not yet
+implemented: file transfer, clipboard, app switcher, virtual camera/microphone
+(see `docs/WINDOWS_PORT_PLAN.md`).
 
-Video is decoded in Rust with bundled **OpenH264** (no system FFmpeg, no
-Media Foundation) and shown in a window.
+Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
+**Opus** decoder + **cpal/WASAPI** — no system FFmpeg, no CMake, no FFI.
 
 ---
 
@@ -50,6 +50,20 @@ PREVIEW SELF-TEST PASSED — video decodes and renders.
 A window opens and shows a moving test pattern — that is the same decode
 path your iPhone's stream uses.
 
+And for audio:
+
+```powershell
+cargo run -p rc-app -- --audio-selftest
+```
+
+Expected:
+
+```
+decoded 28800 samples (peak 4151, mean |x| 2576)
+queued 30 packets, 22080 samples buffered, level 0.088
+AUDIO SELF-TEST PASSED — Opus decodes and the player is fed.
+```
+
 ## Try it with your iPhone
 
 1. On the iPhone, open **RemoteCrab** and start streaming (same WiFi as the PC).
@@ -69,12 +83,30 @@ path your iPhone's stream uses.
    Turn the camera on with the iPhone's top-bar camera button — it's off by
    default.
 
-If discovery fails (hotspot / VPN / guest WiFi block mDNS), connect by IP —
-the iPhone shows its address on its Connection screen:
+### When discovery finds nothing
 
-```powershell
-cargo run -p rc-app --release -- --connect 192.168.1.5:8765
-```
+mDNS is blocked on some networks. Try, in order:
+
+1. **Just wait / restart the app.** The receiver automatically falls back to
+   (a) the last address that worked, (b) the iPhone-hotspot gateway, then
+   (c) **a sweep of your own /24 for anything on port 8765** — no manual IP
+   needed in most blocked-mDNS cases.
+2. **Diagnose the network:**
+
+   ```powershell
+   cargo run -p rc-app -- --scan
+   ```
+
+   If this finds nothing *and* the iPhone app is open + streaming, the router
+   has **AP isolation** on (clients can't see each other) — turn off
+   "AP isolation / wireless isolation" in its settings. Nothing in code can
+   defeat AP isolation.
+3. **Last resort — connect by IP** (the iPhone shows its address on its
+   Connection screen):
+
+   ```powershell
+   cargo run -p rc-app --release -- --connect 192.168.1.5:8765
+   ```
 
 Other flags:
 
@@ -84,8 +116,11 @@ Other flags:
 | `--no-input` | Observe only — do **not** drive the PC cursor/keyboard |
 | `--no-preview` | Console status only (no video window) |
 | `--list` | Print discovered iPhones and keep running |
+| `--unmute` | Play the iPhone mic on this PC's speakers (muted by default) |
 | `--selftest` | Fake iPhone on localhost; verify the pipeline |
 | `--preview-selftest` | Fake **H.264** stream; verify decode + the window |
+| `--audio-selftest` | Decode the embedded Opus tone; verify audio |
+| `--scan` | Sweep this PC's /24 for an iPhone on port 8765 |
 | `--help` | Usage |
 
 > On first run Windows may show the usual "Unknown publisher" prompt (the
@@ -103,8 +138,9 @@ windows/
 │   ├── rc-net/        TCP session: handshake, ping watchdog, reconnect, tokens
 │   ├── rc-input/      SendInput injection + CGKeyCode→VK mapping
 │   ├── rc-render/     H.264 decode (OpenH264) + the preview window
+│   ├── rc-audio/      Opus decode (pure Rust) + cpal/WASAPI playback
 │   ├── rc-testkit/    a fake iPhone for end-to-end tests
-│   └── rc-app/        the `remotecrab` binary (CLI + status + preview)
+│   └── rc-app/        the `remotecrab` binary (CLI + status + preview + audio)
 └── README.md
 ```
 
@@ -112,7 +148,7 @@ windows/
 
 ```powershell
 cd E:\RemoteCrab\windows
-cargo test                                  # 72 tests
+cargo test                                  # 86 tests
 cargo clippy --all-targets -- -D warnings   # clean
 ```
 

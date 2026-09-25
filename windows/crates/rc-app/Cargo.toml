@@ -15,6 +15,7 @@ rc-discovery.workspace = true
 rc-net.workspace = true
 rc-input.workspace = true
 rc-render.workspace = true
+rc-audio.workspace = true
 # Used by `--selftest` (a fake iPhone on localhost), so it's a real dep.
 rc-testkit.workspace = true
 serde_json.workspace = true

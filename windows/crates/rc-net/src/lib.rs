@@ -211,6 +211,9 @@ enum Command {
 
 #[derive(Debug)]
 enum ConnMsg {
+    /// Emitted once the handshake is accepted, so the supervisor can
+    /// remember the working address for the direct-IP fast path.
+    Connected { host: String },
     End(ConnEndKind),
 }
 
@@ -400,6 +403,9 @@ async fn supervisor(
                     }
                 }
             }
+            Action::Conn(ConnMsg::Connected { host }) => {
+                tokens.set_last_phone_host(&host);
+            }
             Action::Conn(ConnMsg::End(kind)) => {
                 active = None;
                 match kind {
@@ -455,39 +461,65 @@ async fn supervisor(
             }
             Action::FallbackTick => {
                 if active.is_none() && !suppress_auto && discovered.is_empty() {
-                    // Direct-IP fallback: probe the last known address and the
-                    // iPhone-hotspot gateway.
+                    // Direct-IP fallback, in order of cost:
+                    //   1. the last address we successfully connected to
+                    //   2. the iPhone-hotspot gateway (172.20.10.1)
+                    //   3. a /24 sweep of our own subnet for anything on 8765
+                    // (3) is what makes this work on guest WiFi / mesh APs
+                    // where mDNS multicast is silently dropped. It cannot
+                    // defeat true AP isolation — nothing can.
                     let mut candidates: Vec<String> = Vec::new();
                     if let Some(h) = tokens.last_phone_host() {
                         candidates.push(h);
                     }
                     candidates.push(rc_discovery::HOTSPOT_GATEWAY.to_string());
 
-                    for host in candidates {
+                    let mut hit: Option<String> = None;
+                    for host in &candidates {
                         if rc_discovery::probe_tcp(
-                            &host,
+                            host,
                             config.default_port,
                             Duration::from_millis(2500),
                         )
                         .await
                         {
-                            target = Some(Target::Manual {
-                                host: host.clone(),
-                                port: config.default_port,
-                                name: format!("iPhone ({host})"),
-                            });
-                            start_connection(
-                                &config,
-                                &mut tokens,
-                                &events_tx,
-                                &state_tx,
-                                &mut active,
-                                &mut conn_rx,
-                                &mut conn_keepalive,
-                                target.clone().unwrap(),
-                            );
+                            hit = Some(host.clone());
                             break;
                         }
+                    }
+
+                    if hit.is_none() {
+                        for ip in rc_discovery::local_ipv4_addresses() {
+                            let found = rc_discovery::scan_subnet_for_port(
+                                &ip,
+                                config.default_port,
+                                Duration::from_millis(250),
+                                128,
+                            )
+                            .await;
+                            if let Some(host) = found.into_iter().next() {
+                                hit = Some(host);
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(host) = hit {
+                        target = Some(Target::Manual {
+                            host: host.clone(),
+                            port: config.default_port,
+                            name: format!("iPhone ({host})"),
+                        });
+                        start_connection(
+                            &config,
+                            &mut tokens,
+                            &events_tx,
+                            &state_tx,
+                            &mut active,
+                            &mut conn_rx,
+                            &mut conn_keepalive,
+                            target.clone().unwrap(),
+                        );
                     }
                 }
             }
@@ -563,7 +595,7 @@ fn start_connection(
 
     tokio::spawn(async move {
         let kind = run_connection(
-            config, target, token, pc_id, pc_name, out_rx, &events_tx, &state_tx,
+            config, target, token, pc_id, pc_name, out_rx, &events_tx, &state_tx, &msg_tx,
         )
         .await;
         let _ = msg_tx.send(ConnMsg::End(kind));
@@ -580,6 +612,7 @@ async fn run_connection(
     mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
     events_tx: &broadcast::Sender<Event>,
     state_tx: &watch::Sender<State>,
+    msg_tx: &mpsc::UnboundedSender<ConnMsg>,
 ) -> ConnEndKind {
     let name = target.name();
     let Some((host, port)) = target.host_port() else {
@@ -683,6 +716,9 @@ async fn run_connection(
     };
 
     // --- Streaming ------------------------------------------------------
+    // Remember the address that worked, so the next launch can dial it
+    // directly even if mDNS stays silent.
+    let _ = msg_tx.send(ConnMsg::Connected { host: host.clone() });
     set_state(
         state_tx,
         events_tx,

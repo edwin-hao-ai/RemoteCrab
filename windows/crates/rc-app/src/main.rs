@@ -24,8 +24,11 @@ struct Args {
     list_only: bool,
     selftest: bool,
     preview_selftest: bool,
+    audio_selftest: bool,
     preview: bool,
     no_preview: bool,
+    scan: bool,
+    unmute: bool,
 }
 
 fn parse_args() -> Args {
@@ -40,6 +43,9 @@ fn parse_args() -> Args {
             "--preview-selftest" => args.preview_selftest = true,
             "--preview" => args.preview = true,
             "--no-preview" => args.no_preview = true,
+            "--scan" => args.scan = true,
+            "--unmute" => args.unmute = true,
+            "--audio-selftest" => args.audio_selftest = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -66,6 +72,9 @@ fn print_help() {
          \x20 remotecrab --list              List discovered iPhones and wait\n\
          \x20 remotecrab --selftest          Run a fake iPhone locally and verify the pipeline\n\
          \x20 remotecrab --preview-selftest  Stream fake H.264 into the preview window and verify decode\n\
+         \x20 remotecrab --scan              Scan this PC's /24 for an iPhone on port 8765\n\
+         \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
+         \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
          \n\
          Run the RemoteCrab iOS app first; both devices must share the same WiFi."
     );
@@ -80,6 +89,12 @@ async fn main() -> ExitCode {
     }
     if args.preview_selftest {
         return preview_selftest().await;
+    }
+    if args.scan {
+        return run_scan().await;
+    }
+    if args.audio_selftest {
+        return audio_selftest();
     }
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
     println!("Looking for your iPhone on this WiFi…\n");
@@ -135,6 +150,15 @@ async fn main() -> ExitCode {
     } else {
         None
     };
+
+    // Audio: Opus decode + speaker playback. Muted by default (the Mac
+    // receiver does the same — playing the iPhone mic on the speakers next
+    // to the live phone is a feedback loop). `--unmute` enables it.
+    let mut audio = rc_audio::AudioPlayer::new();
+    audio.set_muted(!args.unmute);
+    if !args.unmute {
+        println!("  (audio is muted by default to avoid feedback — --unmute to hear it)");
+    }
 
     let mut last_label = String::new();
     let mut video_frames: u64 = 0;
@@ -220,6 +244,13 @@ async fn main() -> ExitCode {
                         }
                         #[cfg(not(windows))]
                         let _ = &k;
+                    }
+                    Event::Audio(packet) => {
+                        audio.consume(&packet);
+                        // Surface the level alongside the video counter.
+                        if frame_slot.get().is_some() {
+                            // (level is shown in the console periodically)
+                        }
                     }
                     Event::Latency(ms) => {
                         if ms > 0 {
@@ -391,6 +422,129 @@ async fn preview_selftest() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         eprintln!("\nPREVIEW SELF-TEST FAILED (decoded {decoded} frames, {w}x{h})");
+        ExitCode::from(1)
+    }
+}
+
+/// `--scan`: sweep the local `/24` for anything on port 8765. This is the
+/// diagnostic for "mDNS found nothing" — it tells you whether the network
+/// allows your devices to see each other at all.
+async fn run_scan() -> ExitCode {
+    let port = rc_net::DEFAULT_PORT;
+    let ips = rc_discovery::local_ipv4_addresses();
+    if ips.is_empty() {
+        eprintln!("Could not determine this PC's LAN address (are you online?)");
+        return ExitCode::from(1);
+    }
+    println!("This PC's LAN address(es): {}", ips.join(", "));
+
+    let mut any = false;
+    for ip in ips {
+        println!(
+            "Scanning {}.0/24 for port {port} (254 hosts, ~{}s) …",
+            ip.rsplit_once('.').map(|(p, _)| p).unwrap_or(&ip),
+            4
+        );
+        let found = rc_discovery::scan_subnet_for_port(
+            &ip,
+            port,
+            std::time::Duration::from_millis(1200),
+            128,
+        )
+        .await;
+        if found.is_empty() {
+            println!("  no device on {port} found in this subnet");
+        } else {
+            any = true;
+            for host in found {
+                println!("  FOUND  {host}:{port}");
+                println!("         → connect with:  remotecrab --connect {host}:{port}");
+            }
+        }
+    }
+
+    if !any {
+        println!(
+            "\nNothing found. Likely causes, in order:\n\
+             \x20 1. The iPhone's RemoteCrab app is not open + streaming\n\
+             \x20 2. The iPhone is on a different WiFi / band\n\
+             \x20 3. This router has AP isolation ON (clients can't see each other)\n\
+             \x20    → turn off 'AP isolation / wireless isolation' in the router settings"
+        );
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `--audio-selftest`: feed the embedded Opus tone through the real decode +
+/// playback path and report the level. Proves audio works without a phone.
+fn audio_selftest() -> ExitCode {
+    use rc_protocol::{AudioPacket, AUDIO_CODEC_OPUS};
+
+    println!("Audio self-test: decoding the embedded 440 Hz Opus tone …");
+
+    // Decode-only check first (no device needed).
+    let mut decoder = match rc_audio::OpusDecoder::new() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("  FAILED to create Opus decoder: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let mut total_samples = 0usize;
+    let mut peak = 0i16;
+    let mut sum_abs: u64 = 0;
+    for packet in rc_audio::tone_data::TONE_PACKETS {
+        let pcm = decoder.decode(packet);
+        total_samples += pcm.len();
+        for &s in &pcm {
+            peak = peak.max(s.abs());
+            sum_abs += s.unsigned_abs() as u64;
+        }
+    }
+    if total_samples == 0 {
+        eprintln!("  FAILED: decoded 0 samples");
+        return ExitCode::from(1);
+    }
+    let mean_abs = sum_abs as f64 / total_samples as f64;
+    println!(
+        "  decoded {total_samples} samples (peak {peak}, mean |x| {mean_abs:.0})"
+    );
+    if peak < 1000 {
+        eprintln!("  FAILED: the tone decoded as silence");
+        return ExitCode::from(1);
+    }
+
+    // Then the full player path (opens the default output device).
+    let mut player = rc_audio::AudioPlayer::new();
+    player.set_muted(false);
+    let mut packets_fed = 0;
+    for packet in rc_audio::tone_data::TONE_PACKETS {
+        let ap = AudioPacket {
+            opus_data: packet.to_vec(),
+            sample_rate: 48_000,
+            channels: 1,
+            timestamp_micros: 0,
+            codec: AUDIO_CODEC_OPUS.to_string(),
+        };
+        player.consume(&ap);
+        packets_fed += 1;
+    }
+    let level = player.level();
+    println!(
+        "  queued {packets_fed} packets, {} samples buffered, level {:.3}",
+        player.queued_samples(),
+        level
+    );
+
+    if level > 0.01 {
+        println!("\nAUDIO SELF-TEST PASSED — Opus decodes and the player is fed.");
+        println!("(If you heard nothing on the speakers, the device is muted or absent —");
+        println!(" the decode path is still verified.)");
+        ExitCode::SUCCESS
+    } else {
+        eprintln!("\nAUDIO SELF-TEST FAILED (level {level:.3})");
         ExitCode::from(1)
     }
 }

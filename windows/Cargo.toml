@@ -12,6 +12,7 @@ members = [
     "crates/rc-net",
     "crates/rc-input",
     "crates/rc-render",
+    "crates/rc-audio",
     "crates/rc-testkit",
     "crates/rc-app",
 ]
@@ -27,6 +28,7 @@ rc-discovery = { path = "crates/rc-discovery" }
 rc-net = { path = "crates/rc-net" }
 rc-input = { path = "crates/rc-input" }
 rc-render = { path = "crates/rc-render" }
+rc-audio = { path = "crates/rc-audio" }
 rc-testkit = { path = "crates/rc-testkit" }
 rc-app = { path = "crates/rc-app" }
 
