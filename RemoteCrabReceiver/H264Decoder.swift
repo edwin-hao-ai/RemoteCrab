@@ -22,6 +22,12 @@ final class H264Decoder: @unchecked Sendable {
     private var sps: Data?
     private var pps: Data?
     private let queue = DispatchQueue(label: "com.remotecrab.h264-decoder")
+    /// When VideoToolbox reports a session malfunction (`-12909`) we tear
+    /// the session down and rebuild it from the cached SPS/PPS. The video
+    /// stream is driving a live preview, so we throttle rebuilds and give
+    /// up for a moment if it keeps failing rather than spinning.
+    private var lastSessionRebuildAt = Date.distantPast
+    private var malfunctionCount = 0
 
     init() {}
 
@@ -119,6 +125,7 @@ final class H264Decoder: @unchecked Sendable {
             VTDecompressionSessionInvalidate(old)
         }
         session = newSession
+        malfunctionCount = 0
         Self.log.info("decoder session created")
     }
 
@@ -204,6 +211,12 @@ final class H264Decoder: @unchecked Sendable {
                 if status != noErr {
                     let head = data.prefix(8).map { String(format: "%02x", $0) }.joined()
                     Self.log.error("decode callback error: \(status) nalType=\(data.first.map { $0 & 0x1F } ?? 0, privacy: .public) len=\(data.count, privacy: .public) head=\(head, privacy: .public)")
+                    // -12909 (kVTVideoDecoderMalfunctionErr): the session is
+                    // dead. It arrives as a burst at stream start and would
+                    // otherwise leave the preview/recording black forever.
+                    if status == -12909 {
+                        self?.handleMalfunction()
+                    }
                 }
                 return
             }
@@ -212,7 +225,30 @@ final class H264Decoder: @unchecked Sendable {
 
         if decodeStatus != noErr {
             Self.log.error("decode frame failed: \(decodeStatus) (nal \(data.count, privacy: .public) bytes)")
+            if decodeStatus == -12909 { handleMalfunction() }
         }
+    }
+
+    /// Rebuild the decoder session after a `kVTVideoDecoderMalfunctionErr`
+    /// (`-12909`). Throttled to once per second and bounded to 5 rapid
+    /// attempts, so a genuinely undecodable stream can't spin the CPU.
+    private func handleMalfunction() {
+        let now = Date()
+        guard now.timeIntervalSince(lastSessionRebuildAt) > 1.0 else { return }
+        lastSessionRebuildAt = now
+        malfunctionCount += 1
+        guard malfunctionCount <= 5 else {
+            Self.log.error("decoder malfunction persisted — giving up on this stream")
+            return
+        }
+        Self.log.info("decoder malfunction — rebuilding session (\(self.malfunctionCount, privacy: .public))")
+        if let session {
+            VTDecompressionSessionInvalidate(session)
+        }
+        session = nil
+        formatDescription = nil
+        // Keep sps/pps so `tryCreateSession` can rebuild immediately.
+        tryCreateSession()
     }
 
     private var emittedAny = false
