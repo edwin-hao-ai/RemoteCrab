@@ -1666,6 +1666,46 @@ is tracked in the Roadmap section — don't duplicate it here.
     connected to a leftover iPad Simulator once), so quit the other device's
     app (and shut simulators) before a single-device e2e.
 
+67. **The recording e2e failure was a Mac H264 decoder deadlock, not the
+    recorder (2026-09-26).** The last red device-e2e assertion was
+    "recording written to ~/Movies/RemoteCrab"; the recorder logs showed
+    only `recording armed` + `toggled`, never `saved`/`failed`, i.e.
+    `stop()` hit its `writer == nil` early-return. That is a *symptom*:
+    `writer` was nil because `appendVideo` never ran — the decoder emitted
+    **zero** frames (`first frame decoded OK` was absent from the whole
+    log, and `video frames received:` counts *wire* frames, NOT emitted
+    images — the key trap that misled the first diagnosis). Three stacked
+    causes, all in `H264Decoder`:
+    (a) **The iPhone stream's first wire frame is a non-IDR P-slice**
+    (the encoder drops capture frame 1, so its first output references a
+    frame the Mac never saw). Feeding it makes VideoToolbox return
+    `kVTVideoDecoderMalfunctionErr` (`-12909`).
+    (b) **`handleMalfunction` called `VTDecompressionSessionInvalidate`
+    from inside the VT decode callback — that DEADLOCKS.** The log proves
+    it: `decoder malfunction — rebuilding session (1)` was the last
+    H264Decoder line; `tryCreateSession()` (which logs on entry) never
+    ran. The decoder was dead for the rest of the session. Never tear a
+    codec session down from its own callback; hand it to the serial
+    `queue` (`markNeedsRebuild` → `rebuildSession`).
+    (c) Feeding **SEI/AUD/parameter-set NALs** as samples also trips
+    `-12909` (the iOS encoder already drops them; a stray/old peer
+    wouldn't). The pure `H264FrameGate` (`RemoteCrabCore/Input/`,
+    unit-tested) accepts VCL slices only and drops P-slices until the
+    first keyframe, so the stream never triggers (a) at all; `rebuildSession`
+    stays as the fallback. `feedSPS`/`feedPPS` now no-op when the parameter
+    set is unchanged (the iOS encoder re-sends SPS/PPS with every keyframe,
+    which used to invalidate+recreate the session ~once a second).
+    **Debug method that cracked it (reusable):** a hardware-free harness
+    that extracts SPS/PPS + AVCC NALs from an existing `~/Movies/RemoteCrab/
+    *.mov` (`AVAssetReader`, `outputSettings: nil`), strips H264Decoder's
+    `import RemoteCrabCore`, compiles it with a `main.swift`, and replays
+    controlled sequences (IDR-first, P-before-IDR, SEI-first, corrupt-slice
+    then recover). `os_log` from a CLI is only visible via `/usr/bin/log`
+    (zsh shadows `log` with a math builtin!). Result: device e2e 16/16,
+    recording is real H.264 1080x1920 + AAC. Also this pass hardened
+    `StreamRecorder` (`AVAssetWriter` create/canAdd failures are logged;
+    "recording saved" only when the writer actually completed).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1763,7 +1803,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-25 (Windows port merged to `main`: `origin/feat/windows-receiver` brought a standalone Rust workspace `windows/` — rc-protocol / rc-discovery / rc-net / rc-render (OpenH264) / rc-audio (pure-Rust Opus) / rc-input (SendInput) / rc-os — plus iOS platform awareness (`IBClientHello.platform`, `SeenComputer`, Ctrl/Alt modifier labels, "Choose a computer"). Merge was hand-resolved (CaptureEngine kept both sides; TouchpadScreen kept the shared `IBShortcutBar`). Fixed over the branch: `connectedPlatform` now comes from the live `clientHello.platform` (not a seen-list lookup that silently fell back to macOS); Windows keyboard chords rewritten to respect the receiver's modifier policy (both ⌘ and ⌃ bits collapse to Ctrl — Alt+Tab / Ctrl+W / Ctrl+Z / Ctrl+A / Alt+F4 / Ctrl+Tab); `MacPairingStore.paired` restored. Phone-screen-mirror compatibility: `rc-protocol` now recognises kinds 0x1A–0x1F and `rc-net` drops them (the unknown-byte fallback was `Kind::Video`, so a mirror NAL could corrupt the camera preview). Verified: `./scripts/test.sh` 193 tests + both apps build; `windows` `cargo test` 94 + `cargo clippy -D warnings` clean. Pushed `origin/main`. **Not done**: device e2e on the merged build, and the Windows-side real-machine self-test. Lessons 64-66.)_
+_Last updated: 2026-09-26 (device e2e 16/16 — the last red assertion, recording, was a Mac `H264Decoder` bug, not the recorder: the iPhone stream's first wire frame is a non-IDR P-slice, VideoToolbox answered -12909, and `handleMalfunction` called `VTDecompressionSessionInvalidate` **from inside the decode callback**, which deadlocks — so the session was never rebuilt and the decoder emitted zero frames, leaving `StreamRecorder`'s writer nil. Fixed with the pure, tested `H264FrameGate` (VCL-only + drop P-slices until the first keyframe), a queue-dispatched rebuild that never runs in the callback, SPS/PPS change-detection, and recorder logging that only reports "recording saved" on a completed writer. `RemoteCrabCore` 197 tests green + both apps build; the device recording is real H.264 1080x1920 + AAC. Lesson 67.)_
+
+_Previous: 2026-09-25 (Windows port merged to `main`: `origin/feat/windows-receiver` brought a standalone Rust workspace `windows/` — rc-protocol / rc-discovery / rc-net / rc-render (OpenH264) / rc-audio (pure-Rust Opus) / rc-input (SendInput) / rc-os — plus iOS platform awareness (`IBClientHello.platform`, `SeenComputer`, Ctrl/Alt modifier labels, "Choose a computer"). Merge was hand-resolved (CaptureEngine kept both sides; TouchpadScreen kept the shared `IBShortcutBar`). Fixed over the branch: `connectedPlatform` now comes from the live `clientHello.platform` (not a seen-list lookup that silently fell back to macOS); Windows keyboard chords rewritten to respect the receiver's modifier policy (both ⌘ and ⌃ bits collapse to Ctrl — Alt+Tab / Ctrl+W / Ctrl+Z / Ctrl+A / Alt+F4 / Ctrl+Tab); `MacPairingStore.paired` restored. Phone-screen-mirror compatibility: `rc-protocol` now recognises kinds 0x1A–0x1F and `rc-net` drops them (the unknown-byte fallback was `Kind::Video`, so a mirror NAL could corrupt the camera preview). Verified: `./scripts/test.sh` 193 tests + both apps build; `windows` `cargo test` 94 + `cargo clippy -D warnings` clean. Pushed `origin/main`. **Not done**: device e2e on the merged build, and the Windows-side real-machine self-test. Lessons 64-66.)_
 
 _Previous: 2026-09-24 (later session — iOS 26 `SpeechAnalyzer` compatibility layer: a `VoiceEngine` protocol with `AnalyzerVoiceEngine` (used only when the model is already installed, never downloaded) and the legacy `SFSpeechRecognizer` path as the fallback; pure `VoiceEngineSelector` + tests; `VoiceRecognizer` public API unchanged. Locale `zh-Hans`→`zh-CN` canonicalization was the device gotcha. 161 tests + both apps build; **device-confirmed** `engine=analyzer` on iPhone 14 / iOS 26 with ~45 s real dictation typed append-only. Lessons 61-63.)_
 
