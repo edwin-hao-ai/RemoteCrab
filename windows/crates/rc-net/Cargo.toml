@@ -1,0 +1,17 @@
+[package]
+name = "rc-net"
+description = "RemoteCrab session: discovery + TCP handshake + streaming (receiver role)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rc-protocol.workspace = true
+rc-discovery.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+rc-testkit.workspace = true

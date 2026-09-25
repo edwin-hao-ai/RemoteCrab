@@ -1,0 +1,50 @@
+﻿# RemoteCrab for Windows — independent Rust workspace.
+#
+# HARD RULE: this tree is standalone. It MUST NOT modify or depend on the
+# Swift sources (RemoteCrabCore / RemoteCrabCapture / RemoteCrabReceiver).
+# It is a *compatible* re-implementation of the Mac receiver role, speaking
+# the exact same wire protocol the iOS app already sends.
+[workspace]
+resolver = "2"
+members = [
+    "crates/rc-protocol",
+    "crates/rc-discovery",
+    "crates/rc-net",
+    "crates/rc-input",
+    "crates/rc-render",
+    "crates/rc-audio",
+    "crates/rc-os",
+    "crates/rc-testkit",
+    "crates/rc-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+rc-protocol = { path = "crates/rc-protocol" }
+rc-discovery = { path = "crates/rc-discovery" }
+rc-net = { path = "crates/rc-net" }
+rc-input = { path = "crates/rc-input" }
+rc-render = { path = "crates/rc-render" }
+rc-os = { path = "crates/rc-os" }
+rc-audio = { path = "crates/rc-audio" }
+rc-testkit = { path = "crates/rc-testkit" }
+rc-app = { path = "crates/rc-app" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+thiserror = "2"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+    "signal",
+] }
+mdns-sd = "0.21"

@@ -287,18 +287,44 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
 /// Mac based on `id` / `token` before it sends any stream data.
 public struct IBClientHello: Codable, Sendable, Equatable {
     public let name: String
-    /// Stable per-Mac UUID, persisted across launches.
+    /// Stable per-computer UUID, persisted across launches.
     public let id: String
     /// Pairing token issued by the iPhone on first approval. nil on the
     /// very first connection (nothing to present yet).
     public let token: String?
     public let appVersion: String
+    /// Which OS the peer runs: `"macos"` / `"windows"` / `"linux"`.
+    ///
+    /// ADDITIVE + OPTIONAL: older Macs don't send it, so decoding defaults
+    /// to nil and callers must treat nil as `"macos"`. The iPhone uses it
+    /// to show the right modifier symbols (⌘⇧ vs Ctrl/Alt) and the right
+    /// shortcut chords for the connected computer.
+    public var platform: String?
 
-    public init(name: String, id: String, token: String? = nil, appVersion: String = "") {
+    public init(name: String, id: String, token: String? = nil,
+                appVersion: String = "", platform: String? = nil) {
         self.name = name
         self.id = id
         self.token = token
         self.appVersion = appVersion
+        self.platform = platform
+    }
+
+    /// The platform, normalized, defaulting to `"macos"` for older senders.
+    public var resolvedPlatform: String { platform ?? "macos" }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, id, token, appVersion, platform
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        id = try c.decode(String.self, forKey: .id)
+        token = try c.decodeIfPresent(String.self, forKey: .token)
+        appVersion = try c.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
+        // Absent for older Macs — stay nil so `resolvedPlatform` reads macos.
+        platform = try c.decodeIfPresent(String.self, forKey: .platform)
     }
 }
 

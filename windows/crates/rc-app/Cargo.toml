@@ -1,0 +1,23 @@
+[package]
+name = "rc-app"
+description = "RemoteCrab for Windows — receiver app (session + input injection + status)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "remotecrab"
+path = "src/main.rs"
+
+[dependencies]
+rc-protocol.workspace = true
+rc-discovery.workspace = true
+rc-net.workspace = true
+rc-input.workspace = true
+rc-render.workspace = true
+rc-audio.workspace = true
+rc-os.workspace = true
+# Used by `--selftest` (a fake iPhone on localhost), so it's a real dep.
+rc-testkit.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

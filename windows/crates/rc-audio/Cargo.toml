@@ -1,0 +1,16 @@
+[package]
+name = "rc-audio"
+description = "RemoteCrab audio on Windows — Opus decode + speaker playback."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rc-protocol.workspace = true
+cpal = "0.18"
+# Pure-Rust Opus decoder (RFC 8251 conformant): no libopus, no CMake, no
+# FFI — so the build works on a bare Windows toolchain.
+opus-decoder = "0.1"
+
+[dev-dependencies]
+tokio.workspace = true

@@ -34,9 +34,37 @@ public struct IBModifierBar: View {
             case .shift:   return 56
             }
         }
+
+        /// The label to show for a **Windows** peer, where the Mac glyphs
+        /// (⌃⌥⌘) are meaningless. `command` displays as "Ctrl" because the
+        /// Windows receiver maps both the ⌘ and ⌃ bits to Ctrl — so the
+        /// muscle-memory `⌘C` on iPhone becomes `Ctrl+C` on the PC.
+        public var windowsLabel: String {
+            switch self {
+            case .control: return "Ctrl"
+            case .option:  return "Alt"
+            case .command: return "Ctrl"
+            case .shift:   return "Shift"
+            }
+        }
+    }
+
+    /// Which OS owns the session — drives the labels only. The wire
+    /// semantics (`keycode` + modifier bits) are identical either way.
+    public enum PeerPlatform: Hashable {
+        case mac
+        case windows
+
+        public init(_ raw: String) {
+            self = raw.lowercased() == "windows" ? .windows : .mac
+        }
     }
 
     @Binding var activeModifiers: Set<Modifier>
+
+    /// Which platform the peer runs — changes the labels only. Windows
+    /// shows Ctrl / Alt / Shift instead of ⌃ / ⌥ / ⌘ / ⇧.
+    public var platform: PeerPlatform
 
     /// Emits a REAL modifier key down/up. A physical keyboard's held ⌥ is
     /// what opens an input method's panel (e.g. 豆包输入法), shows menu
@@ -46,8 +74,10 @@ public struct IBModifierBar: View {
     public var onModifierKey: ((_ keycode: UInt16, _ isDown: Bool) -> Void)?
 
     public init(activeModifiers: Binding<Set<Modifier>>,
+                platform: PeerPlatform = .mac,
                 onModifierKey: ((UInt16, Bool) -> Void)? = nil) {
         self._activeModifiers = activeModifiers
+        self.platform = platform
         self.onModifierKey = onModifierKey
     }
 
@@ -76,8 +106,15 @@ public struct IBModifierBar: View {
     /// press callback is more reliable than a ButtonStyle's `isPressed`.
     private func keyView(_ modifier: Modifier) -> some View {
         let active = activeModifiers.contains(modifier)
-        return Text(modifier.rawValue)
-            .font(.system(size: 17, weight: .medium))
+        let label = platform == .windows ? modifier.windowsLabel : modifier.rawValue
+        // Word labels ("Ctrl", "Shift") need a smaller face than the glyphs.
+        let font = platform == .windows
+            ? Font.system(size: 12, weight: .semibold)
+            : Font.system(size: 17, weight: .medium)
+        return Text(label)
+            .font(font)
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
             .frame(width: 48, height: 48)
             .foregroundStyle(active ? .white : IBColor.textPrimary)
             .background { keyBackground(isActive: active) }

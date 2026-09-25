@@ -224,4 +224,85 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(store.preferredId, "mac-9")
         XCTAssertNil(store.preferred)
     }
+
+    // MARK: - Platform handshake (Windows vs macOS)
+
+    func testClientHelloDecodesWithoutPlatformAsMacOS() throws {
+        // An older Mac sends no `platform` key at all.
+        let json = """
+        {"name":"Old Mac","id":"mac-1","token":null,"appVersion":"0.2"}
+        """
+        let hello = try JSONDecoder().decode(IBClientHello.self, from: Data(json.utf8))
+        XCTAssertNil(hello.platform)
+        XCTAssertEqual(hello.resolvedPlatform, "macos")
+    }
+
+    func testClientHelloRoundTripsWindowsPlatform() throws {
+        let hello = IBClientHello(name: "DESKTOP-7X2K", id: "pc-1",
+                                  appVersion: "0.1", platform: "windows")
+        let encoded = try IBWire.encode(clientHello: hello)
+        let frames = IBWire.Parser().append(encoded)
+        let decoded = try IBWire.decodeClientHello(frames[0])
+        XCTAssertEqual(decoded.platform, "windows")
+        XCTAssertEqual(decoded.resolvedPlatform, "windows")
+    }
+
+    // MARK: - Seen computers (the "Choose a computer" list)
+
+    func testNoteSeenRecordsBeforeAnyPairing() {
+        let store = freshStore()
+        // A brand-new Windows PC that has never been approved.
+        store.noteSeen(IBClientHello(name: "Edwin-PC", id: "pc-1", platform: "windows"))
+
+        XCTAssertEqual(store.seen.count, 1)
+        XCTAssertEqual(store.seen[0].name, "Edwin-PC")
+        XCTAssertTrue(store.seen[0].isWindows)
+        XCTAssertEqual(store.platform(for: "pc-1"), "windows")
+        // It is NOT paired — that's the point.
+        XCTAssertTrue(store.paired.isEmpty)
+    }
+
+    func testNoteSeenDeduplicatesAndKeepsNewestFirst() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "Mac A", id: "mac-1"))
+        store.noteSeen(IBClientHello(name: "PC B", id: "pc-1", platform: "windows"))
+        store.noteSeen(IBClientHello(name: "Mac A Renamed", id: "mac-1"))
+
+        XCTAssertEqual(store.seen.count, 2, "re-seeing an id must not duplicate it")
+        XCTAssertEqual(store.seen[0].id, "mac-1", "most recent first")
+        XCTAssertEqual(store.seen[0].name, "Mac A Renamed")
+        XCTAssertEqual(store.seen[1].platform, "windows")
+    }
+
+    func testSeenIsCapped() {
+        let store = freshStore()
+        for i in 0..<(MacPairingStore.seenLimit + 5) {
+            store.noteSeen(IBClientHello(name: "PC \(i)", id: "pc-\(i)", platform: "windows"))
+        }
+        XCTAssertEqual(store.seen.count, MacPairingStore.seenLimit)
+        // The newest survived; the oldest fell off.
+        XCTAssertEqual(store.seen.first?.id, "pc-\(MacPairingStore.seenLimit + 4)")
+        XCTAssertNil(store.platform(for: "pc-0"))
+    }
+
+    func testSeenPersists() {
+        let suite = "test.remotecrab.seen.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let store = MacPairingStore(defaults: defaults)
+        store.noteSeen(IBClientHello(name: "Edwin-PC", id: "pc-1", platform: "windows"))
+
+        let reloaded = MacPairingStore(defaults: defaults)
+        XCTAssertEqual(reloaded.seen.count, 1)
+        XCTAssertEqual(reloaded.platform(for: "pc-1"), "windows")
+    }
+
+    func testForgetSeenRemovesEntry() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "PC", id: "pc-1", platform: "windows"))
+        store.forgetSeen(id: "pc-1")
+        XCTAssertTrue(store.seen.isEmpty)
+        XCTAssertNil(store.platform(for: "pc-1"))
+    }
 }

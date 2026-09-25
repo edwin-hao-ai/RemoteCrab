@@ -244,15 +244,35 @@ struct KeyboardScreen: View {
                     modifierKey(.shift)
                     shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
                     shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
-                    // App / window switching — borrowed from WhisPrompt's
-                    // window wheel and the Codex Micro macropad's "jump to
-                    // app" keys, mapped onto macOS's native shortcuts.
-                    shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
-                    shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
-                    shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
-                    shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
-                    shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
-                    shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
+                    // App / window switching chords. macOS and Windows use
+                    // different combos for the same intent. The receiver
+                    // collapses BOTH the ⌘ and ⌃ bits to Windows Ctrl
+                    // (`keymap.rs` modifier policy), so every Windows chord
+                    // below must carry one of those bits — never Alt-only.
+                    if engine.connectedIsWindows {
+                        // Alt+Tab: activate the macOS ⌥ bit (→ Windows Alt)
+                        // with Tab (48). Cycles windows.
+                        shortcutKey(text: "Alt⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 4)
+                        // Ctrl+W: close tab/window. W=13 + ⌘ bit (→ Ctrl).
+                        shortcutKey(text: "Ctrl+W", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 13, extra: 8)
+                        // Ctrl+Z / Ctrl+A — undo / select-all (Z=6, A=0).
+                        shortcutKey(text: "Ctrl+Z", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 6, extra: 8)
+                        shortcutKey(text: "Ctrl+A", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 0, extra: 8)
+                        // Alt+F4: close the active window (F4 CGKeyCode 0x76=118).
+                        shortcutKey(text: "Alt+F4", accessibility: IBLocale.Switcher.chordHideApp, keycode: 118, extra: 4)
+                        // Ctrl+Tab: next tab / window (Tab=48 + ⌘ bit).
+                        shortcutKey(text: "Ctrl+⇥", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 48, extra: 8)
+                    } else {
+                        // App / window switching — borrowed from WhisPrompt's
+                        // window wheel and the Codex Micro macropad's "jump to
+                        // app" keys, mapped onto macOS's native shortcuts.
+                        shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
+                        shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
+                        shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
+                        shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
+                        shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
+                        shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
+                    }
                 }
             }
         }
@@ -322,8 +342,14 @@ struct KeyboardScreen: View {
 
     private func modifierKey(_ modifier: IBModifierBar.Modifier) -> some View {
         let locked = modifiers.contains(modifier)
-        return Text(modifier.rawValue)
-            .font(.system(size: 18, weight: .semibold))
+        let label = engine.connectedIsWindows ? modifier.windowsLabel : modifier.rawValue
+        let font = engine.connectedIsWindows
+            ? Font.system(size: 12, weight: .semibold)
+            : Font.system(size: 18, weight: .semibold)
+        return Text(label)
+            .font(font)
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
             .foregroundStyle(locked ? .white : .white.opacity(0.65))
             .frame(width: 44, height: 44)
             .background {

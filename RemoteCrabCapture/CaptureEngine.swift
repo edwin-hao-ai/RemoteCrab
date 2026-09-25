@@ -54,6 +54,16 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var connectedMacName: String?
     /// Stable id of the owning Mac (matches `PairedMac.id`).
     @Published private(set) var connectedMacId: String?
+    /// Every computer seen on the network — paired or not. Lets the Mac
+    /// picker offer a brand-new Windows PC the user has never approved.
+    @Published private(set) var seenComputers: [SeenComputer] = []
+    /// Which OS owns the session right now: `"macos"` / `"windows"` /
+    /// `"linux"`. Drives the platform-aware keyboard (⌘ vs Ctrl, and the
+    /// shortcut bar). Defaults to `"macos"` for older senders.
+    @Published private(set) var connectedPlatform: String = "macos"
+    /// True when the connected computer is Windows — i.e. the keyboard
+    /// surface must show Ctrl/Alt/Shift and Windows shortcut chords.
+    var connectedIsWindows: Bool { connectedPlatform.lowercased() == "windows" }
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
     /// Frontmost Mac app, from the latest pushed appList (0x0C).
@@ -1189,6 +1199,12 @@ final class CaptureEngine: ObservableObject {
     private func handleHello(_ hello: IBClientHello, on conn: NWConnection, token: UUID) {
         Forensic.log("[hs] hello id=\(hello.id) ownerSet=\(connection != nil) sameToken=\(handshakeToken == token)")
         guard handshakeToken == token else { return }
+
+        // Remember every computer that reaches us — before any approval —
+        // so "Choose a Computer" can list a machine that has never paired
+        // (e.g. this Windows PC on its first connect).
+        pairingStore.noteSeen(hello)
+        refreshPairedMacs()
         if let existing = connection, existing !== conn {
             // A different Mac while someone owns the session keeps the
             // owner. But the SAME Mac reconnecting (its old socket died,
@@ -1222,7 +1238,7 @@ final class CaptureEngine: ObservableObject {
                 return
             }
             sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
-            grant(connection: conn, mac: mac)
+            grant(connection: conn, mac: mac, platform: hello.platform)
         case .pending:
             // Headless e2e: auto-approve so a run needs no phone tap.
             if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUTOPAIR"] == "1" {
@@ -1243,7 +1259,10 @@ final class CaptureEngine: ObservableObject {
     }
 
     /// Promote a connection to the session owner and start streaming.
-    private func grant(connection conn: NWConnection, mac: PairedMac?) {
+    /// `platform` is the value from THIS connection's `clientHello`
+    /// (nil for a legacy Mac or the timeout fallback) — the live handshake
+    /// is the source of truth for ⌘ vs Ctrl, not a remembered lookup.
+    private func grant(connection conn: NWConnection, mac: PairedMac?, platform: String? = nil) {
         handshakeTask?.cancel()
         handshakeTask = nil
         handshakeToken = nil
@@ -1263,6 +1282,11 @@ final class CaptureEngine: ObservableObject {
         connection = conn
         connectedMacName = mac?.name ?? "Computer (legacy)"
         connectedMacId = mac?.id
+        // Platform drives the keyboard UI (⌘ vs Ctrl). The live handshake
+        // is authoritative; fall back to the seen list, then to macOS.
+        connectedPlatform = platform
+            ?? mac.flatMap { pairingStore.platform(for: $0.id) }
+            ?? "macos"
         connectionState = .connected
         startOwnerWatchdog()
         Self.log.info("session granted to \(self.connectedMacName ?? "?", privacy: .public)")
@@ -1469,7 +1493,7 @@ final class CaptureEngine: ObservableObject {
         let mac = pairingStore.pair(hello)
         refreshPairedMacs()
         sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
-        grant(connection: conn, mac: mac)
+        grant(connection: conn, mac: mac, platform: hello.platform)
     }
 
     /// Deny the waiting Mac and close its connection.
@@ -1624,6 +1648,19 @@ final class CaptureEngine: ObservableObject {
     private func refreshPairedMacs() {
         pairedMacs = pairingStore.paired
         preferredMac = pairingStore.preferred
+        seenComputers = pairingStore.seen
+    }
+
+    /// Arm a switch to a computer we've *seen* but may not have paired yet
+    /// (a first-contact Windows PC has no `PairedMac` record). This is what
+    /// makes "Choose a Computer" work when the current Mac won't release.
+    func setPreferredComputer(id: String) {
+        guard ownerMac?.id != id else { return }
+        pairingStore.setPreferred(id: id)
+        refreshPairedMacs()
+        if ownerMac != nil {
+            disconnectCurrentMac()
+        }
     }
 
     /// E2E self-test: right after connect, emit a scripted touch-move
@@ -1731,6 +1768,7 @@ final class CaptureEngine: ObservableObject {
         ownerMac = nil
         connectedMacName = nil
         connectedMacId = nil
+        connectedPlatform = "macos"
         // The mirror can't survive a dropped link. Keep `screenOn` so it
         // resumes on reconnect (grant() calls syncScreen), but drop the
         // decoder state + target.
