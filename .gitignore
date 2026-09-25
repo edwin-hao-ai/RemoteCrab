@@ -55,3 +55,6 @@ __pycache__/
 # Kimi session exports (local scratch)
 kimi-export-session_*.md
 
+# Isolated git worktrees
+.worktrees/
+
