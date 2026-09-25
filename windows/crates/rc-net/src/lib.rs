@@ -38,6 +38,9 @@ const PING_INTERVAL: Duration = Duration::from_secs(2);
 const PONG_TIMEOUT: Duration = Duration::from_secs(8);
 const DIRECT_DIAL_TIMEOUT: Duration = Duration::from_secs(8);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
+/// Slower than the normal reconnect — we're waiting for a human on another
+/// computer to disconnect, so retrying hard would just be noise.
+const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
 const FALLBACK_TICK: Duration = Duration::from_secs(5);
 
 // ---------------------------------------------------------------------------
@@ -51,6 +54,8 @@ pub enum State {
     Connecting { name: String },
     Handshaking { name: String },
     AwaitingApproval { name: String },
+    /// Another computer owns the iPhone. We keep retrying automatically.
+    Busy { owner: String },
     Streaming { name: String, latency_ms: i64 },
     Error(String),
 }
@@ -63,6 +68,7 @@ impl State {
             State::Connecting { .. } | State::Handshaking { .. } | State::AwaitingApproval { .. } => {
                 "CONNECTING"
             }
+            State::Busy { .. } => "IN USE",
             State::Streaming { .. } => "LIVE",
             State::Error(_) => "OFFLINE",
         }
@@ -83,7 +89,7 @@ impl State {
             | State::Handshaking { name }
             | State::AwaitingApproval { name }
             | State::Streaming { name, .. } => Some(name),
-            State::Searching | State::Error(_) => None,
+            State::Searching | State::Busy { .. } | State::Error(_) => None,
         }
     }
 }
@@ -223,8 +229,11 @@ enum ConnEndKind {
     Lost,
     /// Handshake never got a `sessionReply` — reconnect is allowed.
     HandshakeTimeout,
-    /// iPhone said busy/denied — stop the loop until a manual Retry.
-    Blocked(String),
+    /// Another computer owns the iPhone. Not fatal: we keep retrying so the
+    /// moment it frees up we take over, and the UI shows who holds it.
+    Busy { owner: String },
+    /// The iPhone explicitly denied us — stop until a manual Retry.
+    Denied,
 }
 
 #[derive(Debug, Clone)]
@@ -414,10 +423,29 @@ async fn supervisor(
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }
                     }
-                    ConnEndKind::Blocked(reason) => {
+                    ConnEndKind::Busy { owner } => {
+                        // Not fatal — another computer is using the iPhone.
+                        // Keep retrying (the iPhone releases the session the
+                        // moment that computer disconnects), and tell the
+                        // user exactly who holds it.
+                        if !suppress_auto {
+                            reconnect_at =
+                                Some(tokio::time::Instant::now() + BUSY_RETRY_DELAY);
+                        }
+                        set_state(
+                            &state_tx,
+                            &events_tx,
+                            State::Busy { owner },
+                        );
+                    }
+                    ConnEndKind::Denied => {
                         suppress_auto = true;
                         reconnect_at = None;
-                        set_state(&state_tx, &events_tx, State::Error(reason));
+                        set_state(
+                            &state_tx,
+                            &events_tx,
+                            State::Error("The iPhone denied the connection".to_string()),
+                        );
                     }
                 }
             }
@@ -616,7 +644,8 @@ async fn run_connection(
 ) -> ConnEndKind {
     let name = target.name();
     let Some((host, port)) = target.host_port() else {
-        return ConnEndKind::Blocked("No address for this iPhone".to_string());
+        // No resolved address yet (mDNS still resolving) — retry shortly.
+        return ConnEndKind::Lost;
     };
 
     // --- TCP connect (with the direct-dial timeout) ---------------------
@@ -654,11 +683,15 @@ async fn run_connection(
 
     // Frames that arrive interleaved with the handshake (e.g. the iPhone's
     // first `metadata` / `featureState`) must be dispatched, not dropped.
+    eprintln!("[net] TCP connected to {host}:{port}, sending clientHello…");
     let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         loop {
             match next_frame(&mut read_half, &mut parser, &mut queue, &mut buf).await {
                 Some(f) if f.kind == Kind::SessionReply => break decode_session_reply(&f).ok(),
-                Some(f) => dispatch_frame(&f, events_tx),
+                Some(f) => {
+                    eprintln!("[net] pre-handshake frame: {:?} ({} bytes)", f.kind, f.payload.len());
+                    dispatch_frame(&f, events_tx);
+                }
                 None => break None,
             }
         }
@@ -667,9 +700,16 @@ async fn run_connection(
 
     let reply = match reply {
         Ok(Some(r)) => r,
-        Ok(None) => return ConnEndKind::Lost,
-        Err(_) => return ConnEndKind::HandshakeTimeout,
+        Ok(None) => {
+            eprintln!("[net] connection closed before sessionReply");
+            return ConnEndKind::Lost;
+        }
+        Err(_) => {
+            eprintln!("[net] no sessionReply within {HANDSHAKE_TIMEOUT:?} — the iPhone app may be waiting for you to tap Allow, or it's not the RemoteCrab iOS app");
+            return ConnEndKind::HandshakeTimeout;
+        }
     };
+    eprintln!("[net] sessionReply: {:?}", reply.result);
 
     // The token the iPhone issued (when accepted) is persisted by the
     // supervisor via the `FeatureState`/`Metadata` path; we only need to
@@ -699,7 +739,14 @@ async fn run_connection(
             match pending {
                 Ok(Some(r)) if r.result == SessionReplyResult::Accepted => r.token,
                 Ok(Some(r)) if r.result == SessionReplyResult::Denied => {
-                    return ConnEndKind::Blocked("The iPhone denied the connection".to_string());
+                    return ConnEndKind::Denied;
+                }
+                Ok(Some(r)) if r.result == SessionReplyResult::Busy => {
+                    return ConnEndKind::Busy {
+                        owner: r
+                            .owner_name
+                            .unwrap_or_else(|| "another computer".to_string()),
+                    };
                 }
                 _ => return ConnEndKind::Lost,
             }
@@ -708,10 +755,10 @@ async fn run_connection(
             let owner = reply
                 .owner_name
                 .unwrap_or_else(|| "another computer".to_string());
-            return ConnEndKind::Blocked(format!("This iPhone is already in use by {owner}"));
+            return ConnEndKind::Busy { owner };
         }
         SessionReplyResult::Denied => {
-            return ConnEndKind::Blocked("The iPhone denied the connection".to_string());
+            return ConnEndKind::Denied;
         }
     };
 

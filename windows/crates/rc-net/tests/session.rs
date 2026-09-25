@@ -199,7 +199,7 @@ async fn pending_reply_goes_to_awaiting_approval_then_streams() {
 }
 
 #[tokio::test]
-async fn busy_reply_stops_with_an_error_state() {
+async fn busy_reply_shows_the_owner_and_keeps_retrying() {
     let phone = FakeIphone::start(FakeIphoneConfig {
         reply: SessionReplyResult::Busy,
         ..Default::default()
@@ -209,16 +209,22 @@ async fn busy_reply_stops_with_an_error_state() {
     let session = Session::spawn(test_config());
     session.connect_manual("127.0.0.1", phone.addr.port());
 
-    let err = wait_for_state(
+    // Busy is NOT fatal: the state names the owner so the UI can tell the
+    // user where to disconnect, and the session keeps retrying.
+    let busy = wait_for_state(
         &session,
-        |s| matches!(s, State::Error(_)),
+        |s| matches!(s, State::Busy { .. }),
         Duration::from_secs(5),
     )
-    .await;
-    let err = err.expect("expected an Error state on busy");
-    if let State::Error(msg) = err {
-        assert!(msg.contains("in use"), "unexpected message: {msg}");
+    .await
+    .expect("expected a Busy state");
+    if let State::Busy { owner } = busy {
+        assert_eq!(owner, "Another Mac");
     }
+    assert_eq!(session.state().borrow().pill_label(), "IN USE");
+
+    // It must not have parked in a permanent Error.
+    assert!(!matches!(*session.state().borrow(), State::Error(_)));
 }
 
 #[tokio::test]

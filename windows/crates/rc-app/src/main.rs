@@ -162,6 +162,11 @@ async fn main() -> ExitCode {
 
     let mut last_label = String::new();
     let mut video_frames: u64 = 0;
+    // While another computer owns the iPhone we retry quietly — printing a
+    // line every 10 s would be noise. We only re-announce when something
+    // actually changes.
+    let mut stuck_owner: Option<String> = None;
+    let mut last_spike_report = std::time::Instant::now();
 
     loop {
         tokio::select! {
@@ -170,6 +175,24 @@ async fn main() -> ExitCode {
                     break;
                 }
                 let st = state_rx.borrow().clone();
+
+                // Collapse the busy→connecting→busy churn into silence.
+                match &st {
+                    State::Busy { owner } => {
+                        if stuck_owner.as_deref() == Some(owner.as_str()) {
+                            continue;
+                        }
+                        stuck_owner = Some(owner.clone());
+                    }
+                    State::Streaming { .. } => stuck_owner = None,
+                    _ => {
+                        // Intermediate states during a busy retry are hidden.
+                        if stuck_owner.is_some() {
+                            continue;
+                        }
+                    }
+                }
+
                 let label = state_line(&st);
                 if label != last_label {
                     println!("{label}");
@@ -253,11 +276,12 @@ async fn main() -> ExitCode {
                         }
                     }
                     Event::Latency(ms) => {
-                        if ms > 0 {
-                            // Keep the console readable: only report lag spikes.
-                            if ms > 120 {
-                                println!("  latency: {ms} ms");
-                            }
+                        // Keep the console readable: report a lag spike only
+                        // when it is both large AND rare (a rolling gate), not
+                        // on every ping.
+                        if ms >= 500 && last_spike_report.elapsed() > Duration::from_secs(5) {
+                            last_spike_report = std::time::Instant::now();
+                            println!("  latency spike: {ms} ms");
                         }
                     }
                     Event::State(_) => {}
@@ -557,13 +581,15 @@ fn state_line(state: &State) -> String {
         State::AwaitingApproval { name } => {
             format!("[CONNECTING]  waiting for you to approve on {name}…")
         }
-        State::Streaming { name, latency_ms } => {
-            if *latency_ms > 0 {
-                format!("[LIVE]  streaming from {name}  ({latency_ms} ms)")
-            } else {
-                format!("[LIVE]  streaming from {name}")
-            }
-        }
+        // NOTE: the label deliberately omits latency — including it made the
+        // state line reprint on every 2 s ping (visual spam). Latency is
+        // surfaced only for real spikes, by the Latency event handler.
+        State::Streaming { name, .. } => format!("[LIVE]  streaming from {name}"),
+        State::Busy { owner } => format!(
+            "[IN USE]  {owner} is already connected to this iPhone.\n\
+             \x20          Disconnect there (menu bar → RemoteCrab → Disconnect, or iPhone → Choose a Mac)\n\
+             \x20          and this PC will connect automatically."
+        ),
         State::Error(reason) => format!("[OFFLINE]  {reason}"),
     }
 }
