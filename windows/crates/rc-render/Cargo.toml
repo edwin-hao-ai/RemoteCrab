@@ -1,0 +1,11 @@
+[package]
+name = "rc-render"
+description = "RemoteCrab video preview on Windows — H.264 decode (OpenH264) + a window."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rc-protocol.workspace = true
+openh264 = "0.9"
+minifb = "0.28"

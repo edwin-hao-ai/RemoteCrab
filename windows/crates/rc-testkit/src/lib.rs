@@ -27,6 +27,10 @@ pub struct FakeIphoneConfig {
     pub send_metadata: bool,
     /// Echo every ping (the real phone does).
     pub echo_pings: bool,
+    /// Stream real H.264 video frames (`sps`/`pps`/`video`). Off by default
+    /// so protocol tests stay deterministic; on for the preview self-test.
+    pub stream_video: bool,
+    pub video_frames: usize,
 }
 
 impl Default for FakeIphoneConfig {
@@ -36,6 +40,8 @@ impl Default for FakeIphoneConfig {
             token: Some("test-token".to_string()),
             send_metadata: true,
             echo_pings: true,
+            stream_video: false,
+            video_frames: 0,
         }
     }
 }
@@ -179,6 +185,30 @@ async fn serve(
         }
     }
 
+    // 3b. Stream real H.264 (for the preview self-test).
+    if cfg.stream_video && cfg.video_frames > 0 {
+        let nals = encode_test_video(cfg.video_frames, 320, 180);
+        for nal in nals {
+            // NAL type is the low 5 bits of the first byte.
+            let nal_type = nal.first().map(|b| b & 0x1F).unwrap_or(1);
+            let kind = match nal_type {
+                7 => NalKind::Sps,
+                8 => NalKind::Pps,
+                _ => NalKind::Video,
+            };
+            let frame = encode_nal(&NalFrame {
+                kind,
+                data: nal,
+                timestamp_micros: 0,
+            });
+            if wr.write_all(&frame).await.is_err() {
+                return;
+            }
+            // Pace the stream roughly like the real 30 fps sender.
+            tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+        }
+    }
+
     // 4. Echo pings + forward receiver frames until the socket closes.
     while let Ok(n) = rd.read(&mut buf).await {
         if n == 0 {
@@ -233,6 +263,79 @@ pub fn fake_video_frames(count: usize) -> Vec<Vec<u8>> {
             })
         })
         .collect()
+}
+
+/// Encode a moving test pattern to real H.264 (Annex-B) using OpenH264, so
+/// the `--selftest` path can exercise the *real* decode→render pipeline
+/// without a phone. Returns individual NAL payloads (start codes stripped,
+/// matching what the iOS encoder puts on the wire).
+pub fn encode_test_video(frames: usize, width: usize, height: usize) -> Vec<Vec<u8>> {
+    use openh264::encoder::Encoder;
+    use openh264::formats::{RgbSliceU8, YUVBuffer};
+
+    let mut encoder = match Encoder::new() {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut nals = Vec::new();
+    for f in 0..frames {
+        // A moving vertical bar + colour gradient so the picture visibly changes.
+        let mut rgb = vec![0u8; width * height * 3];
+        for y in 0..height {
+            for x in 0..width {
+                let bar = ((x + f * 8) % width) < (width / 8);
+                let idx = (y * width + x) * 3;
+                if bar {
+                    rgb[idx] = 250;
+                    rgb[idx + 1] = 80;
+                    rgb[idx + 2] = 40;
+                } else {
+                    let v = ((x * 255 / width) as u8).saturating_add(40);
+                    rgb[idx] = v;
+                    rgb[idx + 1] = (v / 2).saturating_add(60);
+                    rgb[idx + 2] = 200u8.saturating_sub((x * 120 / width) as u8);
+                }
+            }
+        }
+        let yuv = YUVBuffer::from_rgb8_source(RgbSliceU8::new(&rgb, (width, height)));
+        if let Ok(bitstream) = encoder.encode(&yuv) {
+            nals.extend(split_annexb_public(&bitstream.to_vec()));
+        }
+    }
+    nals
+}
+
+/// Split an Annex-B stream into NAL payloads (start codes removed).
+pub fn split_annexb_public(data: &[u8]) -> Vec<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    let mut start: Option<usize> = None;
+    while i + 3 <= data.len() {
+        let three = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
+        let four = i + 4 <= data.len()
+            && data[i] == 0
+            && data[i + 1] == 0
+            && data[i + 2] == 0
+            && data[i + 3] == 1;
+        if three || four {
+            if let Some(s) = start {
+                if i > s {
+                    out.push(data[s..i].to_vec());
+                }
+            }
+            i += if three { 3 } else { 4 };
+            start = Some(i);
+        } else {
+            i += 1;
+        }
+    }
+    if let Some(s) = start {
+        if s < data.len() {
+            out.push(data[s..].to_vec());
+        }
+    }
+    out
 }
 
 /// Convenience: a single touch frame.

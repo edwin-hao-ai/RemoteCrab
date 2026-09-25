@@ -8,3 +8,5 @@ license.workspace = true
 [dependencies]
 rc-protocol.workspace = true
 tokio.workspace = true
+# Only used to synthesise real H.264 for the preview self-test.
+openh264 = "0.9"
