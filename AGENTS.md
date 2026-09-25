@@ -1642,6 +1642,30 @@ is tracked in the Roadmap section — don't duplicate it here.
     multi-display mapping, DRM-black detection, motion-adaptive fps.
     186 tests green + both apps build; base mirror device e2e 16/16.
 
+66. **Pointer acceleration was silently dead + one shared shortcut bar
+    (2026-09-25).** Two follow-ups from iPad testing:
+    (a) **"No acceleration, several swipes to cross the screen"** — the
+    trackpad's `TrackpadMath.accelerate` computed its boost from the
+    *per-event* delta (a touch-move carries a few points), so
+    `1 + min(delta*6, maxBoost)` was ~1 almost always and acceleration
+    never engaged. It now takes a `pointerSpeed` (normalized units/second,
+    from `UIPanGestureRecognizer.velocity`) and ramps up to 2.5×; slow
+    drags stay precise, fast flicks travel far. `TouchSurface.handleSinglePan`
+    passes the velocity. The mirror is **strictly on-demand**: leaving the
+    `.screen` surface calls `stopScreenMirror()` (except the keyboard opened
+    *from* the mirror), so it costs nothing when unused. The mirror's
+    bottom bar was a bespoke two-row, non-scrolling thing — replaced by
+    `RemoteCrabCore/Components/IBShortcutBar.swift` (pinned frontmost-app
+    context chip + ONE horizontally-scrollable key row + inline modifier
+    bar + `,`/`.`), now shared by the trackpad and the mirror so both have
+    the same bar and the same context-sheet (情景模式) entry. 186 tests green.
+    Network gotcha seen while e2e-ing: the Mac had a **VPN/proxy**
+    (`utun4 = 198.18.0.1`) up, and `dns-sd -B _remotecrab._tcp` showed zero
+    services — the lesson-20 Bonjour killer. Also, **more than one device
+    advertising matters**: the Mac dials the first discovered phone (it
+    connected to a leftover iPad Simulator once), so quit the other device's
+    app (and shut simulators) before a single-device e2e.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
