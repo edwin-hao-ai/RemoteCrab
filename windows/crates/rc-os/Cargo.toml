@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 rc-protocol.workspace = true
 jpeg-encoder.workspace = true
+png.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
@@ -23,4 +24,5 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_Graphics_Gdi",
     "Win32_Storage_Xps",
+    "Win32_Storage_FileSystem",
 ] }

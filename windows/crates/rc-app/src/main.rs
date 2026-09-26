@@ -567,8 +567,10 @@ async fn main() -> ExitCode {
                         let _ = &cmd;
                     }
                     Event::AppListRequested => {
+                        // The iPhone explicitly asked — include the 48 px
+                        // icon PNGs (the launcher/window cards' fallback).
                         #[cfg(windows)]
-                        let list = rc_os::apps::build_app_list();
+                        let list = rc_os::apps::build_app_list(true);
                         #[cfg(not(windows))]
                         let list = rc_protocol::AppList { apps: vec![] };
                         session.send_frame(encode_app_list(&list).unwrap_or_default());

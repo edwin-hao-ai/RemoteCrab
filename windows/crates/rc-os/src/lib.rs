@@ -7,6 +7,7 @@
 
 pub mod files;
 pub mod thumbnail;
+pub mod icon;
 
 #[cfg(windows)]
 pub mod clipboard;

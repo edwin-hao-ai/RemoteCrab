@@ -18,8 +18,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// Build the list of visible top-level windows as app entries. Each window
 /// becomes one entry (id = `pid:<n>`), de-duplicated per process so an app
-/// with several windows shows once.
-pub fn build_app_list() -> AppList {
+/// with several windows shows once. `with_icons` renders each entry's icon
+/// as a 48 px PNG (mirrors the Mac's iconPNG) — the iPhone fills its cache
+/// from these, so pass `true` on the launch-able `appListRequest`.
+pub fn build_app_list(with_icons: bool) -> AppList {
     let mut windows: Vec<(u32, String)> = Vec::new();
 
     unsafe {
@@ -35,16 +37,35 @@ pub fn build_app_list() -> AppList {
             continue;
         }
         let name = process_name(pid).unwrap_or_else(|| title.clone());
+        let icon_png = if with_icons { icon_png(pid) } else { None };
         apps.push(AppInfo {
             id: format!("pid:{pid}"),
             name,
             pid: pid as i32,
             is_active: pid == foreground_pid,
-            icon_png: None,
+            icon_png,
         });
     }
 
     AppList { apps }
+}
+
+/// Render one process's icon as a 48 px RGBA PNG, cached by executable path
+/// (the iPhone keeps its own copy, so renderer cost is paid once).
+pub fn icon_png(pid: u32) -> Option<Vec<u8>> {
+    static CACHE: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Option<Vec<u8>>>>,
+    > = std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(std::collections::HashMap::new())
+    });
+    let path = process_image_path(pid)?;
+    let mut cache = CACHE.lock().ok()?;
+    if let Some(cached) = cache.get(&path) {
+        return cached.clone();
+    }
+    let rendered = render_icon_png(&path, 48);
+    cache.insert(path, rendered.clone());
+    rendered
 }
 
 /// Bring the window owned by `pid` to the foreground.
@@ -216,7 +237,8 @@ pub(crate) fn foreground_pid() -> u32 {
     pid
 }
 
-pub(crate) fn process_name(pid: u32) -> Option<String> {
+/// The process's executable full path, e.g. `C:\Program Files\App\App.exe`.
+pub(crate) fn process_image_path(pid: u32) -> Option<String> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; MAX_PATH as usize];
@@ -226,11 +248,93 @@ pub(crate) fn process_name(pid: u32) -> Option<String> {
         if ok.is_err() {
             return None;
         }
-        let full = String::from_utf16_lossy(&buf[..size as usize]);
-        // Trim to the executable stem for a friendlier label.
-        let file = full.rsplit(['\\', '/']).next().unwrap_or(&full);
-        Some(file.trim_end_matches(".exe").to_string())
+        Some(String::from_utf16_lossy(&buf[..size as usize]))
     }
+}
+
+pub(crate) fn process_name(pid: u32) -> Option<String> {
+    let full = process_image_path(pid)?;
+    // Trim to the executable stem for a friendlier label.
+    let file = full.rsplit(['\\', '/']).next().unwrap_or(&full);
+    Some(file.trim_end_matches(".exe").to_string())
+}
+
+/// Draw the file's default icon into a 32-bit BGRA DIB and PNG-encode it.
+fn render_icon_png(image_path: &str, size: i32) -> Option<Vec<u8>> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
+        SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
+    };
+    use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+    use windows::Win32::UI::Shell::{SHGetFileInfoW, SHGFI_ICON, SHGFI_LARGEICON, SHFILEINFOW};
+    use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, DI_NORMAL};
+
+    let wide: Vec<u16> = std::ffi::OsStr::new(image_path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let info = unsafe {
+        let mut info = SHFILEINFOW::default();
+        let ok = SHGetFileInfoW(
+            windows::core::PCWSTR(wide.as_ptr()),
+            FILE_ATTRIBUTE_NORMAL,
+            Some(&mut info),
+            std::mem::size_of::<SHFILEINFOW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        );
+        if ok == 0 {
+            return None;
+        }
+        info
+    };
+    if info.hIcon.is_invalid() {
+        return None;
+    }
+
+    let rgba = unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return None;
+        }
+        let mem = CreateCompatibleDC(Some(screen));
+        let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut bmi = BITMAPINFO::default();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = size;
+        bmi.bmiHeader.biHeight = -size; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB.0;
+
+        let dib = CreateDIBSection(
+            Some(mem),
+            &bmi,
+            DIB_RGB_COLORS,
+            &mut bits,
+            Some(HANDLE::default()),
+            0,
+        );
+        let mut rgba: Option<Vec<u8>> = None;
+        if let Ok(bitmap) = dib {
+            if !bits.is_null() {
+                let old = SelectObject(mem, HGDIOBJ(bitmap.0));
+                let _ = DrawIconEx(mem, 0, 0, info.hIcon, size, size, 0, None, DI_NORMAL);
+                let len = (size * size * 4) as usize;
+                let slice = std::slice::from_raw_parts(bits as *const u8, len);
+                rgba = Some(crate::icon::bgra_to_rgba(slice));
+                let _ = SelectObject(mem, old);
+            }
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        }
+        let _ = DeleteDC(mem);
+        let _ = ReleaseDC(None, screen);
+        let _ = DestroyIcon(info.hIcon);
+        rgba
+    };
+
+    crate::icon::encode_rgba_png(&rgba?, size as u32, size as u32)
 }
 
 // --------------------------------------------------------------------------
