@@ -154,6 +154,11 @@ it to the front, long-press to quit. Tapping activates the exact window whose
 title the card showed. `--no-input` suppresses activation/quit, like it does
 for cursor and keyboard injection.
 
+Above the cards sit two quick destinations: **Desktop** (Win+D — toggles
+"Show Desktop") and **Open app…** — a searchable launcher of every installed
+application, built from the Start Menu's Program trees (one entry per
+`.lnk`; tapping runs `ShellExecuteW` on it, the same path `launchApp` uses).
+
 ### App-window mirror
 
 The iPhone's mirror button (top bar → `rectangle.on.rectangle`) works against
