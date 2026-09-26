@@ -423,3 +423,157 @@ fn empty_request_structs_serialize_as_object() {
     assert_eq!(serde_json::to_string(&AppListRequest {}).unwrap(), "{}");
     assert_eq!(serde_json::to_string(&WindowListRequest {}).unwrap(), "{}");
 }
+
+// --- App screen mirror (kinds 0x1A–0x1F) -----------------------------------
+
+#[test]
+fn screen_control_round_trip() {
+    for command in [
+        ScreenControlCommand::Start,
+        ScreenControlCommand::Stop,
+        ScreenControlCommand::Select,
+        ScreenControlCommand::Follow,
+    ] {
+        let control = ScreenControl {
+            command,
+            window_id: Some("4242:131072".to_string()),
+            max_pixel: Some(1920),
+        };
+        let data = encode_screen_control(&control).unwrap();
+        let mut parser = Parser::new();
+        let frames = parser.append(&data);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].kind, Kind::ScreenControl);
+        assert_eq!(decode_screen_control(&frames[0]).unwrap(), control);
+    }
+}
+
+#[test]
+fn screen_input_round_trip() {
+    for action in [
+        ScreenInputAction::Click,
+        ScreenInputAction::DragStart,
+        ScreenInputAction::DragMove,
+        ScreenInputAction::DragEnd,
+        ScreenInputAction::RightClick,
+        ScreenInputAction::Scroll,
+    ] {
+        let input = ScreenInput {
+            action,
+            u: 0.25,
+            v: 0.75,
+            dx: -0.01,
+            dy: 0.02,
+            modifiers: 9,
+            click_count: 2,
+            timestamp_micros: 42,
+        };
+        let data = encode_screen_input(&input).unwrap();
+        let mut parser = Parser::new();
+        let frames = parser.append(&data);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].kind, Kind::ScreenInput);
+        assert_eq!(decode_screen_input(&frames[0]).unwrap(), input);
+    }
+}
+
+#[test]
+fn screen_info_round_trip() {
+    for status in [
+        ScreenStatus::Ok,
+        ScreenStatus::PermissionDenied,
+        ScreenStatus::NoWindow,
+    ] {
+        let info = ScreenInfo {
+            status,
+            window_id: Some("4242:131072".to_string()),
+            app_id: Some("pid:4242".to_string()),
+            app_name: Some("Editor".to_string()),
+            title: Some("notes.txt".to_string()),
+            origin_x: 100.0,
+            origin_y: 50.0,
+            width: 800.0,
+            height: 600.0,
+            pixel_width: 1600,
+            pixel_height: 1200,
+            shows_cursor: true,
+        };
+        let data = encode_screen_info(&info).unwrap();
+        let mut parser = Parser::new();
+        let frames = parser.append(&data);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].kind, Kind::ScreenInfo);
+        assert_eq!(decode_screen_info(&frames[0]).unwrap(), info);
+    }
+}
+
+#[test]
+fn screen_json_field_names_match_swift() {
+    // The iOS `IB*` structs use Swift's synthesized Codable keys (verbatim
+    // property names). If these drift, the iPhone silently gets nothing.
+    let info = ScreenInfo {
+        status: ScreenStatus::PermissionDenied,
+        window_id: None,
+        app_id: None,
+        app_name: None,
+        title: None,
+        origin_x: 1.0,
+        origin_y: 2.0,
+        width: 3.0,
+        height: 4.0,
+        pixel_width: 5,
+        pixel_height: 6,
+        shows_cursor: true,
+    };
+    let value = serde_json::to_value(&info).unwrap();
+    assert_eq!(value["status"], "permissionDenied");
+    assert_eq!(value["originX"], 1.0);
+    assert_eq!(value["originY"], 2.0);
+    assert_eq!(value["pixelWidth"], 5);
+    assert_eq!(value["pixelHeight"], 6);
+    assert_eq!(value["showsCursor"], true);
+
+    let control = ScreenControl {
+        command: ScreenControlCommand::Select,
+        window_id: Some("1:2".to_string()),
+        max_pixel: Some(2560),
+    };
+    let value = serde_json::to_value(&control).unwrap();
+    assert_eq!(value["command"], "select");
+    assert_eq!(value["windowId"], "1:2");
+    assert_eq!(value["maxPixel"], 2560);
+
+    let input = ScreenInput {
+        action: ScreenInputAction::DragStart,
+        u: 0.0,
+        v: 0.0,
+        dx: 0.0,
+        dy: 0.0,
+        modifiers: 0,
+        click_count: 1,
+        timestamp_micros: 7,
+    };
+    let value = serde_json::to_value(&input).unwrap();
+    assert_eq!(value["action"], "dragStart");
+    assert_eq!(value["clickCount"], 1);
+    assert_eq!(value["timestampMicros"], 7);
+}
+
+#[test]
+fn screen_nal_frames_use_screen_kinds() {
+    let sps = NalFrame {
+        kind: NalKind::Sps,
+        data: vec![0x67, 0x64],
+        timestamp_micros: 0,
+    };
+    let frames = Parser::new().append(&encode_screen_nal(&sps));
+    assert_eq!(frames[0].kind, Kind::ScreenSps);
+
+    let video = NalFrame {
+        kind: NalKind::Video,
+        data: vec![0x41, 0x9a],
+        timestamp_micros: 0,
+    };
+    let frames = Parser::new().append(&encode_screen_nal(&video));
+    assert_eq!(frames[0].kind, Kind::ScreenVideo);
+}

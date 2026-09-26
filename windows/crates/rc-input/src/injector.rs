@@ -1,7 +1,7 @@
 //! Pure translation of `TouchEvent` / `KeyEvent` into platform-neutral
 //! actions. The Windows layer executes them; tests assert the sequence.
 
-use rc_protocol::{KeyEvent, Modifier, TouchEvent, TouchPhase};
+use rc_protocol::{KeyEvent, Modifier, ScreenInput, ScreenInputAction, TouchEvent, TouchPhase};
 
 use crate::keymap::{self, Injected};
 
@@ -350,5 +350,108 @@ mod tests {
         let all = Modifier::CONTROL | Modifier::OPTION | Modifier::SHIFT | Modifier::COMMAND;
         assert_eq!(modifier_symbols(all), "⌃⌥⇧⌘");
         assert_eq!(modifier_symbols(Modifier::COMMAND), "⌘");
+    }
+}
+
+/// Vertical wheel units per 1.0 of normalized scroll delta. Windows wants
+/// `120` per notch; ~10 notches for a full-window drag feels close to the Mac.
+const SCROLL_UNITS: f64 = 1200.0;
+
+/// Translate one mirror `ScreenInput` into absolute mouse actions.
+///
+/// The window frame is `origin` (top-left in virtual-desktop pixels) and
+/// `size`; `(u, v)` is normalized inside the window. Modifiers are applied by
+/// the caller (the Windows layer holds the VKs around these actions).
+pub fn screen_actions(
+    input: &ScreenInput,
+    origin: (f64, f64),
+    size: (f64, f64),
+) -> Vec<MouseAction> {
+    let point = |u: f32, v: f32| {
+        let u = u.clamp(0.0, 1.0) as f64;
+        let v = v.clamp(0.0, 1.0) as f64;
+        (
+            (origin.0 + u * size.0).round() as i32,
+            (origin.1 + v * size.1).round() as i32,
+        )
+    };
+    let (x, y) = point(input.u, input.v);
+    match input.action {
+        ScreenInputAction::Click => vec![
+            MouseAction::Move { x, y },
+            MouseAction::LeftDown { x, y },
+            MouseAction::LeftUp { x, y },
+        ],
+        ScreenInputAction::DragStart => {
+            vec![MouseAction::Move { x, y }, MouseAction::LeftDown { x, y }]
+        }
+        ScreenInputAction::DragMove => vec![MouseAction::Move { x, y }],
+        ScreenInputAction::DragEnd => {
+            vec![MouseAction::Move { x, y }, MouseAction::LeftUp { x, y }]
+        }
+        ScreenInputAction::RightClick => vec![
+            MouseAction::Move { x, y },
+            MouseAction::RightDown { x, y },
+            MouseAction::RightUp { x, y },
+        ],
+        ScreenInputAction::Scroll => vec![MouseAction::Wheel {
+            dx: input.dx as f64 * SCROLL_UNITS,
+            dy: input.dy as f64 * SCROLL_UNITS,
+        }],
+    }
+}
+
+#[cfg(test)]
+mod screen_tests {
+    use super::*;
+    use rc_protocol::ScreenInputAction;
+
+    fn input(action: ScreenInputAction, u: f32, v: f32) -> ScreenInput {
+        ScreenInput {
+            action,
+            u,
+            v,
+            dx: 0.0,
+            dy: 0.0,
+            modifiers: 0,
+            click_count: 1,
+            timestamp_micros: 0,
+        }
+    }
+
+    #[test]
+    fn click_maps_to_absolute_move_down_up() {
+        let actions = screen_actions(&input(ScreenInputAction::Click, 0.5, 0.5), (100.0, 50.0), (200.0, 100.0));
+        assert_eq!(
+            actions,
+            vec![
+                MouseAction::Move { x: 200, y: 100 },
+                MouseAction::LeftDown { x: 200, y: 100 },
+                MouseAction::LeftUp { x: 200, y: 100 },
+            ]
+        );
+    }
+
+    #[test]
+    fn drag_sequence_holds_and_releases() {
+        let start = screen_actions(&input(ScreenInputAction::DragStart, 0.0, 0.0), (10.0, 20.0), (100.0, 50.0));
+        assert_eq!(start, vec![MouseAction::Move { x: 10, y: 20 }, MouseAction::LeftDown { x: 10, y: 20 }]);
+        let end = screen_actions(&input(ScreenInputAction::DragEnd, 1.0, 1.0), (10.0, 20.0), (100.0, 50.0));
+        assert_eq!(end, vec![MouseAction::Move { x: 110, y: 70 }, MouseAction::LeftUp { x: 110, y: 70 }]);
+    }
+
+    #[test]
+    fn clamp_keeps_clicks_inside_the_window() {
+        let actions = screen_actions(&input(ScreenInputAction::Click, 2.0, -1.0), (0.0, 0.0), (100.0, 100.0));
+        assert_eq!(actions[0], MouseAction::Move { x: 100, y: 0 });
+    }
+
+    #[test]
+    fn scroll_becomes_wheel_deltas() {
+        let mut sc = input(ScreenInputAction::Scroll, 0.0, 0.0);
+        // 1/16 is exact in f32, so 0.0625 * 1200 == 75.0 exactly.
+        sc.dy = 0.0625;
+        let actions = screen_actions(&sc, (0.0, 0.0), (100.0, 100.0));
+        assert_eq!(actions, vec![MouseAction::Wheel { dx: 0.0, dy: 75.0 }]);
     }
 }

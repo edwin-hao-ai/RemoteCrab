@@ -18,6 +18,9 @@ use std::time::Duration;
 use rc_net::{Config, Event, Session, State};
 use rc_protocol::{encode_app_list, encode_file_ack, encode_window_list};
 
+#[cfg(windows)]
+mod mirror;
+
 #[derive(Debug, Default)]
 struct Args {
     connect: Option<String>,
@@ -305,6 +308,10 @@ async fn main() -> ExitCode {
     // whole surrounding logic.
     #[allow(unused_variables)]
     let injector: Option<()> = None;
+
+    // App-window mirror: started/stopped by the iPhone's screenControl.
+    #[cfg(windows)]
+    let mut mirror = mirror::MirrorController::new(session.clone());
 
     // Video preview: decode in this task, blit from the window thread.
     let mut preview: Option<rc_render::PreviewPipeline> = if args.preview {
@@ -604,6 +611,39 @@ async fn main() -> ExitCode {
                     Event::FeatureState(s) => {
                         last_features = Some(s);
                     }
+                    Event::ScreenControl(control) => {
+                        #[cfg(windows)]
+                        {
+                            use rc_protocol::ScreenControlCommand;
+                            match control.command {
+                                ScreenControlCommand::Start => {
+                                    mirror.start(control.max_pixel.map(|p| p.max(0) as u32));
+                                    println!("  mirror: started");
+                                }
+                                ScreenControlCommand::Stop => {
+                                    mirror.stop();
+                                    println!("  mirror: stopped");
+                                }
+                                ScreenControlCommand::Select => {
+                                    mirror.select(control.window_id.clone());
+                                    println!("  mirror: pinned to {:?}", control.window_id);
+                                }
+                                ScreenControlCommand::Follow => mirror.select(None),
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &control;
+                    }
+                    Event::ScreenInput(input) => {
+                        #[cfg(windows)]
+                        if let (Some(inj), Some((ox, oy, w, h))) =
+                            (injector.as_mut(), mirror.geometry())
+                        {
+                            inj.inject_screen_input(&input, (ox, oy), (w, h));
+                        }
+                        #[cfg(not(windows))]
+                        let _ = &input;
+                    }
                     Event::State(_) => {}
                     _ => {}
                 }
@@ -637,6 +677,8 @@ async fn main() -> ExitCode {
     }
 
     // Close the preview window and let its thread finish.
+    #[cfg(windows)]
+    mirror.stop();
     if let Some(rec) = recording.take() {
         stop_recording(rec);
     }

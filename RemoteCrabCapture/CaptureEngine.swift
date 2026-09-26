@@ -544,11 +544,6 @@ final class CaptureEngine: ObservableObject {
     /// shows a "waiting for your computer" placeholder until the Mac
     /// sends `screenInfo`.
     func startScreenMirror() {
-        // The Windows receiver has no window-capture path yet, so the
-        // mirror would only ever hang on the "waiting" placeholder. The
-        // top bar hides the button in that case; this guards the other
-        // entry points (and the headless e2e hook).
-        guard !connectedIsWindows else { return }
         screenPinnedWindowId = nil
         if !features.screenOn {
             features.set(feature: .screen, enabled: true)

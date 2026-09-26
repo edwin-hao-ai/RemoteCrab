@@ -157,6 +157,16 @@ pub fn encode_nal(frame: &NalFrame) -> Vec<u8> {
     encode_frame(kind, &frame.data)
 }
 
+/// Encode a mirrored-window NAL frame (kinds `0x1A`–`0x1C`).
+pub fn encode_screen_nal(frame: &NalFrame) -> Vec<u8> {
+    let kind = match frame.kind {
+        NalKind::Video => Kind::ScreenVideo,
+        NalKind::Sps => Kind::ScreenSps,
+        NalKind::Pps => Kind::ScreenPps,
+    };
+    encode_frame(kind, &frame.data)
+}
+
 /// Encode a ping frame. Payload is the 8-byte big-endian sender timestamp
 /// in microseconds; the iPhone echoes it back verbatim.
 pub fn encode_ping(sent_micros: u64) -> Vec<u8> {
@@ -259,6 +269,24 @@ json_codec!(
     decode_system_command,
     Kind::SystemCommand,
     SystemCommand
+);
+json_codec!(
+    encode_screen_control,
+    decode_screen_control,
+    Kind::ScreenControl,
+    ScreenControl
+);
+json_codec!(
+    encode_screen_input,
+    decode_screen_input,
+    Kind::ScreenInput,
+    ScreenInput
+);
+json_codec!(
+    encode_screen_info,
+    decode_screen_info,
+    Kind::ScreenInfo,
+    ScreenInfo
 );
 
 // ---------------------------------------------------------------------------

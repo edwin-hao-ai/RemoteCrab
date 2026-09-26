@@ -6,9 +6,8 @@ this tree is standalone and adapts to them.
 
 Status: **P2 — video preview, audio, trackpad, keyboard, clipboard (both
 directions), file transfer, system keys, the window-based app switcher,
-recording and live feature control all work.** Not yet implemented: the
-app-window mirror (the iPhone hides its mirror button when connected to
-Windows), virtual camera/microphone, tray UI (see
+app-window mirror, recording and live feature control all work.** Not yet
+implemented: virtual camera/microphone, tray UI (see
 `docs/WINDOWS_PORT_PLAN.md`).
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
@@ -155,6 +154,17 @@ it to the front, long-press to quit. Tapping activates the exact window whose
 title the card showed. `--no-input` suppresses activation/quit, like it does
 for cursor and keyboard injection.
 
+### App-window mirror
+
+The iPhone's mirror button (top bar → `rectangle.on.rectangle`) works against
+Windows exactly as against the Mac: tap it and this PC streams its frontmost
+window (`screenControl` → `screenSps`/`screenPps`/`screenVideo` + `screenInfo`;
+`PrintWindow` + OpenH264, capped to the phone's requested long edge). Inside
+the mirror, taps are absolute clicks, drags select, two-finger tap / long
+press is a right-click, and two-finger drag scrolls — all mapped through the
+window frame (`screenInput`), with the phone's modifier bar applied. Pin a
+different window from the mirror's window chip to switch targets.
+
 ### Recording
 
 `remotecrab --record` (or the `record` console command) records the live
@@ -201,8 +211,9 @@ windows/
 │   ├── rc-input/      SendInput injection + CGKeyCode→VK mapping
 │   ├── rc-render/     H.264 decode (OpenH264) + the preview window
 │   ├── rc-audio/      Opus decode (pure Rust) + cpal/WASAPI playback
-│   ├── rc-os/         clipboard, file receive, system keys, app list, window list, selection
+│   ├── rc-os/         clipboard, file receive, system keys, app list, window list, capture, selection
 │   ├── rc-record/     H.264 passthrough MP4 + PCM WAV recorder
+│   ├── rc-mirror/     app-window mirror: capture, H.264 encode, input mapping
 │   ├── rc-testkit/    a fake iPhone for end-to-end tests
 │   └── rc-app/        the `remotecrab` binary (CLI + status + preview + audio)
 └── README.md
@@ -241,7 +252,7 @@ Two Windows-specific caveats:
 | Phase | Contents |
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
-| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control, recording (MP4 + WAV) |
-| P3 | app-window mirror, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
+| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control, app-window mirror, recording (MP4 + WAV) |
+| P3 | virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).

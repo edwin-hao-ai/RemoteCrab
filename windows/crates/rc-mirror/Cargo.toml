@@ -1,0 +1,12 @@
+[package]
+name = "rc-mirror"
+description = "RemoteCrab for Windows — app-window mirror: capture, H.264 encode, input mapping."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+openh264 = "0.9"
+
+[target.'cfg(windows)'.dependencies]
+rc-os.workspace = true

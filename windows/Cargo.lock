@@ -931,6 +931,7 @@ dependencies = [
  "rc-audio",
  "rc-discovery",
  "rc-input",
+ "rc-mirror",
  "rc-net",
  "rc-os",
  "rc-protocol",
@@ -967,6 +968,14 @@ dependencies = [
  "rc-protocol",
  "thiserror 2.0.21",
  "windows",
+]
+
+[[package]]
+name = "rc-mirror"
+version = "0.1.0"
+dependencies = [
+ "openh264",
+ "rc-os",
 ]
 
 [[package]]

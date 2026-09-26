@@ -16,6 +16,7 @@ members = [
     "crates/rc-os",
     "crates/rc-testkit",
     "crates/rc-record",
+    "crates/rc-mirror",
     "crates/rc-app",
 ]
 
@@ -34,6 +35,7 @@ rc-os = { path = "crates/rc-os" }
 rc-audio = { path = "crates/rc-audio" }
 rc-testkit = { path = "crates/rc-testkit" }
 rc-record = { path = "crates/rc-record" }
+rc-mirror = { path = "crates/rc-mirror" }
 rc-app = { path = "crates/rc-app" }
 
 serde = { version = "1", features = ["derive"] }

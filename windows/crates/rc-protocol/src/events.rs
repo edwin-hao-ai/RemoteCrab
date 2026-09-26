@@ -527,3 +527,127 @@ pub enum SystemCommandKind {
     #[serde(rename = "openURL")]
     OpenUrl,
 }
+
+// ---------------------------------------------------------------------------
+// App screen mirror (receiver ↔ iPhone) — kinds 0x1A–0x1F
+// ---------------------------------------------------------------------------
+
+/// Where the receiver is in serving a screen-mirror request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenStatus {
+    /// A window is being streamed.
+    Ok,
+    /// The OS has not granted screen-recording permission.
+    PermissionDenied,
+    /// The frontmost app currently has no capturable window.
+    NoWindow,
+}
+
+/// iPhone → receiver: control the screen mirror (kind `0x1D`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenControl {
+    pub command: ScreenControlCommand,
+    /// Pin a specific window (by `WindowInfo.id`); nil = follow frontmost app.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    /// The phone's preferred long-edge pixel cap (iPad 2560 / iPhone 1920).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_pixel: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScreenControlCommand {
+    Start,
+    Stop,
+    Select,
+    /// Resume following the frontmost app (clear a pin).
+    Follow,
+}
+
+/// iPhone → receiver: one direct-manipulation input (kind `0x1E`).
+///
+/// `u`/`v` are normalized `0...1` inside the mirrored window's content; the
+/// phone computes them from its own zoom/pan state, so the receiver never
+/// learns the phone's gesture state. `dx`/`dy` are normalized deltas for
+/// `.scroll`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenInput {
+    pub action: ScreenInputAction,
+    #[serde(default)]
+    pub u: f32,
+    #[serde(default)]
+    pub v: f32,
+    #[serde(default)]
+    pub dx: f32,
+    #[serde(default)]
+    pub dy: f32,
+    #[serde(default)]
+    pub modifiers: u8,
+    /// 1 = single click, 2 = double (word), 3 = triple (paragraph).
+    #[serde(default = "default_click_count")]
+    pub click_count: i64,
+    #[serde(default)]
+    pub timestamp_micros: u64,
+}
+
+fn default_click_count() -> i64 {
+    1
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenInputAction {
+    /// Tap = absolute left click.
+    Click,
+    /// Begin an absolute left drag.
+    DragStart,
+    /// Continue the drag at a new `(u, v)`.
+    DragMove,
+    /// Release the left button.
+    DragEnd,
+    /// Two-finger tap / long press.
+    RightClick,
+    /// Two-finger drag at the view's pan boundary.
+    Scroll,
+}
+
+/// Receiver → iPhone: the current mirror target + geometry (kind `0x1F`).
+///
+/// `origin_x/y` + `width/height` are the window's frame in screen points,
+/// needed to translate the normalized `(u, v)` back to a global cursor
+/// position. `pixel_width/height` is the encoded frame size.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScreenInfo {
+    pub status: ScreenStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub origin_x: f64,
+    #[serde(default)]
+    pub origin_y: f64,
+    #[serde(default)]
+    pub width: f64,
+    #[serde(default)]
+    pub height: f64,
+    #[serde(default)]
+    pub pixel_width: i64,
+    #[serde(default)]
+    pub pixel_height: i64,
+    #[serde(default = "default_shows_cursor")]
+    pub shows_cursor: bool,
+}
+
+fn default_shows_cursor() -> bool {
+    true
+}

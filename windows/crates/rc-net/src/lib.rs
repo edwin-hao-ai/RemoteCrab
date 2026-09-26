@@ -18,11 +18,12 @@ use std::time::Duration;
 use rc_discovery::{DiscoveredPhone, DiscoveryEvent};
 use rc_protocol::{
     decode_activate_app, decode_audio, decode_clipboard, decode_feature_state, decode_file_complete,
-    decode_file_offer, decode_key, decode_metadata, decode_quit_app, decode_session_reply,
-    decode_system_command, decode_text_command, decode_touch, encode_client_hello,
-    encode_feature_control, encode_ping, encode_camera_command, ActivateApp, ClientHello, Feature,
-    FeatureControl, FeatureStateSnapshot, Frame, Kind, NalFrame, NalKind, Parser, QuitApp,
-    SessionReplyResult, StreamMetadata, TouchEvent,
+    decode_file_offer, decode_key, decode_metadata, decode_quit_app, decode_screen_control,
+    decode_screen_input, decode_session_reply, decode_system_command, decode_text_command,
+    decode_touch, encode_client_hello, encode_feature_control, encode_ping, encode_camera_command,
+    ActivateApp, ClientHello, Feature, FeatureControl, FeatureStateSnapshot, Frame, Kind, NalFrame,
+    NalKind, Parser, QuitApp, ScreenControl, ScreenInput, SessionReplyResult, StreamMetadata,
+    TouchEvent,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -124,6 +125,10 @@ pub enum Event {
     ActivateApp(ActivateApp),
     /// The iPhone asked for an app to quit (kind `0x16`).
     QuitApp(QuitApp),
+    /// The iPhone started/stopped/pinned the app-window mirror (kind `0x1D`).
+    ScreenControl(ScreenControl),
+    /// One direct-manipulation input inside the mirrored window (kind `0x1E`).
+    ScreenInput(ScreenInput),
     Latency(i64),
 }
 
@@ -148,6 +153,7 @@ impl Default for Config {
 
 /// Handle to a running session. Cheap to clone via `Arc`, but the inner
 /// channels are cheap too, so plain methods borrow `&self`.
+#[derive(Clone)]
 pub struct Session {
     cmd_tx: mpsc::UnboundedSender<Command>,
     events_tx: broadcast::Sender<Event>,
@@ -885,9 +891,20 @@ fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>) {
                 emit(events_tx, Event::Metadata(m));
             }
         }
-        // App-window mirror kinds: the Windows receiver doesn't implement
-        // the mirror, so drop them explicitly. Without this a mirror NAL
-        // would be parsed as camera video and corrupt the preview.
+        // App-window mirror: the iPhone drives it with `screenControl` /
+        // `screenInput` (kinds 0x1D/0x1E); the receiver answers with
+        // `screenSps`/`screenPps`/`screenVideo`/`screenInfo` (0x1A–0x1C/0x1F)
+        // via `send_frame`. The video kinds are decoded here.
+        Kind::ScreenControl => {
+            if let Ok(c) = decode_screen_control(frame) {
+                emit(events_tx, Event::ScreenControl(c));
+            }
+        }
+        Kind::ScreenInput => {
+            if let Ok(i) = decode_screen_input(frame) {
+                emit(events_tx, Event::ScreenInput(i));
+            }
+        }
         k if k.is_screen_mirror() => {}
         Kind::Video | Kind::Sps | Kind::Pps => {
             let kind = match frame.kind {
@@ -1043,6 +1060,52 @@ mod dispatch_tests {
                 assert!(q.force);
             }
             other => panic!("expected QuitApp, got {other:?}"),
+        }
+    }
+}
+#[cfg(test)]
+mod screen_dispatch_tests {
+    //! `screenControl`/`screenInput` used to fall through the mirror
+    //! catch-all, so the iPhone's mirror did nothing on Windows.
+    use super::*;
+    use rc_protocol::{
+        encode_screen_control, encode_screen_input, ScreenControlCommand, ScreenInputAction,
+    };
+
+    fn parse_one(bytes: Vec<u8>) -> Frame {
+        let mut parser = Parser::new();
+        let mut frames = parser.append(&bytes);
+        assert_eq!(frames.len(), 1);
+        frames.remove(0)
+    }
+
+    #[test]
+    fn screen_control_and_input_are_dispatched() {
+        let control = ScreenControl {
+            command: ScreenControlCommand::Select,
+            window_id: Some("42:7".to_string()),
+            max_pixel: Some(1920),
+        };
+        let input = ScreenInput {
+            action: ScreenInputAction::DragMove,
+            u: 0.5,
+            v: 0.25,
+            dx: -0.1,
+            dy: 0.1,
+            modifiers: 8,
+            click_count: 2,
+            timestamp_micros: 99,
+        };
+        let (tx, mut rx) = broadcast::channel(16);
+        dispatch_frame(&parse_one(encode_screen_control(&control).unwrap()), &tx);
+        dispatch_frame(&parse_one(encode_screen_input(&input).unwrap()), &tx);
+        match rx.try_recv() {
+            Ok(Event::ScreenControl(c)) => assert_eq!(c, control),
+            other => panic!("expected ScreenControl, got {other:?}"),
+        }
+        match rx.try_recv() {
+            Ok(Event::ScreenInput(i)) => assert_eq!(i, input),
+            other => panic!("expected ScreenInput, got {other:?}"),
         }
     }
 }

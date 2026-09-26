@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::injector::{InputTranslator, MouseAction, ScreenSize};
 use crate::keymap::{self, Injected};
-use rc_protocol::{KeyEvent, TouchEvent};
+use rc_protocol::{KeyEvent, ScreenInput, TouchEvent};
 
 /// Query the virtual screen (all monitors) for cursor clamping.
 pub fn virtual_screen_size() -> ScreenSize {
@@ -74,6 +74,23 @@ impl WindowsInjector {
             }
             Injected::Text(units) => send_unicode(&units),
             Injected::Unknown => {}
+        }
+    }
+
+    /// Inject one mirror `ScreenInput` at the window frame `origin`/`size`
+    /// (virtual-desktop pixels). Modifiers are held around the mouse actions
+    /// so shift-click / ⌘-click etc. reach the target window.
+    pub fn inject_screen_input(&mut self, input: &ScreenInput, origin: (f64, f64), size: (f64, f64)) {
+        let actions = crate::injector::screen_actions(input, origin, size);
+        let mods = keymap::modifier_vks(input.modifiers);
+        for m in &mods {
+            send_vk(*m, true);
+        }
+        for action in actions {
+            self.perform_mouse(action);
+        }
+        for m in mods.iter().rev() {
+            send_vk(*m, false);
         }
     }
 

@@ -1745,9 +1745,17 @@ is tracked in the Roadmap section — don't duplicate it here.
     layer; `includePeerToPeer` is Apple-only; OWL targets Linux) — the
     router-less paths are the iPhone Personal Hotspot / USB tethering, which
     the direct-IP fallback already covers (`HOTSPOT_GATEWAY 172.20.10.1` +
-    last-IP + `/24` sweep). **Still open on Windows**: app-window mirror
-    (0x1A–0x1F), tray/GUI, virtual camera/mic; `cargo test --workspace`
-    102 + host/windows clippy clean.
+    last-IP + `/24` sweep). **App-window mirror**: `rc-protocol` now has the
+    `ScreenControl`/`ScreenInput`/`ScreenInfo` structs + codecs (tested) and
+    `rc-net` dispatches `screenControl`/`screenInput`; the new `rc-mirror`
+    crate captures the target window (`PrintWindow` + `PW_RENDERFULLCONTENT`),
+    H.264-encodes it with OpenH264, and `rc-app` streams
+    `screenSps`/`screenPps`/`screenVideo` + `screenInfo` from a dedicated
+    thread (input is mapped via `rc-input`'s absolute `screen_actions`).
+    Because Windows now supports it, the iOS mirror button is **no longer
+    hidden** for `connectedIsWindows`. **Still open on Windows**: tray/GUI,
+    virtual camera/mic; `cargo test --workspace` 116 + host/windows clippy
+    clean.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -1846,7 +1854,7 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-26 (recording e2e fixed — the last red assertion was a Mac `H264Decoder` deadlock, not the recorder: the iPhone stream's first wire frame is a non-IDR P-slice, VideoToolbox answered -12909, and `handleMalfunction` called `VTDecompressionSessionInvalidate` **from inside the decode callback**, which deadlocks — so the session was never rebuilt and the decoder emitted zero frames, leaving `StreamRecorder`'s writer nil. Fixed with the pure, tested `H264FrameGate` (VCL-only + drop P-slices until the first keyframe), a queue-dispatched rebuild that never runs in the callback, SPS/PPS change-detection, and recorder logging that only reports "recording saved" on a completed writer. Also this session: **Windows parity round 2** — the iPhone's window-based app switcher now works against Windows (`windowList` enumerate + JPEG thumbnails + activate/quit by window title), PC→iPhone clipboard, recording (`rc-record`: H.264 passthrough MP4 + PCM WAV), and the iOS mirror button is hidden for Windows. Introduced the `x86_64-pc-windows-gnu` cross-compile check that actually type-checks `#[cfg(windows)]` code. `RemoteCrabCore` 197 tests + both apps build; `windows` 102 tests + host/windows clippy clean; device e2e 16/16. Lessons 67-68.)_
+_Last updated: 2026-09-26 (recording e2e fixed — the last red assertion was a Mac `H264Decoder` deadlock, not the recorder: the iPhone stream's first wire frame is a non-IDR P-slice, VideoToolbox answered -12909, and `handleMalfunction` called `VTDecompressionSessionInvalidate` **from inside the decode callback**, which deadlocks — so the session was never rebuilt and the decoder emitted zero frames, leaving `StreamRecorder`'s writer nil. Fixed with the pure, tested `H264FrameGate` (VCL-only + drop P-slices until the first keyframe), a queue-dispatched rebuild that never runs in the callback, SPS/PPS change-detection, and recorder logging that only reports "recording saved" on a completed writer. Also this session: **Windows parity round 2** — the iPhone's window-based app switcher now works against Windows (`windowList` enumerate + JPEG thumbnails + activate/quit by window title), PC→iPhone clipboard, recording (`rc-record`: H.264 passthrough MP4 + PCM WAV), the **app-window mirror** (`rc-protocol` screen structs + `rc-net` dispatch + `rc-mirror` capture/encode + `rc-input` absolute input; the iOS mirror button is un-hidden for Windows), and the iOS mirror button hidden for Windows. Introduced the `x86_64-pc-windows-gnu` cross-compile check that actually type-checks `#[cfg(windows)]` code. `RemoteCrabCore` 197 tests + both apps build; `windows` 116 tests + host/windows clippy clean; device e2e 16/16. Lessons 67-68.)_
 
 _Previous: 2026-09-25 (Windows port merged to `main`: `origin/feat/windows-receiver` brought a standalone Rust workspace `windows/` — rc-protocol / rc-discovery / rc-net / rc-render (OpenH264) / rc-audio (pure-Rust Opus) / rc-input (SendInput) / rc-os — plus iOS platform awareness (`IBClientHello.platform`, `SeenComputer`, Ctrl/Alt modifier labels, "Choose a computer"). Merge was hand-resolved (CaptureEngine kept both sides; TouchpadScreen kept the shared `IBShortcutBar`). Fixed over the branch: `connectedPlatform` now comes from the live `clientHello.platform` (not a seen-list lookup that silently fell back to macOS); Windows keyboard chords rewritten to respect the receiver's modifier policy (both ⌘ and ⌃ bits collapse to Ctrl — Alt+Tab / Ctrl+W / Ctrl+Z / Ctrl+A / Alt+F4 / Ctrl+Tab); `MacPairingStore.paired` restored. Phone-screen-mirror compatibility: `rc-protocol` now recognises kinds 0x1A–0x1F and `rc-net` drops them (the unknown-byte fallback was `Kind::Video`, so a mirror NAL could corrupt the camera preview). Verified: `./scripts/test.sh` 193 tests + both apps build; `windows` `cargo test` 94 + `cargo clippy -D warnings` clean. Pushed `origin/main`. **Not done**: device e2e on the merged build, and the Windows-side real-machine self-test. Lessons 64-66.)_
 

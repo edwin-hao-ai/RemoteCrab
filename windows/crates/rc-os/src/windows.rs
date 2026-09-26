@@ -15,8 +15,8 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
-    IsWindowVisible,
+    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
+    GetWindowThreadProcessId, IsWindowVisible,
 };
 
 use rc_protocol::{WindowInfo, WindowList};
@@ -100,6 +100,12 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
 
 /// Grab a window's pixels with `PrintWindow` and return a downscaled JPEG.
 fn snapshot(hwnd: HWND) -> Option<Vec<u8>> {
+    let (bgra, width, height) = grab_bgra(hwnd)?;
+    encode_bgra_jpeg(&bgra, width as u32, height as u32, THUMB_MAX_EDGE)
+}
+
+/// Render a window into a top-down 32-bit BGRA buffer via `PrintWindow`.
+fn grab_bgra(hwnd: HWND) -> Option<(Vec<u8>, i32, i32)> {
     unsafe {
         let mut rect = RECT::default();
         if GetWindowRect(hwnd, &mut rect).is_err() {
@@ -151,6 +157,81 @@ fn snapshot(hwnd: HWND) -> Option<Vec<u8>> {
         let _ = DeleteDC(mem_dc);
         let _ = ReleaseDC(None, screen_dc);
 
-        encode_bgra_jpeg(&pixels?, width as u32, height as u32, THUMB_MAX_EDGE)
+        pixels.map(|p| (p, width, height))
     }
+}
+
+/// A capturable window's identity + frame, for the app-window mirror.
+#[derive(Debug, Clone)]
+pub struct TargetInfo {
+    /// `"<pid>:<hwnd>"` — the same id shape as `WindowInfo.id`.
+    pub id: String,
+    pub app_id: String,
+    pub app_name: String,
+    pub title: String,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+/// Resolve a mirror target: the window with `id` (`"<pid>:<hwnd>"`), or the
+/// current foreground window when `id` is `None`.
+pub fn window_target(id: Option<&str>) -> Option<TargetInfo> {
+    let hwnd = match id {
+        Some(id) => hwnd_from_id(id)?,
+        None => unsafe { GetForegroundWindow() },
+    };
+    if hwnd.is_invalid() {
+        return None;
+    }
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+    }
+    if pid == 0 || pid == std::process::id() {
+        return None;
+    }
+    target_info(hwnd, pid)
+}
+
+/// Grab a window (by `"<pid>:<hwnd>"` id) as full-resolution top-down BGRA.
+pub fn capture_window_bgra(id: &str) -> Option<(Vec<u8>, u32, u32)> {
+    let hwnd = hwnd_from_id(id)?;
+    let (bgra, w, h) = grab_bgra(hwnd)?;
+    Some((bgra, w as u32, h as u32))
+}
+
+fn hwnd_from_id(id: &str) -> Option<HWND> {
+    let raw: usize = id.rsplit_once(':')?.1.parse().ok()?;
+    Some(HWND(raw as *mut _))
+}
+
+fn target_info(hwnd: HWND, pid: u32) -> Option<TargetInfo> {
+    let mut rect = RECT::default();
+    if unsafe { GetWindowRect(hwnd, &mut rect) }.is_err() {
+        return None;
+    }
+    let title = window_title(hwnd).unwrap_or_default();
+    let app_name = process_name(pid).unwrap_or_else(|| title.clone());
+    Some(TargetInfo {
+        id: format!("{pid}:{}", hwnd.0 as usize),
+        app_id: format!("pid:{pid}"),
+        app_name,
+        title,
+        origin_x: rect.left as f64,
+        origin_y: rect.top as f64,
+        width: (rect.right - rect.left).max(0) as f64,
+        height: (rect.bottom - rect.top).max(0) as f64,
+    })
+}
+
+fn window_title(hwnd: HWND) -> Option<String> {
+    let len = unsafe { GetWindowTextLengthW(hwnd) };
+    if len <= 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; (len + 1) as usize];
+    let copied = unsafe { GetWindowTextW(hwnd, &mut buf) };
+    Some(String::from_utf16_lossy(&buf[..copied as usize]))
 }
