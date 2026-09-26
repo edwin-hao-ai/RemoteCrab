@@ -1985,16 +1985,26 @@ final class CaptureEngine: ObservableObject {
         Forensic.log("[e2e] syncScreen(\(want)) voice=\(features.voiceOn)")
         if want {
             broadcaster.send(IBScreenControl(command: .start, maxPixel: preferredMaxPixel))
+            // A yield stopped the stream, so the receiver starts fresh
+            // following the frontmost app — re-apply the user's pin.
+            if let pin = screenPinnedWindowId {
+                broadcaster.send(IBScreenControl(command: .select, windowId: pin))
+            }
+        } else if features.screenOn {
+            // Yielding to hold-to-talk: stop the expensive stream but KEEP
+            // everything the surface needs to keep showing the last frame —
+            // `ContentView` renders the mirror only while `screenInfo` is a
+            // non-nil `.ok`, and clearing it (or the display layer) made the
+            // mirror content vanish the moment voice was pressed.
+            broadcaster.send(IBScreenControl(command: .stop))
         } else {
+            // Genuinely off (not just yielding) — drop the stale frame and
+            // the pinned-window preference too.
             broadcaster.send(IBScreenControl(command: .stop))
             screenDecoder.reset()
             screenInfo = nil
-            if !features.screenOn {
-                // Genuinely off (not just yielding) — drop the stale frame
-                // and the pinned-window preference too.
-                screenPinnedWindowId = nil
-                screenDisplayView.displayLayer.flushAndRemoveImage()
-            }
+            screenPinnedWindowId = nil
+            screenDisplayView.displayLayer.flushAndRemoveImage()
         }
     }
 
