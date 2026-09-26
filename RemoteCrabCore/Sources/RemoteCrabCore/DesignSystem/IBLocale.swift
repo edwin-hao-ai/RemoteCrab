@@ -462,6 +462,7 @@ public enum IBLocale {
     /// iPhone-side Mac app switcher.
     public enum Switcher {
         public static let title = IBL("App Switcher")
+        public static let desktop = IBL("Desktop")
         public static let empty = IBL("No apps to switch to")
         public static let refresh = IBL("Refresh")
         public static let pin = IBL("Pin")

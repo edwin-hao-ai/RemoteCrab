@@ -533,6 +533,8 @@ public struct IBSystemCommand: Codable, Sendable, Equatable {
         case mediaPlayPause, mediaNext, mediaPrevious
         case launchApp      // argument = bundle id
         case openURL        // argument = URL string
+        /// Reveal the desktop (minimize/hide everything in front of it).
+        case showDesktop
     }
     public let command: Command
     public let argument: String?

@@ -526,6 +526,8 @@ pub enum SystemCommandKind {
     LaunchApp,
     #[serde(rename = "openURL")]
     OpenUrl,
+    /// Reveal the desktop (hide/minimize everything in front of it).
+    ShowDesktop,
 }
 
 // ---------------------------------------------------------------------------

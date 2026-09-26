@@ -39,6 +39,22 @@ struct AppSwitcherView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Reveal the desktop without leaving the switcher — the
+            // receiver hides everything in front of it.
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
+            } label: {
+                Label(IBLocale.Switcher.desktop, systemImage: "menubar.dock.rectangle")
+                    .font(IBFont.bodyMedium)
+                    .frame(maxWidth: .infinity)
+            }
+            .controlSize(.large)
+            .buttonStyle(.bordered)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .accessibilityLabel(IBLocale.Switcher.desktop)
+
             if !engine.windowsCanCapture && !engine.macWindows.isEmpty {
                 permissionHint
                     .padding(.horizontal, 16)

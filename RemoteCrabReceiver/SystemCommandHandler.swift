@@ -44,7 +44,25 @@ enum SystemCommandHandler {
             if let raw = command.argument, let url = URL(string: raw) {
                 NSWorkspace.shared.open(url)
             }
+        case .showDesktop:
+            showDesktop()
         }
+    }
+
+    /// Reveal the desktop: hide every other regular app (so nothing
+    /// covers it) and bring Finder to the front. The hide is the part
+    /// that actually uncovers it — activating Finder alone would only
+    /// raise a Finder window.
+    private static func showDesktop() {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && !$0.isActive && !$0.isTerminated }
+            .forEach { $0.hide() }
+        if let finder = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == "com.apple.finder"
+        }) {
+            finder.activate()
+        }
+        log.info("showDesktop requested")
     }
 
     /// Post one press+release of a system-defined (media) key.

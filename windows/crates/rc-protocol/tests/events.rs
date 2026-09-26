@@ -577,3 +577,15 @@ fn screen_nal_frames_use_screen_kinds() {
     let frames = Parser::new().append(&encode_screen_nal(&video));
     assert_eq!(frames[0].kind, Kind::ScreenVideo);
 }
+
+#[test]
+fn system_command_show_desktop_wire_value() {
+    // The iOS encoder emits the Swift enum raw value verbatim.
+    let value = serde_json::to_value(SystemCommand {
+        command: SystemCommandKind::ShowDesktop,
+        argument: None,
+    })
+    .unwrap();
+    assert_eq!(value["command"], "showDesktop");
+    assert_eq!(value, serde_json::json!({"command": "showDesktop"}));
+}

@@ -42,36 +42,41 @@ pub fn handle(command: &SystemCommand) -> bool {
             .as_deref()
             .map(open_path)
             .unwrap_or(false),
+        // Win+D toggles "Show Desktop" — minimize/restore all windows.
+        SystemCommandKind::ShowDesktop => tap_win_d(),
+    }
+}
+
+/// Hold Win, tap D, release both (the "Show Desktop" toggle).
+fn tap_win_d() -> bool {
+    let mut inputs = Vec::with_capacity(4);
+    for down in [true, false] {
+        inputs.push(key_input(VK_LWIN, down));
+        inputs.push(key_input(VK_D, down));
+    }
+    unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) == inputs.len() as u32 }
+}
+
+const VK_LWIN: u16 = 0x5B;
+const VK_D: u16 = 'D' as u16;
+
+fn key_input(vk: u16, down: bool) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(vk),
+                wScan: 0,
+                dwFlags: if down { KEYBD_EVENT_FLAGS(0) } else { KEYEVENTF_KEYUP },
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
     }
 }
 
 fn tap(vk: u16) -> bool {
-    let down = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
-                wScan: 0,
-                dwFlags: KEYBD_EVENT_FLAGS(0),
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    let up = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(vk),
-                wScan: 0,
-                dwFlags: KEYEVENTF_KEYUP,
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    let sent = unsafe { SendInput(&[down, up], std::mem::size_of::<INPUT>() as i32) };
-    sent == 2
+    unsafe { SendInput(&[key_input(vk, true), key_input(vk, false)], std::mem::size_of::<INPUT>() as i32) == 2 }
 }
 
 /// Launch an app (by name/path) or open a URL via the shell.
