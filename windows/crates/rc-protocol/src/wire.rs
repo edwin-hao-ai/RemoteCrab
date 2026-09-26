@@ -62,6 +62,8 @@ pub enum Kind {
     ScreenControl = 0x1D,
     ScreenInput = 0x1E,
     ScreenInfo = 0x1F,
+    InstalledAppsRequest = 0x20,
+    InstalledApps = 0x21,
 }
 
 impl Kind {
@@ -116,6 +118,8 @@ impl Kind {
             0x1D => Kind::ScreenControl,
             0x1E => Kind::ScreenInput,
             0x1F => Kind::ScreenInfo,
+            0x20 => Kind::InstalledAppsRequest,
+            0x21 => Kind::InstalledApps,
             _ => Kind::Video,
         }
     }
@@ -287,6 +291,18 @@ json_codec!(
     decode_screen_info,
     Kind::ScreenInfo,
     ScreenInfo
+);
+json_codec!(
+    encode_installed_apps,
+    decode_installed_apps,
+    Kind::InstalledApps,
+    InstalledApps
+);
+json_codec!(
+    encode_installed_apps_request,
+    decode_installed_apps_request,
+    Kind::InstalledAppsRequest,
+    InstalledAppsRequest
 );
 
 // ---------------------------------------------------------------------------

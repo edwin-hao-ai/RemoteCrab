@@ -17,6 +17,8 @@ struct AppSwitcherView: View {
 
     /// The window whose app is awaiting a destructive force-quit confirm.
     @State private var forceQuitTarget: IBWindowInfo?
+    /// The installed-app launcher sheet.
+    @State private var showLauncher = false
 
     private var pinned: Set<String> {
         Set(pinnedCSV.split(separator: ",").map(String.init))
@@ -39,21 +41,34 @@ struct AppSwitcherView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Reveal the desktop without leaving the switcher — the
-            // receiver hides everything in front of it.
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
-            } label: {
-                Label(IBLocale.Switcher.desktop, systemImage: "menubar.dock.rectangle")
-                    .font(IBFont.bodyMedium)
-                    .frame(maxWidth: .infinity)
+            // Quick destinations: reveal the desktop, or open the launcher.
+            HStack(spacing: 10) {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
+                } label: {
+                    Label(IBLocale.Switcher.desktop, systemImage: "menubars.rectangle")
+                        .font(IBFont.bodySmall)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(IBPressButtonStyle(scale: 0.97, highlight: 0.06))
+
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    showLauncher = true
+                } label: {
+                    Label(IBLocale.Switcher.launchApps, systemImage: "square.grid.2x2")
+                        .font(IBFont.bodySmall)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(IBPressButtonStyle(scale: 0.97, highlight: 0.06))
             }
-            .controlSize(.large)
-            .buttonStyle(.bordered)
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .accessibilityLabel(IBLocale.Switcher.desktop)
+            .sheet(isPresented: $showLauncher) {
+                InstalledAppsView()
+                    .environmentObject(engine)
+            }
 
             if !engine.windowsCanCapture && !engine.macWindows.isEmpty {
                 permissionHint

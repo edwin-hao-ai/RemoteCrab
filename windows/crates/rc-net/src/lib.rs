@@ -113,6 +113,9 @@ pub enum Event {
     /// `send_frame(encode_app_list(...))`.
     AppListRequested,
     WindowListRequested,
+    /// The iPhone opened the launcher sheet — the app layer answers with
+    /// `send_frame(encode_installed_apps(...))`.
+    InstalledAppsRequested,
     FileOffer(rc_protocol::FileOffer),
     FileChunk(Vec<u8>),
     FileComplete(rc_protocol::FileComplete),
@@ -972,6 +975,9 @@ fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>) {
         }
         Kind::WindowListRequest => {
             emit(events_tx, Event::WindowListRequested);
+        }
+        Kind::InstalledAppsRequest => {
+            emit(events_tx, Event::InstalledAppsRequested);
         }
         Kind::AppList => {
             if let Ok(list) = rc_protocol::decode_app_list(frame) {

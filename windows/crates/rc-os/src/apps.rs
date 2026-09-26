@@ -2,6 +2,7 @@
 //! switcher (`IBAppList`, kind 0x0C) and bring one to the front.
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use rc_protocol::{AppInfo, AppList};
 use windows::core::BOOL;
@@ -230,4 +231,71 @@ pub(crate) fn process_name(pid: u32) -> Option<String> {
         let file = full.rsplit(['\\', '/']).next().unwrap_or(&full);
         Some(file.trim_end_matches(".exe").to_string())
     }
+}
+
+// --------------------------------------------------------------------------
+// Installed-app launcher (Start Menu enumeration)
+// --------------------------------------------------------------------------
+
+/// Collect every Start-Menu shortcut (`*.lnk`) — the same launch-able set a
+/// Windows user sees in the Start Menu — one entry per shortcut, deduped by
+/// name (all-users entries shadow per-user duplicates).
+///
+/// `InstalledApp.id` carries the shortcut's absolute path, which is exactly
+/// what `SystemCommandKind::LaunchApp` hands to `ShellExecuteW`.
+pub fn build_installed_apps() -> rc_protocol::InstalledApps {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for env in ["PROGRAMDATA", "APPDATA"] {
+        if let Some(base) = std::env::var_os(env) {
+            roots.push(PathBuf::from(base)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs"));
+        }
+    }
+
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut apps: Vec<rc_protocol::InstalledApp> = Vec::new();
+    for root in roots {
+        for path in collect_lnk(&root, 4) {
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let name = stem.trim().to_string();
+            if name.is_empty() || !seen.insert(name.to_ascii_lowercase()) {
+                continue;
+            }
+            apps.push(rc_protocol::InstalledApp {
+                id: path.to_string_lossy().into_owned(),
+                name: name.to_string(),
+            });
+        }
+    }
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    rc_protocol::InstalledApps { apps }
+}
+
+/// Recursively collect `*.lnk` files up to `depth` levels below `dir`.
+fn collect_lnk(dir: &Path, depth: u8) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            dirs.push(path);
+        } else if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("lnk")).unwrap_or(false) {
+            out.push(path);
+        }
+    }
+    if depth > 1 {
+        for child in dirs {
+            out.extend(collect_lnk(&child, depth - 1));
+        }
+    }
+    out
 }

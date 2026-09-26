@@ -324,6 +324,22 @@ final class ReceiverSession: ObservableObject {
         publishMacWindows()
     }
 
+    /// Send every launch-able application for the iPhone's launcher sheet
+    /// (kind 0x21). Enumerated on the fly — the set changes when apps are
+    /// installed/uninstalled, so caching buys nothing.
+    func publishInstalledApps() {
+        guard sessionGranted, let connection, connection.state == .ready else { return }
+        Task { [weak self] in
+            let apps = await InstalledAppsCatalog.all()
+            guard let self, self.sessionGranted,
+                  let connection = self.connection, connection.state == .ready else { return }
+            Self.log.info("published \(apps.count, privacy: .public) installed apps")
+            if let data = try? IBWire.encode(installedApps: IBInstalledApps(apps: apps)) {
+                connection.send(content: data, completion: .contentProcessed { _ in })
+            }
+        }
+    }
+
     // MARK: - App screen mirror (Mac → iPhone)
 
     /// Handle `screenControl` (0x1D): start / stop / select.
@@ -1367,6 +1383,8 @@ final class ReceiverSession: ObservableObject {
                 }
             case .windowListRequest:
                 publishMacWindows()
+            case .installedAppsRequest:
+                publishInstalledApps()
             case .fileOffer:
                 if let offer = try? IBWire.decodeFileOffer(frame) {
                     beginIncoming(offer)

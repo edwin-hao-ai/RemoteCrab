@@ -589,3 +589,37 @@ fn system_command_show_desktop_wire_value() {
     assert_eq!(value["command"], "showDesktop");
     assert_eq!(value, serde_json::json!({"command": "showDesktop"}));
 }
+
+// --- Installed-app launcher (kinds 0x20/0x21) -------------------------------
+
+#[test]
+fn installed_apps_round_trip() {
+    let list = InstalledApps {
+        apps: vec![
+            InstalledApp { id: "com.apple.Safari".to_string(), name: "Safari".to_string() },
+            InstalledApp { id: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk".to_string(), name: "Notepad".to_string() },
+        ],
+    };
+    let data = encode_installed_apps(&list).unwrap();
+    let mut parser = Parser::new();
+    let frames = parser.append(&data);
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].kind, Kind::InstalledApps);
+    assert_eq!(decode_installed_apps(&frames[0]).unwrap(), list);
+
+    let request = InstalledAppsRequest {};
+    let data = encode_installed_apps_request(&request).unwrap();
+    let frames = Parser::new().append(&data);
+    assert_eq!(frames[0].kind, Kind::InstalledAppsRequest);
+    assert_eq!(decode_installed_apps_request(&frames[0]).unwrap(), request);
+}
+
+#[test]
+fn installed_apps_json_matches_swift() {
+    let value = serde_json::to_value(InstalledApps {
+        apps: vec![InstalledApp { id: "a".into(), name: "b".into() }],
+    })
+    .unwrap();
+    assert_eq!(value, serde_json::json!({"apps": [{"id": "a", "name": "b"}]}));
+    assert_eq!(serde_json::to_string(&InstalledAppsRequest {}).unwrap(), "{}");
+}

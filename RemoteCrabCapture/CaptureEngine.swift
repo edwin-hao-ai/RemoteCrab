@@ -1550,6 +1550,23 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBWindowListRequest())
     }
 
+    // MARK: - Installed-app launcher
+
+    /// Launch-able applications advertised by the connected computer,
+    /// keyed by the same `id` the computer expects for `launchApp`
+    /// (bundle id on the Mac, `.lnk` path on Windows).
+    @Published private(set) var installedApps: [IBInstalledApp] = []
+
+    /// Ask the receiver for its installed apps (launcher sheet).
+    func requestInstalledApps() {
+        broadcaster?.send(IBInstalledAppsRequest())
+    }
+
+    /// Launch an installed app on the receiver via `systemCommand(.launchApp)`.
+    func launchInstalledApp(_ app: IBInstalledApp) {
+        sendSystemCommand(IBSystemCommand(command: .launchApp, argument: app.id))
+    }
+
     /// Bring a Mac app to the front, and optionally raise one specific
     /// window of it (matches the picked window card).
     func activateMacApp(id: String, windowTitle: String? = nil) {
@@ -1865,6 +1882,10 @@ final class CaptureEngine: ObservableObject {
                             macWindowSnapshots[window.id] = image
                         }
                     }
+                }
+            case .installedApps:
+                if let list = try? IBWire.decodeInstalledApps(frame) {
+                    installedApps = list.apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
                 }
             case .screenSPS:
                 screenDecoder.feed(IBNalFrame(kind: .sps, data: frame.payload, timestampMicros: 0))

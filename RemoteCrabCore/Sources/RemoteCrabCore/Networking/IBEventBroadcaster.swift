@@ -39,6 +39,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .appListRequest) { try IBWire.encode(appListRequest: request) }
     }
 
+    /// Ask for the receiver's launch-able applications (launcher sheet).
+    public func send(_ request: IBInstalledAppsRequest) {
+        send(kind: .installedAppsRequest) { try IBWire.encode(installedAppsRequest: request) }
+    }
+
     /// iOS → Mac: request the current Mac window list.
     public func send(_ request: IBWindowListRequest) {
         send(kind: .windowListRequest) { try IBWire.encode(windowListRequest: request) }

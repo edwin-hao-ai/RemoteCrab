@@ -20,6 +20,12 @@ private func IBL(_ key: String) -> String {
 }
 
 public enum IBLocale {
+    public enum Launcher {
+        public static let searchPlaceholder = IBL("Search apps")
+        public static let empty = IBL("No apps listed yet")
+        public static let hint = IBL("Apps reported by the connected computer")
+    }
+
     public enum App {
         public static let name = IBL("RemoteCrab")
         public static let tagline = IBL("Mac receiver")
@@ -463,6 +469,7 @@ public enum IBLocale {
     public enum Switcher {
         public static let title = IBL("App Switcher")
         public static let desktop = IBL("Desktop")
+        public static let launchApps = IBL("Open app…")
         public static let empty = IBL("No apps to switch to")
         public static let refresh = IBL("Refresh")
         public static let pin = IBL("Pin")

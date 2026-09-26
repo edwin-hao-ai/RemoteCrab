@@ -653,3 +653,27 @@ pub struct ScreenInfo {
 fn default_shows_cursor() -> bool {
     true
 }
+
+// ---------------------------------------------------------------------------
+// Installed-app launcher (receiver ↔ iPhone) — kinds 0x20 / 0x21
+// ---------------------------------------------------------------------------
+
+/// Receiver → iPhone: one launch-able application the receiver can open on
+/// demand. `id` is exactly what `SystemCommandKind::LaunchApp` expects as its
+/// `argument` (bundle id on the Mac, `.lnk` path on Windows).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct InstalledApp {
+    pub id: String,
+    pub name: String,
+}
+
+/// Receiver → iPhone: the launch-able app list (kind `0x21`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledApps {
+    pub apps: Vec<InstalledApp>,
+}
+
+/// iPhone → receiver: ask for the installed-app list (kind `0x20`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct InstalledAppsRequest {}

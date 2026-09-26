@@ -28,4 +28,11 @@ final class SystemCommandWireTests: XCTestCase {
         XCTAssertEqual(decoded.command, .openURL)
         XCTAssertEqual(decoded.argument, "https://vgoapp.com/remotecrab/")
     }
+
+    func testRoundTripShowDesktop() throws {
+        let encoded = try IBWire.encode(systemCommand: IBSystemCommand(command: .showDesktop))
+        let decoded = try IBWire.decodeSystemCommand(try XCTUnwrap(IBWire.Parser().append(encoded).first))
+        XCTAssertEqual(decoded.command, .showDesktop)
+        XCTAssertNil(decoded.argument)
+    }
 }

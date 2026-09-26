@@ -50,6 +50,8 @@ public enum IBWire {
         case screenControl = 0x1D    // JSON IBScreenControl (iPhone → Mac)
         case screenInput   = 0x1E    // JSON IBScreenInput (iPhone → Mac)
         case screenInfo    = 0x1F    // JSON IBScreenInfo (Mac → iPhone)
+        case installedAppsRequest = 0x20  // JSON IBInstalledAppsRequest (iPhone → receiver)
+        case installedApps  = 0x21    // JSON IBInstalledApps (receiver → iPhone)
     }
 
     // MARK: - Encoding
@@ -131,6 +133,18 @@ public enum IBWire {
     public static func encode(appListRequest: IBAppListRequest) throws -> Data {
         let json = try JSONEncoder().encode(appListRequest)
         return encodeFrame(kind: .appListRequest, payload: json)
+    }
+
+    /// Encode the installed-app list (receiver → iPhone).
+    public static func encode(installedApps: IBInstalledApps) throws -> Data {
+        let json = try JSONEncoder().encode(installedApps)
+        return encodeFrame(kind: .installedApps, payload: json)
+    }
+
+    /// Encode an installed-apps request (iPhone → receiver).
+    public static func encode(installedAppsRequest: IBInstalledAppsRequest) throws -> Data {
+        let json = try JSONEncoder().encode(installedAppsRequest)
+        return encodeFrame(kind: .installedAppsRequest, payload: json)
     }
 
     /// Encode an activate-app request (iPhone → Mac).
@@ -343,6 +357,16 @@ public enum IBWire {
     /// Decode an `.appListRequest` frame's payload.
     public static func decodeAppListRequest(_ frame: Frame) throws -> IBAppListRequest {
         try JSONDecoder().decode(IBAppListRequest.self, from: frame.payload)
+    }
+
+    /// Decode an `.installedApps` frame's payload.
+    public static func decodeInstalledApps(_ frame: Frame) throws -> IBInstalledApps {
+        try JSONDecoder().decode(IBInstalledApps.self, from: frame.payload)
+    }
+
+    /// Decode an `.installedAppsRequest` frame's payload.
+    public static func decodeInstalledAppsRequest(_ frame: Frame) throws -> IBInstalledAppsRequest {
+        try JSONDecoder().decode(IBInstalledAppsRequest.self, from: frame.payload)
     }
 
     /// Decode an `.activateApp` frame's payload.

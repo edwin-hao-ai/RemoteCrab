@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use rc_net::{Config, Event, Session, State};
-use rc_protocol::{encode_app_list, encode_file_ack, encode_window_list};
+use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encode_window_list};
 
 #[cfg(windows)]
 mod mirror;
@@ -579,6 +579,13 @@ async fn main() -> ExitCode {
                         #[cfg(not(windows))]
                         let list = rc_protocol::WindowList { windows: vec![], can_capture: false };
                         session.send_frame(encode_window_list(&list).unwrap_or_default());
+                    }
+                    Event::InstalledAppsRequested => {
+                        #[cfg(windows)]
+                        let list = rc_os::apps::build_installed_apps();
+                        #[cfg(not(windows))]
+                        let list = rc_protocol::InstalledApps { apps: vec![] };
+                        session.send_frame(encode_installed_apps(&list).unwrap_or_default());
                     }
                     Event::ActivateApp(a) => {
                         #[cfg(windows)]

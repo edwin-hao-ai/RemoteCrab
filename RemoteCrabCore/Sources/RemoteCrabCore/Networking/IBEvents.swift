@@ -388,6 +388,33 @@ public struct IBAppListRequest: Codable, Sendable, Equatable {
     public init() {}
 }
 
+// MARK: - Installed-app launcher (Mac/Windows → iPhone)
+
+/// One launch-able application the receiver can open on demand.
+/// `id` is exactly what `IBSystemCommand.launchApp` expects as its
+/// argument: the bundle id on the Mac, the `.lnk` path on Windows.
+public struct IBInstalledApp: Codable, Sendable, Equatable, Identifiable {
+    public let id: String
+    public let name: String
+
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+/// Receiver → iPhone: every launch-able app (kind 0x21), sent once per
+/// `installedAppsRequest`.
+public struct IBInstalledApps: Codable, Sendable, Equatable {
+    public let apps: [IBInstalledApp]
+    public init(apps: [IBInstalledApp]) { self.apps = apps }
+}
+
+/// iPhone → receiver: ask for the installed-app list (kind 0x20).
+public struct IBInstalledAppsRequest: Codable, Sendable, Equatable {
+    public init() {}
+}
+
 /// iPhone → Mac: bring the identified app to the front (kind 0x0E).
 /// `windowTitle`, when set, names the specific window to raise (the app
 /// is activated too) so the window picker can bring the tapped window
