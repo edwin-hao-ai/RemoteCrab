@@ -17,6 +17,7 @@ rc-input.workspace = true
 rc-render.workspace = true
 rc-audio.workspace = true
 rc-os.workspace = true
+rc-record.workspace = true
 # Used by `--selftest` (a fake iPhone on localhost), so it's a real dep.
 rc-testkit.workspace = true
 serde_json.workspace = true

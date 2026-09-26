@@ -30,6 +30,7 @@ struct Args {
     no_preview: bool,
     scan: bool,
     unmute: bool,
+    record: bool,
 }
 
 fn parse_args() -> Args {
@@ -47,6 +48,7 @@ fn parse_args() -> Args {
             "--scan" => args.scan = true,
             "--unmute" => args.unmute = true,
             "--audio-selftest" => args.audio_selftest = true,
+            "--record" => args.record = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -76,10 +78,11 @@ fn print_help() {
          \x20 remotecrab --scan              Scan this PC's /24 for an iPhone on port 8765\n\
          \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
          \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
+         \x20 remotecrab --record            Record the live stream (see `record` below)\n\
          \n\
          While running, type these console commands (then Enter):\n\
          \x20 camera [on|off]  mic [on|off]  voice [on|off]  trackpad [on|off]\n\
-         \x20 keyboard [on|off]  switch-camera  clipboard  help  quit\n\
+         \x20 keyboard [on|off]  switch-camera  clipboard  record  help  quit\n\
          \n\
          Run the RemoteCrab iOS app first; both devices must share the same WiFi."
     );
@@ -107,8 +110,78 @@ fn spawn_console_reader() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 fn print_console_help() {
     println!(
         "  commands: camera [on|off] · mic [on|off] · voice [on|off] · \
-         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · help · quit"
+         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · record · help · quit"
     );
+}
+
+/// An in-progress recording. The muxer is pure; the Opus decoder is private
+/// to recording (the playback player keeps its own decoder state).
+struct ActiveRecording {
+    recorder: rc_record::Recorder,
+    opus: Option<rc_audio::OpusDecoder>,
+}
+
+/// Filename stem: `recording-<unix seconds>` (the Mac uses a date stamp).
+fn recording_stem() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("recording-{secs}")
+}
+
+fn start_recording(width: i64, height: i64, fps: i64) -> Option<ActiveRecording> {
+    let dir = rc_os::recording_directory();
+    let stem = recording_stem();
+    let rec = match rc_record::Recorder::new(
+        &dir,
+        &stem,
+        width.max(1) as u32,
+        height.max(1) as u32,
+        fps.max(1) as u32,
+    ) {
+        Ok(rec) => rec,
+        Err(e) => {
+            println!("  recording failed to start: {e}");
+            return None;
+        }
+    };
+    println!("  ● recording → {}", rec.mp4_path().display());
+    Some(ActiveRecording {
+        recorder: rec,
+        opus: rc_audio::OpusDecoder::new().ok(),
+    })
+}
+
+fn stop_recording(rec: ActiveRecording) {
+    let mp4 = rec.recorder.mp4_path().to_path_buf();
+    let (video_ok, _audio_ok) = rec.recorder.finish();
+    if video_ok {
+        println!("  ■ recording saved: {}", mp4.display());
+        #[cfg(windows)]
+        rc_os::files::reveal(&mp4);
+    } else {
+        println!("  recording stopped with no video frames: {}", mp4.display());
+    }
+}
+
+/// Decode one audio packet to PCM for recording (Opus, or raw Int16 fallback,
+/// mirroring the playback player).
+fn decode_for_record(
+    opus: &mut Option<rc_audio::OpusDecoder>,
+    packet: &rc_protocol::AudioPacket,
+) -> Vec<i16> {
+    if packet.codec == rc_protocol::AUDIO_CODEC_OPUS {
+        opus.as_mut()
+            .map(|d| d.decode(&packet.opus_data))
+            .unwrap_or_default()
+    } else {
+        packet
+            .opus_data
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect()
+    }
 }
 
 /// Apply one console command: toggle (or explicitly set) an iPhone feature,
@@ -118,6 +191,8 @@ fn handle_console_command(
     session: &Session,
     last_features: &mut Option<rc_protocol::FeatureStateSnapshot>,
     quit_requested: &mut bool,
+    recording: &mut Option<ActiveRecording>,
+    metadata: Option<&rc_protocol::StreamMetadata>,
 ) {
     let mut parts = line.split_whitespace();
     let Some(cmd) = parts.next() else { return };
@@ -165,6 +240,16 @@ fn handle_console_command(
             }
             #[cfg(not(windows))]
             println!("  clipboard send is Windows-only");
+        }
+        "record" => {
+            if let Some(rec) = recording.take() {
+                stop_recording(rec);
+            } else {
+                match metadata {
+                    Some(m) => *recording = start_recording(m.width, m.height, m.fps),
+                    None => println!("  not connected yet — nothing to record"),
+                }
+            }
         }
         "help" | "?" => print_console_help(),
         "quit" | "exit" => *quit_requested = true,
@@ -273,6 +358,9 @@ async fn main() -> ExitCode {
     let mut console_alive = true;
     let mut last_features: Option<rc_protocol::FeatureStateSnapshot> = None;
     let mut quit_requested = false;
+    // Recording: `--record` arms it, the `record` console command toggles it.
+    let mut metadata: Option<rc_protocol::StreamMetadata> = None;
+    let mut recording: Option<ActiveRecording> = None;
     println!("Type `help` for live iPhone feature commands.");
 
     loop {
@@ -333,9 +421,20 @@ async fn main() -> ExitCode {
                             m.fps,
                             m.bitrate_bps / 1000
                         );
+                        if args.record && recording.is_none() {
+                            recording = start_recording(m.width, m.height, m.fps);
+                        }
+                        metadata = Some(m);
                     }
                     Event::Video(nal) => {
                         video_frames += 1;
+                        if let Some(rec) = recording.as_mut() {
+                            match nal.kind {
+                                rc_protocol::NalKind::Sps => rec.recorder.set_sps(&nal.data),
+                                rc_protocol::NalKind::Pps => rec.recorder.set_pps(&nal.data),
+                                rc_protocol::NalKind::Video => rec.recorder.add_video(&nal.data),
+                            }
+                        }
                         if let Some(p) = preview.as_mut() {
                             if p.push(&nal) {
                                 if let Some(frame) = p.latest() {
@@ -377,6 +476,22 @@ async fn main() -> ExitCode {
                     }
                     Event::Audio(packet) => {
                         audio.consume(&packet);
+                        if let Some(rec) = recording.as_mut() {
+                            let pcm = decode_for_record(&mut rec.opus, &packet);
+                            if !pcm.is_empty() {
+                                let rate = if packet.sample_rate > 0 {
+                                    packet.sample_rate as u32
+                                } else {
+                                    48000
+                                };
+                                let channels = if packet.channels > 0 {
+                                    packet.channels as u16
+                                } else {
+                                    1
+                                };
+                                rec.recorder.add_audio(&pcm, rate, channels);
+                            }
+                        }
                         // Surface the level alongside the video counter.
                         if frame_slot.get().is_some() {
                             // (level is shown in the console periodically)
@@ -500,7 +615,14 @@ async fn main() -> ExitCode {
             line = console_rx.recv(), if console_alive => {
                 match line {
                     Some(l) => {
-                        handle_console_command(&l, &session, &mut last_features, &mut quit_requested);
+                        handle_console_command(
+                            &l,
+                            &session,
+                            &mut last_features,
+                            &mut quit_requested,
+                            &mut recording,
+                            metadata.as_ref(),
+                        );
                         if quit_requested {
                             println!("\nShutting down…");
                             break;
@@ -515,6 +637,9 @@ async fn main() -> ExitCode {
     }
 
     // Close the preview window and let its thread finish.
+    if let Some(rec) = recording.take() {
+        stop_recording(rec);
+    }
     shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
     if let Some(handle) = window_handle {
         let _ = handle.join();

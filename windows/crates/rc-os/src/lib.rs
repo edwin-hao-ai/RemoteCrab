@@ -26,3 +26,12 @@ pub fn incoming_directory() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     home.join("Downloads").join("RemoteCrab")
 }
+
+/// Where recordings land: `%USERPROFILE%\Videos\RemoteCrab` (mirrors the
+/// Mac receiver's `~/Movies/RemoteCrab`).
+pub fn recording_directory() -> std::path::PathBuf {
+    let home = std::env::var_os("USERPROFILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    home.join("Videos").join("RemoteCrab")
+}

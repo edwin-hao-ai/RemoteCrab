@@ -1,0 +1,9 @@
+[package]
+name = "rc-record"
+description = "RemoteCrab for Windows — record the received stream to disk (H.264 passthrough MP4 + PCM WAV)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mp4.workspace = true

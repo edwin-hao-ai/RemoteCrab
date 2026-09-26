@@ -5,10 +5,11 @@ existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
 Status: **P2 — video preview, audio, trackpad, keyboard, clipboard (both
-directions), file transfer, system keys, the window-based app switcher and
-live feature control all work.** Not yet implemented: the app-window mirror
-(the iPhone hides its mirror button when connected to Windows), recording,
-virtual camera/microphone, tray UI (see `docs/WINDOWS_PORT_PLAN.md`).
+directions), file transfer, system keys, the window-based app switcher,
+recording and live feature control all work.** Not yet implemented: the
+app-window mirror (the iPhone hides its mirror button when connected to
+Windows), virtual camera/microphone, tray UI (see
+`docs/WINDOWS_PORT_PLAN.md`).
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
 **Opus** decoder + **cpal/WASAPI** — no system FFmpeg, no CMake, no FFI.
@@ -119,6 +120,7 @@ Other flags:
 | `--no-preview` | Console status only (no video window) |
 | `--list` | Print discovered iPhones and keep running |
 | `--unmute` | Play the iPhone mic on this PC's speakers (muted by default) |
+| `--record` | Record the live stream to `%USERPROFILE%\Videos\RemoteCrab` (toggle at runtime with the `record` command) |
 | `--selftest` | Fake iPhone on localhost; verify the pipeline |
 | `--preview-selftest` | Fake **H.264** stream; verify decode + the window |
 | `--audio-selftest` | Decode the embedded Opus tone; verify audio |
@@ -142,6 +144,7 @@ toggles the Mac exposes in its menu bar:
 | `keyboard [on\|off]` | Toggle / set the keyboard surface |
 | `switch-camera` | Flip between the front and back iPhone camera |
 | `clipboard` | Send *this PC's* clipboard text to the iPhone |
+| `record` | Start / stop a recording (same as `--record`) |
 | `help` | List the commands |
 | `quit` | Shut down (same as Ctrl-C) |
 
@@ -151,6 +154,39 @@ this receiver enumerates its top-level windows with a JPEG thumbnail
 it to the front, long-press to quit. Tapping activates the exact window whose
 title the card showed. `--no-input` suppresses activation/quit, like it does
 for cursor and keyboard injection.
+
+### Recording
+
+`remotecrab --record` (or the `record` console command) records the live
+stream to `%USERPROFILE%\Videos\RemoteCrab` and reveals the file when it
+stops. The iPhone already sends H.264, so the video track is a **passthrough
+mux into MP4** — no re-encode, no quality loss. Audio is written as a **PCM
+`.wav` sidecar** (`recording-<stamp>.mp4` + `recording-<stamp>.wav`): the
+pure-Rust `mp4` crate only muxes AAC, and the project refuses an FFI AAC
+encoder, so the mic track lives next to the video until a native Media
+Foundation path lands. Both files are finalized on Ctrl-C / `quit`.
+
+### Connectivity: what works without a router (and what AWDL is)
+
+**AWDL (Apple Wireless Direct Link) is Apple-only and is NOT available on
+Windows.** It is a proprietary link layer implemented in Apple's Wi-Fi
+driver/firmware; the Mac receiver's `includePeerToPeer` is an Apple
+Network.framework flag with no Windows equivalent (the open-source OWL
+implementation targets Linux + special NICs, not Windows). Windows' Wi-Fi
+Direct cannot substitute either — iOS does not expose a Wi-Fi Direct group to
+third-party apps. The Windows receiver uses the pure-Rust `mdns-sd` crate, so
+there is no AWDL path.
+
+What *does* work without an external router/internet:
+
+1. **iPhone Personal Hotspot** — the PC joins the iPhone's hotspot. This is
+   the practical replacement for AWDL's router-less pairing.
+2. **iPhone USB tethering** — the PC gets an address on the same Apple
+   tethering subnet (gateway `172.20.10.1`), so the same fallback applies.
+
+Both cases block mDNS multicast, so the receiver's direct-IP fallback covers
+them: it probes (a) the last address that worked, (b) the hotspot gateway
+`172.20.10.1`, then (c) sweeps the PC's own `/24` for port 8765.
 
 ---
 
@@ -165,7 +201,8 @@ windows/
 │   ├── rc-input/      SendInput injection + CGKeyCode→VK mapping
 │   ├── rc-render/     H.264 decode (OpenH264) + the preview window
 │   ├── rc-audio/      Opus decode (pure Rust) + cpal/WASAPI playback
-│   ├── rc-os/         clipboard, file receive, system keys, app list, selection
+│   ├── rc-os/         clipboard, file receive, system keys, app list, window list, selection
+│   ├── rc-record/     H.264 passthrough MP4 + PCM WAV recorder
 │   ├── rc-testkit/    a fake iPhone for end-to-end tests
 │   └── rc-app/        the `remotecrab` binary (CLI + status + preview + audio)
 └── README.md
@@ -204,7 +241,7 @@ Two Windows-specific caveats:
 | Phase | Contents |
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
-| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control |
-| P3 | window-list thumbnails, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
+| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control, recording (MP4 + WAV) |
+| P3 | app-window mirror, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).
