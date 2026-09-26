@@ -20,6 +20,7 @@ use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encod
 
 #[cfg(windows)]
 mod mirror;
+mod tray;
 
 #[derive(Debug, Default)]
 struct Args {
@@ -34,6 +35,7 @@ struct Args {
     scan: bool,
     unmute: bool,
     record: bool,
+    no_tray: bool,
 }
 
 fn parse_args() -> Args {
@@ -52,6 +54,7 @@ fn parse_args() -> Args {
             "--unmute" => args.unmute = true,
             "--audio-selftest" => args.audio_selftest = true,
             "--record" => args.record = true,
+            "--no-tray" => args.no_tray = true,
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -82,6 +85,7 @@ fn print_help() {
          \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
          \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
          \x20 remotecrab --record            Record the live stream (see `record` below)\n\
+         \x20 remotecrab --no-tray            Skip the notification-area tray icon\n\
          \n\
          While running, type these console commands (then Enter):\n\
          \x20 camera [on|off]  mic [on|off]  voice [on|off]  trackpad [on|off]\n\
@@ -187,6 +191,33 @@ fn decode_for_record(
     }
 }
 
+/// Push this PC's clipboard to the iPhone (`clipboardSet`, 0x13) — the tray
+/// row and the `clipboard` console command share this path.
+fn send_clipboard_to_iphone(session: &Session) {
+    #[cfg(windows)]
+    match rc_os::clipboard::get_text() {
+        Some(text) if !text.is_empty() => {
+            let msg = rc_protocol::Clipboard { text: text.clone() };
+            match rc_protocol::encode_clipboard(&msg) {
+                Ok(frame) => {
+                    session.send_frame(frame);
+                    println!(
+                        "  → sent clipboard to iPhone ({} chars)",
+                        text.chars().count()
+                    );
+                }
+                Err(_) => println!("  clipboard send failed"),
+            }
+        }
+        _ => println!("  clipboard is empty or not text"),
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = session;
+        println!("  clipboard send is Windows-only");
+    }
+}
+
 /// Apply one console command: toggle (or explicitly set) an iPhone feature,
 /// flip the camera, print help, or request shutdown.
 fn handle_console_command(
@@ -226,24 +257,7 @@ fn handle_console_command(
             session.switch_camera();
             println!("  → switching camera");
         }
-        "clipboard" | "send-clipboard" => {
-            #[cfg(windows)]
-            match rc_os::clipboard::get_text() {
-                Some(text) if !text.is_empty() => {
-                    let msg = rc_protocol::Clipboard { text: text.clone() };
-                    match rc_protocol::encode_clipboard(&msg) {
-                        Ok(frame) => {
-                            session.send_frame(frame);
-                            println!("  → sent clipboard to iPhone ({} chars)", text.chars().count());
-                        }
-                        Err(_) => println!("  clipboard send failed"),
-                    }
-                }
-                _ => println!("  clipboard is empty or not text"),
-            }
-            #[cfg(not(windows))]
-            println!("  clipboard send is Windows-only");
-        }
+        "clipboard" | "send-clipboard" => send_clipboard_to_iphone(session),
         "record" => {
             if let Some(rec) = recording.take() {
                 stop_recording(rec);
@@ -368,6 +382,16 @@ async fn main() -> ExitCode {
     // Recording: `--record` arms it, the `record` console command toggles it.
     let mut metadata: Option<rc_protocol::StreamMetadata> = None;
     let mut recording: Option<ActiveRecording> = None;
+    // Notification-area tray (menu mirrors the Mac's menu-bar popover).
+    #[cfg(windows)]
+    let (tray, mut tray_rx) = if args.no_tray {
+        tray::disabled()
+    } else {
+        tray::start("RemoteCrab")
+    };
+    #[cfg(not(windows))]
+    let (tray, mut tray_rx) = tray::start("RemoteCrab");
+    let mut tray_alive = true;
     println!("Type `help` for live iPhone feature commands.");
 
     loop {
@@ -403,6 +427,8 @@ async fn main() -> ExitCode {
                 if let State::Error(_) = st {
                     println!("   (if the iPhone is running RemoteCrab, try: remotecrab --connect <iphone-ip>)");
                 }
+                // Keep the tray's status row in sync (single-line pill-style).
+                tray.set_status(&tray_status(&st));
             }
             ev = events.recv() => {
                 let Ok(ev) = ev else { continue };
@@ -618,6 +644,7 @@ async fn main() -> ExitCode {
                         let _ = &q;
                     }
                     Event::FeatureState(s) => {
+                        tray.set_features(Some(s.clone()));
                         last_features = Some(s);
                     }
                     Event::ScreenControl(control) => {
@@ -672,6 +699,7 @@ async fn main() -> ExitCode {
                             &mut recording,
                             metadata.as_ref(),
                         );
+                        tray.set_recording(recording.is_some());
                         if quit_requested {
                             println!("\nShutting down…");
                             break;
@@ -680,6 +708,30 @@ async fn main() -> ExitCode {
                     // The reader thread hit EOF (stdin was a pipe) — stop
                     // polling a closed channel or `select!` would spin.
                     None => console_alive = false,
+                }
+            }
+            cmd = tray_rx.recv(), if tray_alive => {
+                match cmd {
+                    Some(tray::TrayCommand::SetFeature(feature, on)) => {
+                        session.set_feature(feature, on);
+                    }
+                    Some(tray::TrayCommand::ToggleRecord) => {
+                        if let Some(rec) = recording.take() {
+                            stop_recording(rec);
+                        } else if let Some(m) = metadata.as_ref() {
+                            recording = start_recording(m.width, m.height, m.fps);
+                        }
+                        tray.set_recording(recording.is_some());
+                    }
+                    Some(tray::TrayCommand::SendClipboard) => send_clipboard_to_iphone(&session),
+                    Some(tray::TrayCommand::Reconnect) => session.retry_now(),
+                    Some(tray::TrayCommand::Disconnect) => session.disconnect(),
+                    Some(tray::TrayCommand::Quit) => {
+                        println!("\nShutting down…");
+                        break;
+                    }
+                    // The tray thread ended (or `--no-tray` stub) — disable.
+                    None => tray_alive = false,
                 }
             }
         }
@@ -986,5 +1038,24 @@ fn state_line(state: &State) -> String {
              \x20          and this PC will connect automatically."
         ),
         State::Error(reason) => format!("[OFFLINE]  {reason}"),
+    }
+}
+
+/// One-line, pill-language status for the tray menu — same wording the Mac's
+/// menu-bar popover and the iOS status pill use (`State::pill_label` /
+/// `Status.latency`), without the console's [TAG] + wrapped explanation.
+pub fn tray_status(state: &State) -> String {
+    match state {
+        State::Streaming { name, latency_ms } if *latency_ms > 0 => {
+            format!("Streaming from {name} · {latency_ms} ms")
+        }
+        State::Streaming { name, .. } => format!("Streaming from {name}"),
+        State::AwaitingApproval { name } => format!("Approve on {name}"),
+        State::Connecting { name } | State::Handshaking { name } => {
+            format!("Connecting to {name}…")
+        }
+        State::Busy { owner } => format!("In use by {owner}"),
+        State::Searching => "Waiting for an iPhone…".to_string(),
+        State::Error(reason) => reason.clone(),
     }
 }

@@ -159,6 +159,15 @@ Above the cards sit two quick destinations: **Desktop** (Win+D — toggles
 application, built from the Start Menu's Program trees (one entry per
 `.lnk`; tapping runs `ShellExecuteW` on it, the same path `launchApp` uses).
 
+### Tray icon
+
+By default the receiver puts an icon in the notification area (skip with
+`--no-tray`): the menu mirrors the Mac menu-bar popover — a status line
+(pill language: `Streaming from <name> · 12 ms`), the four feature toggles
+(Camera / Microphone / Trackpad / Keyboard), Start/Stop Recording,
+Send Clipboard to iPhone, Reconnect, Disconnect and Quit. The console
+stays available alongside it.
+
 ### App-window mirror
 
 The iPhone's mirror button (top bar → `rectangle.on.rectangle`) works against
