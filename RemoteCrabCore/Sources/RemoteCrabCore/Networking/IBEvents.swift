@@ -596,6 +596,10 @@ public struct IBScreenControl: Codable, Sendable, Equatable {
         case select
         /// Resume following the Mac's frontmost app (clear a pin).
         case follow
+        /// Extend the Mac's desktop with a virtual display and stream THAT
+        /// (the phone becomes a real second monitor); `follow` returns to
+        /// mirroring an app window.
+        case extend
     }
     public let command: Command
     public let windowId: String?

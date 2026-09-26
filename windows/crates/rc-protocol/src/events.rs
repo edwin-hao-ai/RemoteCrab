@@ -567,6 +567,8 @@ pub enum ScreenControlCommand {
     Select,
     /// Resume following the frontmost app (clear a pin).
     Follow,
+    /// Extend the desktop with a virtual display and stream it.
+    Extend,
 }
 
 /// iPhone → receiver: one direct-manipulation input (kind `0x1E`).

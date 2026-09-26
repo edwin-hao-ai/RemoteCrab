@@ -682,6 +682,12 @@ async fn main() -> ExitCode {
                                     println!("  mirror: pinned to {:?}", control.window_id);
                                 }
                                 ScreenControlCommand::Follow => mirror.select(None),
+                                ScreenControlCommand::Extend => {
+                                    // The Windows receiver has no virtual-display
+                                    // driver yet, so "Extended Display" is honest
+                                    // about being unavailable.
+                                    println!("  mirror: extended display is not supported on Windows yet");
+                                }
                             }
                         }
                         #[cfg(not(windows))]

@@ -34,6 +34,7 @@ public enum IBLocale {
         public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click")
         public static let gotIt = IBL("Got it")
         public static let followFrontmost = IBL("Follow frontmost app")
+        public static let extendDisplay = IBL("Extended Display")
         public static let window = IBL("Window")
         public static let computer = IBL("Computer")
         public static let fitWindow = IBL("Fit window")

@@ -502,6 +502,7 @@ struct ContentView: View {
                             pinnedWindowId: engine.screenPinnedWindowId,
                             onSelectWindow: { engine.selectScreenWindow(id: $0) },
                             onFollowFrontmost: { engine.followFrontmostScreenWindow() },
+                            onExtendDisplay: { engine.extendToVirtualDisplay() },
                             topInset: topInset,
                             bottomInset: bottomInset)
                 .ignoresSafeArea()

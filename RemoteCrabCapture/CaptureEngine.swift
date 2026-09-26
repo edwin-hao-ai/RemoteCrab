@@ -590,6 +590,15 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBScreenControl(command: .follow))
     }
 
+    /// Extend the Mac's desktop with a virtual display and mirror THAT —
+    /// the phone becomes a real second monitor. `follow` returns to
+    /// mirroring an app window.
+    func extendToVirtualDisplay() {
+        screenPinnedWindowId = nil
+        Forensic.log("[e2e] screen extend display")
+        broadcaster?.send(IBScreenControl(command: .extend, maxPixel: preferredMaxPixel))
+    }
+
     func toggleScreenMirror() {
         if features.screenOn {
             stopScreenMirror()
@@ -1403,6 +1412,16 @@ final class CaptureEngine: ObservableObject {
                 try? await Task.sleep(for: .seconds(4))
                 self?.quitMacApp(id: target, force: true)
                 Forensic.log("[e2e] quit requested: \(target)")
+            }
+        }
+        // E2E: "Extended Display" — create the Mac's virtual display and
+        // stream it (Mac log: "virtual display created" +
+        // "streaming extended display").
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_EXTEND"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.extendToVirtualDisplay()
+                Forensic.log("[e2e] extend display requested")
             }
         }
         // E2E: the switcher's "Open App…" list — REMOTECRAB_E2E_INSTALLED_APPS=1

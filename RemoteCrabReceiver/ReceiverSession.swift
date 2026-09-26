@@ -69,6 +69,9 @@ final class ReceiverSession: ObservableObject {
     /// Mac → iPhone app-screen mirror. nil until the iPhone sends
     /// `screenControl(.start)`; torn down on `.stop` and on disconnect.
     private var screenStreamer: ScreenStreamer?
+    /// The extra display created for "extend" mode, torn down with the
+    /// mirror / connection.
+    private var virtualDisplay: VirtualDisplay?
     /// Last geometry the mirror published, used to translate `screenInput`
     /// coordinates back to global cursor positions.
     private var lastScreenInfo: IBScreenInfo?
@@ -342,7 +345,7 @@ final class ReceiverSession: ObservableObject {
 
     // MARK: - App screen mirror (Mac → iPhone)
 
-    /// Handle `screenControl` (0x1D): start / stop / select.
+    /// Handle `screenControl` (0x1D): start / stop / select / follow / extend.
     private func handleScreenControl(_ control: IBScreenControl) {
         switch control.command {
         case .start:
@@ -363,15 +366,41 @@ final class ReceiverSession: ObservableObject {
             screenStreamer?.setMaxPixel(control.maxPixel)
             screenStreamer?.start()
         case .stop:
+            teardownVirtualDisplay()
             screenStreamer?.stop()
             screenStreamer = nil
             lastScreenInfo = nil
             Self.log.info("screen mirror stopped")
         case .select:
+            teardownVirtualDisplay()
             screenStreamer?.select(windowId: control.windowId ?? "")
         case .follow:
+            teardownVirtualDisplay()
             screenStreamer?.follow()
+        case .extend:
+            // The phone wants a real second monitor: create a virtual
+            // display, then point the live mirror at it. All the plumbing
+            // (capture/encode/decode/render/input) is the existing mirror.
+            screenStreamer?.setMaxPixel(control.maxPixel)
+            let width = control.maxPixel ?? 1920
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let vd = self.virtualDisplay ?? VirtualDisplay()
+                self.virtualDisplay = vd
+                guard let id = await vd.create(width: width, height: width * 10 / 16) else {
+                    Self.log.error("extend failed — no virtual display")
+                    return
+                }
+                self.screenStreamer?.extend(displayID: id)
+            }
         }
+    }
+
+    /// Drop the extended virtual display, if one is up.
+    private func teardownVirtualDisplay() {
+        guard let vd = virtualDisplay else { return }
+        vd.destroy()
+        virtualDisplay = nil
     }
 
     /// Handle `screenInput` (0x1E): absolute clicks / drags / scroll inside
@@ -1181,6 +1210,7 @@ final class ReceiverSession: ObservableObject {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         featureState = nil
+        teardownVirtualDisplay()
         screenStreamer?.stop()
         screenStreamer = nil
         lastScreenInfo = nil
@@ -1376,6 +1406,7 @@ final class ReceiverSession: ObservableObject {
                     // mirror at the whole display, so the phone actually sees
                     // the desktop instead of staying on the old window.
                     if command.command == .showDesktop {
+                        teardownVirtualDisplay()
                         screenStreamer?.captureDesktop()
                     }
                 }

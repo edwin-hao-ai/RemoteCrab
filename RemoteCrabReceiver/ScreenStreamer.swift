@@ -58,6 +58,9 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     /// True while capturing the whole display (no eligible app window —
     /// e.g. "Show Desktop", or Finder sitting on the desktop).
     private var displayMode = false
+    /// Set while streaming the **extended** (virtual) display: the mirror
+    /// must NOT follow the frontmost app in that mode.
+    private var extendedDisplayID: CGDirectDisplayID?
     /// Phone-requested long-edge pixel cap. `nil` = `defaultMaxPixel`.
     private var maxPixelOverride: Int?
 
@@ -144,6 +147,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             currentTarget = nil
             displayMode = false
             pinnedWindowNumber = nil
+            extendedDisplayID = nil
             lastContentRect = nil
             return running
         }
@@ -195,6 +199,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         withLock {
             pinnedWindowNumber = number
             previous = window
+            extendedDisplayID = nil
         }
         Self.log.info("pinned window \(number, privacy: .public) (pid \(pid, privacy: .public))")
         Task { @MainActor in await resolveAndStart(reason: "select") }
@@ -207,9 +212,23 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         withLock {
             pinnedWindowNumber = nil
             previous = nil
+            extendedDisplayID = nil
         }
         Self.log.info("screen mirror following frontmost app")
         Task { @MainActor in await resolveAndStart(reason: "follow") }
+    }
+
+    /// Stream the **extended** (virtual) display `id` — the phone becomes a
+    /// real second monitor and the mirror stops following the frontmost app.
+    @MainActor
+    func extend(displayID: CGDirectDisplayID) {
+        withLock {
+            pinnedWindowNumber = nil
+            previous = nil
+            extendedDisplayID = displayID
+        }
+        Self.log.info("streaming extended display \(displayID, privacy: .public)")
+        Task { @MainActor in await configureDisplayStream(displayID: displayID, reason: "extend") }
     }
 
     /// Point the live mirror at the whole display. Called explicitly when
@@ -222,9 +241,10 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         withLock {
             pinnedWindowNumber = nil
             previous = nil
+            extendedDisplayID = nil
         }
         guard withLock({ isRunning }) else { return }
-        Task { @MainActor in await configureDisplayStream(reason: "desktop") }
+        Task { @MainActor in await configureDisplayStream(displayID: nil, reason: "desktop") }
     }
 
     // MARK: - Observers / follow frontmost
@@ -263,6 +283,9 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     @MainActor
     private func recheckFrontmost() async {
         guard withLock({ isRunning }) else { return }
+        // Extended mode streams the virtual display; app activation is
+        // irrelevant — only `follow()`/`stop()` leave it.
+        guard withLock({ extendedDisplayID }) == nil else { return }
         // A pinned window ignores app activation — only `follow()` (or the
         // pinned window disappearing) may change the target.
         guard withLock({ pinnedWindowNumber }) == nil else { return }
@@ -280,6 +303,11 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
 
     @MainActor
     private func resolveAndStart(reason: String, force: Bool = false) async {
+        // Extended mode ignores window resolution entirely.
+        if let extended = withLock({ extendedDisplayID }) {
+            await configureDisplayStream(displayID: extended, reason: reason)
+            return
+        }
         let snapshot = Self.windowSnapshot()
         let descriptors = snapshot.descriptors
         let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
@@ -320,7 +348,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             // instead of going blank.
             let alreadyDisplay = withLock { isRunning && displayMode }
             if alreadyDisplay && !force { return }
-            await configureDisplayStream(reason: reason)
+            await configureDisplayStream(displayID: nil, reason: reason)
             return
         }
         let same = withLock { () -> Bool in
@@ -435,12 +463,11 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
     }
 
-    /// Capture the whole main display (no app window to focus on). This is
-    /// what makes "Show Desktop" show the desktop: hiding every app leaves
-    /// Finder active with no window, so the window resolver returns nil and
-    /// we land here.
+    /// Capture a whole display. `displayID == nil` means the main display
+    /// (the "Show Desktop" fallback); passing an id streams that specific
+    /// display — the extended virtual one.
     @MainActor
-    private func configureDisplayStream(reason: String) async {
+    private func configureDisplayStream(displayID: CGDirectDisplayID?, reason: String) async {
         await stopStreamOnly()
 
         let content: SCShareableContent
@@ -451,7 +478,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             sendInfo(IBScreenInfo(status: .noWindow))
             return
         }
-        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+        let wanted = displayID ?? CGMainDisplayID()
+        guard let display = content.displays.first(where: { $0.displayID == wanted })
                 ?? content.displays.first else {
             sendInfo(IBScreenInfo(status: .noWindow))
             return
@@ -494,8 +522,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             pixelHeight = pixelH
             lastContentRect = frame
             targetWindowId = "display:\(display.displayID)"
-            targetAppId = "desktop"
-            targetAppName = IBLocale.Switcher.desktop
+            targetAppId = "display"
+            targetAppName = displayID != nil ? "RemoteCrab Display" : IBLocale.Switcher.desktop
             targetTitle = ""
         }
         createEncoder(width: pixelW, height: pixelH)

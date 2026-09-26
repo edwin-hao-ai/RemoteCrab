@@ -74,7 +74,7 @@ env REMOTECRAB_E2E_RECORD=1 /Applications/RemoteCrab.app/Contents/MacOS/RemoteCr
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
-  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1"}' \
+  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1","REMOTECRAB_E2E_EXTEND":"1"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
 echo "  waiting 30s for the scripted run…"
 sleep 30
@@ -108,6 +108,8 @@ check "first screen frame decoded OK"     "mirror frame decoded on iPhone"
 check "-> global"                         "mirror input injected on Mac"
 check "installed apps"                    "installed-app list published (Open App…)"
 check "showDesktop requested"             "Desktop quick action (showDesktop)"
+check "virtual display created"           "Extended Display: virtual display created"
+check "streaming extended display"        "mirror streams the virtual display"
 check "streaming display"                 "mirror followed Show Desktop → display capture"
 
 echo

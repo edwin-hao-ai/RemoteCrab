@@ -433,6 +433,7 @@ fn screen_control_round_trip() {
         ScreenControlCommand::Stop,
         ScreenControlCommand::Select,
         ScreenControlCommand::Follow,
+        ScreenControlCommand::Extend,
     ] {
         let control = ScreenControl {
             command,

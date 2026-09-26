@@ -60,6 +60,8 @@ struct ScreenShareView: View {
     var pinnedWindowId: String?
     var onSelectWindow: (String) -> Void = { _ in }
     var onFollowFrontmost: () -> Void = {}
+    /// Extend the Mac desktop with a virtual display and stream that.
+    var onExtendDisplay: () -> Void = {}
     /// Safe-area insets, so the floating controls clear the app's top bar
     /// and the bottom keyboard/PTT row.
     var topInset: CGFloat = 0
@@ -217,6 +219,15 @@ struct ScreenShareView: View {
                 }
             }
             if !windows.isEmpty { Divider() }
+            Button {
+                onExtendDisplay()
+            } label: {
+                if info?.windowId?.hasPrefix("display:") == true {
+                    Label(IBLocale.Mirror.extendDisplay, systemImage: "checkmark")
+                } else {
+                    Label(IBLocale.Mirror.extendDisplay, systemImage: "rectangle.on.rectangle.angled")
+                }
+            }
             Button {
                 onFollowFrontmost()
             } label: {
