@@ -309,10 +309,10 @@ mod win32 {
         append_separator(menu);
 
         for (id, name, on) in [
-            (Ids::CAMERA, "Camera", features.as_ref().map(|f| f.camera_on)),
-            (Ids::MICROPHONE, "Microphone", features.as_ref().map(|f| f.mic_on)),
-            (Ids::TRACKPAD, "Trackpad", features.as_ref().map(|f| f.trackpad_on)),
-            (Ids::KEYBOARD, "Keyboard", features.as_ref().map(|f| f.keyboard_on)),
+            (Ids::CAMERA, crate::i18n::t("摄像头", "Camera"), features.as_ref().map(|f| f.camera_on)),
+            (Ids::MICROPHONE, crate::i18n::t("麦克风", "Microphone"), features.as_ref().map(|f| f.mic_on)),
+            (Ids::TRACKPAD, crate::i18n::t("触控板", "Trackpad"), features.as_ref().map(|f| f.trackpad_on)),
+            (Ids::KEYBOARD, crate::i18n::t("键盘", "Keyboard"), features.as_ref().map(|f| f.keyboard_on)),
         ] {
             let mut flags = MF_STRING;
             if on == Some(true) {
@@ -326,14 +326,19 @@ mod win32 {
             menu,
             MF_STRING,
             Ids::RECORD,
-            if recording { "Stop Recording" } else { "Start Recording" },
+            if recording {
+                crate::i18n::t("停止录制", "Stop Recording")
+            } else {
+                crate::i18n::t("开始录制", "Start Recording")
+            },
         );
-        append_item(menu, MF_STRING, Ids::CLIPBOARD, "Send Clipboard to iPhone");
+        append_item(menu, MF_STRING, Ids::CLIPBOARD,
+                    crate::i18n::t("发送剪贴板到 iPhone", "Send Clipboard to iPhone"));
         append_separator(menu);
-        append_item(menu, MF_STRING, Ids::RECONNECT, "Reconnect");
-        append_item(menu, MF_STRING, Ids::DISCONNECT, "Disconnect");
+        append_item(menu, MF_STRING, Ids::RECONNECT, crate::i18n::t("重新连接", "Reconnect"));
+        append_item(menu, MF_STRING, Ids::DISCONNECT, crate::i18n::t("断开连接", "Disconnect"));
         append_separator(menu);
-        append_item(menu, MF_STRING, Ids::QUIT, "Quit RemoteCrab");
+        append_item(menu, MF_STRING, Ids::QUIT, crate::i18n::t("退出 RemoteCrab", "Quit RemoteCrab"));
 
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);

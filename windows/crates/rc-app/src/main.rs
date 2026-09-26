@@ -20,6 +20,7 @@ use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encod
 
 #[cfg(windows)]
 mod mirror;
+mod i18n;
 mod tray;
 
 #[derive(Debug, Default)]
@@ -1047,15 +1048,21 @@ fn state_line(state: &State) -> String {
 pub fn tray_status(state: &State) -> String {
     match state {
         State::Streaming { name, latency_ms } if *latency_ms > 0 => {
-            format!("Streaming from {name} · {latency_ms} ms")
+            format!("{}{name} · {latency_ms} ms", i18n::t("正在投屏 ", "Streaming from "))
         }
-        State::Streaming { name, .. } => format!("Streaming from {name}"),
-        State::AwaitingApproval { name } => format!("Approve on {name}"),
+        State::Streaming { name, .. } => {
+            format!("{}{name}", i18n::t("正在投屏 ", "Streaming from "))
+        }
+        State::AwaitingApproval { name } => {
+            format!("{}{name}{}", i18n::t("请在 ", "Approve on "), i18n::t(" 上确认", ""))
+        }
         State::Connecting { name } | State::Handshaking { name } => {
-            format!("Connecting to {name}…")
+            format!("{}{name}…", i18n::t("正在连接 ", "Connecting to "))
         }
-        State::Busy { owner } => format!("In use by {owner}"),
-        State::Searching => "Waiting for an iPhone…".to_string(),
+        State::Busy { owner } => {
+            format!("{}{owner}{}", i18n::t("已被 ", "In use by "), i18n::t(" 占用", ""))
+        }
+        State::Searching => i18n::t("等待 iPhone…", "Waiting for an iPhone…").to_string(),
         State::Error(reason) => reason.clone(),
     }
 }

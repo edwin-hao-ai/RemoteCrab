@@ -1,7 +1,6 @@
 //! Execute `IBSystemCommand` on Windows (volume / media keys / launch / URL).
 
 use rc_protocol::{SystemCommand, SystemCommandKind};
-use windows::core::HSTRING;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY,
@@ -48,12 +47,17 @@ pub fn handle(command: &SystemCommand) -> bool {
 }
 
 /// Hold Win, tap D, release both (the "Show Desktop" toggle).
+///
+/// Order matters: Win must still be down when D is released, then Win up —
+/// the reverse (releasing Win first) leaves a bare D keystroke behind and
+/// can make the chord fail.
 fn tap_win_d() -> bool {
-    let mut inputs = Vec::with_capacity(4);
-    for down in [true, false] {
-        inputs.push(key_input(VK_LWIN, down));
-        inputs.push(key_input(VK_D, down));
-    }
+    let inputs = [
+        key_input(VK_LWIN, true),
+        key_input(VK_D, true),
+        key_input(VK_D, false),
+        key_input(VK_LWIN, false),
+    ];
     unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) == inputs.len() as u32 }
 }
 
@@ -109,5 +113,4 @@ pub fn notify(title: &str, body: &str) {
             MB_OK | MB_ICONINFORMATION,
         );
     }
-    let _ = HSTRING::from("");
 }

@@ -138,9 +138,16 @@ struct ContextSheetView: View {
             }
         case .system(let label, let symbol, let command):
             contextButton(label: label, symbol: symbol) {
-                // launchApp carries its bundle id as the argument;
-                // everything else is argument-less.
-                let argument: String? = command == .launchApp ? "com.apple.Safari" : nil
+                // `launchApp` carries its launch argument: a Mac bundle id,
+                // or (on Windows, where that bundle id means nothing) a URL
+                // so the default browser opens. Everything else is
+                // argument-less.
+                var argument: String?
+                if command == .launchApp {
+                    argument = engine.connectedIsWindows
+                        ? "https://www.bing.com"
+                        : "com.apple.Safari"
+                }
                 engine.sendSystemCommand(IBSystemCommand(command: command, argument: argument))
             }
         }
