@@ -10,32 +10,49 @@ use windows::Win32::System::DataExchange::{
 use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
 use windows::Win32::System::Ole::CF_UNICODETEXT;
 
+/// Open the clipboard, retrying briefly — another process (or our own
+/// Ctrl+C → read sequence) often holds it for a few ms.
+fn open_clipboard() -> bool {
+    for _ in 0..10 {
+        if unsafe { OpenClipboard(None) }.is_ok() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
 /// Read the clipboard's text, or `None` when empty / non-text.
 pub fn get_text() -> Option<String> {
-    unsafe {
-        if OpenClipboard(None).is_err() {
-            return None;
-        }
-        let handle = GetClipboardData(CF_UNICODETEXT.0 as u32).ok()?;
-        if handle.is_invalid() {
-            let _ = CloseClipboard();
-            return None;
-        }
-        let ptr = GlobalLock(HGLOBAL(handle.0)) as *const u16;
-        if ptr.is_null() {
-            let _ = CloseClipboard();
-            return None;
-        }
-        let mut len = 0isize;
-        while *ptr.offset(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr, len as usize);
-        let text = String::from_utf16_lossy(slice);
-        let _ = GlobalUnlock(HGLOBAL(handle.0));
-        let _ = CloseClipboard();
-        Some(text)
+    if !open_clipboard() {
+        return None;
     }
+    let text = unsafe {
+        match GetClipboardData(CF_UNICODETEXT.0 as u32) {
+            Ok(handle) if !handle.is_invalid() => {
+                let ptr = GlobalLock(HGLOBAL(handle.0)) as *const u16;
+                if ptr.is_null() {
+                    None
+                } else {
+                    let mut len = 0isize;
+                    while *ptr.offset(len) != 0 {
+                        len += 1;
+                    }
+                    let slice = std::slice::from_raw_parts(ptr, len as usize);
+                    let text = String::from_utf16_lossy(slice);
+                    let _ = GlobalUnlock(HGLOBAL(handle.0));
+                    Some(text)
+                }
+            }
+            _ => None,
+        }
+    };
+    // Always release, on every path — a leak here wedges the clipboard for
+    // the whole session.
+    unsafe {
+        let _ = CloseClipboard();
+    }
+    text
 }
 
 /// Replace the clipboard with `text`. Returns false on any Win32 failure.
@@ -47,7 +64,7 @@ pub fn set_text(text: &str) -> bool {
     let bytes = wide.len() * std::mem::size_of::<u16>();
 
     unsafe {
-        if OpenClipboard(None).is_err() {
+        if !open_clipboard() {
             return false;
         }
         let _ = EmptyClipboard();
