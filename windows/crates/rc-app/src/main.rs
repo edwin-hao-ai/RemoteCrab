@@ -1023,21 +1023,32 @@ fn audio_selftest() -> ExitCode {
 
 fn state_line(state: &State) -> String {
     match state {
-        State::Searching => "[LOOKING]  searching for an iPhone…".to_string(),
-        State::Connecting { name } => format!("[CONNECTING]  connecting to {name}…"),
-        State::Handshaking { name } => format!("[CONNECTING]  handshaking with {name}…"),
-        State::AwaitingApproval { name } => {
-            format!("[CONNECTING]  waiting for you to approve on {name}…")
-        }
+        State::Searching => format!("[LOOKING]  {}", i18n::t("正在搜索 iPhone…", "searching for an iPhone…")),
+        State::Connecting { name } => format!("[CONNECTING]  {}{name}…", i18n::t("正在连接 ", "connecting to ")),
+        State::Handshaking { name } => format!("[CONNECTING]  {}{name}…", i18n::t("正在握手 ", "handshaking with ")),
+        State::AwaitingApproval { name } => format!(
+            "[CONNECTING]  {}{name}{}",
+            i18n::t("请在 ", "waiting for you to approve on "),
+            i18n::t(" 上确认…", "…")
+        ),
         // NOTE: the label deliberately omits latency — including it made the
         // state line reprint on every 2 s ping (visual spam). Latency is
         // surfaced only for real spikes, by the Latency event handler.
-        State::Streaming { name, .. } => format!("[LIVE]  streaming from {name}"),
-        State::Busy { owner } => format!(
-            "[IN USE]  {owner} is already connected to this iPhone.\n\
-             \x20          Disconnect there (menu bar → RemoteCrab → Disconnect, or iPhone → Choose a Mac)\n\
-             \x20          and this PC will connect automatically."
-        ),
+        State::Streaming { name, .. } => format!("[LIVE]  {}{name}", i18n::t("正在投屏 ", "streaming from ")),
+        State::Busy { owner } => {
+            if i18n::is_chinese() {
+                format!(
+                    "[IN USE]  iPhone 已被 {owner} 占用。\n\
+                     \x20          请在那边断开连接（菜单栏 → RemoteCrab → 断开连接，或 iPhone → 选择电脑），本机将自动连接。"
+                )
+            } else {
+                format!(
+                    "[IN USE]  {owner} is already connected to this iPhone.\n\
+                     \x20          Disconnect there (menu bar → RemoteCrab → Disconnect, or iPhone → Choose a Mac)\n\
+                     \x20          and this PC will connect automatically."
+                )
+            }
+        }
         State::Error(reason) => format!("[OFFLINE]  {reason}"),
     }
 }
