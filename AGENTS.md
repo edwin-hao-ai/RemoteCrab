@@ -1781,6 +1781,41 @@ is tracked in the Roadmap section — don't duplicate it here.
     the blueprint below), `cargo test --workspace` 122 + host/windows
     clippy clean.
 
+69. **Voice start crashed (SIGABRT), dictation dropped chars in the mirror,
+    and "Show Desktop" didn't show the desktop (2026-09-27).** Three
+    reported bugs, three distinct root causes:
+    (a) **Voice crash.** The 09-24 device crash logs show
+    `AVAudioEngineGraph::Initialize` raising an Objective-C exception from
+    `AVAudioEngine.prepare()` inside `VoiceRecognizer.startAudioEngine()` —
+    **uncatchable in Swift**, so it is a SIGABRT. Two causes: a single
+    long-lived `AVAudioEngine` accumulates dirty graph state across
+    start/stop cycles, and `.record` was configured with `.mixWithOthers`
+    (only valid for playback categories). Fix: a **fresh engine each
+    session**, no `prepare()` (`start()` prepares), an input-format guard,
+    and `.record` + `options: []` (matching `MicrophoneEncoder`).
+    (b) **Dictation drops in mirror mode.** The screen mirror is the phone's
+    heaviest CPU/GPU consumer and starved the on-device recognizer.
+    Hold-to-talk now **yields the mirror** (same pattern as the mic):
+    `syncScreen`'s `want = screenOn && !voiceOn` stops the stream while
+    voice is held, keeping the last frame + pin on screen, and restarts on
+    release.
+    (c) **Desktop in the mirror.** The streamer only captured an app window,
+    and hiding apps doesn't change the frontmost app (Finder was already
+    active), so a live mirror stayed on the old window. `ScreenStreamer` now
+    (1) falls back to **whole-display capture** when no eligible window
+    exists, and (2) the `showDesktop` system command explicitly calls
+    `captureDesktop()` on a live mirror. The e2e asserts `streaming
+    display`.
+    **Windows audit** (same session): `tap_win_d` released Win before D
+    (`Win↓ D↓ Win↑ D↑`) — fixed to `Win↓ D↓ D↑ Win↑`; the context sheet's
+    "Safari" `.launchApp` hardcoded `com.apple.Safari` (a dead button on
+    Windows) — now a URL so the default browser opens; `clipboard.rs` now
+    retries `OpenClipboard` and always closes (a leaked open wedged the
+    session); added `rc-app/i18n.rs` (Chinese when
+    `GetUserDefaultUILanguage()` is zh) so the tray menu/status + console
+    status lines are bilingual.  Device e2e 19/19; `RemoteCrabCore` 198 +
+    both apps; `windows` 123 + host/windows clippy clean.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1813,6 +1848,14 @@ Headless e2e launch envs for the iOS app (via
 - `REMOTECRAB_E2E_SCREEN=1` — enter the app-window mirror ~3 s after the
   session is accepted (verifies the Mac capture path from the receiver log;
   needs Screen Recording granted on the Mac)
+- `REMOTECRAB_E2E_INSTALLED_APPS=1` — request the installed-app list at 8 s
+  (Mac log: `published N installed apps`)
+- `REMOTECRAB_E2E_DESKTOP=1` — send `showDesktop` at 10 s (Mac log:
+  `showDesktop requested`, and a live mirror switches to `streaming display`)
+- `REMOTECRAB_E2E_SHEET=switcher|launcher` — present that sheet at launch
+  (screenshot runs)
+- `REMOTECRAB_E2E_TAP=desktop` — with the switcher open, tap the Desktop card
+  from code (exercises the exact button action, including `dismiss()`)
 
 Runbook for real-device testing:
 - `./scripts/install-to-iphone.sh` builds + installs + launches
@@ -1878,7 +1921,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-26 (recording e2e fixed — the last red assertion was a Mac `H264Decoder` deadlock, not the recorder: the iPhone stream's first wire frame is a non-IDR P-slice, VideoToolbox answered -12909, and `handleMalfunction` called `VTDecompressionSessionInvalidate` **from inside the decode callback**, which deadlocks — so the session was never rebuilt and the decoder emitted zero frames, leaving `StreamRecorder`'s writer nil. Fixed with the pure, tested `H264FrameGate` (VCL-only + drop P-slices until the first keyframe), a queue-dispatched rebuild that never runs in the callback, SPS/PPS change-detection, and recorder logging that only reports "recording saved" on a completed writer. Also this session: **Windows parity round 2** — the iPhone's window-based app switcher now works against Windows (`windowList` enumerate + JPEG thumbnails + activate/quit by window title), PC→iPhone clipboard, recording (`rc-record`: H.264 passthrough MP4 + PCM WAV), the **app-window mirror** (`rc-protocol` screen structs + `rc-net` dispatch + `rc-mirror` capture/encode + `rc-input` absolute input; the iOS mirror button is un-hidden for Windows), and the iOS mirror button hidden for Windows. Introduced the `x86_64-pc-windows-gnu` cross-compile check that actually type-checks `#[cfg(windows)]` code. **Switcher quick destinations** (both receivers): a **Desktop** button (`IBSystemCommand.showDesktop` 0x19 — Mac hides every other regular app then activates Finder, Windows sends Win+D) and **Open app…**, a searchable installed-app launcher over a new frame pair (`installedAppsRequest` 0x20 / `installedApps` 0x21; `InstalledApp.id` is exactly `launchApp`'s argument — bundle id on the Mac via `InstalledAppsCatalog`, Start Menu `.lnk` path on Windows). **Tray + real app icons**: `rc-app`'s tray mirrors the Mac menu-bar popover's structure/wording via a dedicated thread whose menu routes through a channel into the app's `select!` loop (`--no-tray` skips it), and `build_app_list` now     fills `icon_png` with a cached 48 px `SHGetFileInfoW`→`DrawIconEx`→PNG render (pure `rc-os::icon`). **UI/design pass** (2026-09-26): the switcher's Desktop entry is a pinned compact row card (brand-gradient mini-desktop thumbnail) and "Open App…" is a pinned bottom accent action; the launcher is a Launchpad/Dock-style sheet (adaptive grid of 64 px `iconPNG` icons, native `.searchable`, pinned-first); the mirror's secondary chrome (window chip + fit/fill + zoom) collapses behind a handle so the stream gets the whole screen; 19 new catalog keys got zh-Hans (they were in no catalog and rendered English in Chinese), and the `"Open App"/"Open App…"` GeneratedStringSymbols collision was resolved by naming the launcher title "Applications". AppIconTile + GlassPressButtonStyle lifted to `RemoteCrabCapture/SharedUI.swift`. `RemoteCrabCore` 198 tests + both apps build; `windows` 122 tests + host/windows clippy clean; device e2e 16/16 (replay pending — the iPhone left the Mac mid-session). Lessons 67-68.)_
+_Last updated: 2026-09-27 (UI/design pass + three device-reported bugs. The switcher's Desktop entry is now a pinned compact row card and "Open App…" a bottom accent action, the launcher is a Launchpad/Dock-style grid of real 96 px icons (new `IBInstalledApp.iconPNG` on both sides), and the mirror's secondary chrome collapses behind a handle; 19 catalog keys got zh-Hans. Then: **voice start crashed** (SIGABRT from `AVAudioEngine.prepare()` → `AVAudioEngineGraph::Initialize`, uncatchable — fixed with a fresh engine per session, no `prepare()`, and `.record` + `[]` instead of `.mixWithOthers`); **dictation dropped chars in the mirror** (hold-to-talk now yields the screen stream, keeping the last frame); and **"Show Desktop" didn't show the desktop** (the streamer now falls back to whole-display capture, and `showDesktop` calls `captureDesktop()`). Windows audit fixed `tap_win_d`'s release order, the dead `com.apple.Safari` launch action, and clipboard contention; the tray/console are now bilingual (`rc-app/i18n.rs`). Device e2e 19/19; `RemoteCrabCore` 198 + both apps; `windows` 123 + host/windows clippy clean. Lessons 67-69.)_
+
+_Previous: 2026-09-26 (recording e2e fixed — the last red assertion was a Mac `H264Decoder` deadlock, not the recorder: the iPhone stream's first wire frame is a non-IDR P-slice, VideoToolbox answered -12909, and `handleMalfunction` called `VTDecompressionSessionInvalidate` **from inside the decode callback**, which deadlocks — so the session was never rebuilt and the decoder emitted zero frames, leaving `StreamRecorder`'s writer nil. Fixed with the pure, tested `H264FrameGate` (VCL-only + drop P-slices until the first keyframe), a queue-dispatched rebuild that never runs in the callback, SPS/PPS change-detection, and recorder logging that only reports "recording saved" on a completed writer. Also this session: **Windows parity round 2** — the iPhone's window-based app switcher now works against Windows (`windowList` enumerate + JPEG thumbnails + activate/quit by window title), PC→iPhone clipboard, recording (`rc-record`: H.264 passthrough MP4 + PCM WAV), the **app-window mirror** (`rc-protocol` screen structs + `rc-net` dispatch + `rc-mirror` capture/encode + `rc-input` absolute input; the iOS mirror button is un-hidden for Windows), and the iOS mirror button hidden for Windows. Introduced the `x86_64-pc-windows-gnu` cross-compile check that actually type-checks `#[cfg(windows)]` code. **Switcher quick destinations** (both receivers): a **Desktop** button (`IBSystemCommand.showDesktop` 0x19 — Mac hides every other regular app then activates Finder, Windows sends Win+D) and **Open app…**, a searchable installed-app launcher over a new frame pair (`installedAppsRequest` 0x20 / `installedApps` 0x21; `InstalledApp.id` is exactly `launchApp`'s argument — bundle id on the Mac via `InstalledAppsCatalog`, Start Menu `.lnk` path on Windows). **Tray + real app icons**: `rc-app`'s tray mirrors the Mac menu-bar popover's structure/wording via a dedicated thread whose menu routes through a channel into the app's `select!` loop (`--no-tray` skips it), and `build_app_list` now     fills `icon_png` with a cached 48 px `SHGetFileInfoW`→`DrawIconEx`→PNG render (pure `rc-os::icon`). **UI/design pass** (2026-09-26): the switcher's Desktop entry is a pinned compact row card (brand-gradient mini-desktop thumbnail) and "Open App…" is a pinned bottom accent action; the launcher is a Launchpad/Dock-style sheet (adaptive grid of 64 px `iconPNG` icons, native `.searchable`, pinned-first); the mirror's secondary chrome (window chip + fit/fill + zoom) collapses behind a handle so the stream gets the whole screen; 19 new catalog keys got zh-Hans (they were in no catalog and rendered English in Chinese), and the `"Open App"/"Open App…"` GeneratedStringSymbols collision was resolved by naming the launcher title "Applications". AppIconTile + GlassPressButtonStyle lifted to `RemoteCrabCapture/SharedUI.swift`. `RemoteCrabCore` 198 tests + both apps build; `windows` 122 tests + host/windows clippy clean; device e2e 16/16 (replay pending — the iPhone left the Mac mid-session). Lessons 67-68.)_
 
 _Previous: 2026-09-25 (Windows port merged to `main`: `origin/feat/windows-receiver` brought a standalone Rust workspace `windows/` — rc-protocol / rc-discovery / rc-net / rc-render (OpenH264) / rc-audio (pure-Rust Opus) / rc-input (SendInput) / rc-os — plus iOS platform awareness (`IBClientHello.platform`, `SeenComputer`, Ctrl/Alt modifier labels, "Choose a computer"). Merge was hand-resolved (CaptureEngine kept both sides; TouchpadScreen kept the shared `IBShortcutBar`). Fixed over the branch: `connectedPlatform` now comes from the live `clientHello.platform` (not a seen-list lookup that silently fell back to macOS); Windows keyboard chords rewritten to respect the receiver's modifier policy (both ⌘ and ⌃ bits collapse to Ctrl — Alt+Tab / Ctrl+W / Ctrl+Z / Ctrl+A / Alt+F4 / Ctrl+Tab); `MacPairingStore.paired` restored. Phone-screen-mirror compatibility: `rc-protocol` now recognises kinds 0x1A–0x1F and `rc-net` drops them (the unknown-byte fallback was `Kind::Video`, so a mirror NAL could corrupt the camera preview). Verified: `./scripts/test.sh` 193 tests + both apps build; `windows` `cargo test` 94 + `cargo clippy -D warnings` clean. Pushed `origin/main`. **Not done**: device e2e on the merged build, and the Windows-side real-machine self-test. Lessons 64-66.)_
 
