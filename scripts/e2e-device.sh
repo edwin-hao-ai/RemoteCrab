@@ -5,12 +5,17 @@
 # Drives the iPhone app headlessly (env flags, no taps) against a real
 # Mac receiver and asserts the expected `com.remotecrab` log markers:
 #   connect handshake, video, audio, touch, key, file transfer,
-#   clipboard, app switch, recording.
+#   clipboard, app switch, recording, app-window mirror, the switcher's
+#   installed-app launcher + Desktop quick action.
 #
 # Prereqs:
 #   • iPhone connected via USB (`xcrun devicectl list devices` = available)
 #   • iPhone unlocked, screen on, RemoteCrab app allowed on Local Network
 #   • Mac receiver has the Accessibility grant
+#   • NO other device advertising `_remotecrab._tcp` on the LAN — quit the
+#     iOS Simulator's RemoteCrab (and any iPad/second phone) first, or the
+#     Mac dials the leftover advertiser and every assertion fails with no
+#     handshake (lesson 66).  `xcrun simctl shutdown all`
 #
 # Usage:  ./scripts/e2e-device.sh
 #
@@ -40,6 +45,10 @@ echo "[1/5] devices"
 if ! xcrun devicectl list devices 2>/dev/null | grep -Eq "$DEVICE.*(available|connected)"; then
   echo "  device $DEVICE not available — connect + unlock it"; exit 2
 fi
+# A leftover iOS Simulator run advertises the same Bonjour service and steals
+# the connection before the real iPhone can be reached (lesson 66) — shut
+# every simulator down first so exactly one device is advertising.
+xcrun simctl shutdown all >/dev/null 2>&1 || true
 
 echo "[2/5] build (signed)"
 xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabReceiver -configuration Debug \
@@ -65,10 +74,10 @@ env REMOTECRAB_E2E_RECORD=1 /Applications/RemoteCrab.app/Contents/MacOS/RemoteCr
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
-  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1"}' \
+  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
-echo "  waiting 26s for the scripted run…"
-sleep 26
+echo "  waiting 30s for the scripted run…"
+sleep 30
 pkill -f "log stream --predicate" 2>/dev/null
 
 # Best-effort: pull the iPhone's forensic log so we can assert the mirror
@@ -97,6 +106,9 @@ check "streaming window"                  "ScreenCaptureKit stream started"
 check "screen frames sent:"               "mirror frames encoded + sent"
 check "first screen frame decoded OK"     "mirror frame decoded on iPhone"
 check "-> global"                         "mirror input injected on Mac"
+check "installed apps"                    "installed-app list published (Open App…)"
+check "showDesktop requested"             "Desktop quick action (showDesktop)"
+check "streaming display"                 "mirror followed Show Desktop → display capture"
 
 echo
 echo "== $pass passed, $fail failed =="
@@ -106,6 +118,19 @@ echo "log: $LOG"
 # which skips onboarding; if that instance stays alive, a later manual tap on
 # the icon just resumes it and the user never sees onboarding ("居然没有
 # onboarding 页面" — it was the e2e instance, not a missing flow).
-xcrun devicectl device process terminate --device "$DEVICE" "$BUNDLE_IOS" >/dev/null 2>&1 || true
+#
+# `devicectl device process terminate` requires `--pid`, so terminate by the
+# pid we read back from the device's process list.
+PID="$(xcrun devicectl device info processes --device "$DEVICE" --json-output /tmp/remotecrab-e2e-procs.json >/dev/null 2>&1; \
+  python3 -c 'import json,sys
+try:
+    d=json.load(open("/tmp/remotecrab-e2e-procs.json"))
+    ps=d["result"]["runningProcesses"]
+    print(next((p.get("processIdentifier","") for p in ps if "RemoteCrabCapture" in (p.get("executable") or "")), ""))
+except Exception:
+    print("")' 2>/dev/null)"
+if [ -n "$PID" ]; then
+  xcrun devicectl device process terminate --device "$DEVICE" --pid "$PID" --kill >/dev/null 2>&1 || true
+fi
 
 exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)

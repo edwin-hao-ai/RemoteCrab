@@ -81,6 +81,12 @@ struct AppSwitcherView: View {
             if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SHEET"] == "launcher" {
                 showLauncher = true
             }
+            // E2E: tap the Desktop card from code (exercises the exact same
+            // action as a finger, including `dismiss()`).
+            if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_TAP"] == "desktop" {
+                try? await Task.sleep(for: .seconds(3))
+                activateDesktop()
+            }
         }
         .sheet(isPresented: $showLauncher) {
             InstalledAppsView()
@@ -106,9 +112,7 @@ struct AppSwitcherView: View {
     /// strip + Dock dots), since we can't capture the real desktop.
     private var desktopCard: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
-            dismiss()
+            activateDesktop()
         } label: {
             HStack(spacing: IBSpace.m.pt) {
                 desktopThumbnail
@@ -136,6 +140,13 @@ struct AppSwitcherView: View {
         .buttonStyle(IBPressButtonStyle(scale: 0.98, highlight: 0.06))
         .accessibilityLabel(Text(IBLocale.Switcher.desktop))
         .accessibilityHint(Text(IBLocale.Switcher.showDesktop))
+    }
+
+    /// The Desktop quick action, shared by the card and the E2E tap hook.
+    private func activateDesktop() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
+        dismiss()
     }
 
     /// A 72×46 window onto a stylised desktop: brand wallpaper, a paper-thin

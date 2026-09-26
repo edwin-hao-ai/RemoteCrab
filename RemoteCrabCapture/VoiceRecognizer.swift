@@ -83,7 +83,8 @@ final class VoiceRecognizer {
     private var recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
+    /// Recreated on every session start — see `startAudioEngine()`.
+    private var audioEngine = AVAudioEngine()
 
     /// Holds the request the (single) audio tap appends to, so a new
     /// recognition task can take over without touching the tap.
@@ -249,7 +250,9 @@ final class VoiceRecognizer {
 
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.record, mode: .measurement, options: .mixWithOthers)
+            // `.record` + `options: []` — `.mixWithOthers` is only valid for
+            // playback categories; the mic stream uses the same shape.
+            try session.setCategory(.record, mode: .measurement, options: [])
             try? session.setAllowHapticsAndSystemSoundsDuringRecording(true)
             try session.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
@@ -593,10 +596,19 @@ final class VoiceRecognizer {
     /// realtime thread and routes through `requestBox`, so it survives
     /// task chaining and interruption restarts.
     private func startAudioEngine() throws {
+        // A pooled AVAudioEngine accumulates graph state across start/stop
+        // cycles; once that state is dirty, AVFoundation raises an
+        // *Objective-C* exception from `AVAudioEngineGraph::Initialize`
+        // (usually via `prepare()`) that Swift cannot catch — the app dies
+        // with SIGABRT. A fresh engine each session can't inherit it, and
+        // `start()` prepares the graph itself, so the separate `prepare()`
+        // call (the one on the crash stack) is gone.
+        stopAudioEngine()
+        audioEngine = AVAudioEngine()
+
         let inputNode = audioEngine.inputNode
-        inputNode.removeTap(onBus: 0)
         let format = inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else {
+        guard format.sampleRate > 0, format.channelCount > 0 else {
             throw NSError(domain: "com.remotecrab.voice", code: -1,
                           userInfo: [NSLocalizedDescriptionKey: "No audio input available"])
         }
@@ -605,7 +617,6 @@ final class VoiceRecognizer {
             box.request?.append(buffer)
         }
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
-        audioEngine.prepare()
         try audioEngine.start()
     }
 

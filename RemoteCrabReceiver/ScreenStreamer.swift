@@ -55,6 +55,9 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     private var pinnedWindowNumber: Int?
     private var previous: ScreenWindowDescriptor?
     private var currentTarget: ScreenWindowDescriptor?
+    /// True while capturing the whole display (no eligible app window —
+    /// e.g. "Show Desktop", or Finder sitting on the desktop).
+    private var displayMode = false
     /// Phone-requested long-edge pixel cap. `nil` = `defaultMaxPixel`.
     private var maxPixelOverride: Int?
 
@@ -139,6 +142,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             stream = nil
             previous = nil
             currentTarget = nil
+            displayMode = false
             pinnedWindowNumber = nil
             lastContentRect = nil
             return running
@@ -206,6 +210,21 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
         Self.log.info("screen mirror following frontmost app")
         Task { @MainActor in await resolveAndStart(reason: "follow") }
+    }
+
+    /// Point the live mirror at the whole display. Called explicitly when
+    /// the user picks "Desktop" in the switcher, so the mirror shows the
+    /// desktop even if Finder still has a window on screen.
+    @MainActor
+    func captureDesktop() {
+        // Clear any pin synchronously — do NOT call `follow()` here, whose
+        // async re-resolve would race this display switch and win.
+        withLock {
+            pinnedWindowNumber = nil
+            previous = nil
+        }
+        guard withLock({ isRunning }) else { return }
+        Task { @MainActor in await configureDisplayStream(reason: "desktop") }
     }
 
     // MARK: - Observers / follow frontmost
@@ -295,11 +314,13 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
 
         guard let target else {
-            withLock {
-                previous = nil
-                currentTarget = nil
-            }
-            sendInfo(IBScreenInfo(status: .noWindow))
+            // No eligible app window — that is exactly the "Show Desktop"
+            // case (all apps hidden, Finder active with no window). Capture
+            // the whole display so the mirror actually shows the desktop
+            // instead of going blank.
+            let alreadyDisplay = withLock { isRunning && displayMode }
+            if alreadyDisplay && !force { return }
+            await configureDisplayStream(reason: reason)
             return
         }
         let same = withLock { () -> Bool in
@@ -362,6 +383,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         let title = scWindow.title ?? ""
         withLock {
             self.stream = stream
+            displayMode = false
             currentTarget = target
             originX = Double(frame.origin.x)
             originY = Double(frame.origin.y)
@@ -413,6 +435,88 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
     }
 
+    /// Capture the whole main display (no app window to focus on). This is
+    /// what makes "Show Desktop" show the desktop: hiding every app leaves
+    /// Finder active with no window, so the window resolver returns nil and
+    /// we land here.
+    @MainActor
+    private func configureDisplayStream(reason: String) async {
+        await stopStreamOnly()
+
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+        } catch {
+            Self.log.error("SCShareableContent failed (display): \(String(describing: error), privacy: .public)")
+            sendInfo(IBScreenInfo(status: .noWindow))
+            return
+        }
+        guard let display = content.displays.first(where: { $0.displayID == CGMainDisplayID() })
+                ?? content.displays.first else {
+            sendInfo(IBScreenInfo(status: .noWindow))
+            return
+        }
+
+        let frame = display.frame
+        let scale = Self.backingScale(for: frame)
+        var pixelW = Int((frame.width * scale).rounded())
+        var pixelH = Int((frame.height * scale).rounded())
+        capAndEven(&pixelW, &pixelH)
+
+        let config = SCStreamConfiguration()
+        config.width = pixelW
+        config.height = pixelH
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 24)
+        config.queueDepth = 2
+        config.showsCursor = true
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.capturesAudio = false
+
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let stream = SCStream(filter: filter, configuration: config, delegate: self)
+        do {
+            try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        } catch {
+            Self.log.error("addStreamOutput failed (display): \(String(describing: error), privacy: .public)")
+            sendInfo(IBScreenInfo(status: .noWindow))
+            return
+        }
+
+        withLock {
+            self.stream = stream
+            displayMode = true
+            currentTarget = nil
+            originX = Double(frame.origin.x)
+            originY = Double(frame.origin.y)
+            pointWidth = Double(frame.width)
+            pointHeight = Double(frame.height)
+            pixelWidth = pixelW
+            pixelHeight = pixelH
+            lastContentRect = frame
+            targetWindowId = "display:\(display.displayID)"
+            targetAppId = "desktop"
+            targetAppName = IBLocale.Switcher.desktop
+            targetTitle = ""
+        }
+        createEncoder(width: pixelW, height: pixelH)
+
+        do {
+            try await stream.startCapture()
+        } catch {
+            Self.log.error("startCapture failed (display): \(String(describing: error), privacy: .public)")
+            await stopStreamOnly()
+            sendInfo(IBScreenInfo(status: .noWindow))
+            return
+        }
+        withLock {
+            isRunning = true
+            restartAttempts = 0
+        }
+        startFrameTimer()
+        Self.log.info("streaming display \(display.displayID, privacy: .public) \(pixelW)x\(pixelH) reason=\(reason, privacy: .public)")
+        buildAndSendOKInfo()
+    }
+
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream,
@@ -455,6 +559,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     /// something changed — never *where* the window is. Mapping taps needs
     /// the global origin, which only the window list provides.
     private func refreshTargetFrame() {
+        // Display geometry is fixed — nothing to re-read.
+        if withLock({ displayMode }) { return }
         guard let target = withLock({ currentTarget }) else { return }
         let snapshot = Self.windowSnapshot()
         // Window numbers are reused, and a stale/foreign frame would misplace

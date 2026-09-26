@@ -1400,6 +1400,26 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[e2e] quit requested: \(target)")
             }
         }
+        // E2E: the switcher's "Open App…" list — REMOTECRAB_E2E_INSTALLED_APPS=1
+        // requests it; the Mac log confirms "published N installed apps".
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_INSTALLED_APPS"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                self?.requestInstalledApps()
+                Forensic.log("[e2e] installed apps requested")
+            }
+        }
+        // E2E: the switcher's Desktop quick action — REMOTECRAB_E2E_DESKTOP=1
+        // sends showDesktop; the Mac log confirms "showDesktop requested".
+        // After the typing (3 s) + mirror input (~5 s) so it doesn't hide
+        // the target apps mid-assertion.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_DESKTOP"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(10))
+                self?.sendSystemCommand(IBSystemCommand(command: .showDesktop))
+                Forensic.log("[e2e] showDesktop sent")
+            }
+        }
         // E2E: exercise the voice pipeline without real speech —
         // REMOTECRAB_E2E_VOICE=1 simulates "say → pause (recognizer closes
         // the segment and starts a fresh one) → keep talking". The Mac log
@@ -1954,18 +1974,27 @@ final class CaptureEngine: ObservableObject {
             screenActive = false
             return
         }
-        let want = features.screenOn
+        // Hold-to-talk yields the mirror: the screen stream is the heaviest
+        // CPU/GPU consumer on the phone, and running it under the speech
+        // engine made dictation drop/skip characters. When voice is held we
+        // stop the stream but KEEP the last decoded frame on screen (and the
+        // user's pin); releasing restarts it.
+        let want = features.screenOn && !features.voiceOn
         guard want != screenActive else { return }
         screenActive = want
-        Forensic.log("[e2e] syncScreen(\(want))")
+        Forensic.log("[e2e] syncScreen(\(want)) voice=\(features.voiceOn)")
         if want {
             broadcaster.send(IBScreenControl(command: .start, maxPixel: preferredMaxPixel))
         } else {
-            screenPinnedWindowId = nil
             broadcaster.send(IBScreenControl(command: .stop))
             screenDecoder.reset()
             screenInfo = nil
-            screenDisplayView.displayLayer.flushAndRemoveImage()
+            if !features.screenOn {
+                // Genuinely off (not just yielding) — drop the stale frame
+                // and the pinned-window preference too.
+                screenPinnedWindowId = nil
+                screenDisplayView.displayLayer.flushAndRemoveImage()
+            }
         }
     }
 
