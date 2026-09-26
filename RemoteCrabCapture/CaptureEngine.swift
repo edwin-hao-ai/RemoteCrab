@@ -459,8 +459,13 @@ final class CaptureEngine: ObservableObject {
             return
         }
         // Type the volatile tail the live pass never typed; also repairs
-        // any late rewrite. Final, so a tail-only diff is safe here.
-        reconcileVoiceText(to: final)
+        // any late rewrite. Final, so a tail-only diff is safe here — but
+        // never SHRINK: when the recognizer's final truncates the tail, the
+        // live pass already typed more, and reconciling down would delete
+        // the user's last characters. A stray extra character beats data
+        // loss.
+        let target = final.count >= voiceTypedText.count ? final : voiceTypedText
+        reconcileVoiceText(to: target)
     }
 
     /// Tail-only sync of the Mac's insertion point to `desired`.

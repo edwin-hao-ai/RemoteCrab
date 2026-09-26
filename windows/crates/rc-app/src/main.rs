@@ -118,7 +118,7 @@ fn spawn_console_reader() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 fn print_console_help() {
     println!(
         "  commands: camera [on|off] · mic [on|off] · voice [on|off] · \
-         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · record · help · quit"
+         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · record · autostart · help · quit"
     );
 }
 
@@ -259,6 +259,20 @@ fn handle_console_command(
             println!("  → switching camera");
         }
         "clipboard" | "send-clipboard" => send_clipboard_to_iphone(session),
+        "autostart" => {
+            #[cfg(windows)]
+            {
+                let want = want.unwrap_or(!rc_os::autostart::is_enabled());
+                let ok = rc_os::autostart::set_enabled(want);
+                println!(
+                    "  → autostart {} ({})",
+                    if want { "on" } else { "off" },
+                    if ok { "ok" } else { "failed" }
+                );
+            }
+            #[cfg(not(windows))]
+            println!("  autostart is Windows-only");
+        }
         "record" => {
             if let Some(rec) = recording.take() {
                 stop_recording(rec);
@@ -392,6 +406,8 @@ async fn main() -> ExitCode {
     };
     #[cfg(not(windows))]
     let (tray, mut tray_rx) = tray::start("RemoteCrab");
+    #[cfg(windows)]
+    tray.set_autostart(rc_os::autostart::is_enabled());
     let mut tray_alive = true;
     println!("Type `help` for live iPhone feature commands.");
 
@@ -727,6 +743,21 @@ async fn main() -> ExitCode {
                     Some(tray::TrayCommand::SendClipboard) => send_clipboard_to_iphone(&session),
                     Some(tray::TrayCommand::Reconnect) => session.retry_now(),
                     Some(tray::TrayCommand::Disconnect) => session.disconnect(),
+                    Some(tray::TrayCommand::ToggleAutostart) => {
+                        #[cfg(windows)]
+                        {
+                            let want = !rc_os::autostart::is_enabled();
+                            let ok = rc_os::autostart::set_enabled(want);
+                            tray.set_autostart(rc_os::autostart::is_enabled());
+                            println!(
+                                "  autostart {} ({})",
+                                if want { "on" } else { "off" },
+                                if ok { "ok" } else { "failed" }
+                            );
+                        }
+                        #[cfg(not(windows))]
+                        println!("  autostart is Windows-only");
+                    }
                     Some(tray::TrayCommand::Quit) => {
                         println!("\nShutting down…");
                         break;

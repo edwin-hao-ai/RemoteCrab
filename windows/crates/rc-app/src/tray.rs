@@ -22,6 +22,7 @@ pub enum TrayCommand {
     SendClipboard,
     Reconnect,
     Disconnect,
+    ToggleAutostart,
     Quit,
 }
 
@@ -70,6 +71,7 @@ mod win32 {
         const CLIPBOARD: usize = 8;
         const RECONNECT: usize = 10;
         const DISCONNECT: usize = 11;
+        const AUTOSTART: usize = 13;
         const QUIT: usize = 12;
     }
 
@@ -79,6 +81,8 @@ mod win32 {
         status: String,
         features: Option<FeatureStateSnapshot>,
         recording: bool,
+        /// Mirrors the HKCU Run key so the menu shows a truthful checkmark.
+        autostart: bool,
     }
 
     struct Ctx {
@@ -110,6 +114,12 @@ mod win32 {
         pub fn set_recording(&self, on: bool) {
             if let Ok(mut s) = self.shared.lock() {
                 s.recording = on;
+            }
+        }
+
+        pub fn set_autostart(&self, on: bool) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.autostart = on;
             }
         }
 
@@ -294,11 +304,11 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording) = {
+        let (status, features, recording, autostart) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
-            (s.status.clone(), s.features.clone(), s.recording)
+            (s.status.clone(), s.features.clone(), s.recording, s.autostart)
         };
 
         let Some(menu) = CreatePopupMenu().ok() else {
@@ -337,6 +347,13 @@ mod win32 {
         append_separator(menu);
         append_item(menu, MF_STRING, Ids::RECONNECT, crate::i18n::t("重新连接", "Reconnect"));
         append_item(menu, MF_STRING, Ids::DISCONNECT, crate::i18n::t("断开连接", "Disconnect"));
+        append_separator(menu);
+        let mut autostart_flags = MF_STRING;
+        if autostart {
+            autostart_flags |= MF_CHECKED;
+        }
+        append_item(menu, autostart_flags, Ids::AUTOSTART,
+                    crate::i18n::t("开机自启动", "Start at login"));
         append_separator(menu);
         append_item(menu, MF_STRING, Ids::QUIT, crate::i18n::t("退出 RemoteCrab", "Quit RemoteCrab"));
 
@@ -379,6 +396,7 @@ mod win32 {
             Ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
             Ids::RECONNECT => Some(TrayCommand::Reconnect),
             Ids::DISCONNECT => Some(TrayCommand::Disconnect),
+            Ids::AUTOSTART => Some(TrayCommand::ToggleAutostart),
             Ids::QUIT => Some(TrayCommand::Quit),
             _ => None,
         } {

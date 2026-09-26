@@ -107,18 +107,25 @@ final class AnalyzerVoiceEngine: VoiceEngine {
         isRunning = false
         stopRequested = true
 
-        stopAudioEngine()
-        inputContinuation?.finish()
-        inputContinuation = nil
-
-        let analyzer = self.analyzer
-        let resultsTask = self.resultsTask
+        // Let the tail audio reach the transcriber before we close the
+        // input. Releasing the PTT used to stop the mic first, so the last
+        // syllable was never delivered and the final text lost 1–2
+        // characters ("漏最后 1-2 个字"). Keep feeding for a beat, then
+        // stop, finish and finalize.
         Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self else { return }
+            self.stopAudioEngine()
+            self.inputContinuation?.finish()
+            self.inputContinuation = nil
+
+            let analyzer = self.analyzer
+            let resultsTask = self.resultsTask
             if let analyzer {
                 try? await analyzer.finalizeAndFinishThroughEndOfInput()
             }
             await resultsTask?.value
-            self?.deliverFinal()
+            self.deliverFinal()
         }
     }
 

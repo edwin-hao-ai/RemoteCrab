@@ -18,6 +18,8 @@ pub mod apps;
 #[cfg(windows)]
 pub mod windows;
 #[cfg(windows)]
+pub mod autostart;
+#[cfg(windows)]
 pub mod selection;
 
 /// Where received files land: `%USERPROFILE%\Downloads\RemoteCrab`.

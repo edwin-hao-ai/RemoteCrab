@@ -275,6 +275,7 @@ final class VoiceRecognizer {
         // Install the tap BEFORE the engine runs (installing it after
         // start() traps), and keep it feeding requestBox so chaining never
         // has to reinstall it on a running engine.
+        requestBox.reset()
         do {
             try startAudioEngine()
         } catch {
@@ -378,13 +379,18 @@ final class VoiceRecognizer {
         stopRequested = true
         forensic("stop requested")
 
-        stopAudioEngine()
-        request?.endAudio()
-
         let generation = sessionGeneration
+        // Let the tail audio reach the recognizer before we close the
+        // request: the old order stopped the mic first, so the last
+        // syllable never made it and the final dropped 1–2 characters.
         Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self else { return }
+            self.request?.endAudio()
+            self.requestBox.markEnded()
+            self.stopAudioEngine()
             try? await Task.sleep(for: .milliseconds(1500))
-            self?.deliverFinalIfCurrent(generation: generation)
+            self.deliverFinalIfCurrent(generation: generation)
         }
     }
 
@@ -614,6 +620,7 @@ final class VoiceRecognizer {
         }
         let box = requestBox
         let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
+            if box.ended { return }
             box.request?.append(buffer)
         }
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
@@ -714,9 +721,24 @@ final class VoiceRecognizer {
 private final class RecognitionRequestBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _request: SFSpeechAudioBufferRecognitionRequest?
+    private var _ended = false
 
     var request: SFSpeechAudioBufferRecognitionRequest? {
         get { lock.lock(); defer { lock.unlock() }; return _request }
         set { lock.lock(); _request = newValue; lock.unlock() }
+    }
+
+    /// True once `endAudio()` was called — the tap must stop appending or
+    /// the request raises "cannot append after end of audio".
+    var ended: Bool {
+        lock.lock(); defer { lock.unlock() }; return _ended
+    }
+
+    func markEnded() {
+        lock.lock(); _ended = true; lock.unlock()
+    }
+
+    func reset() {
+        lock.lock(); _ended = false; lock.unlock()
     }
 }
