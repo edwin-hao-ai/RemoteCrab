@@ -54,18 +54,44 @@ pub fn activate_pid(pid: u32) -> bool {
             Some(enum_find_proc),
             LPARAM(&mut FindTarget {
                 pid,
+                title: None,
                 found: &mut target,
             } as *mut _ as isize),
         );
     }
+    bring_to_front(target)
+}
+
+/// Bring the window of `pid` whose title matches `title` (exact, then
+/// substring) to the foreground; falls back to `activate_pid`.
+fn activate_pid_titled(pid: u32, title: &str) -> bool {
+    for exact in [true, false] {
+        let mut target: Option<HWND> = None;
+        unsafe {
+            let _ = EnumWindows(
+                Some(enum_find_proc),
+                LPARAM(&mut FindTarget {
+                    pid,
+                    title: Some(TitleMatch { text: title, exact }),
+                    found: &mut target,
+                } as *mut _ as isize),
+            );
+        }
+        if bring_to_front(target) {
+            return true;
+        }
+    }
+    false
+}
+
+fn bring_to_front(target: Option<HWND>) -> bool {
     if let Some(hwnd) = target {
         unsafe {
             let _ = ShowWindow(hwnd, SW_RESTORE);
-            SetForegroundWindow(hwnd).as_bool()
+            return SetForegroundWindow(hwnd).as_bool();
         }
-    } else {
-        false
     }
+    false
 }
 
 /// Parse an `AppInfo.id` (`pid:<n>`) back to the process id it names.
@@ -77,6 +103,20 @@ pub fn pid_from_id(id: &str) -> Option<u32> {
 /// how the iPhone's app switcher (`activateApp`, kind `0x0E`) takes effect.
 pub fn activate_id(id: &str) -> bool {
     pid_from_id(id).is_some_and(activate_pid)
+}
+
+/// Like [`activate_id`], but prefers the window whose title matches (the
+/// iPhone sends the tapped card's window title alongside the app id).
+pub fn activate_id_with_title(id: &str, title: Option<&str>) -> bool {
+    let Some(pid) = pid_from_id(id) else {
+        return false;
+    };
+    if let Some(text) = title.filter(|t| !t.is_empty()) {
+        if activate_pid_titled(pid, text) {
+            return true;
+        }
+    }
+    activate_pid(pid)
 }
 
 /// Terminate the process named by an `AppInfo.id` (`pid:<n>`), for the
@@ -92,14 +132,20 @@ pub fn quit_id(id: &str, force: bool) -> bool {
         let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) else {
             return false;
         };
-        let ok = TerminateProcess(handle, 1).as_bool();
+        let ok = TerminateProcess(handle, 1).is_ok();
         let _ = CloseHandle(handle);
         ok
     }
 }
 
+struct TitleMatch<'a> {
+    text: &'a str,
+    exact: bool,
+}
+
 struct FindTarget<'a> {
     pid: u32,
+    title: Option<TitleMatch<'a>>,
     found: &'a mut Option<HWND>,
 }
 
@@ -133,14 +179,31 @@ unsafe extern "system" fn enum_find_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     }
     let mut pid = 0u32;
     GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if pid == target.pid {
-        *target.found = Some(hwnd);
-        return BOOL(0); // stop enumeration
+    if pid != target.pid {
+        return BOOL(1);
     }
-    BOOL(1)
+    if let Some(matcher) = &target.title {
+        let len = GetWindowTextLengthW(hwnd);
+        if len <= 0 {
+            return BOOL(1);
+        }
+        let mut buf = vec![0u16; (len + 1) as usize];
+        let copied = GetWindowTextW(hwnd, &mut buf);
+        let title = String::from_utf16_lossy(&buf[..copied as usize]);
+        let matches = if matcher.exact {
+            title == matcher.text
+        } else {
+            title.contains(matcher.text)
+        };
+        if !matches {
+            return BOOL(1);
+        }
+    }
+    *target.found = Some(hwnd);
+    BOOL(0) // stop enumeration
 }
 
-fn foreground_pid() -> u32 {
+pub(crate) fn foreground_pid() -> u32 {
     use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
     let mut pid = 0u32;
     unsafe {
@@ -152,7 +215,7 @@ fn foreground_pid() -> u32 {
     pid
 }
 
-fn process_name(pid: u32) -> Option<String> {
+pub(crate) fn process_name(pid: u32) -> Option<String> {
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; MAX_PATH as usize];

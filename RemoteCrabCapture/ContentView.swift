@@ -682,21 +682,25 @@ struct ContentView: View {
             // App-window mirror: enters the full-screen `.screen` surface
             // and asks the computer to start streaming its frontmost
             // window. Same level as the camera/mic stream toggles.
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(IBAnimation.snappy) {
-                    engine.toggleScreenMirror()
+            // Hidden while connected to Windows — that receiver has no
+            // window-capture path yet, so the button would only dead-end.
+            if !engine.connectedIsWindows {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) {
+                        engine.toggleScreenMirror()
+                    }
+                } label: {
+                    topBarIcon("rectangle.on.rectangle", tint: .white,
+                               active: engine.features.screenOn)
                 }
-            } label: {
-                topBarIcon("rectangle.on.rectangle", tint: .white,
-                           active: engine.features.screenOn)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .buttonStyle(IBPressButtonStyle())
+                .accessibilityLabel("App window mirror")
+                .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+                .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
             }
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .buttonStyle(IBPressButtonStyle())
-            .accessibilityLabel("App window mirror")
-            .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
-            .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.

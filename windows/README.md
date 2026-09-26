@@ -4,11 +4,11 @@ A Windows receiver for RemoteCrab. It speaks the **same wire protocol** the
 existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
-Status: **P2 — video preview, audio, trackpad, keyboard, clipboard, file
-transfer, system keys, the app switcher (list + activate/quit) and live
-feature control all work.** Not yet implemented: window-list thumbnails,
-virtual camera/microphone, tray UI, recording (see
-`docs/WINDOWS_PORT_PLAN.md`).
+Status: **P2 — video preview, audio, trackpad, keyboard, clipboard (both
+directions), file transfer, system keys, the window-based app switcher and
+live feature control all work.** Not yet implemented: the app-window mirror
+(the iPhone hides its mirror button when connected to Windows), recording,
+virtual camera/microphone, tray UI (see `docs/WINDOWS_PORT_PLAN.md`).
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
 **Opus** decoder + **cpal/WASAPI** — no system FFmpeg, no CMake, no FFI.
@@ -141,13 +141,16 @@ toggles the Mac exposes in its menu bar:
 | `trackpad [on\|off]` | Toggle / set the trackpad surface |
 | `keyboard [on\|off]` | Toggle / set the keyboard surface |
 | `switch-camera` | Flip between the front and back iPhone camera |
+| `clipboard` | Send *this PC's* clipboard text to the iPhone |
 | `help` | List the commands |
 | `quit` | Shut down (same as Ctrl-C) |
 
-The iPhone's **app switcher** also works in both directions: the list shows
-this PC's running apps, and tapping one brings it to the front (holding /
-using the quit action terminates it). `--no-input` suppresses both, like it
-does for cursor and keyboard injection.
+The iPhone's **app switcher** is window-based, exactly like against the Mac:
+this receiver enumerates its top-level windows with a JPEG thumbnail
+(`PrintWindow`), so the iPhone shows one large card per window — tap to bring
+it to the front, long-press to quit. Tapping activates the exact window whose
+title the card showed. `--no-input` suppresses activation/quit, like it does
+for cursor and keyboard injection.
 
 ---
 
@@ -201,7 +204,7 @@ Two Windows-specific caveats:
 | Phase | Contents |
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
-| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, app switcher (list + activate/quit), system keys, selection rewrite, live feature control |
+| **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control |
 | P3 | window-list thumbnails, virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).

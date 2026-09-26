@@ -6,6 +6,7 @@
 //! sanitising, path planning) lives in testable free functions.
 
 pub mod files;
+pub mod thumbnail;
 
 #[cfg(windows)]
 pub mod clipboard;
@@ -13,6 +14,8 @@ pub mod clipboard;
 pub mod system_keys;
 #[cfg(windows)]
 pub mod apps;
+#[cfg(windows)]
+pub mod windows;
 #[cfg(windows)]
 pub mod selection;
 

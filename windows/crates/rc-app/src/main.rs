@@ -16,7 +16,7 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use rc_net::{Config, Event, Session, State};
-use rc_protocol::{encode_app_list, encode_file_ack};
+use rc_protocol::{encode_app_list, encode_file_ack, encode_window_list};
 
 #[derive(Debug, Default)]
 struct Args {
@@ -79,7 +79,7 @@ fn print_help() {
          \n\
          While running, type these console commands (then Enter):\n\
          \x20 camera [on|off]  mic [on|off]  voice [on|off]  trackpad [on|off]\n\
-         \x20 keyboard [on|off]  switch-camera  help  quit\n\
+         \x20 keyboard [on|off]  switch-camera  clipboard  help  quit\n\
          \n\
          Run the RemoteCrab iOS app first; both devices must share the same WiFi."
     );
@@ -107,7 +107,7 @@ fn spawn_console_reader() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 fn print_console_help() {
     println!(
         "  commands: camera [on|off] · mic [on|off] · voice [on|off] · \
-         trackpad [on|off] · keyboard [on|off] · switch-camera · help · quit"
+         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · help · quit"
     );
 }
 
@@ -147,6 +147,24 @@ fn handle_console_command(
         "switch-camera" | "flip-camera" => {
             session.switch_camera();
             println!("  → switching camera");
+        }
+        "clipboard" | "send-clipboard" => {
+            #[cfg(windows)]
+            match rc_os::clipboard::get_text() {
+                Some(text) if !text.is_empty() => {
+                    let msg = rc_protocol::Clipboard { text: text.clone() };
+                    match rc_protocol::encode_clipboard(&msg) {
+                        Ok(frame) => {
+                            session.send_frame(frame);
+                            println!("  → sent clipboard to iPhone ({} chars)", text.chars().count());
+                        }
+                        Err(_) => println!("  clipboard send failed"),
+                    }
+                }
+                _ => println!("  clipboard is empty or not text"),
+            }
+            #[cfg(not(windows))]
+            println!("  clipboard send is Windows-only");
         }
         "help" | "?" => print_console_help(),
         "quit" | "exit" => *quit_requested = true,
@@ -433,12 +451,19 @@ async fn main() -> ExitCode {
                         let list = rc_protocol::AppList { apps: vec![] };
                         session.send_frame(encode_app_list(&list).unwrap_or_default());
                     }
+                    Event::WindowListRequested => {
+                        #[cfg(windows)]
+                        let list = rc_os::windows::build_window_list();
+                        #[cfg(not(windows))]
+                        let list = rc_protocol::WindowList { windows: vec![], can_capture: false };
+                        session.send_frame(encode_window_list(&list).unwrap_or_default());
+                    }
                     Event::ActivateApp(a) => {
                         #[cfg(windows)]
                         {
                             if args.no_input {
                                 println!("  app switch ignored (--no-input)");
-                            } else if rc_os::apps::activate_id(&a.id) {
+                            } else if rc_os::apps::activate_id_with_title(&a.id, a.window_title.as_deref()) {
                                 println!("  activated app {}", a.id);
                             } else {
                                 println!("  app switch failed: {}", a.id);
