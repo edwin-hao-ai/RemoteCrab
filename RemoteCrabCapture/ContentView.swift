@@ -321,6 +321,11 @@ struct ContentView: View {
             case "screen":   engine.features.activeSurface = .screen
             default:         break
             }
+            // E2E: open a sheet for UI screenshot runs.
+            switch ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SHEET"] {
+            case "switcher", "launcher": showAppSwitcher = true
+            default: break
+            }
         }
     }
 
@@ -694,7 +699,7 @@ struct ContentView: View {
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .buttonStyle(IBPressButtonStyle())
-            .accessibilityLabel("App window mirror")
+            .accessibilityLabel(IBLocale.Mirror.title)
             .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
             .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
 

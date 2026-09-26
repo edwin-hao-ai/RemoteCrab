@@ -70,6 +70,8 @@ struct ScreenShareView: View {
     @State private var modifiers: Set<IBModifierBar.Modifier> = []
     /// Mirrors the persisted fit/fill choice for `rebuild`.
     @State private var fillsView = false
+    /// Secondary chrome (window chip + zoom) revealed by the handle.
+    @State private var chromeVisible = false
     @AppStorage("remotecrab.ios.screenFill") private var fillsViewStored = false
     @AppStorage("remotecrab.ios.screenGuideShown") private var guideShown = false
 
@@ -144,34 +146,30 @@ struct ScreenShareView: View {
     @ViewBuilder
     private func controls(in size: CGSize) -> some View {
         ZStack {
-            // Window chip — top-left, below the app's floating top bar.
-            VStack {
-                HStack {
-                    windowChip
-                    Spacer(minLength: 0)
+            // Secondary chrome (window chip + fit/fill + zoom) is COLLAPSED
+            // by default so the mirrored window gets the whole screen; a
+            // small handle centred under the top bar reveals it.
+            VStack(spacing: IBSpace.s.pt) {
+                chromeHandle
+                if chromeVisible {
+                    HStack(spacing: IBSpace.s.pt) {
+                        windowChip
+                        Spacer(minLength: 0)
+                        zoomControls(in: size)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
-                .padding(.leading, IBSpace.l.pt)
-                .padding(.top, controlsTopPad)
                 Spacer(minLength: 0)
             }
-
-            // Fit/fill + 1×/2× — top-right.
-            VStack {
-                HStack {
-                    Spacer(minLength: 0)
-                    zoomControls(in: size)
-                }
-                .padding(.trailing, IBSpace.l.pt)
-                .padding(.top, controlsTopPad)
-                Spacer(minLength: 0)
-            }
+            .padding(.horizontal, IBSpace.l.pt)
+            .padding(.top, controlsTopPad)
 
             // Same shortcut bar as the trackpad: pinned context chip +
             // one horizontally-scrollable row of keys + modifier bar.
             VStack {
                 Spacer(minLength: 0)
                 IBShortcutBar(activeModifiers: $modifiers,
-                              contextTitle: info?.appName ?? "Computer",
+                              contextTitle: info?.appName ?? IBLocale.Mirror.computer,
                               onContext: onOpenContext,
                               onKey: { onKey?($0) },
                               onModifierKey: onModifierKey)
@@ -184,9 +182,25 @@ struct ScreenShareView: View {
         }
     }
 
+    /// The grab handle that reveals/hides the secondary chrome.
+    private var chromeHandle: some View {
+        Button {
+            withAnimation(IBAnimation.snappy) { chromeVisible.toggle() }
+        } label: {
+            Image(systemName: chromeVisible ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 66, height: 26)
+                .background { Capsule().fill(.ultraThinMaterial) }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.94))
+        .accessibilityLabel(chromeVisible ? IBLocale.Mirror.hideControls : IBLocale.Mirror.showControls)
+    }
+
     private var chipTitle: String {
         if let name = info?.appName, !name.isEmpty { return name }
-        return "Window"
+        return IBLocale.Mirror.window
     }
 
     private var windowChip: some View {
@@ -206,7 +220,7 @@ struct ScreenShareView: View {
             Button {
                 onFollowFrontmost()
             } label: {
-                Label("Follow frontmost app", systemImage: "arrow.triangle.2.circlepath")
+                Label(IBLocale.Mirror.followFrontmost, systemImage: "arrow.triangle.2.circlepath")
             }
         } label: {
             HStack(spacing: 6) {
@@ -245,7 +259,7 @@ struct ScreenShareView: View {
                             ? "arrow.down.right.and.arrow.up.left"
                             : "arrow.up.left.and.arrow.down.right")
             }
-            .accessibilityLabel(fillsView ? "Fit window" : "Fill view")
+            .accessibilityLabel(fillsView ? IBLocale.Mirror.fitWindow : IBLocale.Mirror.fillView)
 
             Button {
                 toggleZoom(in: size)
@@ -257,7 +271,7 @@ struct ScreenShareView: View {
                     .background { Circle().fill(.ultraThinMaterial) }
                     .contentShape(Circle())
             }
-            .accessibilityLabel("Toggle zoom")
+            .accessibilityLabel(IBLocale.Mirror.toggleZoom)
         }
     }
 
@@ -293,17 +307,17 @@ struct ScreenShareView: View {
     /// so the mirror still responds everywhere else.
     private var coachMark: some View {
         VStack(spacing: 10) {
-            Text("Mirror guide")
+            Text(IBLocale.Mirror.guideTitle)
                 .font(IBFont.caption.weight(.semibold))
                 .foregroundStyle(.white)
-            Text("Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click")
+            Text(IBLocale.Mirror.guideBody)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
             Button {
                 guideShown = true
             } label: {
-                Text("Got it")
+                Text(IBLocale.Mirror.gotIt)
                     .font(IBFont.caption.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)

@@ -41,64 +41,50 @@ struct AppSwitcherView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Quick destinations: reveal the desktop, or open the launcher.
-            HStack(spacing: 10) {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
-                } label: {
-                    Label(IBLocale.Switcher.desktop, systemImage: "menubars.rectangle")
-                        .font(IBFont.bodySmall)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(IBPressButtonStyle(scale: 0.97, highlight: 0.06))
-
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    showLauncher = true
-                } label: {
-                    Label(IBLocale.Switcher.launchApps, systemImage: "square.grid.2x2")
-                        .font(IBFont.bodySmall)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(IBPressButtonStyle(scale: 0.97, highlight: 0.06))
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .sheet(isPresented: $showLauncher) {
-                InstalledAppsView()
-                    .environmentObject(engine)
-            }
-
             if !engine.windowsCanCapture && !engine.macWindows.isEmpty {
                 permissionHint
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
+                    .padding(.horizontal, IBSpace.l.pt)
+                    .padding(.top, IBSpace.s.pt)
             }
 
-            if orderedWindows.isEmpty {
-                ContentUnavailableView {
-                    Label(IBLocale.Switcher.empty, systemImage: "macwindow.on.rectangle")
-                } description: {
-                    Text(IBLocale.Switcher.hint)
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 12) {
+            ScrollView {
+                LazyVStack(spacing: IBSpace.m.pt) {
+                    // A fixed first card: the Desktop. Always present, so
+                    // "get me back to the desktop" is one tap away even
+                    // when a window list is still loading.
+                    desktopCard
+
+                    if orderedWindows.isEmpty {
+                        ContentUnavailableView {
+                            Label(IBLocale.Switcher.empty, systemImage: "macwindow.on.rectangle")
+                        } description: {
+                            Text(IBLocale.Switcher.hint)
+                        }
+                        .padding(.top, IBSpace.xl.pt)
+                    } else {
                         ForEach(orderedWindows) { window in
                             card(window)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 28)
                 }
+                .padding(.horizontal, IBSpace.l.pt)
+                .padding(.top, IBSpace.m.pt)
+                .padding(.bottom, IBSpace.s.pt)
             }
         }
+        .safeAreaInset(edge: .bottom) { openAppBar }
         .presentationDragIndicator(.visible)
         .task {
             engine.requestMacApps()
             engine.requestMacWindows()
+            // E2E: jump straight into the launcher for screenshot runs.
+            if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SHEET"] == "launcher" {
+                showLauncher = true
+            }
+        }
+        .sheet(isPresented: $showLauncher) {
+            InstalledAppsView()
+                .environmentObject(engine)
         }
         .confirmationDialog(
             IBLocale.Switcher.forceQuitConfirmTitle,
@@ -113,6 +99,100 @@ struct AppSwitcherView: View {
         } message: { _ in
             Text(IBLocale.Switcher.forceQuitConfirmMessage)
         }
+    }
+
+    /// Pinned Desktop entry — a compact row above the window cards. The
+    /// leading tile is a stylised mini-desktop (brand gradient + menu-bar
+    /// strip + Dock dots), since we can't capture the real desktop.
+    private var desktopCard: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            engine.sendSystemCommand(IBSystemCommand(command: .showDesktop))
+            dismiss()
+        } label: {
+            HStack(spacing: IBSpace.m.pt) {
+                desktopThumbnail
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(IBLocale.Switcher.desktop)
+                        .font(IBFont.bodyMedium)
+                        .foregroundStyle(IBColor.textPrimary)
+                        .lineLimit(1)
+                    Text(IBLocale.Switcher.showDesktop)
+                        .font(IBFont.caption)
+                        .foregroundStyle(IBColor.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: IBSpace.s.pt)
+            }
+            .padding(IBSpace.m.pt)
+            .background(Color(uiColor: .secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(IBColor.borderSubtle, lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(IBPressButtonStyle(scale: 0.98, highlight: 0.06))
+        .accessibilityLabel(Text(IBLocale.Switcher.desktop))
+        .accessibilityHint(Text(IBLocale.Switcher.showDesktop))
+    }
+
+    /// A 72×46 window onto a stylised desktop: brand wallpaper, a paper-thin
+    /// menu bar, and three Dock dots.
+    private var desktopThumbnail: some View {
+        ZStack {
+            IBGradient.brand
+            VStack(spacing: 0) {
+                Capsule()
+                    .fill(.white.opacity(0.32))
+                    .frame(height: 3)
+                    .padding(.horizontal, 5)
+                    .padding(.top, 5)
+                Spacer(minLength: 0)
+                HStack(spacing: 2.5) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                            .fill(.white.opacity(0.38))
+                            .frame(width: 7, height: 7)
+                    }
+                }
+                .padding(.bottom, 5)
+            }
+        }
+        .frame(width: 72, height: 46)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(IBColor.borderSubtle, lineWidth: 0.5)
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Big pinned action at the bottom — the launcher is the one thing
+    /// you reach for without scanning the window list, so it gets the
+    /// primary action treatment (accent, full width, 50pt).
+    private var openAppBar: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            showLauncher = true
+        } label: {
+            Label(IBLocale.Switcher.launchApps, systemImage: "square.grid.2x2")
+                .font(IBFont.bodyMedium.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background {
+                    RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous)
+                        .fill(Color.accentColor)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
+        }
+        .buttonStyle(IBPressButtonStyle())
+        .padding(.horizontal, IBSpace.l.pt)
+        .padding(.vertical, IBSpace.s.pt)
+        .background(.bar)
+        .accessibilityLabel(Text(IBLocale.Switcher.launchApps))
     }
 
     @ViewBuilder
@@ -250,38 +330,3 @@ struct AppSwitcherView: View {
         pinnedCSV = set.sorted().joined(separator: ",")
     }
 }
-
-/// A Mac app's icon, falling back to a tinted initial tile while the icon
-/// PNG is still in flight (or when the app has a generic icon).
-private struct AppIconTile: View {
-    let image: UIImage?
-    let name: String
-    let size: CGFloat
-
-    private var initial: String {
-        String(name.first(where: { !$0.isWhitespace }).map(String.init) ?? "?")
-    }
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-            } else {
-                RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-                    .fill(IBColor.accent.opacity(0.14))
-                    .overlay {
-                        Text(initial)
-                            .font(.system(size: size * 0.42, weight: .semibold, design: .rounded))
-                            .foregroundStyle(IBColor.accent)
-                    }
-            }
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
-/// Pressed-state feedback now lives in `IBPressButtonStyle` (RemoteCrabCore).

@@ -396,10 +396,14 @@ public struct IBAppListRequest: Codable, Sendable, Equatable {
 public struct IBInstalledApp: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let name: String
+    /// 96 px PNG of the app's icon, so the launcher can render a
+    /// Dock-style grid of real icons. Nil when the receiver has none.
+    public let iconPNG: Data?
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, iconPNG: Data? = nil) {
         self.id = id
         self.name = name
+        self.iconPNG = iconPNG
     }
 }
 

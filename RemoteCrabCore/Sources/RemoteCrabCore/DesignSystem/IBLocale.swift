@@ -21,9 +21,26 @@ private func IBL(_ key: String) -> String {
 
 public enum IBLocale {
     public enum Launcher {
+        public static let title = IBL("Applications")
         public static let searchPlaceholder = IBL("Search apps")
         public static let empty = IBL("No apps listed yet")
         public static let hint = IBL("Apps reported by the connected computer")
+    }
+
+    /// App-window mirror surface (full-screen chrome + coach mark).
+    public enum Mirror {
+        public static let title = IBL("App window mirror")
+        public static let guideTitle = IBL("Mirror guide")
+        public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click")
+        public static let gotIt = IBL("Got it")
+        public static let followFrontmost = IBL("Follow frontmost app")
+        public static let window = IBL("Window")
+        public static let computer = IBL("Computer")
+        public static let fitWindow = IBL("Fit window")
+        public static let fillView = IBL("Fill view")
+        public static let toggleZoom = IBL("Toggle zoom")
+        public static let showControls = IBL("Show controls")
+        public static let hideControls = IBL("Hide controls")
     }
 
     public enum App {
@@ -469,7 +486,8 @@ public enum IBLocale {
     public enum Switcher {
         public static let title = IBL("App Switcher")
         public static let desktop = IBL("Desktop")
-        public static let launchApps = IBL("Open app…")
+        public static let showDesktop = IBL("Show Desktop")
+        public static let launchApps = IBL("Open App…")
         public static let empty = IBL("No apps to switch to")
         public static let refresh = IBL("Refresh")
         public static let pin = IBL("Pin")

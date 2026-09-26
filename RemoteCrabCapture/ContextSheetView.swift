@@ -223,28 +223,3 @@ struct ContextSheetView: View {
         voice.stop()
     }
 }
-
-/// Pressed feedback for a Liquid-Glass card.
-///
-/// The shared `IBPressButtonStyle` drives its feedback with `.brightness`,
-/// which the iOS 26 `glassEffect` compositing layer ignores — on device
-/// the buttons looked completely inert. This paints the highlight in the
-/// button's own layer instead, where it always shows.
-private struct GlassPressButtonStyle: ButtonStyle {
-    var cornerRadius: CGFloat
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            // Hit-test the whole label bounds (the left-aligned icon+text
-            // otherwise leaves the trailing half untappable).
-            .contentShape(Rectangle())
-            .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.white.opacity(configuration.isPressed ? 0.18 : 0))
-                    .allowsHitTesting(false)
-            }
-            .scaleEffect(configuration.isPressed ? 0.94 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.7),
-                       value: configuration.isPressed)
-    }
-}

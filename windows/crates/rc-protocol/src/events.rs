@@ -665,6 +665,14 @@ fn default_shows_cursor() -> bool {
 pub struct InstalledApp {
     pub id: String,
     pub name: String,
+    /// PNG of the app's icon (base64), so the iPhone's launcher can render
+    /// a Dock-style grid of real icons. Absent when the receiver has none.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "base64_serde::opt"
+    )]
+    pub icon_png: Option<Vec<u8>>,
 }
 
 /// Receiver → iPhone: the launch-able app list (kind `0x21`).

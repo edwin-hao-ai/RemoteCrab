@@ -34,13 +34,36 @@ enum InstalledAppsCatalog {
                     let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
                         ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
                         ?? appURL.deletingPathExtension().lastPathComponent
-                    byID[id] = IBInstalledApp(id: id, name: name)
+                    byID[id] = IBInstalledApp(id: id, name: name, iconPNG: iconPNG(for: appURL))
                 }
             }
             return Array(byID.values)
         }.value
         log.info("installed apps: \(apps.count, privacy: .public)")
         return apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// App icons are expensive to rasterise, so memoise them by path —
+    /// the launcher may be re-opened several times per session.
+    /// (`NSCache` is internally thread-safe; the compiler just can't see it.)
+    nonisolated(unsafe) private static let iconCache = NSCache<NSString, NSData>()
+
+    /// The app's icon as a 96 px PNG for the iPhone's launcher grid.
+    private static func iconPNG(for appURL: URL) -> Data? {
+        let key = appURL.path as NSString
+        if let cached = iconCache.object(forKey: key) { return cached as Data }
+
+        let icon = NSWorkspace.shared.icon(forFile: appURL.path)
+        let side: CGFloat = 96
+        let target = NSImage(size: NSSize(width: side, height: side))
+        target.lockFocus()
+        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        target.unlockFocus()
+        guard let tiff = target.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        iconCache.setObject(png as NSData, forKey: key)
+        return png
     }
 
     /// `.app` bundles directly in `root`, plus one level inside a child

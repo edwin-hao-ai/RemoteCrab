@@ -596,8 +596,8 @@ fn system_command_show_desktop_wire_value() {
 fn installed_apps_round_trip() {
     let list = InstalledApps {
         apps: vec![
-            InstalledApp { id: "com.apple.Safari".to_string(), name: "Safari".to_string() },
-            InstalledApp { id: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk".to_string(), name: "Notepad".to_string() },
+            InstalledApp { id: "com.apple.Safari".to_string(), name: "Safari".to_string(), icon_png: None },
+            InstalledApp { id: "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Notepad.lnk".to_string(), name: "Notepad".to_string(), icon_png: None },
         ],
     };
     let data = encode_installed_apps(&list).unwrap();
@@ -617,7 +617,7 @@ fn installed_apps_round_trip() {
 #[test]
 fn installed_apps_json_matches_swift() {
     let value = serde_json::to_value(InstalledApps {
-        apps: vec![InstalledApp { id: "a".into(), name: "b".into() }],
+        apps: vec![InstalledApp { id: "a".into(), name: "b".into(), icon_png: None }],
     })
     .unwrap();
     assert_eq!(value, serde_json::json!({"apps": [{"id": "a", "name": "b"}]}));

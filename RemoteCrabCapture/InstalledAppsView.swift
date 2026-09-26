@@ -2,100 +2,119 @@ import SwiftUI
 import UIKit
 import RemoteCrabCore
 
-/// The launch-able applications advertised by the connected computer
-/// (`installedApps`, kind 0x21), searchable; tapping one launches it on the
-/// computer via `systemCommand(.launchApp)`.
+/// Dock-style launcher: every app the connected computer can open, as a
+/// Launchpad-like grid of large icons — real app PNGs when the receiver
+/// sends them, an initial tile otherwise. Search filters by name or
+/// bundle id; tapping launches on the computer and dismisses.
 struct InstalledAppsView: View {
     @EnvironmentObject private var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
 
     @State private var query = ""
+    @State private var icons: [String: UIImage] = [:]
+    /// Set once the first reply has had time to arrive, so an empty result
+    /// shows the empty state instead of an endless spinner.
+    @State private var loaded = false
+
+    /// Apps the user pinned to the top of the switcher float to the front
+    /// here too (Stash's "hidden dock": the few you reach for, first).
+    @AppStorage("remotecrab.ios.pinnedApps") private var pinnedCSV = ""
 
     private var apps: [IBInstalledApp] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !q.isEmpty else { return engine.installedApps }
-        return engine.installedApps.filter {
-            $0.name.lowercased().contains(q) || $0.id.lowercased().contains(q)
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let base: [IBInstalledApp]
+        if needle.isEmpty {
+            base = engine.installedApps
+        } else {
+            base = engine.installedApps.filter {
+                $0.name.lowercased().contains(needle) || $0.id.lowercased().contains(needle)
+            }
         }
+        let pinned = Set(pinnedCSV.split(separator: ",").map(String.init))
+        guard !pinned.isEmpty else { return base }
+        return base.filter { pinned.contains($0.id) } + base.filter { !pinned.contains($0.id) }
     }
+
+    private let columns = [
+        GridItem(.adaptive(minimum: 78, maximum: 104), spacing: IBSpace.l.pt)
+    ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: IBSpace.s.pt) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(IBColor.textSecondary)
-                TextField(IBLocale.Launcher.searchPlaceholder, text: $query)
-                    .textFieldStyle(.plain)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-            }
-            .padding(.horizontal, IBSpace.m.pt)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: IBRadius.m.pt, style: .continuous)
-                    .fill(Color(uiColor: .tertiarySystemFill))
-                )
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
-
-            if apps.isEmpty {
-                ContentUnavailableView {
-                    Label(IBLocale.Launcher.empty, systemImage: "square.grid.2x2")
-                } description: {
-                    Text(IBLocale.Launcher.hint)
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(apps) { app in
-                            row(app)
-                        }
+        NavigationStack {
+            Group {
+                if apps.isEmpty && !loaded {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if apps.isEmpty {
+                    ContentUnavailableView {
+                        Label(IBLocale.Launcher.empty, systemImage: "square.grid.2x2")
+                    } description: {
+                        Text(IBLocale.Launcher.hint)
                     }
-                    .padding(.top, 6)
-                    .padding(.bottom, 28)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, alignment: .center,
+                                  spacing: IBSpace.l.pt) {
+                            ForEach(apps) { app in
+                                tile(app)
+                            }
+                        }
+                        .padding(.horizontal, IBSpace.l.pt)
+                        .padding(.vertical, IBSpace.l.pt)
+                    }
+                }
+            }
+            .navigationTitle(IBLocale.Launcher.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: IBLocale.Launcher.searchPlaceholder)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(IBLocale.A11y.close) { dismiss() }
                 }
             }
         }
-        .presentationDragIndicator(.visible)
+        .onAppear { rebuildIcons(engine.installedApps) }
+        .onChange(of: engine.installedApps) { _, list in rebuildIcons(list) }
         .task {
             engine.requestInstalledApps()
+            // The receiver enumerates + rasterises icons; give it a beat
+            // before deciding the list is genuinely empty.
+            try? await Task.sleep(for: .milliseconds(500))
+            loaded = true
         }
     }
 
-    private func row(_ app: IBInstalledApp) -> some View {
+    /// One Launchpad tile: 64 pt icon with the name beneath.
+    private func tile(_ app: IBInstalledApp) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             engine.launchInstalledApp(app)
             dismiss()
         } label: {
-            HStack(spacing: IBSpace.m.pt) {
-                Text(String(app.name.first(where: { !$0.isWhitespace }).map(String.init) ?? "?"))
-                    .font(IBFont.titleSmall)
-                    .foregroundStyle(IBColor.textSecondary)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle().fill(Color(uiColor: .tertiarySystemFill))
-                    )
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(app.name)
-                        .font(IBFont.bodyMedium)
-                        .foregroundStyle(IBColor.textPrimary)
-                        .lineLimit(1)
-                    Text(app.id)
-                        .font(IBFont.caption)
-                        .foregroundStyle(IBColor.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up.forward.app")
-                    .foregroundStyle(IBColor.textTertiary)
+            VStack(spacing: IBSpace.s.pt) {
+                AppIconTile(image: icons[app.id], name: app.name, size: 64)
+                Text(app.name)
+                    .font(IBFont.caption)
+                    .foregroundStyle(IBColor.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(IBPressButtonStyle(scale: 0.98, highlight: 0.04))
+        .buttonStyle(IBPressButtonStyle(scale: 0.94))
         .accessibilityLabel(Text(app.name))
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// Decode each icon PNG once per list update rather than per render.
+    private func rebuildIcons(_ list: [IBInstalledApp]) {
+        var decoded: [String: UIImage] = [:]
+        for app in list {
+            if let data = app.iconPNG, let image = UIImage(data: data) {
+                decoded[app.id] = image
+            }
+        }
+        icons = decoded
     }
 }

@@ -53,18 +53,23 @@ pub fn build_app_list(with_icons: bool) -> AppList {
 /// Render one process's icon as a 48 px RGBA PNG, cached by executable path
 /// (the iPhone keeps its own copy, so renderer cost is paid once).
 pub fn icon_png(pid: u32) -> Option<Vec<u8>> {
+    render_icon_png_cached(&process_image_path(pid)?, 48)
+}
+
+/// Cached variant of [`render_icon_png`], keyed by the file/shortcut path
+/// (both the running-app list and the installed-app launcher use it).
+fn render_icon_png_cached(path: &str, size: i32) -> Option<Vec<u8>> {
     static CACHE: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<String, Option<Vec<u8>>>>,
     > = std::sync::LazyLock::new(|| {
         std::sync::Mutex::new(std::collections::HashMap::new())
     });
-    let path = process_image_path(pid)?;
     let mut cache = CACHE.lock().ok()?;
-    if let Some(cached) = cache.get(&path) {
+    if let Some(cached) = cache.get(path) {
         return cached.clone();
     }
-    let rendered = render_icon_png(&path, 48);
-    cache.insert(path, rendered.clone());
+    let rendered = render_icon_png(path, size);
+    cache.insert(path.to_string(), rendered.clone());
     rendered
 }
 
@@ -373,6 +378,7 @@ pub fn build_installed_apps() -> rc_protocol::InstalledApps {
             apps.push(rc_protocol::InstalledApp {
                 id: path.to_string_lossy().into_owned(),
                 name: name.to_string(),
+                icon_png: render_icon_png_cached(&path.to_string_lossy(), 96),
             });
         }
     }

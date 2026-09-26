@@ -123,7 +123,7 @@ struct KeyboardScreen: View {
             .contentShape(Circle())
             .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(returnSurface == .screen
-                                ? Text("App window mirror")
+                                ? Text(IBLocale.Mirror.title)
                                 : Text(IBLocale.Mode.trackpad))
             Spacer()
             Text(IBLocale.Keyboard.typingOnMac)
