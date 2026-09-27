@@ -19,6 +19,7 @@ rc-audio.workspace = true
 rc-os.workspace = true
 rc-record.workspace = true
 rc-mirror.workspace = true
+png.workspace = true
 # Used by `--selftest` (a fake iPhone on localhost), so it's a real dep.
 rc-testkit.workspace = true
 serde_json.workspace = true
@@ -31,4 +32,5 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
 ] }

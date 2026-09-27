@@ -40,6 +40,10 @@ mod win32 {
     use rc_protocol::FeatureStateSnapshot;
     use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+    use windows::Win32::Graphics::Gdi::{
+        CreateBitmap, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC,
+        ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HGDIOBJ,
+    };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::Shell::{
         Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
@@ -50,6 +54,7 @@ mod win32 {
         IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
         MSG, MENU_ITEM_FLAGS, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
         SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, WNDCLASSW,
+        CreateIconIndirect, ICONINFO,
         WS_OVERLAPPED, GWLP_USERDATA, WM_APP, WM_DESTROY,
         TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, LoadImageW,
     };
@@ -237,14 +242,21 @@ mod win32 {
             return;
         };
 
-        let Ok(icon) = LoadImageW(
-            Some(hinstance),
-            IDI_APPLICATION,
-            IMAGE_ICON,
-            0,
-            0,
-            LR_DEFAULTSIZE | LR_SHARED,
-        ) else {
+        // Prefer the product icon (embedded PNG → HICON); fall back to the
+        // generic system icon if anything about that fails.
+        let icon = tray_icon(hinstance).or_else(|| {
+            LoadImageW(
+                Some(hinstance),
+                IDI_APPLICATION,
+                IMAGE_ICON,
+                0,
+                0,
+                LR_DEFAULTSIZE | LR_SHARED,
+            )
+            .ok()
+            .map(|h| HICON(h.0))
+        });
+        let Some(icon) = icon else {
             return;
         };
 
@@ -470,6 +482,82 @@ mod win32 {
         unsafe {
             let _ = AppendMenuW(menu, flags, id, PCWSTR(text.as_ptr()));
         }
+    }
+
+    /// The embedded product icon as an `HICON`, or None (caller falls back).
+    fn tray_icon(_hinstance: HINSTANCE) -> Option<HICON> {
+        const PNG: &[u8] = include_bytes!("../../../assets/tray-icon.png");
+        let (rgba, w, h) = decode_png(PNG)?;
+        unsafe { hicon_from_rgba(&rgba, w, h) }
+    }
+
+    /// Minimal PNG → straight RGBA (the embedded asset is 32-bit RGBA).
+    fn decode_png(bytes: &[u8]) -> Option<(Vec<u8>, i32, i32)> {
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        decoder.set_transformations(png::Transformations::normalize_to_color8());
+        let mut reader = decoder.read_info().ok()?;
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).ok()?;
+        let (w, h) = (info.width as i32, info.height as i32);
+        let pixels = match info.color_type {
+            png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
+            png::ColorType::Rgb => buf[..info.buffer_size()]
+                .chunks_exact(3)
+                .flat_map(|p| [p[0], p[1], p[2], 0xFF])
+                .collect(),
+            _ => return None,
+        };
+        Some((pixels, w, h))
+    }
+
+    /// Build an `HICON` from top-down RGBA via a 32-bit DIB + a 1-bpp mask.
+    unsafe fn hicon_from_rgba(rgba: &[u8], w: i32, h: i32) -> Option<HICON> {
+        if w <= 0 || h <= 0 || rgba.len() < (w * h * 4) as usize {
+            return None;
+        }
+        let screen = GetDC(None);
+        let mem = CreateCompatibleDC(Some(screen));
+        let mut bmi = BITMAPINFO::default();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = w;
+        bmi.bmiHeader.biHeight = -h; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB.0;
+        let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
+        let color: HBITMAP =
+            match CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+                Ok(b) if !bits.is_null() => b,
+                _ => {
+                    let _ = DeleteDC(mem);
+                    let _ = ReleaseDC(None, screen);
+                    return None;
+                }
+            };
+        {
+            let dst = std::slice::from_raw_parts_mut(bits as *mut u8, (w * h * 4) as usize);
+            for (o, px) in rgba.chunks_exact(4).enumerate() {
+                dst[o * 4] = px[2]; // B
+                dst[o * 4 + 1] = px[1]; // G
+                dst[o * 4 + 2] = px[0]; // R
+                dst[o * 4 + 3] = px[3]; // A
+            }
+        }
+        // An all-zero 1-bpp mask: the 32-bit alpha channel governs.
+        let mask = CreateBitmap(w, h, 1, 1, None);
+        let info = ICONINFO {
+            fIcon: windows::core::BOOL(1),
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
+        let icon = CreateIconIndirect(&info).ok();
+        let _ = DeleteObject(HGDIOBJ(color.0));
+        let _ = DeleteObject(HGDIOBJ(mask.0));
+        let _ = DeleteDC(mem);
+        let _ = ReleaseDC(None, screen);
+        icon
     }
 
     /// Copy `text` into a fixed-size UTF-16 buffer, NUL-terminated.
