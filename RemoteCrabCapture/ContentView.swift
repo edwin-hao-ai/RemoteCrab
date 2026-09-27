@@ -71,6 +71,24 @@ struct ContentView: View {
                     privacyCoverView
                 }
 
+                // Over the mirror the chrome floats on ARBITRARY content — a
+                // white Mac window made the white glyphs/labels invisible
+                // ("白上白"). A soft dark scrim behind the chrome keeps the
+                // contrast, the way a video player's controls do.
+                if mirrorActive && !immersive {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.black.opacity(0.55), .clear],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 130)
+                        Spacer(minLength: 0)
+                        LinearGradient(colors: [.clear, .black.opacity(0.6)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 300)
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                }
+
                 if !immersive {
                     VStack {
                         topBar
@@ -974,9 +992,9 @@ struct ContentView: View {
                 Image(systemName: visible ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 64, height: 26)
-                    .background { Capsule().fill(.ultraThinMaterial) }
-                    .contentShape(Capsule())
+                .frame(width: 64, height: 26)
+                .background { Capsule().fill(.black.opacity(0.45)) }
+                .contentShape(Capsule())
             }
             .buttonStyle(IBPressButtonStyle(scale: 0.94))
             .accessibilityLabel(visible ? IBLocale.Mirror.hideControls : IBLocale.Mirror.showControls)

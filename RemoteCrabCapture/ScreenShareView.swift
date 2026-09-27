@@ -212,7 +212,7 @@ struct ScreenShareView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 66, height: 26)
-                .background { Capsule().fill(.ultraThinMaterial) }
+                .background { Capsule().fill(.black.opacity(0.45)) }
                 .contentShape(Capsule())
         }
         .buttonStyle(IBPressButtonStyle(scale: 0.94))
