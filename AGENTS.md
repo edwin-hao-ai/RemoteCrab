@@ -2101,8 +2101,18 @@ is tracked in the Roadmap section — don't duplicate it here.
     so no iOS profile can be minted headlessly; and TCC grants are manual. The
     relay's **iOS half is therefore not shipped yet**, so the feature is inert
     for now (the Mac sends 0x22 frames the old iOS build ignores).
-    **Released:** Mac **build 3** (`RemoteCrab-1.0.2.zip`, `sparkle:version 3`)
-    uploaded to vgoapp.com (DMG replaced); appcast now advertises build 3.
+    **Released:** Mac **build 4** (`RemoteCrab-1.0.3.zip`, `sparkle:version 4`)
+    uploaded to vgoapp.com (DMG replaced; appcast advertises build 4). Build 3
+    shipped transiently before it. The setup assistant now also invites
+    **Screen Recording** (skippable), and the Mac opens that Settings pane when
+    the mirror hits the missing permission.
+    **iOS relay half — verified on the Simulator, not a device:** a fake-Mac TCP
+    client sent a `0x22 notification` frame to the sim app; the app received it
+    and popped the "RemoteCrab Would Like to Send You Notifications" prompt
+    (the lazy permission request firing where it should). The actual banner
+    wasn't captured (a foreground app suppresses banners; the prompt needs a
+    manual tap). Real-device iOS test remains blocked by the signing-team gap
+    above.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -2291,7 +2301,23 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (**website screenshots + promo video** — ten per-feature
+_Last updated: 2026-09-28 (**Mac notification relay + OpenCode context suite +
+permission UX + Mac build 4** — the Mac now polls Notification Center banners
+via AX and relays each one to the iPhone as wire kind `0x22` (denylist,
+default off, banners only); a dedicated **OpenCode** context suite maps
+New Session / Previous Session / Next Session / Search Sessions; the
+missing-permission UX now **opens the Screen Recording Settings pane** (plus a
+Preferences status row) instead of only calling the request API, and the
+setup assistant invites Screen Recording as a **skippable** step. Mac
+**build 4** (`RemoteCrab-1.0.3.zip`, `sparkle:version 4`) is notarized,
+uploaded and installed locally, and the Developer-ID provisioning profile
+(lesson 75) is embedded + backed up locally and on the VPS. The iOS half of
+the relay is **simulator-verified only** (a `0x22` frame fires the lazy
+notification-permission request) and is still **unreleased** — the iOS build
+is blocked on the team mismatch. TCC grants must be re-taken by hand after any
+signing-identity change. 224 tests + both apps. Lesson 79.)_
+
+_Previous: 2026-09-27 (**website screenshots + promo video** — ten per-feature
 landing pages under `/remotecrab/features/`, a new `/remotecrab/suites/` page for the
 18-suite / 49-app context-mode registry, and real captured screenshots in both locales.
 `scripts/capture-feature-shots.sh` drives the simulator through the E2E hooks; lessons
