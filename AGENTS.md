@@ -1874,6 +1874,24 @@ is tracked in the Roadmap section — don't duplicate it here.
     "content rotated but not re-laid-out" artifact that is NOT a real
     landscape render. Real landscape review needs a device screenshot.
 
+71. **Private-API object ownership: a leaked `CGVirtualDisplay` makes the
+    next one fail (2026-09-27).** The user reported "扩展显示器点了完全没反应".
+    Evidence chain: the iPhone forensic showed the toggle DID fire
+    (`toggle extended display: on=false screenOn=true`) and the Mac logged
+    `extend failed — no virtual display` → then `CGVirtualDisplay init
+    failed`. `CGGetActiveDisplayList` showed **two** displays (#1 + a leaked
+    #10 1920x1200), and killing the receiver removed the orphan — so the
+    object, not the code path, was at fault. Cause: `perform(initWithDescriptor:)`
+    took **`takeUnretainedValue()`**, so ARC never owned `alloc`'s +1 and
+    releasing `display` left the object (and the display) alive; the private
+    API then refuses to create another. Fix: **`takeRetainedValue()`**.
+    Lesson: with `NSClassFromString` + `perform` on private classes, the
+    `alloc`/`init` pair must be `takeRetainedValue()`, or the object leaks —
+    and this class of bug only shows on the SECOND use, so a single-shot
+    spike (`scripts`-style) proves nothing about repeated create/destroy.
+    Verified: device e2e 23/23 with `CGGetActiveDisplayList` back to one
+    display after teardown.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
