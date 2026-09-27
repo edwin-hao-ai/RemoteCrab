@@ -141,6 +141,10 @@ public enum IBLocale {
         public static let recheck = IBL("Re-check")
         public static let accessibilityRequired = IBL("Accessibility permission required")
         public static let accessibilityGranted = IBL("Accessibility granted")
+
+        public static let screenRecording = IBL("Screen Recording")
+        public static let notGranted = IBL("Not granted")
+        public static let screenRecordingReason = IBL("We need Screen Recording to mirror a Mac window to your iPhone. macOS adds RemoteCrab to the list when you tap the button — switch it on, then restart RemoteCrab.")
     }
 
     public enum Onboarding {

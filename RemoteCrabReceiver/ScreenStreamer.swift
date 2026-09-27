@@ -123,6 +123,10 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             if !didRequestPermission {
                 didRequestPermission = true
                 _ = CGRequestScreenCaptureAccess()
+                // Take the user straight to the pane so they only have to
+                // flip the switch instead of hunting for it (lesson: users
+                // shouldn't have to click "+" by hand).
+                SetupStatus.openScreenRecordingSettings()
                 Self.log.info("screen recording not granted — requested access")
             }
             sendInfo(IBScreenInfo(status: .permissionDenied))

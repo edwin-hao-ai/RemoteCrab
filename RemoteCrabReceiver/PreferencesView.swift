@@ -37,6 +37,7 @@ struct PreferencesView: View {
     /// granted while it was already open (SetupStatus only polls while
     /// the setup assistant is on screen).
     @State private var hasAccessibility: Bool = AXIsProcessTrusted()
+    @State private var screenRecordingGranted: Bool = WindowCapture.isAuthorized
     @State private var micDriverInstalled = false
     @State private var showMicPkgMissing = false
 
@@ -330,6 +331,35 @@ struct PreferencesView: View {
             } footer: {
                 Text("These settings are sent to your iPhone on the next streaming session.")
             }
+
+            Section {
+                HStack(spacing: 8) {
+                    Label(IBLocale.Permission.screenRecording,
+                          systemImage: "rectangle.on.rectangle")
+                        .font(IBFont.bodySmall)
+                    Spacer()
+                    Text(screenRecordingGranted
+                         ? IBLocale.Permission.granted
+                         : IBLocale.Permission.notGranted)
+                        .font(IBFont.bodySmall)
+                        .foregroundStyle(screenRecordingGranted ? IBColor.success : IBColor.warning)
+                }
+                if !screenRecordingGranted {
+                    Button(IBLocale.Permission.openSystemSettings) {
+                        // Register us in the Screen Recording list, then land
+                        // the user on the pane so they only flip the switch.
+                        _ = WindowCapture.requestAccess()
+                        SetupStatus.openScreenRecordingSettings()
+                    }
+                    .controlSize(.small)
+                    Text(IBLocale.Permission.screenRecordingReason)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text(IBLocale.Settings.permissions)
+            }
+            .task { screenRecordingGranted = WindowCapture.isAuthorized }
         }
         .formStyle(.grouped)
     }

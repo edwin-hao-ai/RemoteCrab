@@ -104,6 +104,18 @@ final class SetupStatus: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Open System Settings → Privacy & Security → Screen Recording. macOS
+    /// adds the app to that list when `CGRequestScreenCaptureAccess()` is
+    /// called, so landing the user here lets them just toggle it.
+    static func openScreenRecordingSettings() {
+        if let url = URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        } else if let url = URL(string: "x-apple.systempreferences:") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     static func openExtensionSettings() {
         // Prefer the Camera Extensions pane; fall back to Login Items &
         // Extensions, then to the Security pane.

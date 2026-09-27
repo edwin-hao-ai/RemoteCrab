@@ -1,6 +1,57 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Screen Recording": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕录制"
+          }
+        }
+      }
+    },
+    "Not granted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not granted"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未授权"
+          }
+        }
+      }
+    },
+    "We need Screen Recording to mirror a Mac window to your iPhone. macOS adds RemoteCrab to the list when you tap the button — switch it on, then restart RemoteCrab.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We need Screen Recording to mirror a Mac window to your iPhone. macOS adds RemoteCrab to the list when you tap the button — switch it on, then restart RemoteCrab."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我们需要「屏幕录制」权限才能把电脑窗口镜像到你的 iPhone。点击按钮后，macOS 会把 RemoteCrab 加入列表——打开它，然后重启 RemoteCrab。"
+          }
+        }
+      }
+    },
     "Check for Updates…": {
       "extractionState": "manual",
       "localizations": {
