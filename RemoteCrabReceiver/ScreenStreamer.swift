@@ -521,8 +521,8 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             pixelWidth = pixelW
             pixelHeight = pixelH
             lastContentRect = frame
-            targetWindowId = "display:\(display.displayID)"
-            targetAppId = "display"
+            targetWindowId = displayID != nil ? "extended:\(display.displayID)" : "display:\(display.displayID)"
+            targetAppId = displayID != nil ? "extended" : "display"
             targetAppName = displayID != nil ? "RemoteCrab Display" : IBLocale.Switcher.desktop
             targetTitle = ""
         }

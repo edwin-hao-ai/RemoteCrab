@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import os
@@ -84,12 +85,50 @@ final class VirtualDisplay {
         return nil
     }
 
-    /// Remove the display (releasing the `CGVirtualDisplay` does it).
+    /// Remove the display (releasing the `CGVirtualDisplay` does it). Any
+    /// windows still on it are moved back to the main display first, so
+    /// nothing is stranded.
     func destroy() {
         guard display != nil else { return }
+        moveWindowsBack()
         display = nil
         displayID = nil
         Self.log.info("virtual display released")
+    }
+
+    /// Move every regular app's windows that sit on this display back onto
+    /// the main display. macOS usually relocates orphaned windows itself,
+    /// but that is not guaranteed and can scatter them across displays —
+    /// this is deterministic. Needs the Accessibility grant, which the
+    /// receiver already has.
+    private func moveWindowsBack() {
+        guard let vd = displayID else { return }
+        let vdBounds = CGDisplayBounds(vd)
+        let mainBounds = CGDisplayBounds(CGMainDisplayID())
+        var moved = 0
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            let axApp = AXUIElementCreateApplication(app.processIdentifier)
+            var windowsValue: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &windowsValue) == .success,
+                  let windows = windowsValue as? [AXUIElement] else { continue }
+            for window in windows {
+                var posValue: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posValue) == .success,
+                      let posAX = posValue,
+                      CFGetTypeID(posAX) == AXValueGetTypeID() else { continue }
+                var point = CGPoint.zero
+                guard AXValueGetValue(posAX as! AXValue, .cgPoint, &point) else { continue }
+                guard vdBounds.contains(point) else { continue }
+                var target = CGPoint(x: mainBounds.minX + 60, y: mainBounds.minY + 60)
+                if let axPoint = AXValueCreate(.cgPoint, &target) {
+                    AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, axPoint)
+                    moved += 1
+                }
+            }
+        }
+        if moved > 0 {
+            Self.log.info("moved \(moved, privacy: .public) window(s) back to the main display")
+        }
     }
 
     private static func activeDisplays() -> Set<CGDirectDisplayID> {

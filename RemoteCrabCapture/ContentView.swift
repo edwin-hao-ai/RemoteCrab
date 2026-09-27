@@ -502,7 +502,6 @@ struct ContentView: View {
                             pinnedWindowId: engine.screenPinnedWindowId,
                             onSelectWindow: { engine.selectScreenWindow(id: $0) },
                             onFollowFrontmost: { engine.followFrontmostScreenWindow() },
-                            onExtendDisplay: { engine.extendToVirtualDisplay() },
                             topInset: topInset,
                             bottomInset: bottomInset)
                 .ignoresSafeArea()
@@ -703,6 +702,28 @@ struct ContentView: View {
             .accessibilityLabel(IBLocale.Mirror.title)
             .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
             .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
+
+            // Extended Display: a source of its own, parallel to the mirror —
+            // the Mac creates a virtual second display and streams that, so
+            // windows can live on this phone. Hidden on Windows (no
+            // virtual-display support there yet).
+            if !engine.connectedIsWindows {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) {
+                        engine.toggleExtendedDisplay()
+                    }
+                } label: {
+                    topBarIcon("rectangle.on.rectangle.angled", tint: .white,
+                               active: engine.isExtendedDisplayOn)
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .buttonStyle(IBPressButtonStyle())
+                .accessibilityLabel(IBLocale.Mirror.extendDisplay)
+                .accessibilityValue(engine.isExtendedDisplayOn ? IBLocale.A11y.on : IBLocale.A11y.off)
+                .accessibilityAddTraits(engine.isExtendedDisplayOn ? .isSelected : [])
+            }
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.

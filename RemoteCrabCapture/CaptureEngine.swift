@@ -599,6 +599,28 @@ final class CaptureEngine: ObservableObject {
         broadcaster?.send(IBScreenControl(command: .extend, maxPixel: preferredMaxPixel))
     }
 
+    /// True while the Mac is streaming the **extended** (virtual) display —
+    /// a source of its own, parallel to mirroring an app window.
+    var isExtendedDisplayOn: Bool { screenInfo?.appId == "extended" }
+
+    /// Top-bar toggle: extend the Mac desktop onto this phone (creating the
+    /// virtual display), or drop back to mirroring the frontmost window.
+    /// Opening the viewer first when needed, so it works standalone.
+    func toggleExtendedDisplay() {
+        if isExtendedDisplayOn {
+            screenPinnedWindowId = nil
+            Forensic.log("[e2e] extended display off → follow")
+            broadcaster?.send(IBScreenControl(command: .follow))
+            return
+        }
+        if !features.screenOn {
+            // Open the mirror viewer (sends screenControl.start); the
+            // `.extend` right after switches it to the virtual display.
+            features.set(feature: .screen, enabled: true)
+        }
+        extendToVirtualDisplay()
+    }
+
     func toggleScreenMirror() {
         if features.screenOn {
             stopScreenMirror()
