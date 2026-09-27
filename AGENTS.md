@@ -2028,6 +2028,32 @@ is tracked in the Roadmap section — don't duplicate it here.
     atomic rename/swap + Gatekeeper scan because `Autoupdate` shares no signing
     identity with the app, so the Task-6 nested re-sign must be confirmed on a
     notarized build; (3) a full `scripts/e2e-device.sh` pass on the merged tree.
+    **(2) is now BLOCKED by a real release bug — see lesson 75.**
+
+75. **The Developer-ID release does not launch on macOS 26 — the System
+    Extension Install entitlement is profile-backed (2026-09-27).** While
+    trying to verify the notarized update path, the `release-mac.sh` output
+    (including the notarized DMG) was SIGKILLed on launch: crash
+    `SIGKILL (Code Signature Invalid) / Taskgated Invalid Signature`, and
+    `log show --predicate 'process == "amfid"'` gave the real reason —
+    `Requirements for restricted entitlements failed to validate` /
+    `AppleMobileFileIntegrityError Code=-413 "No matching profile found"` /
+    `Broken signature with Team ID fatal`. Narrowing by re-signing a copy:
+    empty entitlements → **launches**; `com.apple.security.application-groups`
+    only → **launches**; `com.apple.developer.system-extension.install` only →
+    **killed**. So the sysex entitlement **is** profile-backed, and
+    `release-mac.sh` deleting `Contents/embedded.provisionprofile` (lesson 29,
+    "no Developer ID profile needed") breaks launch. Dev / Apple-Development
+    builds work only because automatic signing embeds a profile. **Lesson 29's
+    "verified" was `spctl` acceptance, not an actual launch** — an app can be
+    `spctl`-accepted and still be killed by amfid. **Fix (NOT done yet):** ship
+    a **Developer ID provisioning profile** that includes the System Extension
+    Install entitlement, embed it (`Contents/embedded.provisionprofile`), and
+    stop deleting it; then re-notarize. Until then the Developer-ID release
+    won't launch on macOS 26 (the live 1.0 DMG is suspect). **Debug method:**
+    launch it and read `log show --predicate 'process == "amfid"' --info` —
+    taskgated's crash report only says "Invalid Signature" and tells you
+    nothing.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -2134,7 +2160,7 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (**Mac auto-update via Sparkle 2** — Developer-ID silent, idle-gated auto-update shipped to `main`: `UpdaterController` (`willInstallUpdateOnQuit` returns `true` to stash the UI-less install block) + pure `UpdateInstallGate` (30 s dwell, no owned session, not recording), menu-bar "Check for Updates…"/"Restart to Update" + Preferences toggle, Info.plist feed/EdDSA keys, `release-mac.sh` re-signs Sparkle's nested binaries before notarization + `make-appcast.sh` (EdDSA appcast). **Verified E2E on a real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests + both apps build). **Open:** idle gate vs a real iPhone session, and the notarized-release atomic-swap/Gatekeeper path (dev runs skip it). Lesson 74. Rulings: never force Sparkle prefs on launch (use Info.plist), xcodegen `exactVersion:` pin, `embed: false` for the Sparkle XCFramework, back the EdDSA private key up out of band.)_
+_Last updated: 2026-09-27 (**Mac auto-update via Sparkle 2** — Developer-ID silent, idle-gated auto-update shipped to `main`: `UpdaterController` (`willInstallUpdateOnQuit` returns `true` to stash the UI-less install block) + pure `UpdateInstallGate` (30 s dwell, no owned session, not recording), menu-bar "Check for Updates…"/"Restart to Update" + Preferences toggle, Info.plist feed/EdDSA keys, `release-mac.sh` re-signs Sparkle's nested binaries before notarization + `make-appcast.sh` (EdDSA appcast). **Verified E2E on a real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests + both apps build). **Open:** idle gate vs a real iPhone session; the notarized-release path is **BLOCKED** — the Developer-ID app won't launch on macOS 26 (the sysex entitlement is profile-backed; lesson 75). Lesson 74. Rulings: never force Sparkle prefs on launch (use Info.plist), xcodegen `exactVersion:` pin, `embed: false` for the Sparkle XCFramework, back the EdDSA private key up out of band.)_
 
 _Previous: 2026-09-27 (later session — **mirror follow + desktop semantics + picker UX**. Three device bugs, each root-caused first: (a) switching to **Finder** froze the mirror because `resolveKeepingPrevious` kept the old window when the frontmost app had none — Finder-on-the-desktop has none; the user's narrowing ("只有切 Finder 不行") *was* the root cause, and `desktopIsShowing` (→ whole-display capture) fixes it (lesson 73); (b) `showDesktop` skipped the active app (`!$0.isActive`) and raised a Finder window — now it hides **every** regular app (Win+D semantics); (c) the mirror's window picker was an unreadable "app name + count + chevron" — now a 40 pt mode icon (auto/pinned) + a menu that states the mode, with a coach-mark line and zh-Hans. Also this session: **hold-to-talk is stable across many uses** — the 300 ms delayed teardown was *skipped* when a press came within the delay, leaking the recognizer + mic tap until `start()` failed; the fix is serialization (`await teardownTask`, lesson 72). Tests 206 + both apps.)_
 
