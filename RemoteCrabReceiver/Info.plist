@@ -45,5 +45,9 @@
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>SUFeedURL</key>
+	<string>https://vgoapp.com/downloads/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI=</string>
 </dict>
 </plist>
