@@ -54,9 +54,14 @@ final class VirtualDisplay {
         let allocated = displayClass
             .perform(NSSelectorFromString("alloc"))!
             .takeUnretainedValue() as AnyObject
+        // `takeRetainedValue` (not `takeUnretainedValue`): `alloc` returns
+        // +1, and ARC must own that reference so releasing `display` really
+        // deallocates the object — with `takeUnretainedValue` the +1 leaked,
+        // the virtual display was never removed, and a later `init` failed
+        // ("CGVirtualDisplay init failed") because the orphan still existed.
         guard let created = allocated
             .perform(NSSelectorFromString("initWithDescriptor:"), with: descriptor)?
-            .takeUnretainedValue() as AnyObject? else {
+            .takeRetainedValue() as AnyObject? else {
             Self.log.error("CGVirtualDisplay init failed")
             return nil
         }
