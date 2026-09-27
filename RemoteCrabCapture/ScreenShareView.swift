@@ -69,6 +69,9 @@ struct ScreenShareView: View {
     /// buttons — the landscape "pan hides under the top bar" fix.
     var contentTopChrome: CGFloat = 0
     var contentBottomChrome: CGFloat = 0
+    /// Immersive mode (landscape): the surface's own chrome (handle + window
+    /// chip + shortcut bar) is hidden too, so the stream owns the screen.
+    var chromeCollapsed: Bool = false
 
     @State private var zoomState = ScreenZoomState(windowWidth: 1, windowHeight: 1, viewSize: .zero)
     /// Sticky / held modifiers, translated to the `IBScreenInput` bitmask.
@@ -158,7 +161,11 @@ struct ScreenShareView: View {
 
     @ViewBuilder
     private func controls(in size: CGSize) -> some View {
-        ZStack {
+        if chromeCollapsed {
+            // Immersive landscape: nothing floats over the stream.
+            EmptyView()
+        } else {
+            ZStack {
             // Secondary chrome (window chip + fit/fill + zoom) is COLLAPSED
             // by default so the mirrored window gets the whole screen; a
             // small handle centred under the top bar reveals it.
@@ -192,6 +199,7 @@ struct ScreenShareView: View {
             if !guideShown {
                 coachMark
             }
+        }
         }
     }
 

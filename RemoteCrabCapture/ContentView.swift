@@ -29,6 +29,9 @@ struct ContentView: View {
     /// A start() attempt failed during this press — blocks retrying on every
     /// `onChanged` (the start/fail loop that flashed the button).
     @State private var voiceAttemptFailed = false
+    /// Landscape mirror: chrome collapsed by default (immersive), summoned
+    /// by the grip.
+    @State private var mirrorChromeHidden = true
 
     /// Brief "Sent" confirmation shown on the voice card after the
     /// finalized text has been dispatched to the Mac.
@@ -46,10 +49,20 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geo in
+            // Landscape mirror = immersive: the chrome (top bar + bottom rows)
+            // collapses so the mirrored desktop gets the whole screen, with a
+            // small grip to summon it back. Landscape is short (~390 pt), so
+            // the chrome used to eat nearly half of it.
+            let isLandscape = geo.size.width > geo.size.height
+            let mirrorActive = engine.features.activeSurface == .screen
+            let immersive = isLandscape && mirrorActive && mirrorChromeHidden
+
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                surface(topInset: geo.safeAreaInsets.top, bottomInset: geo.safeAreaInsets.bottom)
+                surface(topInset: geo.safeAreaInsets.top,
+                        bottomInset: geo.safeAreaInsets.bottom,
+                        chromeCollapsed: immersive)
 
                 // Privacy shield: only the app-switcher snapshot needs it —
                 // when the app is backgrounded while the mirror is up, the
@@ -58,18 +71,27 @@ struct ContentView: View {
                     privacyCoverView
                 }
 
-                VStack {
-                    topBar
-                    Spacer()
-                    // Hidden in keyboard mode: the system keyboard pushes
-                    // this row up into the KeyboardScreen shortcut bar, so
-                    // they overlapped. That surface has its own "back to
-                    // trackpad" button in its header.
-                    if engine.features.activeSurface != .keyboard {
-                        pttRow
+                if !immersive {
+                    VStack {
+                        topBar
+                        Spacer()
+                        // Hidden in keyboard mode: the system keyboard pushes
+                        // this row up into the KeyboardScreen shortcut bar, so
+                        // they overlapped. That surface has its own "back to
+                        // trackpad" button in its header.
+                        if engine.features.activeSurface != .keyboard {
+                            pttRow
+                        }
                     }
+                    .padding(IBSpace.l.pt)
                 }
-                .padding(IBSpace.l.pt)
+
+                // The grip that reveals/hides the chrome in a landscape
+                // mirror. Small and top-centred; it consumes its own tap so
+                // it never clicks the Mac.
+                if isLandscape && mirrorActive {
+                    mirrorChromeGrip(visible: !immersive)
+                }
 
                 statusBanner
 
@@ -430,7 +452,7 @@ struct ContentView: View {
     // MARK: - Surfaces
 
     @ViewBuilder
-    private func surface(topInset: CGFloat, bottomInset: CGFloat) -> some View {
+    private func surface(topInset: CGFloat, bottomInset: CGFloat, chromeCollapsed: Bool) -> some View {
         switch engine.features.activeSurface {
         case .cameraPreview:
             if demoMode {
@@ -480,7 +502,8 @@ struct ContentView: View {
                                translucent: keyboardReturnSurface == .screen)
             }
         case .screen:
-            screenSurface(topInset: topInset, bottomInset: bottomInset)
+            screenSurface(topInset: topInset, bottomInset: bottomInset,
+                          chromeCollapsed: chromeCollapsed)
         }
     }
 
@@ -489,7 +512,8 @@ struct ContentView: View {
     @ViewBuilder
     private func screenSurface(interactive: Bool = true,
                                topInset: CGFloat = 0,
-                               bottomInset: CGFloat = 0) -> some View {
+                               bottomInset: CGFloat = 0,
+                               chromeCollapsed: Bool = false) -> some View {
         if let info = engine.screenInfo, info.status == .ok {
             ScreenShareView(displayView: engine.screenDisplayView,
                             info: info,
@@ -509,9 +533,12 @@ struct ContentView: View {
                             topInset: topInset,
                             bottomInset: bottomInset,
                             // Keep the mirrored content clear of the floating
-                            // top bar and the shortcut bar + PTT row.
-                            contentTopChrome: 60,
-                            contentBottomChrome: 132)
+                            // top bar and the shortcut bar + PTT row — unless
+                            // the chrome is collapsed (immersive landscape),
+                            // where the content gets the whole screen.
+                            contentTopChrome: chromeCollapsed ? 0 : 60,
+                            contentBottomChrome: chromeCollapsed ? 0 : 132,
+                            chromeCollapsed: chromeCollapsed)
                 .ignoresSafeArea()
         } else if let info = engine.screenInfo, info.status == .permissionDenied {
             screenPlaceholder(icon: "lock.shield",
@@ -937,6 +964,27 @@ struct ContentView: View {
     /// Bottom row: keyboard entry (left) + wide hold-to-talk capsule.
     /// This replaces the FeatureDock — the trackpad is the default
     /// surface and needs no button; camera/mic live in the top bar.
+    /// A small grip that reveals/hides the chrome in a landscape mirror.
+    private func mirrorChromeGrip(visible: Bool) -> some View {
+        VStack {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                withAnimation(IBAnimation.snappy) { mirrorChromeHidden.toggle() }
+            } label: {
+                Image(systemName: visible ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 64, height: 26)
+                    .background { Capsule().fill(.ultraThinMaterial) }
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(IBPressButtonStyle(scale: 0.94))
+            .accessibilityLabel(visible ? IBLocale.Mirror.hideControls : IBLocale.Mirror.showControls)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, IBSpace.s.pt)
+    }
+
     private var pttRow: some View {
         HStack(spacing: 10) {
             Button {
