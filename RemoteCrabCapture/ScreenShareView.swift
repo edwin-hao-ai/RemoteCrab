@@ -64,6 +64,11 @@ struct ScreenShareView: View {
     /// and the bottom keyboard/PTT row.
     var topInset: CGFloat = 0
     var bottomInset: CGFloat = 0
+    /// Extra chrome heights (the app top bar / the shortcut bar + PTT row)
+    /// the content is inset by, so it can never sit under the floating
+    /// buttons — the landscape "pan hides under the top bar" fix.
+    var contentTopChrome: CGFloat = 0
+    var contentBottomChrome: CGFloat = 0
 
     @State private var zoomState = ScreenZoomState(windowWidth: 1, windowHeight: 1, viewSize: .zero)
     /// Sticky / held modifiers, translated to the `IBScreenInput` bitmask.
@@ -90,9 +95,15 @@ struct ScreenShareView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
+                // The content is positioned by the pure viewport model (which
+                // knows the chrome insets), not a full-screen layer scaled
+                // over the black — that is what let a pan slide under the
+                // top buttons in landscape.
                 ScreenDisplayView(view: displayView)
-                    .scaleEffect(zoomState.zoom)
-                    .offset(zoomState.pan)
+                    .frame(width: max(1, zoomState.displayedContentRect.width),
+                           height: max(1, zoomState.displayedContentRect.height))
+                    .position(x: zoomState.displayedContentRect.midX,
+                              y: zoomState.displayedContentRect.midY)
 
                 ScreenGestureOverlay(zoomState: $zoomState,
                                      onInput: onInput,
@@ -125,7 +136,9 @@ struct ScreenShareView: View {
             viewSize: size,
             zoom: reset ? 1 : zoomState.zoom,
             pan: reset ? .zero : zoomState.pan,
-            fillsView: fillsView
+            fillsView: fillsView,
+            topInset: Double(topInset + contentTopChrome),
+            bottomInset: Double(bottomInset + contentBottomChrome)
         )
         if reset { state.reset() }
         zoomState = state

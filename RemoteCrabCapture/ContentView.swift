@@ -503,7 +503,11 @@ struct ContentView: View {
                             onSelectWindow: { engine.selectScreenWindow(id: $0) },
                             onFollowFrontmost: { engine.followFrontmostScreenWindow() },
                             topInset: topInset,
-                            bottomInset: bottomInset)
+                            bottomInset: bottomInset,
+                            // Keep the mirrored content clear of the floating
+                            // top bar and the shortcut bar + PTT row.
+                            contentTopChrome: 60,
+                            contentBottomChrome: 132)
                 .ignoresSafeArea()
         } else if let info = engine.screenInfo, info.status == .permissionDenied {
             screenPlaceholder(icon: "lock.shield",

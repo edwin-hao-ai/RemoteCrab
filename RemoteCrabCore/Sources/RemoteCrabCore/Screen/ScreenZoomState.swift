@@ -26,23 +26,43 @@ public struct ScreenZoomState: Equatable, Sendable {
     /// false = fit the whole window (letterboxed); true = fill the view
     /// (crop the overflowing axis, pannable at zoom 1).
     public let fillsView: Bool
+    /// Chrome (top bar, shortcut bar, PTT row) that overlays the surface.
+    /// The content is laid out in the band between them, so a pan can never
+    /// hide the top of the window under the floating buttons.
+    public let topInset: Double
+    public let bottomInset: Double
 
     public init(windowWidth: Double, windowHeight: Double,
                 viewSize: CGSize, zoom: Double = 1, pan: CGSize = .zero,
-                fillsView: Bool = false) {
+                fillsView: Bool = false,
+                topInset: Double = 0, bottomInset: Double = 0) {
         self.windowSize = CGSize(width: max(1, windowWidth), height: max(1, windowHeight))
         self.viewSize = viewSize
         self.zoom = min(max(zoom, Self.minZoom), Self.maxZoom)
         self.fillsView = fillsView
+        self.topInset = max(0, topInset)
+        self.bottomInset = max(0, bottomInset)
         self.pan = pan
         self.pan = clampedPan(pan)
+    }
+
+    /// The view minus the chrome — where content may actually be laid out.
+    private var usableSize: CGSize {
+        CGSize(width: max(1, viewSize.width),
+               height: max(1, viewSize.height - topInset - bottomInset))
+    }
+
+    /// Y origin that centers a content of height `h` in the usable band.
+    private func centeredY(_ h: Double) -> Double {
+        topInset + (usableSize.height - h) / 2
     }
 
     /// Largest size with the window's aspect ratio that fits in the view
     /// (`fillsView` flips this to the smallest size that covers the view).
     public var fitSize: CGSize {
-        let sx = viewSize.width / windowSize.width
-        let sy = viewSize.height / windowSize.height
+        let u = usableSize
+        let sx = u.width / windowSize.width
+        let sy = u.height / windowSize.height
         let scale = fillsView ? max(sx, sy) : min(sx, sy)
         return CGSize(width: windowSize.width * scale,
                       height: windowSize.height * scale)
@@ -52,7 +72,7 @@ public struct ScreenZoomState: Equatable, Sendable {
     public var fittedContentRect: CGRect {
         let s = fitSize
         return CGRect(x: (viewSize.width - s.width) / 2,
-                      y: (viewSize.height - s.height) / 2,
+                      y: centeredY(s.height),
                       width: s.width, height: s.height)
     }
 
@@ -62,15 +82,15 @@ public struct ScreenZoomState: Equatable, Sendable {
         let w = f.width * zoom
         let h = f.height * zoom
         return CGRect(x: (viewSize.width - w) / 2 + pan.width,
-                      y: (viewSize.height - h) / 2 + pan.height,
+                      y: centeredY(h) + pan.height,
                       width: w, height: h)
     }
 
-    /// Maximum pan offset before the content edge reaches the view edge.
+    /// Maximum pan offset before the content edge reaches the usable edge.
     public var maxPan: CGSize {
         let f = fitSize
         return CGSize(width: max(0, (f.width * zoom - viewSize.width) / 2),
-                      height: max(0, (f.height * zoom - viewSize.height) / 2))
+                      height: max(0, (f.height * zoom - usableSize.height) / 2))
     }
 
     public var canPan: Bool { maxPan.width > 0.5 || maxPan.height > 0.5 }
@@ -111,7 +131,7 @@ public struct ScreenZoomState: Equatable, Sendable {
         let h = s.height * newZoom
         pan = clampedPan(CGSize(
             width: anchor.x - (viewSize.width - w) / 2 - u * w,
-            height: anchor.y - (viewSize.height - h) / 2 - v * h))
+            height: anchor.y - centeredY(h) - v * h))
     }
 
     /// Double-tap zoom: 1× → 2× at the tap, otherwise back to 1×.
@@ -132,14 +152,15 @@ public struct ScreenZoomState: Equatable, Sendable {
         var rebuilt = ScreenZoomState(windowWidth: windowSize.width,
                                       windowHeight: windowSize.height,
                                       viewSize: viewSize, zoom: zoom,
-                                      pan: pan, fillsView: fills)
+                                      pan: pan, fillsView: fills,
+                                      topInset: topInset, bottomInset: bottomInset)
         if let anchor {
             let s = rebuilt.fitSize
             let w = s.width * rebuilt.zoom
             let h = s.height * rebuilt.zoom
             rebuilt.pan = rebuilt.clampedPan(CGSize(
                 width: anchor.x - (viewSize.width - w) / 2 - u * w,
-                height: anchor.y - (viewSize.height - h) / 2 - v * h))
+                height: anchor.y - rebuilt.centeredY(h) - v * h))
         }
         self = rebuilt
     }

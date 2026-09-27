@@ -118,4 +118,46 @@ final class ScreenZoomStateTests: XCTestCase {
         s.toggleZoom(at: CGPoint(x: 200, y: 400))
         XCTAssertEqual(s.zoom, 1, accuracy: 0.001)
     }
+
+    // MARK: - Chrome insets (landscape "pan hides under the top bar")
+
+    /// 16:9 window in a landscape view with a 60pt top bar and 132pt bottom
+    /// chrome: the content must sit entirely between them.
+    private func makeInsetState() -> ScreenZoomState {
+        ScreenZoomState(windowWidth: 1600, windowHeight: 900,
+                        viewSize: CGSize(width: 844, height: 390),
+                        topInset: 60, bottomInset: 132)
+    }
+
+    func testContentIsLaidOutInsideTheChromeInsets() {
+        let s = makeInsetState()
+        let r = s.fittedContentRect
+        XCTAssertGreaterThanOrEqual(r.minY, 60 - 0.001, "content starts below the top bar")
+        XCTAssertLessThanOrEqual(r.maxY, 390 - 132 + 0.001, "content ends above the bottom chrome")
+    }
+
+    func testPanCanPullTheContentFullyBelowTheTopBar() {
+        var s = makeInsetState()
+        s.setZoom(2)
+        // Drag down as far as the model allows.
+        s.commitPan(CGSize(width: 0, height: 10_000))
+        XCTAssertEqual(s.displayedContentRect.minY, 60, accuracy: 0.01,
+                       "full downward pan parks the top edge at the inset, not off-screen")
+        // And up.
+        s.commitPan(CGSize(width: 0, height: -10_000))
+        XCTAssertEqual(s.displayedContentRect.maxY, 390 - 132, accuracy: 0.01)
+    }
+
+    func testTouchesOutsideTheContentAreIgnoredEvenWithInsets() {
+        let s = makeInsetState()
+        // Just below the top bar but above the window (letterbox): the
+        // window fits by width, so it is 844*900/1600 = 474 tall — taller
+        // than the band, so use a narrow window instead.
+        let tall = ScreenZoomState(windowWidth: 900, windowHeight: 1600,
+                                   viewSize: CGSize(width: 844, height: 390),
+                                   topInset: 60, bottomInset: 132)
+        // The 9:16 content fits by height in the band: 198 tall, centred.
+        XCTAssertNil(tall.contentUV(forViewPoint: CGPoint(x: 422, y: 30)),
+                     "a touch in the top chrome area is not on the window")
+    }
 }
