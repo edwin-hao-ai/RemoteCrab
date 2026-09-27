@@ -27,10 +27,25 @@ final class ContextProfilesTests: XCTestCase {
 
     func testAgentClientsMatchAI() {
         for id in ["com.anthropic.claudefordesktop", "com.openai.chat",
-                   "ai.opencode.desktop", "com.minimax.agent.cn",
-                   "com.workbuddy.workbuddy-ai"] {
+                   "com.minimax.agent.cn", "com.workbuddy.workbuddy-ai"] {
             XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "ai", id)
         }
+    }
+
+    func testOpenCodeMatchesOpenCode() {
+        XCTAssertEqual(ContextProfiles.profile(for: app("ai.opencode.desktop")).id, "opencode")
+    }
+
+    /// OpenCode's real shortcuts (read from its Electron keybind table):
+    /// New Session is ⇧⌘S (not ⌘N), session nav is ⌥↑/⌥↓.
+    func testOpenCodeSessionKeys() {
+        let keys = ContextProfiles.opencode.gridActions.compactMap { action -> (UInt16, UInt8)? in
+            if case .key(_, _, let kc, let mods) = action { return (kc, mods) }
+            return nil
+        }
+        XCTAssertTrue(keys.contains { $0 == (1, 1 | 8) })   // New Session ⇧⌘S
+        XCTAssertTrue(keys.contains { $0 == (126, 4) })     // Previous Session ⌥↑
+        XCTAssertTrue(keys.contains { $0 == (125, 4) })     // Next Session ⌥↓
     }
 
     func testCodeEditorsMatchEditor() {

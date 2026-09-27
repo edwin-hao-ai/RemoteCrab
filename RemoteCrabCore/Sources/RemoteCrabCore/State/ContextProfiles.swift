@@ -96,15 +96,37 @@ public enum ContextProfiles {
             .key(label: "Escape", symbol: "escape", keycode: 53),
         ])
 
-    /// GUI AI assistants (Claude/ChatGPT/WorkBuddy/OpenCode/MiniMax). The
-    /// terminal keys (⌃C/⌃L) mean nothing here, so this suite is
-    /// chat-shaped: send, new, search, copy/paste, stop.
+    /// OpenCode desktop (`ai.opencode.desktop`). Shortcuts read out of its
+    /// own Electron menu/keybind table (lesson 52 — Electron hides menus
+    /// from AX): `New Session` is ⇧⌘S (NOT ⌘N), `Previous/Next Session` are
+    /// ⌥↑/⌥↓, and its session search (⌘F) only focuses the Home search
+    /// field, so it is labelled "Search Sessions" rather than a generic
+    /// "Search". OpenCode therefore gets its own suite instead of the
+    /// shared `ai` one, whose guessed ⌘F did nothing inside a session.
+    public static let opencode = ContextProfile(
+        id: "opencode", title: IBLocale.Context.profileOpenCode,
+        bundleIDs: ["ai.opencode.desktop"],
+        actions: [
+            .voiceHero(label: "Talk to Agent", symbol: "waveform"),
+            .key(label: "New Session", symbol: "square.and.pencil", keycode: 1, modifiers: 1 | 8), // ⇧⌘S
+            .key(label: "Search Sessions", symbol: "magnifyingglass", keycode: 3, modifiers: 8),   // ⌘F
+            .key(label: "Previous Session", symbol: "arrow.up", keycode: 126, modifiers: 4),       // ⌥↑
+            .key(label: "Next Session", symbol: "arrow.down", keycode: 125, modifiers: 4),         // ⌥↓
+            .key(label: "Send", symbol: "paperplane.fill", keycode: 36),                           // ⏎
+            .key(label: "Stop", symbol: "stop.fill", keycode: 53),                                 // ⎋
+            .key(label: "Copy", symbol: "doc.on.doc", keycode: 8, modifiers: 8),                   // ⌘C
+            .key(label: "Paste", symbol: "doc.on.clipboard", keycode: 9, modifiers: 8),            // ⌘V
+        ])
+
+    /// GUI AI assistants (Claude/ChatGPT/WorkBuddy/MiniMax). The terminal
+    /// keys (⌃C/⌃L) mean nothing here, so this suite is chat-shaped: send,
+    /// new, search, copy/paste, stop. (OpenCode moved to its own `opencode`
+    /// suite — its real shortcuts differ and are menu/keybind-verified.)
     public static let ai = ContextProfile(
         id: "ai", title: IBLocale.Context.profileAI,
         bundleIDs: [
             "com.anthropic.claudefordesktop", "com.openai.chat",
-            "ai.opencode.desktop", "com.minimax.agent.cn",
-            "com.workbuddy.workbuddy-ai",
+            "com.minimax.agent.cn", "com.workbuddy.workbuddy-ai",
         ],
         actions: [
             .voiceHero(label: "Talk to Agent", symbol: "waveform"),
@@ -334,7 +356,7 @@ public enum ContextProfiles {
     /// Built-in suites, most specific first. A marketplace would append
     /// developer-supplied profiles here (or merge them ahead of these).
     public static let all: [ContextProfile] = [
-        presentation, agent, ai, finder, notes, browser, mail, messages, calendar,
+        presentation, agent, opencode, ai, finder, notes, browser, mail, messages, calendar,
         xcode, editor, text, media, chat, meeting, image, notebook, console,
     ]
 
