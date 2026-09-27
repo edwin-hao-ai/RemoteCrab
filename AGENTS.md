@@ -1959,6 +1959,54 @@ is tracked in the Roadmap section — don't duplicate it here.
     (`windowPicker` / `autoFollow` / `pinned` / `windowPickerHint`) + zh-Hans
     catalog entries.
 
+74. **Mac auto-update via Sparkle 2 (2026-09-27).** The Developer-ID Mac app
+    now self-updates silently: `RemoteCrabReceiver/UpdaterController.swift`
+    owns `SPUStandardUpdaterController` and, in
+    `SPUUpdaterDelegate.updater(_:willInstallUpdateOnQuit:immediateInstallationBlock:)`
+    **returns `true`** to stash the UI-less install block; the pure
+    `RemoteCrabCore/State/UpdateInstallGate.swift` decides when it's idle
+    enough (no owned session, not recording, ≥30 s dwell). `ReceiverSession`
+    is now a `static let shared` singleton with `isSessionActive`; the updater
+    is created lazily and started from `applicationDidFinishLaunching` (NOT
+    `App.init()` — same too-early trap as sysextd). UI: menu-bar "Check for
+    Updates…" + a pending-only "Restart to Update" row, and a Preferences
+    toggle. Release: `scripts/release-mac.sh` re-signs Sparkle's nested
+    binaries (XPCServices → Autoupdate → Updater.app → framework) with
+    Developer ID **before notarization**, builds `RemoteCrab-<v>.zip`, and
+    `scripts/make-appcast.sh` runs `generate_appcast` (EdDSA) →
+    `dist/appcast/appcast.xml` (upload to `vgoapp.com/downloads/`).
+    **Gotchas that bit:**
+    (a) **Never set `automaticallyChecksForUpdates`/`automaticallyDownloadsUpdates`
+    imperatively on launch** — Sparkle persists them in UserDefaults and its
+    header warns "Do not always set it on launch unless you want to ignore
+    the user's preference"; a Preferences toggle would be silently reverted.
+    Put the defaults in Info.plist (`SUEnableAutomaticChecks` +
+    `SUAutomaticallyUpdate`) and keep only the get/set property for the UI.
+    (b) **xcodegen's package `embed: true` is broken for Sparkle's binary
+    XCFramework** (it copies from `$(BUILT_PRODUCTS_DIR)/Sparkle`, no
+    `.framework` → "The file Sparkle couldn't be opened"); use `embed: false`
+    and let Xcode auto-embed, then verify `Contents/Frameworks/Sparkle.framework`.
+    (c) Pin the version with xcodegen `exactVersion:` (NOT `exact:` — 2.46
+    rejects it) or a clean checkout resolves a newer 2.x than the tested one.
+    (d) `generate_appcast` needs a **one-time keychain "Always Allow"** for the
+    EdDSA private key (a SecurityAgent prompt), and the private key lives only
+    in the login keychain (`generate_keys`, public key → `SUPublicEDKey`).
+    (e) The appcast's `sparkle:version` is `CFBundleVersion`, so it must
+    increase every release; the camera-extension / mic-driver versions stay
+    **frozen** (v1 auto-updates the app bundle only — replacing the sysex
+    resets its approval, lesson 5).
+    (f) A **dev-signed** build logs "Skipping atomic rename/swap … because
+    Autoupdate is not signed with same identity" — exactly what (the release
+    script's) nested re-sign fixes; don't chase it locally.
+    (g) The feed URL can be overridden for testing with
+    `REMOTECRAB_UPDATE_FEED` (used by a local `http://127.0.0.1` appcast E2E);
+    running the app from `/tmp` also exposes the sysex "app moved" repair
+    (`/tmp` vs `/private/tmp`) — the deactivation fails harmlessly off
+    `/Applications`, but the recorded-path default should be restored after.
+    Verified E2E (dev-signed, local feeed): fetch → EdDSA validate →
+    silent download → idle install → relaunch, bundle `1 → 2`. 215 tests +
+    both apps build.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
