@@ -19,6 +19,9 @@ settings:
 packages:
   RemoteCrabCore:
     path: RemoteCrabCore
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 
 targets:
   RemoteCrabReceiver:
@@ -49,6 +52,15 @@ targets:
       - target: RemoteCrabMicrophone
         embed: false
         codeSign: true
+      # Sparkle's SPM product is a binary XCFramework. Xcode embeds binary
+      # package frameworks into Contents/Frameworks automatically (we
+      # verified Debug + Release), so `embed: false` here. Do NOT flip this
+      # to true: xcodegen then emits an Embed Frameworks copy from
+      # $(BUILT_PRODUCTS_DIR)/Sparkle (no .framework), and the build fails
+      # with "The file Sparkle couldn't be opened".
+      - package: Sparkle
+        product: Sparkle
+        embed: false
     info:
       path: RemoteCrabReceiver/Info.plist
       properties:
@@ -78,6 +90,7 @@ targets:
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
 
   # Camera Extension target — exposes RemoteCrab as a virtual webcam
   # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM
