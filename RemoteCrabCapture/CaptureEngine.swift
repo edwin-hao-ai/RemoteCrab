@@ -861,9 +861,18 @@ final class CaptureEngine: ObservableObject {
         // threshold.
         lastVideoFrameAt = Date()
         hasProducedVideoFrame = false
-        let config = videoDims(resolution: currentResolution, portrait: encoderIsPortrait)
+        var config = videoDims(resolution: currentResolution, portrait: encoderIsPortrait)
+        // Setting an unsupported preset raises an *Objective-C* exception
+        // (uncatchable in Swift → crash), so fall back to 1080p if the
+        // device can't do what was asked (e.g. 4K on some hardware).
+        if !captureSession.canSetSessionPreset(config.preset) {
+            Self.log.error("camera preset \(config.preset.rawValue, privacy: .public) unsupported; falling back to 1080p")
+            config = videoDims(resolution: "1080p", portrait: encoderIsPortrait)
+        }
         captureSession.beginConfiguration()
-        captureSession.sessionPreset = config.preset
+        if captureSession.canSetSessionPreset(config.preset) {
+            captureSession.sessionPreset = config.preset
+        }
         captureSession.commitConfiguration()
 
         let newEncoder = H264Encoder(width: Int32(config.width), height: Int32(config.height),
@@ -1041,7 +1050,15 @@ final class CaptureEngine: ObservableObject {
         delegateQueue: DispatchQueue
     ) throws -> (AVCaptureDeviceInput, AVCaptureVideoDataOutput) {
         captureSession.beginConfiguration()
-        captureSession.sessionPreset = preset
+        // Never set a preset the session can't take — that raises an
+        // uncatchable NSException. Anything the device lacks stays at the
+        // session default.
+        if captureSession.canSetSessionPreset(preset) {
+            captureSession.sessionPreset = preset
+        } else {
+            Logger(subsystem: "com.remotecrab", category: "capture")
+                .error("initial camera preset \(preset.rawValue, privacy: .public) unsupported; using \(captureSession.sessionPreset.rawValue, privacy: .public)")
+        }
 
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
             throw NSError(domain: "RemoteCrab", code: -1, userInfo: [NSLocalizedDescriptionKey: "No camera"])
