@@ -430,6 +430,13 @@ struct MenuBarMenu: View {
                       help: LocalizedStringKey(IBLocale.Update.restartToUpdate),
                       action: { updater.installNow() })
                 .opacity(updater.pendingUpdate ? 1 : 0)
+                // `.opacity(0)` keeps the layout height (so a downloaded
+                // update can't resize the popover) but NOT hit-testing or
+                // the a11y tree — without these, VoiceOver announces a
+                // phantom button that no-ops, and there's an unexplained
+                // clickable gap.
+                .allowsHitTesting(updater.pendingUpdate)
+                .accessibilityHidden(!updater.pendingUpdate)
             ActionRow(icon: "arrow.down.circle",
                       title: LocalizedStringKey(IBLocale.Update.checkForUpdates),
                       shortcut: "",

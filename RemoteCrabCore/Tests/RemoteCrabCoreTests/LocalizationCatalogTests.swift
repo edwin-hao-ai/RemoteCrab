@@ -31,11 +31,17 @@ final class LocalizationCatalogTests: XCTestCase {
     }
 
     func testUpdateKeysAreBilingual() throws {
+        // Use the literal English source strings as catalog keys, NOT the
+        // `IBLocale.Update.*` resolved values: `IBL()` resolves against the
+        // current locale, so on a non-English locale (or a toolchain that
+        // compiles the catalog into `.lproj/*.strings`) those values would
+        // be translated and the lookup would miss. The catalog key IS the
+        // English source string.
         let keys = [
-            IBLocale.Update.checkForUpdates,
-            IBLocale.Update.restartToUpdate,
-            IBLocale.Update.autoUpdate,
-            IBLocale.Update.autoUpdateDescription,
+            "Check for Updates…",
+            "Restart to Update",
+            "Automatically check for updates",
+            "Download and install new versions in the background.",
         ]
         let strings = try catalog()
         for key in keys {
