@@ -9,6 +9,13 @@
 # Usage:
 #   scripts/capture-feature-shots.sh <sim-udid> <derived-data-path> <out-dir>
 #   scripts/capture-feature-shots.sh <sim> <dd> <out> --only camera,voice
+#   LANG_OVERRIDE=en-US scripts/capture-feature-shots.sh <sim> <dd> <out>
+#
+# The site's feature pages ship BOTH locales, so this must run once per
+# locale: the product UI is localised, and an English page showing a Chinese
+# screenshot (or an English promo cut showing one) reads as a different app.
+# Pass an explicit suffix as the 4th arg to keep the sets apart:
+#   scripts/capture-feature-shots.sh <sim> <dd> <out> -en
 #
 # Per-slug notes (each is the deepest state we can reach without a human tap):
 #   trackpad        the surface itself, cursor dot live
@@ -47,20 +54,47 @@ xcrun simctl install "$SIM" "$APP_SIM" >/dev/null
 for p in microphone photos; do
   xcrun simctl privacy "$SIM" grant "$p" "$BUNDLE_IOS" 2>/dev/null || true
 done
-# Local network is NOT a grantable `simctl privacy` service (it errors), and
-# without it the very first frame is the system "find devices on your local
-# network?" alert — which _shot_ok.py now rejects, so the run would fail for
-# the wrong reason. Seed TCC.db directly instead.
+# Seed TCC.db directly for the two services `simctl privacy` cannot be trusted
+# with:
+#   • kTCCServiceLocalNetwork is not a grantable service at all (it errors), and
+#     without it the first frame is the system "find devices on your local
+#     network?" alert;
+#   • kTCCServiceCamera is dropped on every simulator reboot (lesson 27), so
+#     `simctl privacy grant camera` silently does nothing and the camera
+#     prompt covers the surface.
+# _shot_ok.py rejects both alerts, so without this the run fails for a reason
+# that has nothing to do with the surface being captured.
 TCC_DB="$HOME/Library/Developer/CoreSimulator/Devices/$SIM/data/Library/TCC/TCC.db"
 if [[ -f "$TCC_DB" ]]; then
   xcrun simctl terminate "$SIM" "$BUNDLE_IOS" 2>/dev/null || true
-  sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access
-    (service,client,client_type,auth_value,auth_reason,auth_version,policy_id,flags,last_modified)
-    VALUES ('kTCCServiceLocalNetwork','$BUNDLE_IOS',0,2,3,1,0,0,strftime('%s','now'));"
-  echo "  seeded local-network TCC grant"
+  for svc in kTCCServiceLocalNetwork kTCCServiceCamera kTCCServiceMicrophone kTCCServicePhotos kTCCServiceSpeechRecognition; do
+    sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access
+      (service,client,client_type,auth_value,auth_reason,auth_version,policy_id,flags,last_modified)
+      VALUES ('$svc','$BUNDLE_IOS',0,2,3,1,0,0,strftime('%s','now'));"
+  done
+  echo "  seeded TCC grants (local network, camera, mic, photos, speech)"
+  # The seed is INERT until tccd re-reads the file: tccd caches every
+  # decision in memory, and there is no `killall` inside the simulator to
+  # bounce it. Boot-cycling the device is the only reliable reload, so do it
+  # here rather than after the fact — otherwise every capture is a system
+  # alert and _shot_ok.py rejects all of them.
+  xcrun simctl shutdown "$SIM" 2>/dev/null || true
+  sleep 4
+  xcrun simctl boot "$SIM" 2>/dev/null || true
+  for _ in $(seq 1 40); do
+    if xcrun simctl list devices 2>/dev/null | grep -q "($SIM) (Booted)"; then break; fi
+    sleep 3
+  done
+  sleep 6
 fi
-xcrun simctl spawn "$SIM" defaults write "Apple Global Domain" AppleLanguages -array zh-Hans
-xcrun simctl spawn "$SIM" defaults write "Apple Global Domain" AppleLocale -string zh_CN
+# SUFFIX is appended to every filename so the zh-Hans and en-US sets coexist.
+SUFFIX="${4:-}"
+case "$SUFFIX" in
+  -en) APP_LANG="en-US"; APP_LOCALE="en_US" ;;
+  *)   APP_LANG="zh-Hans"; APP_LOCALE="zh_CN" ;;
+esac
+xcrun simctl spawn "$SIM" defaults write "Apple Global Domain" AppleLanguages -array "$APP_LANG"
+xcrun simctl spawn "$SIM" defaults write "Apple Global Domain" AppleLocale -string "$APP_LOCALE"
 
 # Never let a coach-mark sheet cover the surface we are trying to photograph.
 xcrun simctl spawn "$SIM" defaults write "$BUNDLE_IOS" remotecrab.ios.trackpadGuideShown -bool true
@@ -98,14 +132,14 @@ for entry in "${CASES[@]}"; do
   env "${prefix[@]}" xcrun simctl launch "$SIM" "$BUNDLE_IOS" >/dev/null 2>&1
 
   sleep "$settle"
-  xcrun simctl io "$SIM" screenshot "$OUT/$slug.png" >/dev/null 2>&1
-  if python3 "$ROOT/scripts/_shot_ok.py" "$OUT/$slug.png" >/dev/null 2>&1; then
+  xcrun simctl io "$SIM" screenshot "$OUT/$slug$SUFFIX.png" >/dev/null 2>&1
+  if python3 "$ROOT/scripts/_shot_ok.py" "$OUT/$slug$SUFFIX.png" >/dev/null 2>&1; then
     echo "   ok  $OUT/$slug.png"
   else
     # One retry with a longer settle: several of these wait on a handshake or a
     # sheet animation, and a short first attempt reads as a blank frame.
     sleep 6
-    xcrun simctl io "$SIM" screenshot "$OUT/$slug.png" >/dev/null 2>&1
+    xcrun simctl io "$SIM" screenshot "$OUT/$slug$SUFFIX.png" >/dev/null 2>&1
     echo "   retried $slug"
   fi
   xcrun simctl terminate "$SIM" "$BUNDLE_IOS" 2>/dev/null || true
