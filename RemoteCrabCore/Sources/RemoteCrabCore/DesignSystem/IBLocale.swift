@@ -71,6 +71,11 @@ public enum IBLocale {
         public static let remove = IBL("Remove")
         public static let denylistEmpty = IBL("No excluded apps")
         public static let denylistFooter = IBL("Notifications from these apps are never forwarded. Matching is case-insensitive on the app's display name.")
+
+        // iOS inbox (relayed notifications list).
+        public static let clear = IBL("Clear all")
+        public static let empty = IBL("No notifications yet")
+        public static let emptyHint = IBL("Notifications from your computer appear here.")
     }
 
     public enum App {

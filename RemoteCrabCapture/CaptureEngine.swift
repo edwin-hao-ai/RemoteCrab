@@ -94,6 +94,12 @@ final class CaptureEngine: ObservableObject {
     /// Latest transfer ack from the Mac.
     @Published private(set) var lastFileAck: IBFileAck?
 
+    /// In-app inbox for notifications relayed from the Mac. `@Observable`,
+    /// so SwiftUI tracks it directly even though this engine is an
+    /// `ObservableObject`.
+    let notificationStore = NotificationStore()
+    private let localNotifier = LocalNotifier()
+
     let captureSession = AVCaptureSession()
 
     enum ConnectionState: Equatable {
@@ -540,6 +546,14 @@ final class CaptureEngine: ObservableObject {
         let text = UIPasteboard.general.string ?? ""
         guard !text.isEmpty else { return }
         broadcaster?.send(IBClipboard(text: text))
+    }
+
+    // MARK: - Relayed Mac notifications
+
+    /// Ask once for permission to surface relayed Mac notifications as
+    /// system banners. Idempotent — safe to call on every appearance.
+    func requestNotificationAuthorization() async {
+        _ = await localNotifier.requestAuthorization()
     }
 
     // MARK: - App screen mirror
@@ -2011,6 +2025,13 @@ final class CaptureEngine: ObservableObject {
             case .clipboardSet:
                 if let clip = try? IBWire.decodeClipboard(frame) {
                     UIPasteboard.general.string = clip.text
+                }
+            case .notification:
+                // Mac → iPhone relayed notification banner: always add it to
+                // the in-app inbox; add a system banner too when allowed.
+                if let n = try? IBWire.decodeNotification(frame) {
+                    notificationStore.append(n)
+                    localNotifier.post(n)
                 }
             case .fileAck:
                 if let ack = try? IBWire.decodeFileAck(frame) {

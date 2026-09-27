@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showAppSwitcher = false
     @State private var showMacPicker = false
+    @State private var showNotifications = false
     @State private var showTrackpadGuide = false
     /// Where the keyboard surface was opened from, so its "back" button
     /// returns there. Opened from the mirror it overlays the mirror
@@ -162,6 +163,11 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showAppSwitcher) {
             AppSwitcherView()
+                .environmentObject(engine)
+                .presentationDetents([.large])
+        }
+        .sheet(isPresented: $showNotifications) {
+            NotificationListView()
                 .environmentObject(engine)
                 .presentationDetents([.large])
         }
@@ -348,6 +354,9 @@ struct ContentView: View {
         }
         .task {
             await engine.startIfNeeded()
+            // Ask once for permission to show relayed Mac notifications as
+            // system banners. The in-app inbox works without it.
+            await engine.requestNotificationAuthorization()
             // E2E test mode: REMOTECRAB_AUTOSTREAM=1 starts streaming
             // (Bonjour publish + listener) without a manual tap.
             // Only usable once Local Network permission is granted.
@@ -781,6 +790,12 @@ struct ContentView: View {
                 Button { engine.sendClipboard() } label: {
                     Label(IBLocale.Transfer.clipboardToMac, systemImage: "doc.on.clipboard")
                 }
+                Button { showNotifications = true } label: {
+                    Label(engine.notificationStore.unread > 0
+                              ? "\(IBLocale.Notify.section) (\(engine.notificationStore.unread))"
+                              : IBLocale.Notify.section,
+                          systemImage: "bell")
+                }
                 Divider()
                 Button {
                     engine.features.activeSurface = .trackpad
@@ -797,10 +812,17 @@ struct ContentView: View {
                 }
             } label: {
                 topBarIcon("ellipsis.circle")
+                    .overlay(alignment: .topTrailing) {
+                        if engine.notificationStore.unread > 0 {
+                            unreadBadge(engine.notificationStore.unread)
+                        }
+                    }
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .accessibilityLabel(IBLocale.App.more)
+            .accessibilityValue(engine.notificationStore.unread > 0
+                                    ? "\(engine.notificationStore.unread)" : "")
         }
     }
 
@@ -843,6 +865,19 @@ struct ContentView: View {
                     IBMaterial.bar(in: Circle())
                 }
             }
+    }
+
+    /// Unread count badge overlaid on the top-bar overflow button.
+    private func unreadBadge(_ count: Int) -> some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background { Capsule().fill(IBColor.error) }
+            .overlay { Capsule().strokeBorder(.black.opacity(0.4), lineWidth: 0.5) }
+            .offset(x: 3, y: -3)
+            .accessibilityHidden(true)
     }
 
     // MARK: - Connection status (icon + alert)
