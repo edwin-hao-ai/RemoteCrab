@@ -21,6 +21,7 @@ pub enum TrayCommand {
     ToggleRecord,
     SendClipboard,
     ShowLastFile,
+    TogglePreview,
     Reconnect,
     Disconnect,
     ToggleAutostart,
@@ -71,6 +72,7 @@ mod win32 {
         const RECORD: usize = 7;
         const CLIPBOARD: usize = 8;
         const SHOW_FILE: usize = 9;
+        const PREVIEW: usize = 14;
         const RECONNECT: usize = 10;
         const DISCONNECT: usize = 11;
         const AUTOSTART: usize = 13;
@@ -87,6 +89,8 @@ mod win32 {
         autostart: bool,
         /// A file was received this session — enables "Show last received".
         has_last_file: bool,
+        /// The preview window is open.
+        preview_on: bool,
     }
 
     struct Ctx {
@@ -130,6 +134,12 @@ mod win32 {
         pub fn set_has_last_file(&self, on: bool) {
             if let Ok(mut s) = self.shared.lock() {
                 s.has_last_file = on;
+            }
+        }
+
+        pub fn set_preview(&self, on: bool) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.preview_on = on;
             }
         }
 
@@ -314,11 +324,18 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording, autostart, has_last_file) = {
+        let (status, features, recording, autostart, has_last_file, preview_on) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
-            (s.status.clone(), s.features.clone(), s.recording, s.autostart, s.has_last_file)
+            (
+                s.status.clone(),
+                s.features.clone(),
+                s.recording,
+                s.autostart,
+                s.has_last_file,
+                s.preview_on,
+            )
         };
 
         let Some(menu) = CreatePopupMenu().ok() else {
@@ -358,6 +375,15 @@ mod win32 {
                     if has_last_file { MF_STRING } else { MF_STRING | MF_GRAYED },
                     Ids::SHOW_FILE,
                     crate::i18n::t("显示最后接收的文件", "Show Last Received File"));
+        append_separator(menu);
+        append_item(menu,
+                    MF_STRING,
+                    Ids::PREVIEW,
+                    if preview_on {
+                        crate::i18n::t("隐藏预览窗口", "Hide Preview Window")
+                    } else {
+                        crate::i18n::t("显示预览窗口", "Show Preview Window")
+                    });
         append_separator(menu);
         append_item(menu, MF_STRING, Ids::RECONNECT, crate::i18n::t("重新连接", "Reconnect"));
         append_item(menu, MF_STRING, Ids::DISCONNECT, crate::i18n::t("断开连接", "Disconnect"));
@@ -409,6 +435,7 @@ mod win32 {
             Ids::RECORD => Some(TrayCommand::ToggleRecord),
             Ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
             Ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
+            Ids::PREVIEW => Some(TrayCommand::TogglePreview),
             Ids::RECONNECT => Some(TrayCommand::Reconnect),
             Ids::DISCONNECT => Some(TrayCommand::Disconnect),
             Ids::AUTOSTART => Some(TrayCommand::ToggleAutostart),
@@ -472,6 +499,7 @@ impl TrayHandle {
     pub fn set_recording(&self, _on: bool) {}
     pub fn set_autostart(&self, _on: bool) {}
     pub fn set_has_last_file(&self, _on: bool) {}
+    pub fn set_preview(&self, _on: bool) {}
 }
 
 #[cfg(not(windows))]

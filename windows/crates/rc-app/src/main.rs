@@ -289,6 +289,69 @@ fn handle_console_command(
     }
 }
 
+/// Owns the toggleable preview window thread (tray → Show/Hide Preview).
+struct PreviewWindow {
+    slot: rc_render::window::FrameSlot,
+    status: std::sync::Arc<std::sync::Mutex<String>>,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    handle: Option<std::thread::JoinHandle<()>>,
+}
+
+impl PreviewWindow {
+    fn new(slot: rc_render::window::FrameSlot, status: std::sync::Arc<std::sync::Mutex<String>>) -> Self {
+        Self {
+            slot,
+            status,
+            shutdown: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            handle: None,
+        }
+    }
+
+    /// True while the window thread is alive. The user closing the window
+    /// (its own ✕ / Esc) ends the thread, which this notices.
+    fn is_open(&mut self) -> bool {
+        if let Some(handle) = self.handle.as_ref() {
+            if handle.is_finished() {
+                self.handle = None;
+            }
+        }
+        self.handle.is_some()
+    }
+
+    fn open(&mut self) {
+        if self.handle.is_some() {
+            return;
+        }
+        self.shutdown
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        let slot = self.slot.clone();
+        let status = self.status.clone();
+        let shutdown = self.shutdown.clone();
+        self.handle = Some(std::thread::spawn(move || {
+            rc_render::window::run_preview_window("RemoteCrab Preview", slot, shutdown, status);
+        }));
+    }
+
+    fn close(&mut self) {
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+
+    /// Returns the new state (true = now open).
+    fn toggle(&mut self) -> bool {
+        if self.is_open() {
+            self.close();
+            false
+        } else {
+            self.open();
+            true
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
@@ -355,18 +418,13 @@ async fn main() -> ExitCode {
         None
     };
     let frame_slot = rc_render::window::FrameSlot::new();
-    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let status_text = std::sync::Arc::new(std::sync::Mutex::new("Waiting for video…".to_string()));
-    let window_handle = if args.preview {
-        let slot = frame_slot.clone();
-        let shutdown = shutdown.clone();
-        let status = status_text.clone();
-        Some(std::thread::spawn(move || {
-            rc_render::window::run_preview_window("RemoteCrab Preview", slot, shutdown, status);
-        }))
-    } else {
-        None
-    };
+    // The preview window is toggleable at runtime (tray → Show/Hide Preview),
+    // so it owns its own thread + shutdown flag instead of one launched here.
+    let mut preview_window = PreviewWindow::new(frame_slot.clone(), status_text.clone());
+    if args.preview {
+        preview_window.open();
+    }
 
     // Audio: Opus decode + speaker playback. Muted by default (the Mac
     // receiver does the same — playing the iPhone mic on the speakers next
@@ -411,6 +469,7 @@ async fn main() -> ExitCode {
     let (tray, mut tray_rx) = tray::start("RemoteCrab");
     #[cfg(windows)]
     tray.set_autostart(rc_os::autostart::is_enabled());
+    tray.set_preview(preview_window.is_open());
     let mut tray_alive = true;
     println!("Type `help` for live iPhone feature commands.");
 
@@ -763,6 +822,11 @@ async fn main() -> ExitCode {
                         #[cfg(not(windows))]
                         println!("  show-last-file is Windows-only");
                     }
+                    Some(tray::TrayCommand::TogglePreview) => {
+                        let on = preview_window.toggle();
+                        tray.set_preview(on);
+                        println!("  preview window {}", if on { "shown" } else { "hidden" });
+                    }
                     Some(tray::TrayCommand::Reconnect) => session.retry_now(),
                     Some(tray::TrayCommand::Disconnect) => session.disconnect(),
                     Some(tray::TrayCommand::ToggleAutostart) => {
@@ -797,10 +861,7 @@ async fn main() -> ExitCode {
     if let Some(rec) = recording.take() {
         stop_recording(rec);
     }
-    shutdown.store(true, std::sync::atomic::Ordering::Relaxed);
-    if let Some(handle) = window_handle {
-        let _ = handle.join();
-    }
+    preview_window.close();
 
     ExitCode::SUCCESS
 }
