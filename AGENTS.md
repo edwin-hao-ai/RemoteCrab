@@ -2146,6 +2146,88 @@ boundaries, think about it before reaching for `@unchecked Sendable`.
   subsystem `com.remotecrab`.
 - **Don't** commit `.env` files, signing keys, or App Store Connect
   API keys. Use `~/.config/remotecrab/`.
+- **Don't add a feature just because it is easy to build.** Every feature
+  grows the binary and can cost performance and review surface. A feature no
+  shipping user needs belongs in `#if DEBUG` or in a `scripts/` tool, not in
+  the app. (2026-09-27: the ReplayKit recorder was built for our own demo
+  footage and moved to DEBUG-only; its ReplayKit-linked code and its
+  "records your screen" row in Settings are both gone from release builds.)
+
+---
+
+## Lessons 76-78 (2026-09-27: website screenshots + promo video)
+
+76. **A readiness check that only tests "is it dark" cannot see a system
+    alert.** `_shot_ok.py` accepted a frame if mean luminance < 100 and
+    stddev > 5. An iOS permission alert is a *light grey card floating on the
+    same near-black ground*, so it passes both tests. A whole batch of ten
+    captures came back "ok" while every one was the local-network prompt. The
+    fix measures the share of desaturated mid-grey and rejects > 6%: the bad
+    batch reads 0.227, real UI 0.0035. **Generalisable: an automated "is this
+    screenshot usable" check must test for the thing that actually makes it
+    unusable, and you must look at the output yourself once** — the check
+    passing was not evidence the images were good.
+
+77. **A simulator TCC row you wrote is inert until `tccd` re-reads it
+    (2026-09-27).** Three separate layers stack here:
+    - `simctl privacy` cannot grant `kTCCServiceLocalNetwork` at all (it
+      errors), so the seed must go straight into `TCC.db`.
+    - `kTCCServiceCamera` and `kTCCServiceSpeechRecognition` are **dropped on
+      every simulator reboot** (extends lesson 27), so `simctl privacy grant`
+      is a silent no-op and the prompt covers the surface being captured.
+    - Even with the rows present and `auth_value=2`, nothing happens:
+      `tccd` caches every decision in memory, the simulator has no
+      `killall` to bounce it, and `launchctl kickstart` wants
+      `user/com.apple.tccd` but errors on that target from `simctl spawn`.
+      **Only a boot-cycle makes `tccd` reload the file.** So
+      `scripts/capture-feature-shots.sh` seeds five services and then
+      shutdowns/boots the device before capturing. Without that step every
+      capture is an alert, and lesson 76's check rejects all of them.
+
+78. **The product UI is localised, so screenshots are per-locale — one set
+    cannot serve both pages or both video cuts (2026-09-27).** An English
+    landing page showing a Chinese screenshot reads as a different product,
+    and the same applies to an English-narrated promo with Chinese screens
+    inside it. `scripts/capture-feature-shots.sh <sim> <dd> <out> -en`
+    takes the locale as a 4th arg and suffixes every filename; the site's
+    feature pages pick `<slug>-en.jpg` on the English path and `<slug>.jpg`
+    on the Chinese one, falling back across locales before the typographic
+    panel. Corollary: the site had **no page at all** for the context-mode
+    registry (`ContextProfiles.swift` — 18 suites, 49 bundle IDs), which is
+    one of the stronger differentiators; it is now `/remotecrab/suites/`,
+    with the suite titles taken from the app's own `IBLocale` strings so the
+    site and the product say the same thing.
+
+## Off-repo tooling notes (2026-09-27)
+
+Two workflows that live outside this repo but are easy to lose:
+
+- **Promo video: `~/Videos/RemoteCrab/promote-75s/`** (HyperFrames, 0.8.78).
+  1920×1080, narration-only (no music bed: local generation has no music
+  provider, and a synthetic pad cheapened a piece whose register is a
+  utility that quietly works). TTS is the offline Kokoro voice
+  `am_michael` and **needs `kokoro-onnx` + `soundfile`** in a venv, pointed
+  at by `HYPERFRAMES_PYTHON`. Two traps that cost real time: the skill
+  directory is a **symlink** (`~/.config/opencode/skills` →
+  `~/.claude/skills`), so `resolve(argv)` and `import.meta.url` never match
+  and `captions.mjs` **silently does nothing** (exit 0, no output, no file) —
+  always invoke those scripts by their real path. And the stock caption
+  grouping splits on every clause-length pause, which this narration has by
+  design, so it produced 2-word flashes; `captions-tuned.mjs` (a project-local
+  copy, so the shared skill stays clean) raises `SILENCE_GAP` to 0.85 s and
+  the word cap to 6-8, giving 42 readable cues.
+- **YouTube via browser: the Kimi WebBridge daemon** on
+  `http://127.0.0.1:10086` drives the logged-in Studio session (no OAuth
+  credential needed, and none should be handled here). **The title and
+  description fields live in a shadow root** — `evaluate` cannot see them at
+  all (walking the whole light DOM finds zero `contenteditable`), `fill` with
+  a CSS selector reports "not a native input", and
+  `execCommand('insertText')` returns `false` because the field wants
+  trusted input. **The only working route is `fill` with an `@e` ref from
+  `snapshot`**, and those refs only appear once the upload has finished and
+  the dialog has settled — snapshotting earlier returns zero of them. Always
+  check the `fill` return value before doing the next step: that unchecked
+  failure is how a whole 1.4 KB description ended up inside a title field.
 
 ---
 
@@ -2167,7 +2249,13 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (**Mac auto-update via Sparkle 2** — Developer-ID silent, idle-gated auto-update shipped to `main`: `UpdaterController` (`willInstallUpdateOnQuit` returns `true` to stash the UI-less install block) + pure `UpdateInstallGate` (30 s dwell, no owned session, not recording), menu-bar "Check for Updates…"/"Restart to Update" + Preferences toggle, Info.plist feed/EdDSA keys, `release-mac.sh` re-signs Sparkle's nested binaries before notarization + `make-appcast.sh` (EdDSA appcast). **Verified E2E on a real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests + both apps build). **Open:** idle gate vs a real iPhone session; the notarized-release path is **BLOCKED** — the Developer-ID app won't launch on macOS 26 (the sysex entitlement is profile-backed; lesson 75). Lesson 74. Rulings: never force Sparkle prefs on launch (use Info.plist), xcodegen `exactVersion:` pin, `embed: false` for the Sparkle XCFramework, back the EdDSA private key up out of band.)_
+_Last updated: 2026-09-27 (**website screenshots + promo video** — ten per-feature
+landing pages under `/remotecrab/features/`, a new `/remotecrab/suites/` page for the
+18-suite / 49-app context-mode registry, and real captured screenshots in both locales.
+`scripts/capture-feature-shots.sh` drives the simulator through the E2E hooks; lessons
+76-78 are the three things that made the first runs produce nothing usable. A 75s and a
+57s promo cut were rendered with HyperFrames and published to YouTube (three videos, all
+public). Lessons 74-75 stand: the notarized Sparkle update path is still unverified.)
 
 _Previous: 2026-09-27 (later session — **mirror follow + desktop semantics + picker UX**. Three device bugs, each root-caused first: (a) switching to **Finder** froze the mirror because `resolveKeepingPrevious` kept the old window when the frontmost app had none — Finder-on-the-desktop has none; the user's narrowing ("只有切 Finder 不行") *was* the root cause, and `desktopIsShowing` (→ whole-display capture) fixes it (lesson 73); (b) `showDesktop` skipped the active app (`!$0.isActive`) and raised a Finder window — now it hides **every** regular app (Win+D semantics); (c) the mirror's window picker was an unreadable "app name + count + chevron" — now a 40 pt mode icon (auto/pinned) + a menu that states the mode, with a coach-mark line and zh-Hans. Also this session: **hold-to-talk is stable across many uses** — the 300 ms delayed teardown was *skipped* when a press came within the delay, leaking the recognizer + mic tap until `start()` failed; the fix is serialization (`await teardownTask`, lesson 72). Tests 206 + both apps.)_
 
