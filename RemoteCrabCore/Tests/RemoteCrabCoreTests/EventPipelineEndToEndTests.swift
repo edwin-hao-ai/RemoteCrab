@@ -133,6 +133,54 @@ final class EventPipelineEndToEndTests: XCTestCase {
         listener.cancel()
     }
 
+    // MARK: - Notification relay pipeline
+
+    func testNotificationSurvivesRoundTrip() throws {
+        let note = IBNotification(app: "OpenCode", title: "Task finished",
+                                  subtitle: "session 3", body: "All tests passed")
+
+        let received = expectation(description: "notification received")
+
+        let listener = try NWListener(using: NWParameters.tcp)
+        let notificationCollector = NotificationCollector { notifications in
+            if !notifications.isEmpty {
+                received.fulfill()
+            }
+        }
+        listener.newConnectionHandler = { connection in
+            connection.stateUpdateHandler = { _ in }
+            connection.start(queue: .global())
+            let localCollector = notificationCollector
+            Self.receive(into: IBWire.Parser(), on: connection) { frames in
+                localCollector.handler(frames)
+            }
+        }
+        listener.start(queue: .global())
+
+        let port = try waitForPort(listener)
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: port,
+            using: NWParameters.tcp
+        )
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { state in
+            if case .ready = state { connected.fulfill() }
+        }
+        connection.start(queue: .global())
+        wait(for: [connected], timeout: 3.0)
+
+        let sent = expectation(description: "sent")
+        connection.send(content: try IBWire.encode(notification: note),
+                        completion: .contentProcessed { _ in sent.fulfill() })
+        wait(for: [sent, received], timeout: 5.0)
+
+        XCTAssertEqual(notificationCollector.notifications.first, note)
+
+        connection.cancel()
+        listener.cancel()
+    }
+
     // MARK: - Mixed traffic
 
     func testMixedVideoAndEventsArriveInOrder() throws {
@@ -388,6 +436,36 @@ private final class AudioPacketCollector: @unchecked Sendable {
             self._packets.append(contentsOf: decoded)
             self.lock.unlock()
             self.onPackets(decoded)
+        }
+    }
+}
+
+private final class NotificationCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _notifications: [IBNotification] = []
+    var notifications: [IBNotification] {
+        lock.lock(); defer { lock.unlock() }
+        return _notifications
+    }
+
+    init(_ onNotifications: @escaping ([IBNotification]) -> Void) {
+        self.onNotifications = onNotifications
+    }
+    private let onNotifications: ([IBNotification]) -> Void
+
+    lazy var handler: ([IBWire.Frame]) -> Void = { [weak self] frames in
+        guard let self else { return }
+        var decoded: [IBNotification] = []
+        for frame in frames where frame.kind == .notification {
+            if let n = try? IBWire.decodeNotification(frame) {
+                decoded.append(n)
+            }
+        }
+        if !decoded.isEmpty {
+            self.lock.lock()
+            self._notifications.append(contentsOf: decoded)
+            self.lock.unlock()
+            self.onNotifications(decoded)
         }
     }
 }

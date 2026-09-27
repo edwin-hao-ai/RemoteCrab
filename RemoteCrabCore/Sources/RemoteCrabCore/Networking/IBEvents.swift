@@ -552,6 +552,27 @@ public struct IBClipboard: Codable, Sendable, Equatable {
     public init(text: String) { self.text = text }
 }
 
+// MARK: - Notification relay
+
+/// Mac → iPhone: one captured Mac notification banner (kind 0x22).
+///
+/// `app` is the source app's localized display name (the Accessibility
+/// API exposes no bundle id), so the Mac-side denylist matches on it.
+/// `subtitle` / `body` are empty when the banner has no such text.
+public struct IBNotification: Codable, Sendable, Equatable {
+    public let app: String        // source app display name (localized)
+    public let title: String
+    public let subtitle: String
+    public let body: String
+
+    public init(app: String, title: String, subtitle: String = "", body: String = "") {
+        self.app = app
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+    }
+}
+
 // MARK: - System command
 
 /// iPhone → Mac: a system-level action on the Mac (volume, brightness,

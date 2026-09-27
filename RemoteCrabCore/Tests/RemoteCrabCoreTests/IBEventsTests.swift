@@ -228,4 +228,18 @@ final class IBEventsTests: XCTestCase {
             XCTAssertEqual(decoded, event)
         }
     }
+
+    // MARK: - Notification relay (Mac → iPhone)
+
+    func testNotificationRoundTrip() throws {
+        let n = IBNotification(app: "OpenCode", title: "Task finished",
+                               subtitle: "session 3", body: "All tests passed")
+        let data = try IBWire.encode(notification: n)
+        let parser = IBWire.Parser()
+        let frames = parser.append(data)
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].kind, .notification)
+        let decoded = try IBWire.decodeNotification(frames[0])
+        XCTAssertEqual(decoded, n)
+    }
 }

@@ -52,6 +52,7 @@ public enum IBWire {
         case screenInfo    = 0x1F    // JSON IBScreenInfo (Mac → iPhone)
         case installedAppsRequest = 0x20  // JSON IBInstalledAppsRequest (iPhone → receiver)
         case installedApps  = 0x21    // JSON IBInstalledApps (receiver → iPhone)
+        case notification   = 0x22    // JSON IBNotification (Mac → iPhone)
     }
 
     // MARK: - Encoding
@@ -235,6 +236,11 @@ public enum IBWire {
     /// Encode the current mirror target + geometry (Mac → iPhone).
     public static func encode(screenInfo: IBScreenInfo) throws -> Data {
         encodeFrame(kind: .screenInfo, payload: try JSONEncoder().encode(screenInfo))
+    }
+
+    /// Encode a captured Mac notification (Mac → iPhone).
+    public static func encode(notification: IBNotification) throws -> Data {
+        encodeFrame(kind: .notification, payload: try JSONEncoder().encode(notification))
     }
 
     /// Low-level: prepend length + kind byte to a payload.
@@ -437,6 +443,11 @@ public enum IBWire {
     /// Decode a `.screenInfo` frame's payload.
     public static func decodeScreenInfo(_ frame: Frame) throws -> IBScreenInfo {
         try JSONDecoder().decode(IBScreenInfo.self, from: frame.payload)
+    }
+
+    /// Decode a `.notification` frame's payload.
+    public static func decodeNotification(_ frame: Frame) throws -> IBNotification {
+        try JSONDecoder().decode(IBNotification.self, from: frame.payload)
     }
 
     /// Decode a `.ping` frame's payload into the sender timestamp.

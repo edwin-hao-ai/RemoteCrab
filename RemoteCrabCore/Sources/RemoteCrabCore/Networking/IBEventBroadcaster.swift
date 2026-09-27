@@ -124,6 +124,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .screenInfo) { try IBWire.encode(screenInfo: info) }
     }
 
+    /// Mac → iPhone: one captured notification banner.
+    public func send(_ notification: IBNotification) {
+        send(kind: .notification) { try IBWire.encode(notification: notification) }
+    }
+
     private func send(kind: IBWire.Kind, _ encode: () throws -> Data) {
         guard connection.state == .ready else { return }
         do {
