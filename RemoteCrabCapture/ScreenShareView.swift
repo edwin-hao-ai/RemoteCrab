@@ -453,6 +453,11 @@ struct ScreenGestureOverlay: UIViewRepresentable {
         /// True while a long-press right-click owns the current touch, so
         /// the single-finger pan/tap don't also fire.
         private var rightClickActive = false
+        /// A two-finger swipe does ONE thing for its whole lifetime —
+        /// `.scroll` (fit zoom) or `.pan` (zoomed in / fill) — latched at
+        /// `.began` so a swipe never flips mid-way.
+        private enum TwoFingerMode { case scroll, pan }
+        private var twoFingerMode: TwoFingerMode?
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -597,20 +602,35 @@ struct ScreenGestureOverlay: UIViewRepresentable {
             switch g.state {
             case .began:
                 g.setTranslation(.zero, in: self)
+                // Latch the mode for the WHOLE gesture. Previously each
+                // delta was classified on its own, so a zoomed swipe panned
+                // until it hit the edge and then became a remote scroll —
+                // "滚动着就变成了移动屏幕". One swipe now does one thing.
+                let zoomedIn = coordinator.state.zoom > 1.05 || coordinator.state.fillsView
+                twoFingerMode = zoomedIn ? .pan : .scroll
             case .changed:
                 let t = g.translation(in: self)
                 g.setTranslation(.zero, in: self)
                 let delta = CGSize(width: t.x, height: t.y)
-                let result = coordinator.twoFinger(translation: delta)
-                coordinator.commitPan(result.pan)
-                if result.isScroll {
+                switch twoFingerMode ?? .scroll {
+                case .scroll:
+                    let w = max(1, bounds.width), h = max(1, bounds.height)
                     coordinator.send(.scroll,
                                      uv: coordinator.contentUV(for: point),
-                                     dx: Float(result.scrollDX),
-                                     dy: Float(result.scrollDY))
+                                     dx: Float(delta.width / w),
+                                     dy: Float(delta.height / h))
+                case .pan:
+                    let result = coordinator.twoFinger(translation: delta)
+                    coordinator.commitPan(result.pan)
+                    if result.isScroll {
+                        coordinator.send(.scroll,
+                                         uv: coordinator.contentUV(for: point),
+                                         dx: Float(result.scrollDX),
+                                         dy: Float(result.scrollDY))
+                    }
                 }
             default:
-                break
+                twoFingerMode = nil
             }
         }
 
