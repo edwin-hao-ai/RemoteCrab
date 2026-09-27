@@ -26,9 +26,6 @@ struct ContentView: View {
     @State private var screenshotError: String?
     @State private var voice = VoiceRecognizer()
     @State private var voiceHeld = false
-    /// A start() attempt failed during this press — blocks retrying on every
-    /// `onChanged` (the start/fail loop that flashed the button).
-    @State private var voiceAttemptFailed = false
     /// Landscape mirror: chrome collapsed by default (immersive), summoned
     /// by the grip.
     @State private var mirrorChromeHidden = true
@@ -1059,11 +1056,17 @@ struct ContentView: View {
                     radius: voiceHeld ? 14 : 0)
             .scaleEffect(voiceHeld ? 1.03 : 1.0)
             .animation(IBAnimation.snappy, value: voiceHeld)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in startVoice() }
-                    .onEnded { _ in stopVoice() }
-            )
+            // Hold-to-talk press handling: `onLongPressGesture(pressing:)`
+            // fires exactly once on press-down and once on release, and does
+            // NOT re-create the gesture when `voiceHeld` re-renders the view.
+            // A `DragGesture(minimumDistance: 0).onChanged` fired on every
+            // re-render, restarting the recognizer ~1×/s while the finger was
+            // held still — which dropped characters and broke the second use.
+            .onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity) {
+                // perform: nothing (the work happens in `pressing`).
+            } onPressingChanged: { pressing in
+                if pressing { startVoice() } else { stopVoice() }
+            }
             .accessibilityLabel(voiceHeld ? IBLocale.A11y.voiceReleaseToStop : IBLocale.A11y.voiceHoldToTalk)
             .accessibilityAction(named: IBLocale.A11y.voiceToggle) {
                 if voiceHeld { stopVoice() } else { startVoice() }
@@ -1073,11 +1076,7 @@ struct ContentView: View {
 
     // Hold-to-talk — moved verbatim from FeatureDock.
     private func startVoice() {
-        // One attempt per press: on failure this used to reset `voiceHeld`,
-        // so the still-held finger's every `onChanged` retried start() — a
-        // start/fail loop that flashed the button and wedged the recognizer
-        // after a couple of uses.
-        guard !voiceHeld, !voiceAttemptFailed else { return }
+        guard !voiceHeld else { return }
         voiceHeld = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         engine.beginVoiceSession()
@@ -1086,9 +1085,8 @@ struct ContentView: View {
             let started = await voice.start()
             if !started {
                 // No permission / recognizer unavailable — don't leave the
-                // button glowing, and don't retry until the finger lifts.
+                // button glowing a fake active state.
                 voiceHeld = false
-                voiceAttemptFailed = true
                 engine.features.set(feature: .voice, enabled: false)
             } else if !voiceHeld {
                 // Finger released before the async start() resolved
@@ -1100,7 +1098,6 @@ struct ContentView: View {
     }
 
     private func stopVoice() {
-        voiceAttemptFailed = false
         guard voiceHeld else { return }
         voiceHeld = false
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
