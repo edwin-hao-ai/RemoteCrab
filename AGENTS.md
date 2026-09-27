@@ -359,6 +359,7 @@ buffering. The parser refuses frames larger than 64 MiB
 | Camera Extension skeleton | `RemoteCrabCameraExtension/` | system extension (CMIO), wired via XPC; activation via OSSystemExtensionManager, requires /Applications + user toggle |
 | **System commands (V1.1)** | `SystemCommandHandler.swift` | Executes `systemCommand` (0x19): volume/brightness/media keys via system-defined CGEvents (step-based — no readback channel), `launchApp`/`openURL` via NSWorkspace |
 | **Settings (V1.1)** | `PreferencesView.swift`, `ReceiverSession.swift`, `BonjourBrowser.swift` | launchAtLogin wired to `SMAppService.mainApp` (was a dead toggle); autoReconnect gate now actually gates the reconnect loop (`remotecrab.autoReconnect`); AWDL peer-to-peer toggle `remotecrab.mac.peerToPeer` (default true) feeds `includePeerToPeer` on both the browser and outbound dials (`tcpParameters()`) |
+| **Auto-update (V1.6)** | `UpdaterController.swift`, `RemoteCrabCore/State/UpdateInstallGate.swift`, `scripts/make-appcast.sh` | Sparkle 2, silent + idle-gated (no owned session/recording, 30 s dwell); menu-bar "Check for Updates…"/pending-only "Restart to Update" + Preferences toggle; Info.plist `SUFeedURL`/`SUPublicEDKey` (+ `SUEnableAutomaticChecks`/`SUAutomaticallyUpdate`); `REMOTECRAB_UPDATE_FEED` overrides the feed for tests. See lesson 74 |
 
 ### Multi-Mac pairing (V0.4, 2026-09-12)
 
@@ -579,6 +580,7 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - ~~**V1.3** — trackpad scroll-feel pass (velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, "tap during a glide brakes instead of clicking"); Mac sandbox removed (Quit works) + defaults migration; window picker drops a quit app; connection resilience (dial-any-discovered, owner watchdog, ping timeout)~~ ✅ (2026-09-23)
 - **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry); ~~iOS 26 `SpeechAnalyzer` backend (opportunistic — use it when the model is already installed, never download; see lesson 63)~~ ✅ (2026-09-24, device-confirmed `engine=analyzer` on iPhone 14 / iOS 26); ~~hold-to-talk lifecycle hardened — serialized teardown so many consecutive holds all work (lesson 72) + never-shrink final~~ ✅ (2026-09-27, user-verified)
 - **V1.5** — Windows support: app-window **mirror** ✅, window list + JPEG thumbnails ✅, recording (`rc-record`) ✅, app icons ✅, tray + bilingual UI ✅, start-at-login ✅ (all 2026-09-26); **still open** — **virtual camera** (`MFCreateVirtualCamera` needs a registered COM `IMFMediaSource`; the `rc-vcam` spike exists, the real source does not) and **virtual microphone** (a sysvad-class **signed driver**, WDK-only — cannot be built from macOS). See `docs/WINDOWS_HANDOFF.md` §5a/§5b.
+- ~~**V1.6 (Mac auto-update)** — Sparkle 2 silent, idle-gated auto-update: `UpdaterController` (`willInstallUpdateOnQuit` → true, stash the UI-less block) + pure `UpdateInstallGate` (30 s dwell, no owned session, not recording), menu-bar "Check for Updates…"/"Restart to Update" + Preferences toggle, Info.plist `SUFeedURL`/`SUPublicEDKey`/`SUEnableAutomaticChecks`/`SUAutomaticallyUpdate`, `release-mac.sh` re-signs Sparkle's nested binaries before notarization + `make-appcast.sh` (EdDSA)~~ ✅ (2026-09-27, merged to `main`); **open verification** — idle gate vs a **real iPhone session**, and the **notarized release** atomic-swap/Gatekeeper path (dev runs skip it). Lesson 74.
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog (the possible "phone = attention-router for background agents" Aha — see the 2026-09-24 memory note)
 
 ---
@@ -2003,9 +2005,26 @@ is tracked in the Roadmap section — don't duplicate it here.
     running the app from `/tmp` also exposes the sysex "app moved" repair
     (`/tmp` vs `/private/tmp`) — the deactivation fails harmlessly off
     `/Applications`, but the recorded-path default should be restored after.
-    Verified E2E (dev-signed, local feeed): fetch → EdDSA validate →
-    silent download → idle install → relaunch, bundle `1 → 2`. 215 tests +
-    both apps build.
+    (h) Filter Sparkle's **non-failure** outcomes in the delegate:
+    `didFinishUpdateCycleFor:error:` still passes a non-nil error for "no
+    update found" (`SUNoUpdateError` 1001) and a cancelled install
+    (`SUInstallationCanceledError` 4007) — compare `(error as NSError).domain
+    == SUSparkleErrorDomain` and `SUError.*.rawValue`, or the log is noise.
+    (i) The EdDSA **private key lives only in the login keychain**
+    (`generate_keys`); lose it and no future update can be signed — back it
+    up out of band (`generate_keys -x` → e.g. `~/.config/remotecrab/`, 0600,
+    never in the repo). The public key is `6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI=`
+    (in `project-mac.yml` / `Info.plist`).
+    **Verification status — be honest:** the update flow is verified **on a
+    real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate
+    → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests +
+    both apps build). **NOT yet verified:** (1) the idle gate against a **real
+    active iPhone session** (must defer while a session owns the link, install
+    only after it ends — the local run had no session at all); (2) the
+    **notarized Developer-ID release** update path — the dev run *skipped* the
+    atomic rename/swap + Gatekeeper scan because `Autoupdate` shares no signing
+    identity with the app, so the Task-6 nested re-sign must be confirmed on a
+    notarized build; (3) a full `scripts/e2e-device.sh` pass on the merged tree.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
@@ -2112,7 +2131,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (later session — **mirror follow + desktop semantics + picker UX**. Three device bugs, each root-caused first: (a) switching to **Finder** froze the mirror because `resolveKeepingPrevious` kept the old window when the frontmost app had none — Finder-on-the-desktop has none; the user's narrowing ("只有切 Finder 不行") *was* the root cause, and `desktopIsShowing` (→ whole-display capture) fixes it (lesson 73); (b) `showDesktop` skipped the active app (`!$0.isActive`) and raised a Finder window — now it hides **every** regular app (Win+D semantics); (c) the mirror's window picker was an unreadable "app name + count + chevron" — now a 40 pt mode icon (auto/pinned) + a menu that states the mode, with a coach-mark line and zh-Hans. Also this session: **hold-to-talk is stable across many uses** — the 300 ms delayed teardown was *skipped* when a press came within the delay, leaking the recognizer + mic tap until `start()` failed; the fix is serialization (`await teardownTask`, lesson 72). Tests 206 + both apps.)_
+_Last updated: 2026-09-27 (**Mac auto-update via Sparkle 2** — Developer-ID silent, idle-gated auto-update shipped to `main`: `UpdaterController` (`willInstallUpdateOnQuit` returns `true` to stash the UI-less install block) + pure `UpdateInstallGate` (30 s dwell, no owned session, not recording), menu-bar "Check for Updates…"/"Restart to Update" + Preferences toggle, Info.plist feed/EdDSA keys, `release-mac.sh` re-signs Sparkle's nested binaries before notarization + `make-appcast.sh` (EdDSA appcast). **Verified E2E on a real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests + both apps build). **Open:** idle gate vs a real iPhone session, and the notarized-release atomic-swap/Gatekeeper path (dev runs skip it). Lesson 74. Rulings: never force Sparkle prefs on launch (use Info.plist), xcodegen `exactVersion:` pin, `embed: false` for the Sparkle XCFramework, back the EdDSA private key up out of band.)_
+
+_Previous: 2026-09-27 (later session — **mirror follow + desktop semantics + picker UX**. Three device bugs, each root-caused first: (a) switching to **Finder** froze the mirror because `resolveKeepingPrevious` kept the old window when the frontmost app had none — Finder-on-the-desktop has none; the user's narrowing ("只有切 Finder 不行") *was* the root cause, and `desktopIsShowing` (→ whole-display capture) fixes it (lesson 73); (b) `showDesktop` skipped the active app (`!$0.isActive`) and raised a Finder window — now it hides **every** regular app (Win+D semantics); (c) the mirror's window picker was an unreadable "app name + count + chevron" — now a 40 pt mode icon (auto/pinned) + a menu that states the mode, with a coach-mark line and zh-Hans. Also this session: **hold-to-talk is stable across many uses** — the 300 ms delayed teardown was *skipped* when a press came within the delay, leaking the recognizer + mic tap until `start()` failed; the fix is serialization (`await teardownTask`, lesson 72). Tests 206 + both apps.)_
 
 _Previous: 2026-09-27 (**immersive landscape mirror**: in a landscape mirror the chrome collapses by default (top bar, PTT row, the mirror's own handle/shortcut bar, and the content insets drop to zero) so the stream owns the screen, with a top-centre grip to summon it; **root-caused a run of device bugs** — the extended-display toggle "did nothing" because `perform(initWithDescriptor:)` took `takeUnretainedValue()` and leaked the `CGVirtualDisplay` (a second `init` then fails; see lesson 71); hold-to-talk "flashed / died on the second use" was a start/fail retry loop plus an un-generation-guarded delayed stop; two-finger scroll "turned into moving the screen" was the new viewport insets making the fitted content pannable, fixed by latching scroll-vs-pan per gesture; and an unsupported `sessionPreset` could raise an uncatchable exception (now guarded). **Windows parity audit** fixed pinch (was a bare wheel, now Ctrl+wheel), multi-click (clickCount was ignored), three/finger swipes (were a no-op; now Task View / virtual desktops), the audio 48 kHz preference, and added tray Show/Hide Preview + a real tray icon; the full receiver handoff + virtual camera/mic plan lives in `docs/WINDOWS_HANDOFF.md`. Device e2e 23/23; `RemoteCrabCore` 203 + both apps; `windows` 127 + host/windows-gnu clippy clean.)_
 
