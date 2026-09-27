@@ -2011,10 +2011,13 @@ is tracked in the Roadmap section — don't duplicate it here.
     (`SUInstallationCanceledError` 4007) — compare `(error as NSError).domain
     == SUSparkleErrorDomain` and `SUError.*.rawValue`, or the log is noise.
     (i) The EdDSA **private key lives only in the login keychain**
-    (`generate_keys`); lose it and no future update can be signed — back it
-    up out of band (`generate_keys -x` → e.g. `~/.config/remotecrab/`, 0600,
-    never in the repo). The public key is `6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI=`
-    (in `project-mac.yml` / `Info.plist`).
+    (`generate_keys`); lose it and no future update can be signed — backed up
+    to `~/.config/remotecrab/sparkle-ed-private-key` (0600) and
+    `root@158.247.219.230:/root/.config/remotecrab/sparkle-ed-private-key`
+    (0600, outside the web root), never in the repo. The public key is
+    `6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI=` (in `project-mac.yml` /
+    `Info.plist`). Full key ops (backup / restore / rotate) live in
+    `docs/SPARKLE_UPDATE_KEY.md`.
     **Verification status — be honest:** the update flow is verified **on a
     real Mac with a dev-signed build + local appcast** (fetch → EdDSA validate
     → silent download → idle install → relaunch, bundle `1 → 2`; 215 tests +
