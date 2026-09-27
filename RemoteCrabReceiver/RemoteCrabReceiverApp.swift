@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             SystemExtensionManager.shared.ensureRegistered()
         }
+        _ = UpdaterController.shared
     }
 }
 
@@ -30,7 +31,7 @@ struct RemoteCrabReceiverApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage("remotecrab.didFirstLaunch") private var didFirstLaunch: Bool = false
-    @StateObject private var session = ReceiverSession()
+    @StateObject private var session = ReceiverSession.shared
 
     /// Shared setup-state detection (Accessibility / camera device /
     /// mic driver). Read by the setup assistant, the menu bar
@@ -67,6 +68,7 @@ struct RemoteCrabReceiverApp: App {
             ]
             _ = AXIsProcessTrustedWithOptions(opts)
         }
+        UpdaterController.shared.attach(session: ReceiverSession.shared)
     }
 
     var body: some Scene {
