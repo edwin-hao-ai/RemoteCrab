@@ -1925,6 +1925,40 @@ is tracked in the Roadmap section — don't duplicate it here.
     onPressingChange:)` — `DragGesture`/`Button` variants restarted the hold
     on re-render (the 1×/s start storm).
 
+73. **A "keep the previous target" fallback must exempt the desktop
+    (2026-09-27).** User report: "投屏模式下用 iOS 切应用，画面不更新，要关掉
+    投屏再开" — and then the decisive narrowing: **"好像只有切换 Finder 的时候
+    不行，切换其他的应用好像是可以的"**. That one sentence is the whole root
+    cause: `ScreenTargetResolver.resolveKeepingPrevious` falls back to
+    `previous` when the newly frontmost app has **no eligible window**, and
+    Finder sitting on the desktop has none — so it "kept" the old app's
+    window, `resolveAndStart`'s `same` check matched, and the function
+    returned silently. The Mac-side log with new instrumentation made it
+    unambiguous:
+    `activated app 访达` → `recheck: front=访达/942` →
+    `resolve: target=922:80 same=true reason=frontmost`.
+    **Fix**: Finder-with-no-window IS the desktop (a thing worth showing), so
+    `resolveKeepingPrevious` gained `desktopIsShowing:` (set from the
+    frontmost bundle id) → returns nil → the streamer switches to
+    whole-display capture. +3 pure tests. Note `⌘-Tab` never hit this
+    because the apps it switched to had windows — a reminder that "it works
+    when I do X" is evidence about *which* input path differs, not noise.
+    **Kept**: the observer diagnostics (`activation recheck scheduled`,
+    `recheck: running/extended/pinned/front`, `resolve: target/same/reason`)
+    — one line per activation, and they are what made this findable.
+    Same pass, two related fixes: **`showDesktop` now hides EVERY regular app**
+    (it filtered `!$0.isActive`, so the app the user was looking at was never
+    hidden, and it then `activate()`d Finder, which could raise a Finder
+    *window* over the desktop — "点了桌面还是原来那个应用"); and the mirror's
+    **window picker was unreadable**: it always drew "app name + bare window
+    count + chevron", which reads as a status readout and eats a third of the
+    row. Now auto-follow is a single 40 pt icon (same footprint as
+    fit/fill/zoom), a pinned window adds a pin icon + short title, and the
+    menu states the mode ("Show which window" header + "Auto — follow current
+    app", checkmarked) with a coach-mark line. New `IBLocale.Mirror` keys
+    (`windowPicker` / `autoFollow` / `pinned` / `windowPickerHint`) + zh-Hans
+    catalog entries.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -2030,7 +2064,7 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (later session — **hold-to-talk is stable across many uses**, the session's headline. The user reported "用几次就不能说话了" (press → nothing): via `git log` on the voice files I found my own regression in `42f8ac5` — the 300 ms delayed teardown was **skipped** when a press came within the delay, leaking the `SFSpeechRecognizer` request / `SpeechAnalyzer`, its results task and the mic tap until `start()` could no longer work. Fix: **serialize** instead of skipping — the teardown always runs (releasing only its own session) and `start()` `await`s `teardownTask`; `VoiceEngine` gained `waitForTeardown()`. Lesson 72. The build also carries the never-shrink final ("最后一个字丢了") and the churn-immune PTT gesture. User-verified on device: "好像还不错，应该没啥问题了". Docs: this file + `docs/WINDOWS_HANDOFF.md` (Windows receiver status, plan, pitfalls). Tests 203 + both apps.)_
+_Last updated: 2026-09-27 (later session — **mirror follow + desktop semantics + picker UX**. Three device bugs, each root-caused first: (a) switching to **Finder** froze the mirror because `resolveKeepingPrevious` kept the old window when the frontmost app had none — Finder-on-the-desktop has none; the user's narrowing ("只有切 Finder 不行") *was* the root cause, and `desktopIsShowing` (→ whole-display capture) fixes it (lesson 73); (b) `showDesktop` skipped the active app (`!$0.isActive`) and raised a Finder window — now it hides **every** regular app (Win+D semantics); (c) the mirror's window picker was an unreadable "app name + count + chevron" — now a 40 pt mode icon (auto/pinned) + a menu that states the mode, with a coach-mark line and zh-Hans. Also this session: **hold-to-talk is stable across many uses** — the 300 ms delayed teardown was *skipped* when a press came within the delay, leaking the recognizer + mic tap until `start()` failed; the fix is serialization (`await teardownTask`, lesson 72). Tests 206 + both apps.)_
 
 _Previous: 2026-09-27 (**immersive landscape mirror**: in a landscape mirror the chrome collapses by default (top bar, PTT row, the mirror's own handle/shortcut bar, and the content insets drop to zero) so the stream owns the screen, with a top-centre grip to summon it; **root-caused a run of device bugs** — the extended-display toggle "did nothing" because `perform(initWithDescriptor:)` took `takeUnretainedValue()` and leaked the `CGVirtualDisplay` (a second `init` then fails; see lesson 71); hold-to-talk "flashed / died on the second use" was a start/fail retry loop plus an un-generation-guarded delayed stop; two-finger scroll "turned into moving the screen" was the new viewport insets making the fitted content pannable, fixed by latching scroll-vs-pan per gesture; and an unsupported `sessionPreset` could raise an uncatchable exception (now guarded). **Windows parity audit** fixed pinch (was a bare wheel, now Ctrl+wheel), multi-click (clickCount was ignored), three/finger swipes (were a no-op; now Task View / virtual desktops), the audio 48 kHz preference, and added tray Show/Hide Preview + a real tray icon; the full receiver handoff + virtual camera/mic plan lives in `docs/WINDOWS_HANDOFF.md`. Device e2e 23/23; `RemoteCrabCore` 203 + both apps; `windows` 127 + host/windows-gnu clippy clean.)_
 
