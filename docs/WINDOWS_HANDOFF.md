@@ -205,8 +205,22 @@ fed by the live iPhone H.264.
 conversion ability (`OpenH264`’s `YUVSource`), the `FrameSlot` fan-out
 (`rc-render::window::FrameSlot`) to a second consumer.
 
-**Verification**: a tiny probe app (or the Windows Camera app / OBS) selects
-“RemoteCrab Camera” and shows live pixels; assert a non-black average.
+**Spike that already exists** (`windows/crates/rc-vcam`): checks
+`MFIsVirtualCameraTypeSupported`, calls `MFCreateVirtualCamera`, `Start`s it
+with a no-op callback and keeps it alive so the device enumerates. Run on the
+Windows box:
+
+```powershell
+cargo run -p rc-vcam -- RemoteCrab 20   # then open the Camera app / OBS
+```
+
+It reports the support flag, any `MFCreateVirtualCamera` error, and the
+`Start()` error (expected until the media-source DLL is registered). That one
+run tells us whether the OS/permission path works before writing the COM
+media source.
+
+**Verification** (after the media source lands): the Windows Camera app / OBS
+selects “RemoteCrab Camera” and shows live pixels; assert a non-black average.
 
 ### 5b. Virtual microphone (~3–6 days, needs the Windows box + signing)
 
