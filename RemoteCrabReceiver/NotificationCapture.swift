@@ -20,10 +20,13 @@ import RemoteCrabCore
 ///     AXStaticText AXIdentifier="body"      AXValue=<body>
 /// ```
 ///
-/// Banners are transient (~5 s) so we poll every 0.5 s and dedup by the
-/// banner's UUID identifier. Everything is best-effort: any AX failure is
-/// logged and ignored — the rest of the app is unaffected. Do Not Disturb
-/// / Focus notifications never reach the AX tree, so they cannot be seen.
+/// Banners are transient (~5 s) so we poll every 0.5 s. Dedup keys on the
+/// banner UUID *and* on its content (app/title/subtitle/body within a short
+/// window), because the UUID is not reliably stable across reads — without
+/// the content key a single banner relays several times as it is re-read.
+/// Everything is best-effort: any AX failure is logged and ignored — the
+/// rest of the app is unaffected. Do Not Disturb / Focus notifications
+/// never reach the AX tree, so they cannot be seen.
 ///
 /// All mutable state lives on the main actor; only the AX read runs on a
 /// background queue (it can block briefly on a busy Accessibility server).
@@ -36,6 +39,11 @@ final class NotificationCapture {
     private static let pollInterval: TimeInterval = 0.5
     /// Cap the dedup set so a long session cannot grow it forever (FIFO).
     private static let seenLimit = 200
+    /// An identical banner (same app/title/subtitle/body) is treated as the
+    /// same banner for this long. The AX UUID is not always stable across
+    /// the 0.5 s polls, so content is the reliable key; a genuine repeat of
+    /// byte-identical text within this window is rare enough to drop.
+    private static let contentWindow: TimeInterval = 10
 
     /// Called on the main actor for each newly seen banner that passes the
     /// denylist. The receiver turns it into a wire frame.
@@ -46,6 +54,9 @@ final class NotificationCapture {
     private var timer: DispatchSourceTimer?
     private var seen: Set<String> = []
     private var seenOrder: [String] = []
+    /// Content key → last-seen time. Pruned past `contentWindow`.
+    private var seenContent: [String: Date] = [:]
+    private var contentOrder: [String] = []
 
     init(denylist: [String]) {
         self.filter = NotificationFilter(denylist: denylist)
@@ -84,17 +95,25 @@ final class NotificationCapture {
         }
     }
 
-    /// Main-actor: dedup, filter, and emit. Content is never logged —
-    /// only the source app name (and only when it is filtered out).
+    /// Main-actor: dedup, filter, and emit. Notification content is never
+    /// logged; the source app name is logged at `.private` so it does not
+    /// leak into the system log.
     private func ingest(_ banners: [CapturedBanner]) {
+        let now = Date()
+        pruneContent(now: now)
         for banner in banners {
-            guard !seen.contains(banner.id) else { continue }
+            let contentKey = banner.contentKey
+            guard !seen.contains(banner.id),
+                  seenContent[contentKey] == nil else { continue }
             markSeen(banner.id)
+            markContent(contentKey, at: now)
             guard filter.shouldRelay(app: banner.app) else {
-                Self.log.info("filtered notification from \(banner.app, privacy: .public)")
+                // `.private`: the app name is benign, but the fallback can
+                // echo title/body fragments — never leak those to the log.
+                Self.log.info("filtered notification from \(banner.app, privacy: .private)")
                 continue
             }
-            Self.log.info("relaying notification from \(banner.app, privacy: .public)")
+            Self.log.info("relaying notification from \(banner.app, privacy: .private)")
             onBanner?(IBNotification(app: banner.app,
                                      title: banner.title,
                                      subtitle: banner.subtitle,
@@ -112,6 +131,26 @@ final class NotificationCapture {
             }
         }
     }
+
+    private func markContent(_ key: String, at date: Date) {
+        seenContent[key] = date
+        contentOrder.append(key)
+        if contentOrder.count > Self.seenLimit {
+            let overflow = contentOrder.count - Self.seenLimit
+            for _ in 0..<overflow {
+                seenContent.removeValue(forKey: contentOrder.removeFirst())
+            }
+        }
+    }
+
+    private func pruneContent(now: Date) {
+        while let first = contentOrder.first,
+              let seenAt = seenContent[first],
+              now.timeIntervalSince(seenAt) > Self.contentWindow {
+            contentOrder.removeFirst()
+            seenContent.removeValue(forKey: first)
+        }
+    }
 }
 
 // MARK: - AX parsing (nonisolated; runs on the capture queue)
@@ -123,6 +162,11 @@ private struct CapturedBanner: Sendable {
     let title: String
     let subtitle: String
     let body: String
+
+    /// Identity independent of the (sometimes-unstable) AX UUID.
+    var contentKey: String {
+        [app, title, subtitle, body].joined(separator: "\u{0}")
+    }
 }
 
 /// Read every notification banner currently in the Accessibility tree.
@@ -132,17 +176,47 @@ private func readNotificationBanners() -> [CapturedBanner] {
     let app = AXUIElementCreateApplication(pid)
 
     // The banner lives under the app's windows (`AXWindow/AXSystemDialog`).
-    // Prefer the window list — falling back to the app's direct children
-    // only when it is empty — so the (large) menu-bar subtree is not
-    // re-walked every poll.
     let windows = (axAttribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
-    let roots = windows.isEmpty ? axChildren(app) : windows
+
+    // Cheap early-out: a banner only ever appears inside Notification
+    // Center's panel, which is marked `AXSystemDialog` (on the window
+    // itself or its immediate child). With no such window this tick,
+    // nothing is on screen — skip the whole subtree walk instead of
+    // re-walking it every 0.5 s.
+    let dialogs = windows.filter { hasSystemDialogMarker($0) }
+    guard !dialogs.isEmpty else {
+        // Defensive fallback for a build that exposes the panel as a
+        // direct child of the app rather than a window.
+        if windows.isEmpty {
+            var out: [CapturedBanner] = []
+            for root in axChildren(app) {
+                collectBanners(in: root, depth: 0, into: &out)
+            }
+            return out
+        }
+        return []
+    }
 
     var out: [CapturedBanner] = []
-    for root in roots {
+    for root in dialogs {
         collectBanners(in: root, depth: 0, into: &out)
     }
     return out
+}
+
+/// True when the element is, or directly contains, an `AXSystemDialog`
+/// (Notification Center's banner panel). Two attribute reads per element,
+/// so this stays cheap at 0.5 s.
+private func hasSystemDialogMarker(_ element: AXUIElement) -> Bool {
+    if isSystemDialog(element) { return true }
+    return axChildren(element).contains(where: isSystemDialog)
+}
+
+private func isSystemDialog(_ element: AXUIElement) -> Bool {
+    let role = axAttribute(element, kAXRoleAttribute) as? String
+    let subrole = axAttribute(element, kAXSubroleAttribute) as? String
+    return role?.contains("AXSystemDialog") == true
+        || subrole?.contains("AXSystemDialog") == true
 }
 
 /// Pid of the notification-center UI process, or nil when it isn't running

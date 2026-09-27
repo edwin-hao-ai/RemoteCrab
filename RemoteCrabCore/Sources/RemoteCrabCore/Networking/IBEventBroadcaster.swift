@@ -2,9 +2,9 @@ import Foundation
 import Network
 import os
 
-/// Sends typed events (`TouchEvent`, `KeyEvent`, `AudioPacket`) over an
-/// established `NWConnection`. Lives on the iOS side and is shared by
-/// the touchpad, keyboard, and microphone components.
+/// Sends typed events over an established `NWConnection`. Shared by both
+/// sides of the link: the iOS capture app (touch/key/audio/…) and the Mac
+/// receiver (file acks, camera control, mirrored video, notifications, …).
 public final class IBEventBroadcaster: @unchecked Sendable {
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "broadcaster")

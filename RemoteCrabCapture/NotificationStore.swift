@@ -5,27 +5,35 @@ import RemoteCrabCore
 /// In-app inbox for notifications relayed from the Mac.
 ///
 /// Newest first, capped at 100 so a long session can't grow unbounded.
-/// `receivedAt` is maintained in parallel with `items` (the wire payload
-/// carries no timestamp — the list shows when the phone received it).
+/// The wire payload carries no id or timestamp, so each entry gets a
+/// phone-side `UUID` (stable SwiftUI identity — a prepend must not reuse
+/// another row's identity) and a receipt time.
 /// `@Observable` so SwiftUI tracks the reads directly, even though the
 /// engine that owns it is an `ObservableObject`.
 @Observable
 final class NotificationStore {
-    private(set) var items: [IBNotification] = []
-    private(set) var receivedAt: [Date] = []
+    /// One relayed notification plus the phone-side metadata the wire
+    /// frame omits.
+    struct Entry: Identifiable {
+        let id: UUID
+        let notification: IBNotification
+        let receivedAt: Date
+    }
+
+    private(set) var entries: [Entry] = []
     private(set) var unread: Int = 0
 
     private let cap = 100
 
     /// Prepend a freshly received notification and bump the unread count.
     func append(_ n: IBNotification) {
-        items.insert(n, at: 0)
-        receivedAt.insert(Date(), at: 0)
-        if items.count > cap {
-            items.removeSubrange(cap...)
-            receivedAt.removeSubrange(cap...)
+        entries.insert(Entry(id: UUID(), notification: n, receivedAt: Date()), at: 0)
+        if entries.count > cap {
+            entries.removeSubrange(cap...)
         }
-        unread += 1
+        // Cap unread the same as the list: the badge must never exceed
+        // the number of rows the user can actually see.
+        unread = min(unread + 1, cap)
     }
 
     /// Called when the inbox is opened — the user has now seen everything.
@@ -35,15 +43,7 @@ final class NotificationStore {
 
     /// Empty the inbox.
     func clear() {
-        items.removeAll()
-        receivedAt.removeAll()
+        entries.removeAll()
         unread = 0
-    }
-
-    /// Receipt time for the item at `index`, defaulting to "now" if the
-    /// parallel arrays are somehow out of step (they are always mutated
-    /// together, so this is only defensive).
-    func date(for index: Int) -> Date {
-        receivedAt.indices.contains(index) ? receivedAt[index] : Date()
     }
 }

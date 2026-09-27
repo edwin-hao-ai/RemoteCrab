@@ -99,6 +99,9 @@ final class CaptureEngine: ObservableObject {
     /// `ObservableObject`.
     let notificationStore = NotificationStore()
     private let localNotifier = LocalNotifier()
+    /// True once banner authorization has been requested this launch, so
+    /// the receive path doesn't spawn a request per notification.
+    private var notificationAuthRequested = false
 
     let captureSession = AVCaptureSession()
 
@@ -551,9 +554,25 @@ final class CaptureEngine: ObservableObject {
     // MARK: - Relayed Mac notifications
 
     /// Ask once for permission to surface relayed Mac notifications as
-    /// system banners. Idempotent — safe to call on every appearance.
+    /// system banners. Idempotent — safe to call on every appearance;
+    /// it only presents a prompt while the status is `.notDetermined`.
+    ///
+    /// Deliberately NOT called from the boot `.task`: the prompt would
+    /// suspend that task and block the listener from starting. Call it
+    /// in context instead (opening the inbox, first relayed banner).
     func requestNotificationAuthorization() async {
+        notificationAuthRequested = true
         _ = await localNotifier.requestAuthorization()
+    }
+
+    /// Non-blocking variant for the receive path: ask at most once this
+    /// launch, when a relayed notification arrives and the user has not
+    /// answered yet. Safe to call for every notification.
+    func requestNotificationAuthorizationIfNeeded() {
+        guard !notificationAuthRequested else { return }
+        Task { @MainActor [weak self] in
+            await self?.requestNotificationAuthorization()
+        }
     }
 
     // MARK: - App screen mirror
@@ -2031,6 +2050,10 @@ final class CaptureEngine: ObservableObject {
                 // the in-app inbox; add a system banner too when allowed.
                 if let n = try? IBWire.decodeNotification(frame) {
                     notificationStore.append(n)
+                    // Permission is asked here (in context) rather than at
+                    // boot — the in-app inbox works without it, and the
+                    // system banner appears as soon as the user allows.
+                    requestNotificationAuthorizationIfNeeded()
                     localNotifier.post(n)
                 }
             case .fileAck:

@@ -12,12 +12,12 @@ struct NotificationListView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.items.isEmpty {
+                if store.entries.isEmpty {
                     emptyState
                 } else {
                     List {
-                        ForEach(Array(store.items.enumerated()), id: \.offset) { index, n in
-                            row(n, at: store.date(for: index))
+                        ForEach(store.entries) { entry in
+                            row(entry.notification, at: entry.receivedAt)
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -28,7 +28,7 @@ struct NotificationListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    if !store.items.isEmpty {
+                    if !store.entries.isEmpty {
                         Button(IBLocale.Notify.clear) { store.clear() }
                     }
                 }
@@ -37,7 +37,12 @@ struct NotificationListView: View {
                 }
             }
         }
-        .onAppear { store.markAllRead() }
+        .onAppear {
+            store.markAllRead()
+            // Ask for banner permission here, in context — never at boot,
+            // where the system alert would block the E2E bootstrap.
+            Task { await engine.requestNotificationAuthorization() }
+        }
     }
 
     private func row(_ n: IBNotification, at date: Date) -> some View {

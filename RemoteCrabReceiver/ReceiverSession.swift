@@ -1008,6 +1008,10 @@ final class ReceiverSession: ObservableObject {
     private func connect(to phone: DiscoveredPhone) {
         connection?.cancel()
         connection = nil
+        // Tear down the old capture now: nil-ing the connection makes the
+        // old connection's `.cancelled` handler early-return, so relying
+        // on it alone could leave a relay timer polling while disconnected.
+        stopNotificationRelay()
         sessionGranted = false
         suppressReconnect = false
         slowRetryTask?.cancel()

@@ -354,9 +354,12 @@ struct ContentView: View {
         }
         .task {
             await engine.startIfNeeded()
-            // Ask once for permission to show relayed Mac notifications as
-            // system banners. The in-app inbox works without it.
-            await engine.requestNotificationAuthorization()
+            // Notification-banner permission is requested lazily, in
+            // context (opening the inbox, or when the first relayed
+            // notification lands) — NOT here. A system alert at boot
+            // suspends this task until the user answers, so the
+            // listener/`startStreaming()` below would never run and the
+            // headless E2E bootstrap would hang.
             // E2E test mode: REMOTECRAB_AUTOSTREAM=1 starts streaming
             // (Bonjour publish + listener) without a manual tap.
             // Only usable once Local Network permission is granted.
