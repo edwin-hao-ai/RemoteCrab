@@ -113,8 +113,44 @@ impl AudioPlayer {
             .default_output_device()
             .ok_or("no default output device")?;
         let config = device.default_output_config()?;
-        let sample_rate = config.sample_rate();
         let channels = config.channels() as usize;
+
+        // The Opus decoder always emits 48 kHz. cpal does NOT resample, so
+        // playing those samples on a 44.1 kHz device would pitch-shift the
+        // voice (the Mac's AVAudioSourceNode converts for us). Prefer a
+        // 48 kHz config when the device offers one; otherwise warn — the
+        // audio will be slightly slow/low until a resampler lands.
+        let config = if config.sample_rate() != 48_000 {
+            let preferred = device
+                .supported_output_configs()
+                .ok()
+                .and_then(|mut ranges| {
+                    ranges.find(|c| {
+                        c.min_sample_rate() <= 48_000 && 48_000 <= c.max_sample_rate()
+                    })
+                })
+                .map(|c| c.with_sample_rate(48_000));
+            match preferred {
+                Some(c) => {
+                    eprintln!(
+                        "audio: using 48 kHz output (device default {} Hz)",
+                        config.sample_rate()
+                    );
+                    c
+                }
+                None => {
+                    eprintln!(
+                        "audio: WARNING device is {} Hz but Opus decodes to 48000 Hz — \
+                         audio will be pitch-shifted (no resampler yet)",
+                        config.sample_rate()
+                    );
+                    config
+                }
+            }
+        } else {
+            config
+        };
+        let sample_rate = config.sample_rate();
         let stream_config: cpal::StreamConfig = config.into();
 
         let stream = match config.sample_format() {
