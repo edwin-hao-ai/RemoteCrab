@@ -2046,14 +2046,21 @@ is tracked in the Roadmap section — don't duplicate it here.
     "no Developer ID profile needed") breaks launch. Dev / Apple-Development
     builds work only because automatic signing embeds a profile. **Lesson 29's
     "verified" was `spctl` acceptance, not an actual launch** — an app can be
-    `spctl`-accepted and still be killed by amfid. **Fix (NOT done yet):** ship
-    a **Developer ID provisioning profile** that includes the System Extension
-    Install entitlement, embed it (`Contents/embedded.provisionprofile`), and
-    stop deleting it; then re-notarize. Until then the Developer-ID release
-    won't launch on macOS 26 (the live 1.0 DMG is suspect). **Debug method:**
-    launch it and read `log show --predicate 'process == "amfid"' --info` —
-    taskgated's crash report only says "Invalid Signature" and tells you
-    nothing.
+    `spctl`-accepted and still be killed by amfid. **FIXED (2026-09-27):** a
+    `MAC_APP_DIRECT` (Developer ID) provisioning profile carrying the System
+    Extension Install capability was created via the ASC API, saved to
+    `~/.config/remotecrab/RemoteCrab_DeveloperID.provisionprofile` (0600,
+    + VPS backup), and `release-mac.sh` now **embeds it** as
+    `Contents/embedded.provisionprofile` before signing (env override
+    `REMOTECRAB_DEVID_PROFILE`). Verified: the notarized Developer-ID app now
+    **launches**. Also confirmed the **live 1.0 DMG was broken** (downloaded
+    `vgoapp.com/downloads/RemoteCrab.dmg` → same amfid kill). **Still open:**
+    the notarized Sparkle update (atomic swap) E2E — in the notarized build
+    Sparkle fetched the local appcast but did **not** download the update
+    (root cause not found; the dev-signed build does download). **Debug
+    method:** launch it and read `log show --predicate 'process == "amfid"'
+    --info` — taskgated's crash report only says "Invalid Signature" and
+    tells you nothing.
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):

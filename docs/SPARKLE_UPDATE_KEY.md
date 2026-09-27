@@ -77,3 +77,39 @@ BIN=.build/ci-derived-data/mac/SourcePackages/artifacts/sparkle/Sparkle/bin
 EdDSA 公钥内置在已发布 App 里，无法"直接换"。可行路径：用**旧私钥**签一个
 "内含新公钥"的新版本发出去，用户更新到该版本后即信任新公钥，之后再用新钥匙签。
 代价是所有旧版本用户都必须先装到这个过渡版本。非必要不要轮换。
+
+---
+
+# Developer ID provisioning profile（macOS 26 起必需）
+
+`com.apple.developer.system-extension.install` 是 **profile-backed** 的受限
+entitlement。没有匹配的 provisioning profile，amfid 会在启动前杀掉 App
+（`taskgated Invalid Signature` / `No matching profile found`）—— **live 1.0
+DMG 就是这样打不开的**（见 AGENTS lesson 75）。
+
+- **文件**：`~/.config/remotecrab/RemoteCrab_DeveloperID.provisionprofile`（`0600`）。
+- **服务器备份**：`root@158.247.219.230:/root/.config/remotecrab/RemoteCrab_DeveloperID.provisionprofile`（`0600`）。
+- **类型**：`MAC_APP_DIRECT`（Developer ID），绑定 bundle id
+  `com.remotecrab.RemoteCrabReceiver` + Developer ID Application 证书，
+  带 `SYSTEM_EXTENSION_INSTALL` capability。
+- **使用**：`scripts/release-mac.sh` 在签名前把它复制成
+  `RemoteCrab.app/Contents/embedded.provisionprofile`（**不再删除**）。
+  可用 `REMOTECRAB_DEVID_PROFILE` 覆盖路径。
+
+## 重新生成 / 续期（profile 过期或换证书时）
+
+用已有的 ASC API key（见 `scripts/ios-app-store-metadata.py` 的 JWT 逻辑）：
+`POST https://api.appstoreconnect.apple.com/v1/profiles`，body
+`profileType: MAC_APP_DIRECT`，relationships 指向 bundle id
+`AKWJV8N2A6`（`com.remotecrab.RemoteCrabReceiver`）和 Developer ID 证书
+（`certificates`）。返回的 `profileContent` 是 base64，解码即得 profile 文件。
+（本次就是这样做出来的，profile id `NST69286HW`。）
+
+## 验证
+
+```sh
+security cms -D -i ~/.config/remotecrab/RemoteCrab_DeveloperID.provisionprofile \
+  | plutil -p - | grep -A6 Entitlements     # 应含 system-extension.install = true
+spctl -a -vvv -t exec /Applications/RemoteCrab.app   # accepted / Notarized Developer ID
+# 真正启动一次；被 amfid 杀掉时看：log show --predicate 'process == "amfid"' --info
+```

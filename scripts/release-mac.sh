@@ -45,6 +45,9 @@ OUT="$ROOT/dist"
 ARCHIVE="$ROOT/build/mac-release/RemoteCrabReceiver.xcarchive"
 APP="$ROOT/build/mac-release/RemoteCrab.app"
 DMG="$OUT/RemoteCrab-${VERSION}.dmg"
+# Developer ID provisioning profile carrying the System Extension Install
+# entitlement (profile-backed on macOS 26 — see AGENTS lesson 75).
+PROFILE="${REMOTECRAB_DEVID_PROFILE:-$HOME/.config/remotecrab/RemoteCrab_DeveloperID.provisionprofile}"
 
 # Apple's timestamp server sometimes hangs behind a proxy/VPN; MDDock's
 # wrapper replaces --timestamp with --timestamp=none only when
@@ -117,9 +120,18 @@ if [[ "$SKIP_APP" == false ]]; then
     || { echo "archive failed — see /tmp/remotecrab-mac-archive.log"; exit 1; }
 
   cp -R "$ARCHIVE/Products/Applications/RemoteCrab.app" "$APP"
-  # The archive embeds a *development* provisioning profile; a Developer
-  # ID app must not carry it (entitlements here need no profile at all).
-  rm -f "$APP/Contents/embedded.provisionprofile"
+  # The archive embeds a *development* provisioning profile. Replace it with a
+  # Developer ID provisioning profile that carries the (profile-backed)
+  # System Extension Install entitlement — without it, amfid kills the app at
+  # launch on macOS 26 ("No matching profile found"; AGENTS lesson 75).
+  [[ -f "$PROFILE" ]] || {
+    echo "ERROR: Developer ID provisioning profile not found at $PROFILE" >&2
+    echo "  Create a MAC_APP_DIRECT profile with the System Extension Install" >&2
+    echo "  capability for com.remotecrab.RemoteCrabReceiver and save it there," >&2
+    echo "  or set REMOTECRAB_DEVID_PROFILE. See AGENTS lesson 75." >&2
+    exit 1
+  }
+  cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
   # Swap in the signed/notarized mic pkg if we built one.
   if [[ -f "$OUT/RemoteCrabMicrophone.pkg" ]]; then
     cp "$OUT/RemoteCrabMicrophone.pkg" "$APP/Contents/Resources/RemoteCrabMicrophone.pkg"
