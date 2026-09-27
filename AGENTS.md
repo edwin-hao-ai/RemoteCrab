@@ -577,8 +577,8 @@ Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user 
 - ~~**V1.1** — UI restructure: dock removed (top-bar toggles + PTT row), context sheet (presentation/agent/console suites), `systemCommand` 0x19, Mac settings wired (launchAtLogin/autoReconnect/AWDL)~~ ✅ (2026-09-22)
 - ~~**V1.2** — context sheet expanded to 10 suites (presentation/agent/finder/notes/browser/mail/messages/calendar/editor/console), profiles made `Codable` + self-describing (`bundleIDs`) ahead of a future plugin marketplace, 2-column row pairing, full-width voice hero; multi-select file/photo send with a serial queue; "Latest Screenshot" one-tap send (+ Photos permission in onboarding); connection-sheet "Choose a Mac" entry; glass-button hit-area + keyboard-mode PTT overlap fixes~~ ✅ (2026-09-22)
 - ~~**V1.3** — trackpad scroll-feel pass (velocity-scaled momentum, scroll sensitivity + natural direction, per-frame event coalescing, adaptive/glide-off haptics, pinch de-jitter, "tap during a glide brakes instead of clicking"); Mac sandbox removed (Quit works) + defaults migration; window picker drops a quit app; connection resilience (dial-any-discovered, owner watchdog, ping timeout)~~ ✅ (2026-09-23)
-- **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry); ~~iOS 26 `SpeechAnalyzer` backend (opportunistic — use it when the model is already installed, never download; see lesson 63)~~ ✅ (2026-09-24, device-confirmed `engine=analyzer` on iPhone 14 / iOS 26)
-- **V1.5** — Windows support (DirectShow virtual camera)
+- **V1.4** — context-sheet action-label localization batch (the 10 suites ship English labels; sheet chrome is already bilingual); **bidirectional discovery** (Mac advertises + iPhone browses/dials, so a one-way Bonjour failure can't deadlock; needs a Mac listener + a role-inverted handshake); connection doctor (Bonjour state, last error, one-tap retry); ~~iOS 26 `SpeechAnalyzer` backend (opportunistic — use it when the model is already installed, never download; see lesson 63)~~ ✅ (2026-09-24, device-confirmed `engine=analyzer` on iPhone 14 / iOS 26); ~~hold-to-talk lifecycle hardened — serialized teardown so many consecutive holds all work (lesson 72) + never-shrink final~~ ✅ (2026-09-27, user-verified)
+- **V1.5** — Windows support: app-window **mirror** ✅, window list + JPEG thumbnails ✅, recording (`rc-record`) ✅, app icons ✅, tray + bilingual UI ✅, start-at-login ✅ (all 2026-09-26); **still open** — **virtual camera** (`MFCreateVirtualCamera` needs a registered COM `IMFMediaSource`; the `rc-vcam` spike exists, the real source does not) and **virtual microphone** (a sysvad-class **signed driver**, WDK-only — cannot be built from macOS). See `docs/WINDOWS_HANDOFF.md` §5a/§5b.
 - **V2.0** — Android capture client (Camera2 over WiFi); K2 agent chips + voice commands backlog (the possible "phone = attention-router for background agents" Aha — see the 2026-09-24 memory note)
 
 ---
@@ -1894,6 +1894,37 @@ is tracked in the Roadmap section — don't duplicate it here.
     Verified: device e2e 23/23 with `CGGetActiveDisplayList` back to one
     display after teardown.
 
+72. **A delayed teardown must never be *skipped* — serialize it instead
+    (2026-09-27, "用几次就不能说话了").** The user reported hold-to-talk
+    working once or twice, then a press doing nothing. Root cause was a
+    **regression I introduced while fixing the previous voice bug**, found by
+    reading `git log` on the voice files (`42f8ac5`): `stop()` released the
+    recognizer on a 300 ms delay (so the last syllable still reached it),
+    guarded by `sessionGeneration` / `stopRequested`. A press that began
+    within those 300 ms bumped the guard, so the OLD session's teardown
+    returned early — its `SFSpeechRecognitionRequest` / `SpeechAnalyzer`,
+    results task and installed mic tap were **never released**. After a few
+    holds the resources were exhausted and `start()` just failed, which read
+    as "按了没反应". The guard existed because the teardown had once killed
+    the *new* session ("用两次就不能用了") — so **skipping** the teardown traded
+    a wrong-teardown for a leak. The correct shape, now in both
+    `VoiceRecognizer` and `AnalyzerVoiceEngine`: the teardown **always** runs
+    (it only releases its own session's objects), and `start()` `await`s the
+    in-flight `teardownTask` before a new session exists — full
+    serialization, so an old teardown can neither leak nor touch the new
+    session. `VoiceEngine` gained `waitForTeardown()` (default no-op) so
+    `VoiceRecognizer` can await an engine's release; `AnalyzerVoiceEngine
+    .start()` also gained the missing `isStarting` guard. **Generalizable
+    rule: a guard that makes a cleanup path `return` early is a leak
+    generator — serialize (`await` the task) instead of skipping.** Committed
+    `dcb23b0`; confirmed by the user on device ("好像好了一些…应该没啥问题了").
+    The same build carries the never-shrink final (the analyzer tracks the
+    longest `committed+volatile` seen; the finalizer can no longer truncate
+    the tail) and the PTT gesture uses
+    `onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity,
+    onPressingChange:)` — `DragGesture`/`Button` variants restarted the hold
+    on re-render (the 1×/s start storm).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -1999,7 +2030,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-27 (later session — **immersive landscape mirror**: in a landscape mirror the chrome collapses by default (top bar, PTT row, the mirror's own handle/shortcut bar, and the content insets drop to zero) so the stream owns the screen, with a top-centre grip to summon it; **root-caused a run of device bugs** — the extended-display toggle "did nothing" because `perform(initWithDescriptor:)` took `takeUnretainedValue()` and leaked the `CGVirtualDisplay` (a second `init` then fails; see lesson 71); hold-to-talk "flashed / died on the second use" was a start/fail retry loop plus an un-generation-guarded delayed stop; two-finger scroll "turned into moving the screen" was the new viewport insets making the fitted content pannable, fixed by latching scroll-vs-pan per gesture; and an unsupported `sessionPreset` could raise an uncatchable exception (now guarded). **Windows parity audit** fixed pinch (was a bare wheel, now Ctrl+wheel), multi-click (clickCount was ignored), three/finger swipes (were a no-op; now Task View / virtual desktops), the audio 48 kHz preference, and added tray Show/Hide Preview + a real tray icon; the full receiver handoff + virtual camera/mic plan lives in `docs/WINDOWS_HANDOFF.md`. Device e2e 23/23; `RemoteCrabCore` 203 + both apps; `windows` 127 + host/windows-gnu clippy clean.)_
+_Last updated: 2026-09-27 (later session — **hold-to-talk is stable across many uses**, the session's headline. The user reported "用几次就不能说话了" (press → nothing): via `git log` on the voice files I found my own regression in `42f8ac5` — the 300 ms delayed teardown was **skipped** when a press came within the delay, leaking the `SFSpeechRecognizer` request / `SpeechAnalyzer`, its results task and the mic tap until `start()` could no longer work. Fix: **serialize** instead of skipping — the teardown always runs (releasing only its own session) and `start()` `await`s `teardownTask`; `VoiceEngine` gained `waitForTeardown()`. Lesson 72. The build also carries the never-shrink final ("最后一个字丢了") and the churn-immune PTT gesture. User-verified on device: "好像还不错，应该没啥问题了". Docs: this file + `docs/WINDOWS_HANDOFF.md` (Windows receiver status, plan, pitfalls). Tests 203 + both apps.)_
+
+_Previous: 2026-09-27 (**immersive landscape mirror**: in a landscape mirror the chrome collapses by default (top bar, PTT row, the mirror's own handle/shortcut bar, and the content insets drop to zero) so the stream owns the screen, with a top-centre grip to summon it; **root-caused a run of device bugs** — the extended-display toggle "did nothing" because `perform(initWithDescriptor:)` took `takeUnretainedValue()` and leaked the `CGVirtualDisplay` (a second `init` then fails; see lesson 71); hold-to-talk "flashed / died on the second use" was a start/fail retry loop plus an un-generation-guarded delayed stop; two-finger scroll "turned into moving the screen" was the new viewport insets making the fitted content pannable, fixed by latching scroll-vs-pan per gesture; and an unsupported `sessionPreset` could raise an uncatchable exception (now guarded). **Windows parity audit** fixed pinch (was a bare wheel, now Ctrl+wheel), multi-click (clickCount was ignored), three/finger swipes (were a no-op; now Task View / virtual desktops), the audio 48 kHz preference, and added tray Show/Hide Preview + a real tray icon; the full receiver handoff + virtual camera/mic plan lives in `docs/WINDOWS_HANDOFF.md`. Device e2e 23/23; `RemoteCrabCore` 203 + both apps; `windows` 127 + host/windows-gnu clippy clean.)_
 
 _Previous: 2026-09-27 (**Extended Display** — the iPhone as a real second monitor: a macOS virtual display via the private `CGVirtualDisplay` classes (no driver/entitlement; spike + device e2e verified — `virtual display created` + `streaming extended display`, 21/21) streamed through the existing mirror pipeline; voice no longer drops the last 1-2 chars (both engines keep feeding ~300 ms after release + a never-shrink final); the mirror stays on screen while hold-to-talk yields it; Windows audit fixes + bilingual tray/console + start-at-login. Lessons 69-70.)_
 

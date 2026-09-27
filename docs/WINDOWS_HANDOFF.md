@@ -7,7 +7,14 @@
 > this file is newer.
 
 Last updated: 2026-09-27 (device/mac side is iOS+Mac; this file is the
-Windows receiver only).
+Windows receiver only). **State**: the receiver is feature-complete for the
+"utility" surface (discovery/handshake/video/audio/input/mirror/recording/tray
+/launcher/clipboard) — `windows` 127 tests + host/`x86_64-pc-windows-gnu`
+clippy clean. **The only remaining feature work is virtual camera + virtual
+microphone** (§5a/§5b), and both need the user's Windows 11 box. **Next
+concrete action for a new session**: have the user run the already-written
+vcam spike on Windows (`cargo run -p rc-vcam -- RemoteCrab 20`, §5a) and
+report its 3 lines, then implement the COM `IMFMediaSource` that feeds it.
 
 ---
 
