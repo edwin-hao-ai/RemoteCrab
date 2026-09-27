@@ -25,8 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the auto-updater only now that AppKit has launched.
         // `App.init()` is too early to start system services (same class
         // of problem as the sysex registration above), so the updater is
-        // attached here rather than there.
-        _ = UpdaterController.shared
+        // attached here rather than there. `attach` materializes the
+        // shared controller, so no separate `_ = UpdaterController.shared`
+        // is needed.
         UpdaterController.shared.attach(session: ReceiverSession.shared)
     }
 }

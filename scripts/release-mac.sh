@@ -134,18 +134,19 @@ if [[ "$SKIP_APP" == false ]]; then
     --entitlements "$ROOT/RemoteCrabAudioExtension/AudioExtension.entitlements" "$AX"
   # Sparkle.framework 及其嵌套二进制必须用 Developer ID 重签，
   # 且在公证之前（否则公证因未签名二进制失败）。不要用 --deep。
+  # 框架缺失必须硬失败：否则 app 会带着缺失/上游签名的框架通过公证，
+  # 并在硬化运行时下启动即崩溃。
   SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
-  if [[ -d "$SPARKLE" ]]; then
-    for svc in Installer Downloader; do
-      s="$SPARKLE/Versions/B/XPCServices/$svc.xpc"
-      [[ -d "$s" ]] && codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$s"
-    done
-    [[ -f "$SPARKLE/Versions/B/Autoupdate" ]] && \
-      codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Autoupdate"
-    [[ -d "$SPARKLE/Versions/B/Updater.app" ]] && \
-      codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Updater.app"
-    codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE"
-  fi
+  [[ -d "$SPARKLE" ]] || { echo "ERROR: Sparkle.framework missing from $APP" >&2; exit 1; }
+  for svc in Installer Downloader; do
+    s="$SPARKLE/Versions/B/XPCServices/$svc.xpc"
+    [[ -d "$s" ]] && codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$s"
+  done
+  [[ -f "$SPARKLE/Versions/B/Autoupdate" ]] && \
+    codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Autoupdate"
+  [[ -d "$SPARKLE/Versions/B/Updater.app" ]] && \
+    codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Updater.app"
+  codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE"
   codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" \
     --entitlements "$ROOT/RemoteCrabReceiver/RemoteCrabReceiver.entitlements" "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"

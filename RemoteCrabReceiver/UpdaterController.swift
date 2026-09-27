@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import Sparkle
 import os
 import RemoteCrabCore
@@ -25,18 +24,19 @@ final class UpdaterController: NSObject, ObservableObject {
     /// camera system-extension registration; see `AppDelegate`). The app
     /// calls `attach(session:)` from `applicationDidFinishLaunching`,
     /// which materializes this.
+    // The check/auto-download defaults live in Info.plist
+    // (`SUEnableAutomaticChecks` / `SUAutomaticallyUpdate`), NOT as
+    // assignments here: Sparkle persists these in UserDefaults, and
+    // setting them on every launch would silently override the user's
+    // Preferences toggle (Sparkle's own header warns against it).
     private lazy var controller: SPUStandardUpdaterController = {
-        let controller = SPUStandardUpdaterController(
+        SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: self,
             userDriverDelegate: self
         )
-        controller.updater.automaticallyChecksForUpdates = true
-        controller.updater.automaticallyDownloadsUpdates = true
-        return controller
     }()
 
-    private var cancellables = Set<AnyCancellable>()
     private var idleSince: Date?
     private var ticker: Timer?
     private let gate = UpdateInstallGate(dwell: 30)
@@ -83,6 +83,7 @@ final class UpdaterController: NSObject, ObservableObject {
         guard let handler = installHandler else { return nil }
         installHandler = nil
         pendingUpdate = false
+        idleSince = nil
         stopTicker()
         return handler
     }
@@ -154,6 +155,29 @@ extension UpdaterController: SPUUpdaterDelegate {
     /// local appcast can exercise the flow headlessly.
     nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
         ProcessInfo.processInfo.environment["REMOTECRAB_UPDATE_FEED"]
+    }
+
+    /// Observability (spec §9): report a failed update cycle. `error` is
+    /// nil on a normal finish (including "no update found"), so only log
+    /// when one is set. Sparkle invokes driver callbacks on the main
+    /// thread, so `assumeIsolated` is safe (same as the method above).
+    nonisolated func updater(
+        _ updater: SPUUpdater,
+        didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+        error: Error?
+    ) {
+        guard let error else { return }
+        MainActor.assumeIsolated {
+            Self.log.error("update cycle failed (\(String(describing: updateCheck), privacy: .public)): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Observability (spec §9): report a driver abort (e.g. a failed
+    /// download or a bad signature).
+    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        MainActor.assumeIsolated {
+            Self.log.error("update driver aborted: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }
 

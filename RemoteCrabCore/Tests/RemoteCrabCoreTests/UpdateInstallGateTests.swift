@@ -34,4 +34,16 @@ final class UpdateInstallGateTests: XCTestCase {
         XCTAssertTrue(gate.shouldInstall(pendingUpdate: true, sessionActive: false,
                                          isRecording: false, idleSince: t0, now: t0.addingTimeInterval(30)))
     }
+
+    func testZeroDwellInstallsImmediately() {
+        let zeroGate = UpdateInstallGate(dwell: 0)
+        XCTAssertTrue(zeroGate.shouldInstall(pendingUpdate: true, sessionActive: false,
+                                             isRecording: false, idleSince: t0, now: t0))
+    }
+
+    func testNegativeDwellInstalls() {
+        let negativeGate = UpdateInstallGate(dwell: -5)
+        XCTAssertTrue(negativeGate.shouldInstall(pendingUpdate: true, sessionActive: false,
+                                                 isRecording: false, idleSince: t0, now: t0))
+    }
 }

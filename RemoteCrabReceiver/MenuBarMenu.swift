@@ -436,6 +436,7 @@ struct MenuBarMenu: View {
                 // phantom button that no-ops, and there's an unexplained
                 // clickable gap.
                 .allowsHitTesting(updater.pendingUpdate)
+                .disabled(!updater.pendingUpdate)
                 .accessibilityHidden(!updater.pendingUpdate)
             ActionRow(icon: "arrow.down.circle",
                       title: LocalizedStringKey(IBLocale.Update.checkForUpdates),

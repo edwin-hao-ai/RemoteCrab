@@ -21,7 +21,10 @@ packages:
     path: RemoteCrabCore
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.6.0
+    # Exact pin (xcodegen key is `exactVersion`; `exact:` is not
+    # recognized by xcodegen 2.46.0). Resolved against the Sparkle
+    # checkout in .build/ci-derived-data (2.10.0).
+    exactVersion: 2.10.0
 
 targets:
   RemoteCrabReceiver:
@@ -70,6 +73,11 @@ targets:
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSHighResolutionCapable: true
+        # Sparkle's user-preference defaults. Kept in the plist (not set
+        # imperatively on every launch) so Sparkle does not overwrite the
+        # user's Settings → "Automatically check for updates" choice.
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
         NSLocalNetworkUsageDescription: RemoteCrab discovers your iPhone on the local WiFi network.
         NSBonjourServices:
           - _remotecrab._tcp
