@@ -16,9 +16,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
-use crate::injector::{InputTranslator, MouseAction, ScreenSize};
+use crate::injector::{swipe_shortcut, InputTranslator, MouseAction, ScreenSize, SwipeShortcut};
 use crate::keymap::{self, Injected};
-use rc_protocol::{KeyEvent, ScreenInput, TouchEvent};
+use rc_protocol::{KeyEvent, ScreenInput, TouchEvent, TouchPhase};
 
 /// Query the virtual screen (all monitors) for cursor clamping.
 pub fn virtual_screen_size() -> ScreenSize {
@@ -47,6 +47,15 @@ impl WindowsInjector {
     }
 
     pub fn inject_touch(&mut self, event: &TouchEvent) {
+        // A three/four-finger swipe is a Windows task/desktop shortcut, not
+        // a mouse action (the Mac maps it to Mission Control). It used to
+        // be a silent no-op on Windows.
+        if event.phase == TouchPhase::ThreeFingerSwipe {
+            if let Some(shortcut) = swipe_shortcut(event.dx, event.dy) {
+                self.perform_swipe(shortcut);
+            }
+            return;
+        }
         let screen = virtual_screen_size();
         let actions = self.translator.touch(event, screen);
         for action in actions {
@@ -94,6 +103,15 @@ impl WindowsInjector {
         }
     }
 
+    /// Three/four-finger swipe → Task View / virtual-desktop switch.
+    fn perform_swipe(&self, shortcut: SwipeShortcut) {
+        match shortcut {
+            SwipeShortcut::TaskView => send_chord(&[VK_LWIN, VK_TAB]),
+            SwipeShortcut::DesktopLeft => send_chord(&[VK_CONTROL, VK_LWIN, VK_LEFT]),
+            SwipeShortcut::DesktopRight => send_chord(&[VK_CONTROL, VK_LWIN, VK_RIGHT]),
+        }
+    }
+
     /// Called when a scroll burst goes quiet (the Mac uses a 0.18 s timer).
     pub fn finish_scroll(&mut self) {
         for action in self.translator.finish_scroll() {
@@ -127,6 +145,17 @@ impl WindowsInjector {
                 if dx.abs() >= 1.0 {
                     send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx.round() as i32);
                 }
+            }
+            MouseAction::CtrlWheel { dx, dy } => {
+                // Ctrl+wheel is the zoom gesture most apps understand.
+                send_vk(VK_CONTROL, true);
+                if dy.abs() >= 1.0 {
+                    send_mouse(MOUSEEVENTF_WHEEL, 0, 0, dy.round() as i32);
+                }
+                if dx.abs() >= 1.0 {
+                    send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx.round() as i32);
+                }
+                send_vk(VK_CONTROL, false);
             }
             MouseAction::ScrollPhase(_) => {
                 // Windows has no scroll-phase events; the wheel deltas alone
@@ -185,6 +214,22 @@ fn normalize_axis(coord: i32, origin: i32, extent: i32) -> i32 {
     }
     let relative = (coord - origin).clamp(0, extent - 1);
     ((relative as i64 * 65535) / (extent as i64 - 1)) as i32
+}
+
+const VK_CONTROL: u16 = 0x11;
+const VK_LWIN: u16 = 0x5B;
+const VK_TAB: u16 = 0x09;
+const VK_LEFT: u16 = 0x25;
+const VK_RIGHT: u16 = 0x27;
+
+/// Hold each key in order, release in reverse (a chord like Ctrl+Win+Left).
+fn send_chord(vks: &[u16]) {
+    for vk in vks {
+        send_vk(*vk, true);
+    }
+    for vk in vks.iter().rev() {
+        send_vk(*vk, false);
+    }
 }
 
 fn send_vk(vk: u16, down: bool) {

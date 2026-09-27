@@ -27,7 +27,36 @@ pub enum MouseAction {
     MiddleUp { x: i32, y: i32 },
     /// Vertical + horizontal wheel deltas in Windows units (120 = one notch).
     Wheel { dx: f64, dy: f64 },
+    /// A wheel event with Ctrl held — the Windows equivalent of a pinch-zoom
+    /// (`Ctrl+wheel` zooms in most apps; a bare wheel would just scroll).
+    CtrlWheel { dx: f64, dy: f64 },
     ScrollPhase(ScrollPhase),
+}
+
+/// A three/four-finger swipe maps to a Windows task/desktop shortcut (the
+/// Mac maps the same gesture to Mission Control).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwipeShortcut {
+    /// Vertical swipe → Task View (`Win+Tab`).
+    TaskView,
+    /// Horizontal swipe left → previous virtual desktop (`Ctrl+Win+Left`).
+    DesktopLeft,
+    /// Horizontal swipe right → next virtual desktop (`Ctrl+Win+Right`).
+    DesktopRight,
+}
+
+/// Which shortcut a swipe `(dx, dy)` should trigger, or `None` when the
+/// travel is too small to be a swipe.
+pub fn swipe_shortcut(dx: f32, dy: f32) -> Option<SwipeShortcut> {
+    const MIN_TRAVEL: f32 = 0.05;
+    if dx.abs() < MIN_TRAVEL && dy.abs() < MIN_TRAVEL {
+        return None;
+    }
+    if dx.abs() > dy.abs() {
+        Some(if dx < 0.0 { SwipeShortcut::DesktopLeft } else { SwipeShortcut::DesktopRight })
+    } else {
+        Some(SwipeShortcut::TaskView)
+    }
 }
 
 /// Screen dimensions the cursor is clamped to. On Windows these come from
@@ -151,11 +180,12 @@ impl InputTranslator {
                 }
             }
             TouchPhase::Pinch => {
-                // No public API posts magnification; Ctrl+scroll is the
-                // standard zoom gesture (Mac uses ⌘+scroll).
+                // No public API posts magnification; Ctrl+wheel is the
+                // standard zoom gesture (the Mac uses ⌘+scroll). Without the
+                // Ctrl hold this was a plain scroll — pinch never zoomed.
                 let gain = screen.height * 1.2;
                 let dy = -(event.dx as f64) * gain;
-                actions.push(MouseAction::Wheel { dx: 0.0, dy });
+                actions.push(MouseAction::CtrlWheel { dx: 0.0, dy });
             }
             TouchPhase::ThreeFingerSwipe => {
                 // Handled by the caller as a keyboard shortcut (Task View /
@@ -324,7 +354,7 @@ mod tests {
         // dy = -(0.1) * 1200 = -120 (allow f32 rounding).
         assert_eq!(actions.len(), 1);
         match actions[0] {
-            MouseAction::Wheel { dx, dy } => {
+            MouseAction::CtrlWheel { dx, dy } => {
                 assert_eq!(dx, 0.0);
                 assert!((dy + 120.0).abs() < 0.01, "dy = {dy}");
             }
@@ -343,6 +373,23 @@ mod tests {
                 MouseAction::MiddleUp { x: 0, y: 0 },
             ]
         );
+    }
+
+    #[test]
+    fn swipe_shortcut_picks_task_view_for_vertical() {
+        assert_eq!(swipe_shortcut(0.0, -0.2), Some(SwipeShortcut::TaskView));
+        assert_eq!(swipe_shortcut(0.01, 0.2), Some(SwipeShortcut::TaskView));
+    }
+
+    #[test]
+    fn swipe_shortcut_picks_desktops_for_horizontal() {
+        assert_eq!(swipe_shortcut(-0.2, 0.0), Some(SwipeShortcut::DesktopLeft));
+        assert_eq!(swipe_shortcut(0.2, 0.0), Some(SwipeShortcut::DesktopRight));
+    }
+
+    #[test]
+    fn swipe_shortcut_ignores_tiny_travel() {
+        assert_eq!(swipe_shortcut(0.01, 0.01), None);
     }
 
     #[test]
@@ -377,11 +424,19 @@ pub fn screen_actions(
     };
     let (x, y) = point(input.u, input.v);
     match input.action {
-        ScreenInputAction::Click => vec![
-            MouseAction::Move { x, y },
-            MouseAction::LeftDown { x, y },
-            MouseAction::LeftUp { x, y },
-        ],
+        ScreenInputAction::Click => {
+            // Windows has no click-state field; post the down/up pair
+            // `clickCount` times so the OS sees a real double/triple click
+            // (word / paragraph select), matching the Mac's clickState.
+            let count = input.click_count.clamp(1, 3) as usize;
+            let mut actions = Vec::with_capacity(count * 2 + 1);
+            actions.push(MouseAction::Move { x, y });
+            for _ in 0..count {
+                actions.push(MouseAction::LeftDown { x, y });
+                actions.push(MouseAction::LeftUp { x, y });
+            }
+            actions
+        }
         ScreenInputAction::DragStart => {
             vec![MouseAction::Move { x, y }, MouseAction::LeftDown { x, y }]
         }
@@ -444,6 +499,16 @@ mod screen_tests {
     fn clamp_keeps_clicks_inside_the_window() {
         let actions = screen_actions(&input(ScreenInputAction::Click, 2.0, -1.0), (0.0, 0.0), (100.0, 100.0));
         assert_eq!(actions[0], MouseAction::Move { x: 100, y: 0 });
+    }
+
+    #[test]
+    fn double_click_posts_two_down_up_pairs() {
+        let mut d = input(ScreenInputAction::Click, 0.5, 0.5);
+        d.click_count = 2;
+        let actions = screen_actions(&d, (0.0, 0.0), (200.0, 200.0));
+        let downs = actions.iter().filter(|a| matches!(a, MouseAction::LeftDown { .. })).count();
+        let ups = actions.iter().filter(|a| matches!(a, MouseAction::LeftUp { .. })).count();
+        assert_eq!((downs, ups), (2, 2), "double click = two down/up pairs; got {actions:?}");
     }
 
     #[test]
