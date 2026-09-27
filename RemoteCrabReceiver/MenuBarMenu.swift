@@ -24,6 +24,11 @@ struct MenuBarMenu: View {
     @EnvironmentObject private var setupStatus: SetupStatus
     @Environment(\.openWindow) private var openWindow
     @AppStorage("remotecrab.didFirstLaunch") private var didFirstLaunch: Bool = false
+    // Subscribes to the updater's `@Published pendingUpdate` so the
+    // "Restart to Update" row appears/refreshes live. Read via the
+    // wrapper (not `UpdaterController.shared` directly) so SwiftUI
+    // re-renders when Sparkle finishes downloading an update.
+    @StateObject private var updater = UpdaterController.shared
     @State private var showManualConnect = false
     @State private var manualAddress = ""
 
@@ -414,6 +419,22 @@ struct MenuBarMenu: View {
                           help: LocalizedStringKey(IBLocale.Connection.disconnect),
                           action: { session.disconnect() })
             }
+            // Update rows. The pending row uses `.opacity` rather than
+            // `if` because a `MenuBarExtra(.window)` re-lays-out (and
+            // visibly animates) whenever its content height changes —
+            // keeping the row present at 0 opacity means a downloaded
+            // update never resizes the popover.
+            ActionRow(icon: "arrow.triangle.2.circlepath",
+                      title: LocalizedStringKey(IBLocale.Update.restartToUpdate),
+                      shortcut: "",
+                      help: LocalizedStringKey(IBLocale.Update.restartToUpdate),
+                      action: { updater.installNow() })
+                .opacity(updater.pendingUpdate ? 1 : 0)
+            ActionRow(icon: "arrow.down.circle",
+                      title: LocalizedStringKey(IBLocale.Update.checkForUpdates),
+                      shortcut: "",
+                      help: LocalizedStringKey(IBLocale.Update.checkForUpdates),
+                      action: { updater.checkForUpdates() })
             ActionRow(icon: "gear",
                       title: LocalizedStringKey(IBLocale.MenuBar.preferences),
                       shortcut: "⌘,",
