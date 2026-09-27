@@ -2028,7 +2028,9 @@ is tracked in the Roadmap section — don't duplicate it here.
     atomic rename/swap + Gatekeeper scan because `Autoupdate` shares no signing
     identity with the app, so the Task-6 nested re-sign must be confirmed on a
     notarized build; (3) a full `scripts/e2e-device.sh` pass on the merged tree.
-    **(2) is now BLOCKED by a real release bug — see lesson 75.**
+    **(2) is now RESOLVED — the notarized Developer-ID update path is verified
+    (build 1 → build 2 over the real HTTPS feed, atomic swap); the
+    launch-blocker fix + verification are in lesson 75.**
 
 75. **The Developer-ID release does not launch on macOS 26 — the System
     Extension Install entitlement is profile-backed (2026-09-27).** While
@@ -2053,14 +2055,22 @@ is tracked in the Roadmap section — don't duplicate it here.
     + VPS backup), and `release-mac.sh` now **embeds it** as
     `Contents/embedded.provisionprofile` before signing (env override
     `REMOTECRAB_DEVID_PROFILE`). Verified: the notarized Developer-ID app now
-    **launches**. Also confirmed the **live 1.0 DMG was broken** (downloaded
-    `vgoapp.com/downloads/RemoteCrab.dmg` → same amfid kill). **Still open:**
-    the notarized Sparkle update (atomic swap) E2E — in the notarized build
-    Sparkle fetched the local appcast but did **not** download the update
-    (root cause not found; the dev-signed build does download). **Debug
-    method:** launch it and read `log show --predicate 'process == "amfid"'
-    --info` — taskgated's crash report only says "Invalid Signature" and
-    tells you nothing.
+    **    launches**. Also confirmed the **live 1.0 DMG was broken** (downloaded
+    `vgoapp.com/downloads/RemoteCrab.dmg` → same amfid kill). **The notarized
+    update (atomic swap) path IS verified** (2026-09-27): a Developer-ID build 1
+    updated itself to build 2 over the real HTTPS feed (forced background check
+    → `found valid update build 2` → download → idle install → atomic swap →
+    running build 2). The earlier "notarized build doesn't download" was a
+    **test-harness artifact**: Sparkle throttles launch checks via
+    `SULastCheckTime`, so repeated test launches simply stopped checking (the
+    app didn't even appear in the proxy's connection table — nothing was
+    blocked; it also works through a Clash/mihomo **global-mode TUN proxy**,
+    `utun4` 198.18.0.1). To force a real check and bypass the throttle call
+    `updater.checkForUpdatesInBackground()`. **Still open:** the idle gate
+    against a *real active iPhone session* (defer while streaming, install
+    after it ends) — only the no-session case has been exercised.
+    **Debug method** (macOS 26 launch kill): `log show --predicate 'process ==
+    "amfid"' --info` — taskgated's crash report only says "Invalid Signature".
 
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
