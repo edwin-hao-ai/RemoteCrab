@@ -157,27 +157,40 @@ extension UpdaterController: SPUUpdaterDelegate {
         ProcessInfo.processInfo.environment["REMOTECRAB_UPDATE_FEED"]
     }
 
-    /// Observability (spec §9): report a failed update cycle. `error` is
-    /// nil on a normal finish (including "no update found"), so only log
-    /// when one is set. Sparkle invokes driver callbacks on the main
+    /// Observability (spec §9): report a failed update cycle. Sparkle still
+    /// passes a non-nil error for routine outcomes — no newer version found
+    /// (`SUNoUpdateError`) or a user-cancelled install
+    /// (`SUInstallationCanceledError`) — so those are filtered out instead of
+    /// logged as failures. Sparkle invokes driver callbacks on the main
     /// thread, so `assumeIsolated` is safe (same as the method above).
     nonisolated func updater(
         _ updater: SPUUpdater,
         didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
         error: Error?
     ) {
-        guard let error else { return }
+        guard let error, !Self.isRoutineUpdateOutcome(error) else { return }
         MainActor.assumeIsolated {
             Self.log.error("update cycle failed (\(String(describing: updateCheck), privacy: .public)): \(error.localizedDescription, privacy: .public)")
         }
     }
 
     /// Observability (spec §9): report a driver abort (e.g. a failed
-    /// download or a bad signature).
+    /// download or a bad signature). A cancelled install reaches here too and
+    /// is not a failure.
     nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        guard !Self.isRoutineUpdateOutcome(error) else { return }
         MainActor.assumeIsolated {
             Self.log.error("update driver aborted: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// True for Sparkle outcomes that are not failures: no newer version is
+    /// available, or the user cancelled an install (see `SUErrors.h`).
+    private nonisolated static func isRoutineUpdateOutcome(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == SUSparkleErrorDomain else { return false }
+        return ns.code == Int(SUError.noUpdateError.rawValue)
+            || ns.code == Int(SUError.installationCanceledError.rawValue)
     }
 }
 
