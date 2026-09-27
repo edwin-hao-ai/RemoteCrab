@@ -19,7 +19,23 @@ final class UpdaterController: NSObject, ObservableObject {
     /// Sparkle's silent-install handler, stashed until we're idle.
     private var installHandler: (() -> Void)?
 
-    private var controller: SPUStandardUpdaterController!
+    /// Created lazily, on first use, rather than in `init()`. Starting
+    /// Sparkle from `App.init()` is too early — the app's connection to
+    /// system services isn't up yet (the same class of problem as the
+    /// camera system-extension registration; see `AppDelegate`). The app
+    /// calls `attach(session:)` from `applicationDidFinishLaunching`,
+    /// which materializes this.
+    private lazy var controller: SPUStandardUpdaterController = {
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: self,
+            userDriverDelegate: self
+        )
+        controller.updater.automaticallyChecksForUpdates = true
+        controller.updater.automaticallyDownloadsUpdates = true
+        return controller
+    }()
+
     private var cancellables = Set<AnyCancellable>()
     private var idleSince: Date?
     private var ticker: Timer?
@@ -30,19 +46,15 @@ final class UpdaterController: NSObject, ObservableObject {
 
     private override init() {
         super.init()
-        controller = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: self,
-            userDriverDelegate: self
-        )
-        controller.updater.automaticallyChecksForUpdates = true
-        controller.updater.automaticallyDownloadsUpdates = true
     }
 
-    /// Called once from the App; idempotent.
+    /// Called once from the App's `applicationDidFinishLaunching`;
+    /// idempotent. Also starts Sparkle (the lazy controller is touched
+    /// here) so the updater never begins before AppKit has launched.
     func attach(session: ReceiverSession) {
         guard self.session == nil else { return }
         self.session = session
+        _ = controller
     }
 
     var automaticallyChecksForUpdates: Bool {
@@ -56,13 +68,24 @@ final class UpdaterController: NSObject, ObservableObject {
 
     /// Menu-bar "Restart to Update" — bypass the idle wait on explicit tap.
     func installNow() {
-        guard let handler = installHandler else { return }
+        guard let handler = consumeInstallHandler() else { return }
         Self.log.info("installing pending update on explicit request")
-        stopTicker()
         handler()
     }
 
     // MARK: - Idle gating
+
+    /// Takes the stashed install handler so it can only ever be invoked
+    /// once. Clears the pending state and the ticker synchronously, so a
+    /// tick Task enqueued before an explicit `installNow()` (or vice versa)
+    /// finds nothing to do. Returns nil if there is no pending install.
+    private func consumeInstallHandler() -> (() -> Void)? {
+        guard let handler = installHandler else { return nil }
+        installHandler = nil
+        pendingUpdate = false
+        stopTicker()
+        return handler
+    }
 
     private func beginWaitingForIdle() {
         guard ticker == nil else { return }
@@ -79,7 +102,13 @@ final class UpdaterController: NSObject, ObservableObject {
     }
 
     private func evaluateIdle() {
-        guard let session, installHandler != nil else { stopTicker(); return }
+        // Only a live ticker with a still-pending handler may install; a
+        // tick Task that outlives the ticker must not fire a second
+        // install (the handler is consumed synchronously below).
+        guard let session, ticker != nil, installHandler != nil else {
+            stopTicker()
+            return
+        }
         let now = Date()
         let active = session.isSessionActive
         let recording = session.isRecording
@@ -88,12 +117,11 @@ final class UpdaterController: NSObject, ObservableObject {
             return
         }
         if idleSince == nil { idleSince = now }
-        if gate.shouldInstall(pendingUpdate: true, sessionActive: active,
-                              isRecording: recording, idleSince: idleSince, now: now) {
+        if gate.shouldInstall(pendingUpdate: pendingUpdate, sessionActive: active,
+                              isRecording: recording, idleSince: idleSince, now: now),
+           let handler = consumeInstallHandler() {
             Self.log.info("installing pending update while idle")
-            let handler = installHandler
-            stopTicker()
-            handler?()
+            handler()
         }
     }
 }

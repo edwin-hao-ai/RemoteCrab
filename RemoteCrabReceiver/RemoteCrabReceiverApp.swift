@@ -22,7 +22,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             SystemExtensionManager.shared.ensureRegistered()
         }
+        // Start the auto-updater only now that AppKit has launched.
+        // `App.init()` is too early to start system services (same class
+        // of problem as the sysex registration above), so the updater is
+        // attached here rather than there.
         _ = UpdaterController.shared
+        UpdaterController.shared.attach(session: ReceiverSession.shared)
     }
 }
 
@@ -68,7 +73,6 @@ struct RemoteCrabReceiverApp: App {
             ]
             _ = AXIsProcessTrustedWithOptions(opts)
         }
-        UpdaterController.shared.attach(session: ReceiverSession.shared)
     }
 
     var body: some Scene {
