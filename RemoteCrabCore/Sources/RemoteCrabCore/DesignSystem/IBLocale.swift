@@ -480,6 +480,18 @@ public enum IBLocale {
         public static let badge = IBL("DEMO")
     }
 
+    /// In-app ReplayKit recorder — lets the user capture the app's own screen
+    /// on a physical device and send the clip to the computer.
+    public enum Recorder {
+        public static let title = IBL("Record a Demo Clip")
+        public static let footer = IBL("Records this app's screen on your device. The clip is saved to Files or Photos, and you can send it to your computer from there. Recording stops if you leave the app.")
+        public static let start = IBL("Start Recording")
+        public static let stop = IBL("Stop Recording")
+        public static let includeMicrophone = IBL("Include microphone audio")
+        public static let unavailable = IBL("Screen recording is unavailable. Check Screen Recording restrictions in Settings.")
+        public static let failed = IBL("Recording failed")
+    }
+
     /// Keyboard surface strings.
     public enum Keyboard {
         public static let startTyping = IBL("Start typing…")

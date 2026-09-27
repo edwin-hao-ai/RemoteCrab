@@ -868,23 +868,6 @@
         }
       }
     },
-    "Pinned": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pinned"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已固定"
-          }
-        }
-      }
-    },
     "Quit": {
       "extractionState": "manual",
       "localizations": {
@@ -8648,6 +8631,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "新"
+          }
+        }
+      }
+    },
+    "Record a Demo Clip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record a Demo Clip"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制演示片段"
+          }
+        }
+      }
+    },
+    "Records this app's screen on your device. The clip is saved to Files or Photos, and you can send it to your computer from there. Recording stops if you leave the app.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Records this app's screen on your device. The clip is saved to Files or Photos, and you can send it to your computer from there. Recording stops if you leave the app."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制本 App 在你设备上的画面。片段会存到「文件」或「照片」,之后可以从那里发到电脑。离开 App 录制就会停止。"
+          }
+        }
+      }
+    },
+    "Include microphone audio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Include microphone audio"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含麦克风声音"
+          }
+        }
+      }
+    },
+    "Screen recording is unavailable. Check Screen Recording restrictions in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen recording is unavailable. Check Screen Recording restrictions in Settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法使用屏幕录制。请在系统设置里检查「屏幕录制」的限制。"
+          }
+        }
+      }
+    },
+    "Recording failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制失败"
           }
         }
       }

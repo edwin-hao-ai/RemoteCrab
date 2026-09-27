@@ -365,6 +365,9 @@ struct ContentView: View {
             // E2E: open a sheet for UI screenshot runs.
             switch ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SHEET"] {
             case "switcher", "launcher": showAppSwitcher = true
+            case "context":             engine.showContextSheet = true
+            case "send":                showSendDialog = true
+            case "settings":            showSettings = true
             default: break
             }
         }

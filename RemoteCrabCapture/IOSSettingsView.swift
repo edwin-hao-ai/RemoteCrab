@@ -21,6 +21,9 @@ struct IOSSettingsView: View {
     @AppStorage("remotecrab.ios.labAirMouse")   private var labAirMouse = false
     @AppStorage("remotecrab.ios.labWheelScroll") private var labWheelScroll = false
     @AppStorage("remotecrab.ios.demoMode") private var demoMode = false
+    #if DEBUG
+    @State private var recorder = ScreenRecorder()
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -31,6 +34,9 @@ struct IOSSettingsView: View {
                 inputSection
                 labsSection
                 demoSection
+                #if DEBUG
+                recorderSection
+                #endif
                 aboutSection
             }
             .navigationTitle(IBLocale.Settings.title)
@@ -41,9 +47,53 @@ struct IOSSettingsView: View {
                 }
             }
         }
+        #if DEBUG
+        .sheet(item: $recorder.preview) { preview in
+            RecorderPreviewView(controller: preview.controller)
+                .ignoresSafeArea()
+        }
+        .onAppear { recorder.refresh() }
+        #endif
     }
 
     // MARK: - Sections
+
+#if DEBUG
+    /// In-app ReplayKit capture. Reachable without any Mac-side setup, which
+    /// is what makes it useful for demo and marketing clips.
+    private var recorderSection: some View {
+        Section {
+            if recorder.isAvailable {
+                Button {
+                    recorder.toggle()
+                } label: {
+                    Label(
+                        recorder.isRecording ? IBLocale.Recorder.stop : IBLocale.Recorder.start,
+                        systemImage: recorder.isRecording ? "stop.circle.fill" : "record.circle"
+                    )
+                }
+                .tint(recorder.isRecording ? .red : .accentColor)
+
+                Toggle(IBLocale.Recorder.includeMicrophone, isOn: $recorder.includeMicrophone)
+                    .disabled(recorder.isRecording)
+
+                if let error = recorder.lastError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            } else {
+                Label(IBLocale.Recorder.unavailable, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text(IBLocale.Recorder.title)
+        } footer: {
+            Text(IBLocale.Recorder.footer)
+        }
+    }
+    #endif
 
     /// Offline demo content for exploring / App Review without a Mac.
     private var demoSection: some View {
