@@ -2072,6 +2072,38 @@ is tracked in the Roadmap section — don't duplicate it here.
     **Debug method** (macOS 26 launch kill): `log show --predicate 'process ==
     "amfid"' --info` — taskgated's crash report only says "Invalid Signature".
 
+79. **Mac notification relay + the TCC signature-change trap (2026-09-28).**
+    **Feature:** the Mac polls Notification Center banners via AX
+    (`AXSubrole == "AXNotificationCenterBanner"`; children `AXStaticText`
+    id=title/subtitle/body; app name = banner `AXDescription` minus those),
+    filters on a **denylist** (privacy apps; default **off**), and relays
+    `IBNotification{app,title,subtitle,body}` over the existing link as kind
+    **0x22**; the iPhone shows a `UNUserNotificationCenter` local notification
+    + an in-app list. Best-effort: **banners only** (real-time), DND hides
+    them, app names are localized (no bundle id). Files:
+    `RemoteCrabReceiver/NotificationCapture.swift`,
+    `RemoteCrabCore/State/NotificationFilter.swift`,
+    `RemoteCrabCapture/{NotificationStore,LocalNotifier,NotificationListView}.swift`.
+    **The trap:** swapping `/Applications/RemoteCrab.app` from an **Apple
+    Development** build to a **Developer ID** build (`release-mac.sh`)
+    **invalidates every TCC grant for the app** — Accessibility AND Screen
+    Recording are keyed to the code signature (lesson 10). Symptoms, all at
+    once right after the reinstall: trackpad dead (`CGEventPost`), mirror says
+    "needs Screen Recording", window list logs `canCapture=false`. Fix:
+    re-grant both in System Settings; `tccutil reset <service> <bundleid>`
+    clears stale entries. **Future Sparkle updates (same Developer ID identity)
+    keep the grants** — only a signing-identity change drops them.
+    **UX fix shipped:** the app now opens the Screen Recording pane and shows
+    a Preferences status row (it previously only called the request API, so
+    users couldn't find where to enable it).
+    **Blocked here:** the iOS device/release build — `project-ios.yml` uses
+    team `DDG3CJL762` but the available ASC key/env is team `5XNDF727Y6` (Mac),
+    so no iOS profile can be minted headlessly; and TCC grants are manual. The
+    relay's **iOS half is therefore not shipped yet**, so the feature is inert
+    for now (the Mac sends 0x22 frames the old iOS build ignores).
+    **Released:** Mac **build 3** (`RemoteCrab-1.0.2.zip`, `sparkle:version 3`)
+    uploaded to vgoapp.com (DMG replaced); appcast now advertises build 3.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
