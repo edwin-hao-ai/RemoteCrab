@@ -349,20 +349,7 @@ final class ReceiverSession: ObservableObject {
     private func handleScreenControl(_ control: IBScreenControl) {
         switch control.command {
         case .start:
-            if screenStreamer == nil {
-                // Capture the live connection so the streamer never has to
-                // know about `ReceiverSession`; frames go out on the same
-                // socket as every other event.
-                let conn = connection
-                let streamer = ScreenStreamer { data in
-                    conn?.send(content: data, completion: .contentProcessed { _ in })
-                }
-                streamer.onInfo = { [weak self] info in
-                    Task { @MainActor in self?.lastScreenInfo = info }
-                }
-                screenStreamer = streamer
-                Self.log.info("screen mirror created")
-            }
+            ensureScreenStreamer()
             screenStreamer?.setMaxPixel(control.maxPixel)
             screenStreamer?.start()
         case .stop:
@@ -381,6 +368,10 @@ final class ReceiverSession: ObservableObject {
             // The phone wants a real second monitor: create a virtual
             // display, then point the live mirror at it. All the plumbing
             // (capture/encode/decode/render/input) is the existing mirror.
+            // `ensureScreenStreamer` so an extend that arrives without a
+            // preceding `.start` (or after a `.stop`) still works instead
+            // of silently doing nothing.
+            ensureScreenStreamer()
             screenStreamer?.setMaxPixel(control.maxPixel)
             let width = control.maxPixel ?? 1920
             Task { @MainActor [weak self] in
@@ -394,6 +385,25 @@ final class ReceiverSession: ObservableObject {
                 self.screenStreamer?.extend(displayID: id)
             }
         }
+    }
+
+    /// Create the mirror streamer on demand. `.start` and `.extend` both
+    /// need it — an extend that arrives without a preceding start must not
+    /// silently no-op.
+    private func ensureScreenStreamer() {
+        guard screenStreamer == nil else { return }
+        // Capture the live connection so the streamer never has to know
+        // about `ReceiverSession`; frames go out on the same socket as
+        // every other event.
+        let conn = connection
+        let streamer = ScreenStreamer { data in
+            conn?.send(content: data, completion: .contentProcessed { _ in })
+        }
+        streamer.onInfo = { [weak self] info in
+            Task { @MainActor in self?.lastScreenInfo = info }
+        }
+        screenStreamer = streamer
+        Self.log.info("screen mirror created")
     }
 
     /// Drop the extended virtual display, if one is up.

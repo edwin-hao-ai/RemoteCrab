@@ -385,7 +385,10 @@ final class VoiceRecognizer {
         // syllable never made it and the final dropped 1–2 characters.
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self else { return }
+            // A rapid re-press started a new session; this delayed teardown
+            // must not touch it (it once called endAudio/stopAudioEngine on
+            // the NEW request, killing the second use — "用两次就不能用了").
+            guard let self, self.sessionGeneration == generation else { return }
             self.request?.endAudio()
             self.requestBox.markEnded()
             self.stopAudioEngine()

@@ -38,6 +38,34 @@ vars `REMOTECRAB_*`, and all scripts/docs.
 
 ---
 
+## Rules for every change (learned the hard way — read first)
+
+1. **Find the root cause before changing any code.** No speculative edits, no
+   "try this and see". Reproduce it, gather evidence (device `forensic.log`,
+   `/usr/bin/log stream --predicate 'subsystem == "com.remotecrab"'`, crash
+   reports), state the cause in one sentence, *then* fix that cause. A fix
+   without a cause is a guess; a guess that works is a coincidence.
+2. **Before editing, write down the impact surface.** Every touched function
+   has callers and shared state — list them and say how the change affects
+   each. (Recent example: adding viewport insets to `ScreenZoomState` for the
+   landscape "content hides under the top bar" bug silently changed the
+   two-finger gesture split, because a taller-than-band content now pans
+   instead of scrolls — the scroll regression was the *same edit*, not a new
+   bug. The fix must handle both.) If a change has a plausible side effect,
+   either prove it can't happen or fix the side effect in the same commit.
+3. **Bugfixes must be verified on the thing that reported them.** A device UI
+   bug needs a device check (or a documented, exact reproduction that can't be
+   run headlessly). "Builds + unit tests pass" is not evidence a UI bug is
+   fixed.
+4. **Don't stack a fix on a fix.** If a second attempt to fix the same issue
+   fails, stop and re-do step 1 with the new evidence instead of adding more
+   code (three failed attempts means the model is wrong).
+5. **Never trust a stale artifact.** Verify the build actually on the device
+   (a log line that only the new build emits is the cheapest proof), and
+   re-pull logs/crash reports rather than reusing an older run's file.
+
+---
+
 ## What RemoteCrab is
 
 A two-part macOS + iOS utility that turns an iPhone / iPad into a

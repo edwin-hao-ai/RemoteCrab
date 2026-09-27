@@ -26,6 +26,9 @@ struct ContentView: View {
     @State private var screenshotError: String?
     @State private var voice = VoiceRecognizer()
     @State private var voiceHeld = false
+    /// A start() attempt failed during this press — blocks retrying on every
+    /// `onChanged` (the start/fail loop that flashed the button).
+    @State private var voiceAttemptFailed = false
 
     /// Brief "Sent" confirmation shown on the voice card after the
     /// finalized text has been dispatched to the Mac.
@@ -260,6 +263,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            Forensic.log("[e2e] scene phase → \(phase == .active ? "active" : phase == .inactive ? "inactive" : "background") cameraOn=\(engine.features.cameraOn)")
             // Privacy shield while the mirror is the active surface: the
             // app-switcher snapshot must not show the mirrored window.
             if phase == .active {
@@ -643,8 +647,8 @@ struct ContentView: View {
             }
             Spacer()
 
-            // App switching is a top-level action now — it used to hide
-            // behind the overflow menu.
+            // App switcher first (its own button), then the two capture
+            // toggles as their own buttons.
             Button { showAppSwitcher = true } label: {
                 topBarIcon("square.grid.2x2")
             }
@@ -653,9 +657,6 @@ struct ContentView: View {
             .buttonStyle(IBPressButtonStyle())
             .accessibilityLabel(IBLocale.Switcher.title)
 
-            // Stream toggles moved here from the retired FeatureDock:
-            // they are global on/off state, which is exactly what a
-            // top bar is for.
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 withAnimation(IBAnimation.snappy) {
@@ -688,46 +689,40 @@ struct ContentView: View {
             .accessibilityValue(engine.features.micOn ? IBLocale.A11y.on : IBLocale.A11y.off)
             .accessibilityAddTraits(engine.features.micOn ? .isSelected : [])
 
-            // App-window mirror: enters the full-screen `.screen` surface
-            // and asks the computer to start streaming its frontmost
-            // window. Same level as the camera/mic stream toggles.
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(IBAnimation.snappy) {
-                    engine.toggleScreenMirror()
-                }
-            } label: {
-                topBarIcon("rectangle.on.rectangle", tint: .white,
-                           active: engine.features.screenOn)
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .buttonStyle(IBPressButtonStyle())
-            .accessibilityLabel(IBLocale.Mirror.title)
-            .accessibilityValue(engine.features.screenOn ? IBLocale.A11y.on : IBLocale.A11y.off)
-            .accessibilityAddTraits(engine.features.screenOn ? .isSelected : [])
-
-            // Extended Display: a source of its own, parallel to the mirror —
-            // the Mac creates a virtual second display and streams that, so
-            // windows can live on this phone. Hidden on Windows (no
-            // virtual-display support there yet).
-            if !engine.connectedIsWindows {
+            // Mirror + Extended Display are two parallel SOURCES for the
+            // same viewer, so they share one dropdown; the checkmark marks
+            // the active one. (Windows has no virtual-display support, so
+            // only "mirror a window" is offered there.)
+            Menu {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     withAnimation(IBAnimation.snappy) {
-                        engine.toggleExtendedDisplay()
+                        engine.toggleScreenMirror()
                     }
                 } label: {
-                    topBarIcon("rectangle.on.rectangle.angled", tint: .white,
-                               active: engine.isExtendedDisplayOn)
+                    Label(IBLocale.Mirror.title,
+                          systemImage: (engine.features.screenOn && !engine.isExtendedDisplayOn)
+                                      ? "checkmark" : "rectangle.on.rectangle")
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Circle())
-                .buttonStyle(IBPressButtonStyle())
-                .accessibilityLabel(IBLocale.Mirror.extendDisplay)
-                .accessibilityValue(engine.isExtendedDisplayOn ? IBLocale.A11y.on : IBLocale.A11y.off)
-                .accessibilityAddTraits(engine.isExtendedDisplayOn ? .isSelected : [])
+                if !engine.connectedIsWindows {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(IBAnimation.snappy) {
+                            engine.toggleExtendedDisplay()
+                        }
+                    } label: {
+                        Label(IBLocale.Mirror.extendDisplay,
+                              systemImage: engine.isExtendedDisplayOn
+                                          ? "checkmark" : "rectangle.on.rectangle.angled")
+                    }
+                }
+            } label: {
+                topBarIcon("rectangle.on.rectangle",
+                           active: engine.features.screenOn || engine.isExtendedDisplayOn)
             }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .accessibilityLabel(IBLocale.Mirror.title)
 
             // Everything else lives in ONE overflow menu. The bar used
             // to carry five buttons, which crowded the live view.
@@ -1012,7 +1007,11 @@ struct ContentView: View {
 
     // Hold-to-talk — moved verbatim from FeatureDock.
     private func startVoice() {
-        guard !voiceHeld else { return }
+        // One attempt per press: on failure this used to reset `voiceHeld`,
+        // so the still-held finger's every `onChanged` retried start() — a
+        // start/fail loop that flashed the button and wedged the recognizer
+        // after a couple of uses.
+        guard !voiceHeld, !voiceAttemptFailed else { return }
         voiceHeld = true
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         engine.beginVoiceSession()
@@ -1020,9 +1019,10 @@ struct ContentView: View {
         Task { @MainActor in
             let started = await voice.start()
             if !started {
-                // No permission / recognizer unavailable — don't leave
-                // the button glowing a fake active state.
+                // No permission / recognizer unavailable — don't leave the
+                // button glowing, and don't retry until the finger lifts.
                 voiceHeld = false
+                voiceAttemptFailed = true
                 engine.features.set(feature: .voice, enabled: false)
             } else if !voiceHeld {
                 // Finger released before the async start() resolved
@@ -1034,6 +1034,7 @@ struct ContentView: View {
     }
 
     private func stopVoice() {
+        voiceAttemptFailed = false
         guard voiceHeld else { return }
         voiceHeld = false
         UIImpactFeedbackGenerator(style: .light).impactOccurred()

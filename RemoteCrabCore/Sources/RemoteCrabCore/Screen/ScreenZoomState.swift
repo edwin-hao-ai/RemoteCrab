@@ -212,6 +212,18 @@ public struct ScreenZoomState: Equatable, Sendable {
     /// leftover once an edge is reached becomes a normalized scroll delta
     /// (option X: pan first, then hand off to the Mac's content scroll).
     public func twoFinger(translation: CGSize) -> TwoFingerResult {
+        // Panning is only meaningful when the content is bigger than the
+        // band BECAUSE THE USER ZOOMED (or chose fill). The chrome insets
+        // can also make the fitted content taller than the band — treating
+        // that as pannable turned every two-finger drag into a pan and broke
+        // content scrolling ("双指滚动失灵"), so fit-at-zoom-1 scrolls.
+        guard zoom > 1.01 || fillsView else {
+            return TwoFingerResult(
+                pan: pan,
+                scrollDX: viewSize.width > 0 ? Double(translation.width / viewSize.width) : 0,
+                scrollDY: viewSize.height > 0 ? Double(translation.height / viewSize.height) : 0
+            )
+        }
         let proposed = CGSize(width: pan.width + translation.width,
                               height: pan.height + translation.height)
         let clamped = clampedPan(proposed)

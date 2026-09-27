@@ -114,7 +114,9 @@ final class AnalyzerVoiceEngine: VoiceEngine {
         // stop, finish and finalize.
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self else { return }
+            // A rapid re-press started a new session (which resets
+            // `stopRequested`); a stale teardown must not touch it.
+            guard let self, self.stopRequested else { return }
             self.stopAudioEngine()
             self.inputContinuation?.finish()
             self.inputContinuation = nil

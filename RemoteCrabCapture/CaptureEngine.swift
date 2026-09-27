@@ -607,10 +607,12 @@ final class CaptureEngine: ObservableObject {
     /// virtual display), or drop back to mirroring the frontmost window.
     /// Opening the viewer first when needed, so it works standalone.
     func toggleExtendedDisplay() {
+        Forensic.log("[e2e] toggle extended display: on=\(isExtendedDisplayOn) screenOn=\(features.screenOn) connected=\(broadcaster != nil)")
         if isExtendedDisplayOn {
-            screenPinnedWindowId = nil
-            Forensic.log("[e2e] extended display off → follow")
-            broadcaster?.send(IBScreenControl(command: .follow))
+            // Tapping the active source turns the viewer off (symmetric with
+            // the mirror toggle) — switching to the OTHER source is what the
+            // mirror button does.
+            stopScreenMirror()
             return
         }
         if !features.screenOn {
@@ -622,7 +624,14 @@ final class CaptureEngine: ObservableObject {
     }
 
     func toggleScreenMirror() {
-        if features.screenOn {
+        // Mirror and Extended Display are two SOURCES for the same viewer and
+        // are mutually exclusive: tapping the other one switches (and closes
+        // the current source), tapping the active one turns it off.
+        if isExtendedDisplayOn {
+            screenPinnedWindowId = nil
+            Forensic.log("[e2e] switch extended → mirror window")
+            broadcaster?.send(IBScreenControl(command: .follow))
+        } else if features.screenOn {
             stopScreenMirror()
         } else {
             startScreenMirror()
@@ -1442,8 +1451,13 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_EXTEND"] == "1" {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
-                self?.extendToVirtualDisplay()
-                Forensic.log("[e2e] extend display requested")
+                // Exercise the real user path (the top-bar toggle), which
+                // also covers "extend without a preceding start".
+                self?.toggleExtendedDisplay()
+                // …then switch back to window mirroring (the mutual switch):
+                // the Mac must resume following the frontmost window.
+                try? await Task.sleep(for: .seconds(2))
+                self?.toggleScreenMirror()
             }
         }
         // E2E: the switcher's "Open App…" list — REMOTECRAB_E2E_INSTALLED_APPS=1

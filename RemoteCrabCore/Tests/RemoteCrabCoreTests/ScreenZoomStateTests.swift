@@ -160,4 +160,22 @@ final class ScreenZoomStateTests: XCTestCase {
         XCTAssertNil(tall.contentUV(forViewPoint: CGPoint(x: 422, y: 30)),
                      "a touch in the top chrome area is not on the window")
     }
+
+    func testTwoFingerScrollsWhenFittedEvenWithInsets() {
+        // Regression: with chrome insets the fitted content is taller than
+        // the usable band, which used to make two-finger drags PAN instead
+        // of scroll. At zoom 1 / fit they must scroll.
+        var s = makeInsetState()
+        let r = s.twoFinger(translation: CGSize(width: 0, height: 40))
+        XCTAssertTrue(r.isScroll, "a two-finger drag at fit zoom is a content scroll")
+        XCTAssertEqual(r.pan.height, s.pan.height, accuracy: 0.001, "no pan at fit zoom")
+        XCTAssertEqual(r.scrollDY, 40.0 / 390.0, accuracy: 0.001)
+    }
+
+    func testTwoFingerPansOnceZoomedIn() {
+        var s = makeInsetState()
+        s.setZoom(2)
+        let r = s.twoFinger(translation: CGSize(width: 0, height: 10))
+        XCTAssertGreaterThan(r.pan.height, s.pan.height, "zoomed-in two-finger pans the content")
+    }
 }

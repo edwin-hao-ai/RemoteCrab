@@ -108,8 +108,10 @@ check "first screen frame decoded OK"     "mirror frame decoded on iPhone"
 check "-> global"                         "mirror input injected on Mac"
 check "installed apps"                    "installed-app list published (Open App…)"
 check "showDesktop requested"             "Desktop quick action (showDesktop)"
+check "toggle extended display"           "Extended Display toggle fired (top-bar button path)"
 check "virtual display created"           "Extended Display: virtual display created"
 check "streaming extended display"        "mirror streams the virtual display"
+check "reason=follow"                     "switched Extended → window mirror (mutual toggle)"
 check "streaming display"                 "mirror followed Show Desktop → display capture"
 
 echo
