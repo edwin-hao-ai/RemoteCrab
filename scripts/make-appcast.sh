@@ -20,7 +20,7 @@ BASE_URL="${REMOTECRAB_DOWNLOAD_BASE:-https://vgoapp.com/downloads/}"
 GEN="${SPARKLE_GENERATE_APPCAST:-}"
 if [[ -z "$GEN" ]]; then
   GEN="$(find "$ROOT/.build" "$HOME/Library/Developer/Xcode/DerivedData" \
-    -path '*sparkle*/bin/generate_appcast' 2>/dev/null | head -1)"
+    -path '*sparkle*/bin/generate_appcast' -print -quit 2>/dev/null || true)"
 fi
 [[ -x "$GEN" ]] || { echo "generate_appcast not found; set SPARKLE_GENERATE_APPCAST" >&2; exit 1; }
 
