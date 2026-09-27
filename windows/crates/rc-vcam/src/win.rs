@@ -12,7 +12,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 
 /// The CLSID the media-source DLL will be registered under. Fixed so repeated
 /// runs re-open the same camera (the docs key the camera on these params).
-const SOURCE_CLSID: GUID = GUID::from_u128(0x9d4b_0d4d_1d2a_4b3e_9c0a_7f6e5d4c3b2a);
+const SOURCE_CLSID: GUID = GUID::from_u128(0x9d4b0d4d1d2a4b3e9c0a7f6e5d4c3b2a);
 
 /// A no-op `IMFAsyncCallback` — `Start` wants one for device events.
 #[implement(IMFAsyncCallback)]
