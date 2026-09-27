@@ -16,4 +16,13 @@ protocol VoiceEngine: AnyObject {
 
     func start() async -> Bool
     func stop()
+    /// Awaits the in-flight teardown from `stop()`, if any. `VoiceRecognizer`
+    /// awaits this before starting an engine so a previous session is fully
+    /// released and can never touch the new one. Engines with a synchronous
+    /// teardown can rely on the default no-op.
+    func waitForTeardown() async
+}
+
+extension VoiceEngine {
+    func waitForTeardown() async {}
 }

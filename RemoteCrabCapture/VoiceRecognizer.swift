@@ -112,6 +112,12 @@ final class VoiceRecognizer {
     /// Also carried into each task's callback so a superseded task's late
     /// (cancellation) error is ignored instead of killing the live task.
     private var sessionGeneration = 0
+    /// The in-flight teardown from the last `stop()`. `start()` awaits it, so
+    /// a rapid re-press can neither race nor skip the previous session's
+    /// release. Skipping it (the old generation guard) leaked the request and
+    /// the mic tap, and after a few uses `start()` simply failed
+    /// ("用几次就不能说话了").
+    private var teardownTask: Task<Void, Never>?
 
     /// Bumped once per hold. A scheduled recovery/resume from a previous
     /// hold must not resurrect a session the user released and re-pressed.
@@ -200,6 +206,14 @@ final class VoiceRecognizer {
     func start() async -> Bool {
         guard !isRunning, !isStarting else { return true }
         isStarting = true
+
+        // Serialize with the previous session's teardown (always runs now, so
+        // nothing leaks); a stale teardown must finish before a new session
+        // exists at all.
+        if let teardown = teardownTask {
+            await teardown.value
+            teardownTask = nil
+        }
 
         // Prefer the iOS 26 SpeechAnalyzer engine when it can run with an
         // already-installed model (never downloads). If it can't or fails,
@@ -370,7 +384,10 @@ final class VoiceRecognizer {
             isRunning = false
             isRecovering = false
             forensic("stop requested (analyzer)")
-            analyzerEngine.stop()
+            let engine = analyzerEngine
+            engine.stop()
+            // Keep the release ordered: the next start awaits this.
+            teardownTask = Task { await engine.waitForTeardown() }
             return
         }
         guard isRunning else { return }
@@ -383,12 +400,13 @@ final class VoiceRecognizer {
         // Let the tail audio reach the recognizer before we close the
         // request: the old order stopped the mic first, so the last
         // syllable never made it and the final dropped 1–2 characters.
-        Task { [weak self] in
+        // The teardown ALWAYS runs (it releases THIS session's own objects);
+        // `start()` awaits `teardownTask`, so it can never touch a newer
+        // session — skipping it (the old generation guard) leaked the request
+        // and the mic tap and broke the Nth use.
+        teardownTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            // A rapid re-press started a new session; this delayed teardown
-            // must not touch it (it once called endAudio/stopAudioEngine on
-            // the NEW request, killing the second use — "用两次就不能用了").
-            guard let self, self.sessionGeneration == generation else { return }
+            guard let self else { return }
             self.request?.endAudio()
             self.requestBox.markEnded()
             self.stopAudioEngine()

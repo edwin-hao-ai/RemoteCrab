@@ -36,14 +36,44 @@ final class AnalyzerVoiceEngine: VoiceEngine {
 
     private var committedText = ""
     private var volatileText = ""
+    /// Longest `committed + volatile` ever seen this session (see the results
+    /// loop) — the finalizer can truncate the tail, so the final must not
+    /// shrink below this.
+    private var longestSeen = ""
     private var isRunning = false
+    private var isStarting = false
     private var stopRequested = false
     private var finalDelivered = false
+    /// The in-flight teardown from the last `stop()`; `start()` awaits it so a
+    /// rapid re-press can't race (or skip) the previous session's release.
+    private var teardownTask: Task<Void, Never>?
 
     // MARK: - Start / stop
 
+    /// Awaits the in-flight teardown (if any). `VoiceRecognizer` awaits this
+    /// before starting a new engine, so an old session is fully released and
+    /// can never touch the new one.
+    func waitForTeardown() async {
+        if let teardown = teardownTask { await teardown.value }
+    }
+
     func start() async -> Bool {
         guard !isRunning else { return true }
+        guard !isStarting else { return true }
+        isStarting = true
+        defer { isStarting = false }
+
+        // Serialize with the previous session's teardown. `stop()` tore the
+        // session down on a 300 ms delay; when the user pressed again sooner,
+        // the old `guard stopRequested` skipped that teardown entirely (the
+        // new start resets `stopRequested`), leaking the analyzer, its
+        // results task and the installed mic tap — after a few uses `start()`
+        // simply failed ("用几次就不能说话了"). Waiting for it here keeps the
+        // shared state safe AND guarantees the old session is released.
+        if let teardown = teardownTask {
+            await teardown.value
+            teardownTask = nil
+        }
 
         guard SpeechTranscriber.isAvailable,
               let locale = await Self.resolveInstalledLocale() else {
@@ -108,15 +138,13 @@ final class AnalyzerVoiceEngine: VoiceEngine {
         stopRequested = true
 
         // Let the tail audio reach the transcriber before we close the
-        // input. Releasing the PTT used to stop the mic first, so the last
-        // syllable was never delivered and the final text lost 1–2
-        // characters ("漏最后 1-2 个字"). Keep feeding for a beat, then
-        // stop, finish and finalize.
-        Task { @MainActor [weak self] in
+        // input (releasing the PTT used to stop the mic first, so the last
+        // syllable never reached the recognizer). The teardown ALWAYS runs —
+        // it releases this session's own objects; `start()` awaits
+        // `teardownTask`, so the shared state cannot be clobbered.
+        teardownTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            // A rapid re-press started a new session (which resets
-            // `stopRequested`); a stale teardown must not touch it.
-            guard let self, self.stopRequested else { return }
+            guard let self else { return }
             self.stopAudioEngine()
             self.inputContinuation?.finish()
             self.inputContinuation = nil
@@ -146,7 +174,13 @@ final class AnalyzerVoiceEngine: VoiceEngine {
                     } else {
                         self.volatileText = text
                     }
-                    self.onPartial?(self.committedText + self.volatileText, self.committedText.count)
+                    let full = self.committedText + self.volatileText
+                    // The finalizer can emit a SHORTER last segment than the
+                    // volatile text the phone already showed, which is how the
+                    // trailing 1-2 characters got lost. Keep the longest text
+                    // seen and never deliver less than that.
+                    if full.count > self.longestSeen.count { self.longestSeen = full }
+                    self.onPartial?(full, self.committedText.count)
                 }
             } catch {
                 guard let self, self.isRunning, !self.stopRequested else { return }
@@ -275,7 +309,9 @@ final class AnalyzerVoiceEngine: VoiceEngine {
         guard !finalDelivered else { return }
         finalDelivered = true
         cleanup()
-        let text = (committedText + volatileText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = (committedText + volatileText).trimmingCharacters(in: .whitespacesAndNewlines)
+        let seen = longestSeen.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = current.count >= seen.count ? current : seen
         if !text.isEmpty { onFinal?(text) }
     }
 
