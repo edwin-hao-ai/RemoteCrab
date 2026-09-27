@@ -49,20 +49,22 @@ enum SystemCommandHandler {
         }
     }
 
-    /// Reveal the desktop: hide every other regular app (so nothing
-    /// covers it) and bring Finder to the front. The hide is the part
-    /// that actually uncovers it — activating Finder alone would only
-    /// raise a Finder window.
+    /// Reveal the desktop: hide EVERY regular app — **including the one the
+    /// user is currently looking at**. The hide is what uncovers the desktop.
+    /// Two old mistakes: skipping the active app (`!$0.isActive`) left the
+    /// current window on screen, and `finder.activate()` could raise a Finder
+    /// window over the desktop. Hiding everything (Finder included) leaves the
+    /// wallpaper + desktop icons and nothing else — Win+D semantics.
     private static func showDesktop() {
-        NSWorkspace.shared.runningApplications
-            .filter { $0.activationPolicy == .regular && !$0.isActive && !$0.isTerminated }
-            .forEach { $0.hide() }
-        if let finder = NSWorkspace.shared.runningApplications.first(where: {
-            $0.bundleIdentifier == "com.apple.finder"
-        }) {
-            finder.activate()
+        let myBundle = Bundle.main.bundleIdentifier
+        for app in NSWorkspace.shared.runningApplications
+        where app.activationPolicy == .regular
+            && !app.isTerminated
+            && !app.isHidden
+            && app.bundleIdentifier != myBundle {
+            app.hide()
         }
-        log.info("showDesktop requested")
+        log.info("showDesktop requested (all apps hidden)")
     }
 
     /// Post one press+release of a system-defined (media) key.

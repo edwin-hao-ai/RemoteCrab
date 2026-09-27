@@ -271,7 +271,9 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
 
     @MainActor
     private func scheduleTargetRecheck() {
-        guard withLock({ isRunning }) else { return }
+        let running = withLock({ isRunning })
+        Self.log.info("activation recheck scheduled (isRunning=\(running, privacy: .public))")
+        guard running else { return }
         debounceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in await self?.recheckFrontmost() }
@@ -282,6 +284,10 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
 
     @MainActor
     private func recheckFrontmost() async {
+        let state = withLock { (isRunning, extendedDisplayID, pinnedWindowNumber) }
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let front = NSWorkspace.shared.frontmostApplication
+        Self.log.info("recheck: running=\(state.0, privacy: .public) extended=\(state.1.map(String.init) ?? "-", privacy: .public) pinned=\(state.2.map(String.init) ?? "-", privacy: .public) front=\(front?.localizedName ?? "-", privacy: .public)/\(front?.processIdentifier ?? 0, privacy: .public) policy=\(front?.activationPolicy.rawValue ?? -1, privacy: .public) self=\(myPID, privacy: .public)")
         guard withLock({ isRunning }) else { return }
         // Extended mode streams the virtual display; app activation is
         // irrelevant — only `follow()`/`stop()` leave it.
@@ -289,8 +295,6 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         // A pinned window ignores app activation — only `follow()` (or the
         // pinned window disappearing) may change the target.
         guard withLock({ pinnedWindowNumber }) == nil else { return }
-        let front = NSWorkspace.shared.frontmostApplication
-        let myPID = ProcessInfo.processInfo.processIdentifier
         // Ignore our own app and non-regular (accessory/background) apps —
         // keep the previous target rather than blanking the mirror.
         guard let front,
@@ -310,7 +314,10 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
         let snapshot = Self.windowSnapshot()
         let descriptors = snapshot.descriptors
-        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+        let front = NSWorkspace.shared.frontmostApplication
+        let frontPID = front?.processIdentifier ?? 0
+        // Finder with no open window is the DESKTOP, not "keep the old app".
+        let desktopIsShowing = front?.bundleIdentifier == ScreenTargetResolver.finderBundleID
 
         let (pin, prev) = withLock { (pinnedWindowNumber, previous) }
 
@@ -332,7 +339,10 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
         }
         if target == nil {
             target = ScreenTargetResolver.resolveKeepingPrevious(
-                frontmostPID: frontPID, windows: descriptors, previous: prev)
+                frontmostPID: frontPID,
+                desktopIsShowing: desktopIsShowing,
+                windows: descriptors,
+                previous: prev)
         }
         // If the "kept previous" window itself vanished (app quit / window
         // closed) re-resolve without it so we don't stream a dead target.
@@ -347,6 +357,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             // the whole display so the mirror actually shows the desktop
             // instead of going blank.
             let alreadyDisplay = withLock { isRunning && displayMode }
+            Self.log.info("resolve: no eligible window (alreadyDisplay=\(alreadyDisplay, privacy: .public)) reason=\(reason, privacy: .public)")
             if alreadyDisplay && !force { return }
             await configureDisplayStream(displayID: nil, reason: reason)
             return
@@ -355,6 +366,7 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
             previous = target
             return isRunning && currentTarget?.windowNumber == target.windowNumber
         }
+        Self.log.info("resolve: target=\(target.pid, privacy: .public):\(target.windowNumber, privacy: .public) same=\(same, privacy: .public) reason=\(reason, privacy: .public)")
         if same && !force { return }
 
         await configureStream(for: target, reason: reason)

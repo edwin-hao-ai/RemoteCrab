@@ -53,4 +53,37 @@ final class ScreenTargetResolverTests: XCTestCase {
             frontmostPID: 999, windows: windows, previous: previous)
         XCTAssertEqual(resolved?.windowNumber, 9)
     }
+
+    /// Finder with no open window is the desktop: return nil so the caller
+    /// captures the whole display, instead of keeping a stale app window
+    /// (the "切换到 Finder 投屏不更新" bug).
+    func testDesktopShowsDisplayInsteadOfKeepingPrevious() {
+        let previous = window(7, pid: 100)
+        // Finder (pid 999) has no eligible window — only the desktop.
+        let resolved = ScreenTargetResolver.resolveKeepingPrevious(
+            frontmostPID: 999, desktopIsShowing: true,
+            windows: [], previous: previous)
+        XCTAssertNil(resolved)
+    }
+
+    /// A window-less NON-Finder app still keeps the previous window (avoid
+    /// blanking the mirror) — `desktopIsShowing` is the only exemption.
+    func testWindowlessNonFinderKeepsPrevious() {
+        let previous = window(7, pid: 100)
+        let resolved = ScreenTargetResolver.resolveKeepingPrevious(
+            frontmostPID: 999, desktopIsShowing: false,
+            windows: [], previous: previous)
+        XCTAssertEqual(resolved?.windowNumber, 7)
+    }
+
+    /// Finder WITH a real window still resolves to that window (not the
+    /// desktop).
+    func testFinderWithWindowResolvesToIt() {
+        let previous = window(7, pid: 100)
+        let windows = [window(9, pid: 999)]
+        let resolved = ScreenTargetResolver.resolveKeepingPrevious(
+            frontmostPID: 999, desktopIsShowing: true,
+            windows: windows, previous: previous)
+        XCTAssertEqual(resolved?.windowNumber, 9)
+    }
 }

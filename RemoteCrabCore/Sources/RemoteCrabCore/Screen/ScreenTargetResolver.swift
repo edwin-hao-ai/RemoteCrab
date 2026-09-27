@@ -63,9 +63,23 @@ public enum ScreenTargetResolver {
     /// has no eligible window. This prevents a focus change to a
     /// window-less app (Spotlight, a menu-bar helper) from blanking the
     /// mirror and thrashing the capture stream.
+    ///
+    /// `desktopIsShowing` is the exception: the Finder desktop **is** an
+    /// eligible thing to show, so it returns `nil` — the caller then captures
+    /// the whole display. Without this, switching to Finder (or tapping
+    /// "Desktop") left the mirror stuck on the previous app's window, because
+    /// the previous window was "kept" and the re-resolve returned the same
+    /// target (a silent no-op — the reported "iOS 端切换应用投屏不更新").
     public static func resolveKeepingPrevious(frontmostPID: Int32,
+                                              desktopIsShowing: Bool = false,
                                               windows: [ScreenWindowDescriptor],
                                               previous: ScreenWindowDescriptor?) -> ScreenWindowDescriptor? {
-        resolve(frontmostPID: frontmostPID, windows: windows) ?? previous
+        if let front = resolve(frontmostPID: frontmostPID, windows: windows) { return front }
+        if desktopIsShowing { return nil }
+        return previous
     }
+
+    /// Bundle id of Finder — activating it with no open window is the
+    /// desktop, not a window to keep.
+    public static let finderBundleID = "com.apple.finder"
 }

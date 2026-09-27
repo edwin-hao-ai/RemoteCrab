@@ -224,45 +224,65 @@ struct ScreenShareView: View {
         return IBLocale.Mirror.window
     }
 
+    /// Compact window picker. Auto-following costs a single 40 pt icon (same
+    /// footprint as fit/fill/zoom); a pinned window adds its short title so
+    /// the user can see what is being held. The old chip always carried an
+    /// app name + a bare window count, which read as a status readout and ate
+    /// a third of the row — nobody could tell it was the "which window"
+    /// picker. The menu now states the mode too, so "跟随前面的应用" is no
+    /// longer a mystery action.
     private var windowChip: some View {
-        Menu {
-            ForEach(windows) { window in
+        let pinned = pinnedWindowId != nil
+        return Menu {
+            Section(IBLocale.Mirror.windowPicker) {
                 Button {
-                    onSelectWindow(window.id)
+                    onFollowFrontmost()
                 } label: {
-                    if window.id == (info?.windowId ?? pinnedWindowId) {
-                        Label(windowLabel(window), systemImage: "checkmark")
+                    if pinned {
+                        Text(IBLocale.Mirror.autoFollow)
                     } else {
-                        Text(windowLabel(window))
+                        Label(IBLocale.Mirror.autoFollow, systemImage: "checkmark")
+                    }
+                }
+                ForEach(windows) { window in
+                    Button {
+                        onSelectWindow(window.id)
+                    } label: {
+                        if window.id == pinnedWindowId {
+                            Label(windowLabel(window), systemImage: "checkmark")
+                        } else {
+                            Text(windowLabel(window))
+                        }
                     }
                 }
             }
-            if !windows.isEmpty { Divider() }
-            Button {
-                onFollowFrontmost()
-            } label: {
-                Label(IBLocale.Mirror.followFrontmost, systemImage: "arrow.triangle.2.circlepath")
-            }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "macwindow")
-                    .font(.system(size: 12, weight: .medium))
-                Text(chipTitle)
-                    .font(IBFont.caption.weight(.semibold))
-                    .lineLimit(1)
-                Text("\(windows.count)")
-                    .font(IBFont.caption.monospaced())
-                    .foregroundStyle(.white.opacity(0.6))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+                Image(systemName: pinned ? "pin.fill" : "arrow.triangle.2.circlepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(pinned ? Color.accentColor : .white)
+                if pinned {
+                    Text(chipTitle)
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
             }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background { Capsule().fill(.ultraThinMaterial) }
-            .contentShape(Capsule())
+            .padding(.horizontal, pinned ? 12 : 0)
+            .frame(width: pinned ? nil : 40, height: 40)
+            .frame(maxWidth: pinned ? 150 : 40)
+            .background {
+                if pinned {
+                    Capsule().fill(.ultraThinMaterial)
+                } else {
+                    Circle().fill(.ultraThinMaterial)
+                }
+            }
+            .contentShape(pinned ? AnyShape(Capsule()) : AnyShape(Circle()))
         }
+        .accessibilityLabel(pinned
+                            ? "\(IBLocale.Mirror.pinned): \(chipTitle)"
+                            : IBLocale.Mirror.windowPicker)
     }
 
     private func windowLabel(_ window: IBWindowInfo) -> String {
@@ -334,6 +354,10 @@ struct ScreenShareView: View {
             Text(IBLocale.Mirror.guideBody)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.85))
+                .multilineTextAlignment(.center)
+            Text(IBLocale.Mirror.windowPickerHint)
+                .font(IBFont.caption)
+                .foregroundStyle(.white.opacity(0.65))
                 .multilineTextAlignment(.center)
             Button {
                 guideShown = true

@@ -34,6 +34,14 @@ public enum IBLocale {
         public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click")
         public static let gotIt = IBL("Got it")
         public static let followFrontmost = IBL("Follow frontmost app")
+        /// Window-picker (mirror bottom chrome) — the menu header.
+        public static let windowPicker = IBL("Show which window")
+        /// Window-picker — the auto mode row (checkmarked while following).
+        public static let autoFollow = IBL("Auto — follow current app")
+        /// Window-picker — accessibility state when a window is held.
+        public static let pinned = IBL("Pinned")
+        /// Window-picker — first-use coach-mark line.
+        public static let windowPickerHint = IBL("Tap the window icon to pin one window, or follow the current app.")
         public static let extendDisplay = IBL("Extended Display")
         public static let window = IBL("Window")
         public static let computer = IBL("Computer")
