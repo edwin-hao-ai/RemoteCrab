@@ -82,7 +82,7 @@ notarize() {
 
 # --- 1. virtual-mic installer pkg (Developer ID Installer + notarized) ---
 if [[ "$SKIP_PKG" == false ]]; then
-  echo "==> [1/5] build + sign + notarize the virtual-mic pkg"
+  echo "==> [1/6] build + sign + notarize the virtual-mic pkg"
   REMOTECRAB_MIC_IDENTITY="Developer ID Application" \
   REMOTECRAB_MIC_VERSION="$VERSION" \
     "$ROOT/scripts/build-mic-driver-pkg.sh"
@@ -97,12 +97,12 @@ if [[ "$SKIP_PKG" == false ]]; then
   xcrun stapler staple "$OUT/RemoteCrabMicrophone.pkg"
   xcrun stapler validate "$OUT/RemoteCrabMicrophone.pkg"
 else
-  echo "==> [1/5] skipping pkg (--skip-pkg)"
+  echo "==> [1/6] skipping pkg (--skip-pkg)"
 fi
 
 # --- 2. archive (automatic development signing) -------------------------
 if [[ "$SKIP_APP" == false ]]; then
-  echo "==> [2/5] archive RemoteCrabReceiver"
+  echo "==> [2/6] archive RemoteCrabReceiver"
   rm -rf "$ROOT/build/mac-release"
   mkdir -p "$ROOT/build/mac-release"
   ( cd "$ROOT" && xcodegen generate --spec project-mac.yml >/dev/null )
@@ -125,28 +125,43 @@ if [[ "$SKIP_APP" == false ]]; then
     cp "$OUT/RemoteCrabMicrophone.pkg" "$APP/Contents/Resources/RemoteCrabMicrophone.pkg"
   fi
 
-  echo "==> [3/5] re-sign nested code + app with Developer ID"
+  echo "==> [3/6] re-sign nested code + app with Developer ID"
   SX="$APP/Contents/Library/SystemExtensions/com.remotecrab.RemoteCrabReceiver.Camera.systemextension"
   AX="$APP/Contents/PlugIns/RemoteCrabAudioExtension.appex"
   [[ -d "$SX" ]] && codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" \
     --entitlements "$ROOT/RemoteCrabCameraExtension/CameraExtension.entitlements" "$SX"
   [[ -d "$AX" ]] && codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" \
     --entitlements "$ROOT/RemoteCrabAudioExtension/AudioExtension.entitlements" "$AX"
+  # Sparkle.framework 及其嵌套二进制必须用 Developer ID 重签，
+  # 且在公证之前（否则公证因未签名二进制失败）。不要用 --deep。
+  # 框架缺失必须硬失败：否则 app 会带着缺失/上游签名的框架通过公证，
+  # 并在硬化运行时下启动即崩溃。
+  SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+  [[ -d "$SPARKLE" ]] || { echo "ERROR: Sparkle.framework missing from $APP" >&2; exit 1; }
+  for svc in Installer Downloader; do
+    s="$SPARKLE/Versions/B/XPCServices/$svc.xpc"
+    [[ -d "$s" ]] && codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$s"
+  done
+  [[ -f "$SPARKLE/Versions/B/Autoupdate" ]] && \
+    codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Autoupdate"
+  [[ -d "$SPARKLE/Versions/B/Updater.app" ]] && \
+    codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE/Versions/B/Updater.app"
+  codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$SPARKLE"
   codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" \
     --entitlements "$ROOT/RemoteCrabReceiver/RemoteCrabReceiver.entitlements" "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"
 
-  echo "==> [4/5] notarize + staple the app"
+  echo "==> [4/6] notarize + staple the app"
   ditto -c -k --sequesterRsrc --keepParent "$APP" "$ROOT/build/mac-release/app.zip"
   notarize "$ROOT/build/mac-release/app.zip"
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
 else
-  echo "==> [2-4/5] skipping app (--skip-app)"
+  echo "==> [2-4/6] skipping app (--skip-app)"
 fi
 
 # --- 5. DMG -------------------------------------------------------------
-echo "==> [5/5] build + sign + notarize the DMG"
+echo "==> [5/6] build + sign + notarize the DMG"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 cp -R "$APP" "$STAGE/RemoteCrab.app"
@@ -158,10 +173,16 @@ notarize "$DMG"
 xcrun stapler staple "$DMG"
 xcrun stapler validate "$DMG"
 
+# --- 6. Sparkle 更新包（App-only zip，签名/公证已在 app.zip 阶段完成） ---
+echo "==> [6/6] build the Sparkle update zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/RemoteCrab-${VERSION}.zip"
+echo "   zip: $OUT/RemoteCrab-${VERSION}.zip"
+
 echo ""
 echo "✅ Release artifacts:"
 echo "   app: $APP"
 echo "   dmg: $DMG"
+echo "   zip: $OUT/RemoteCrab-${VERSION}.zip"
 echo "   pkg: $OUT/RemoteCrabMicrophone.pkg"
 echo ""
 echo "Upload to vgoapp.com (rsync to the VPS /var/www/vgoapp/downloads/):"

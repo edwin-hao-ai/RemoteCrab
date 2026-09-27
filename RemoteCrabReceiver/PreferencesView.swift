@@ -103,6 +103,13 @@ struct PreferencesView: View {
                 Toggle("Auto-reconnect on connection loss", isOn: $autoReconnect)
 
                 Toggle(IBLocale.Settings.peerToPeer, isOn: $peerToPeer)
+
+                Toggle(IBLocale.Update.autoUpdate,
+                       isOn: Binding(
+                           get: { UpdaterController.shared.automaticallyChecksForUpdates },
+                           set: { UpdaterController.shared.automaticallyChecksForUpdates = $0 }
+                       ))
+                    .accessibilityHint(IBLocale.Update.autoUpdateDescription)
             } header: {
                 Text(IBLocale.Settings.general)
             }

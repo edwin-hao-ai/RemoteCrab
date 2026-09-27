@@ -52,6 +52,14 @@ public enum IBLocale {
         public static let hideControls = IBL("Hide controls")
     }
 
+    /// Mac 自动更新（Sparkle）相关文案。
+    public enum Update {
+        public static let checkForUpdates = IBL("Check for Updates…")
+        public static let restartToUpdate = IBL("Restart to Update")
+        public static let autoUpdate = IBL("Automatically check for updates")
+        public static let autoUpdateDescription = IBL("Download and install new versions in the background.")
+    }
+
     public enum App {
         public static let name = IBL("RemoteCrab")
         public static let tagline = IBL("Mac receiver")

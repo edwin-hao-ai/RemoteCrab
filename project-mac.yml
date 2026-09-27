@@ -19,6 +19,12 @@ settings:
 packages:
   RemoteCrabCore:
     path: RemoteCrabCore
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    # Exact pin (xcodegen key is `exactVersion`; `exact:` is not
+    # recognized by xcodegen 2.46.0). Resolved against the Sparkle
+    # checkout in .build/ci-derived-data (2.10.0).
+    exactVersion: 2.10.0
 
 targets:
   RemoteCrabReceiver:
@@ -49,6 +55,15 @@ targets:
       - target: RemoteCrabMicrophone
         embed: false
         codeSign: true
+      # Sparkle's SPM product is a binary XCFramework. Xcode embeds binary
+      # package frameworks into Contents/Frameworks automatically (we
+      # verified Debug + Release), so `embed: false` here. Do NOT flip this
+      # to true: xcodegen then emits an Embed Frameworks copy from
+      # $(BUILT_PRODUCTS_DIR)/Sparkle (no .framework), and the build fails
+      # with "The file Sparkle couldn't be opened".
+      - package: Sparkle
+        product: Sparkle
+        embed: false
     info:
       path: RemoteCrabReceiver/Info.plist
       properties:
@@ -58,6 +73,16 @@ targets:
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSHighResolutionCapable: true
+        # Sparkle's user-preference defaults. Kept in the plist (not set
+        # imperatively on every launch) so Sparkle does not overwrite the
+        # user's Settings → "Automatically check for updates" choice.
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        # Sparkle feed + EdDSA public key. Private key lives in the login
+        # keychain (never in the repo); sign releases with it via
+        # scripts/make-appcast.sh.
+        SUFeedURL: https://vgoapp.com/downloads/appcast.xml
+        SUPublicEDKey: "6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI="
         NSLocalNetworkUsageDescription: RemoteCrab discovers your iPhone on the local WiFi network.
         NSBonjourServices:
           - _remotecrab._tcp
@@ -78,6 +103,7 @@ targets:
         CODE_SIGNING_ALLOWED: YES
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: "5XNDF727Y6"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks"
 
   # Camera Extension target — exposes RemoteCrab as a virtual webcam
   # via CoreMediaIO (CMIO). CMIO camera extensions are SYSTEM

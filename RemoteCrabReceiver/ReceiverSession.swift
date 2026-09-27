@@ -15,6 +15,11 @@ import RemoteCrabCore
 @MainActor
 final class ReceiverSession: ObservableObject {
 
+    /// App-lifetime singleton: the receiver is a menu-bar app with exactly
+    /// one session, and the updater needs a stable reference to read idle
+    /// state without depending on any view's lifetime.
+    static let shared = ReceiverSession()
+
     enum State: Equatable {
         case searching
         case connecting(name: String)
@@ -151,6 +156,9 @@ final class ReceiverSession: ObservableObject {
     private var currentTokenKey: String?
     /// True only after the iPhone's `sessionReply` accepted us.
     private var sessionGranted = false
+    /// True while a Mac/iPhone session is owned. Read by `UpdaterController`
+    /// to gate silent installs (an active session must not be interrupted).
+    var isSessionActive: Bool { sessionGranted }
     /// The phone the user last connected to — preferred on reconnect.
     private var lastAttemptedPhoneName: String?
     /// Bidirectional pairing: first contact is explicit (the user picks

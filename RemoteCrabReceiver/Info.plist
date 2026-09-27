@@ -41,5 +41,13 @@
 	<string>RemoteCrab uses your Mac microphone for audio routing when the iPhone mic is unavailable.</string>
 	<key>NSSystemExtensionUsageDescription</key>
 	<string>RemoteCrab installs a camera extension so other apps can use your iPhone as a webcam.</string>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://vgoapp.com/downloads/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>6007dgFqcTaRt5gMlxnh263ABbequKpT6wXicnFPZZI=</string>
 </dict>
 </plist>

@@ -22,6 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             SystemExtensionManager.shared.ensureRegistered()
         }
+        // Start the auto-updater only now that AppKit has launched.
+        // `App.init()` is too early to start system services (same class
+        // of problem as the sysex registration above), so the updater is
+        // attached here rather than there. `attach` materializes the
+        // shared controller, so no separate `_ = UpdaterController.shared`
+        // is needed.
+        UpdaterController.shared.attach(session: ReceiverSession.shared)
     }
 }
 
@@ -30,7 +37,7 @@ struct RemoteCrabReceiverApp: App {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage("remotecrab.didFirstLaunch") private var didFirstLaunch: Bool = false
-    @StateObject private var session = ReceiverSession()
+    @StateObject private var session = ReceiverSession.shared
 
     /// Shared setup-state detection (Accessibility / camera device /
     /// mic driver). Read by the setup assistant, the menu bar
