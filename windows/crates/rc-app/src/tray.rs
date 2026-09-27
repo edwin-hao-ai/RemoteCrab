@@ -20,6 +20,7 @@ pub enum TrayCommand {
     SetFeature(Feature, bool),
     ToggleRecord,
     SendClipboard,
+    ShowLastFile,
     Reconnect,
     Disconnect,
     ToggleAutostart,
@@ -69,6 +70,7 @@ mod win32 {
         const KEYBOARD: usize = 4;
         const RECORD: usize = 7;
         const CLIPBOARD: usize = 8;
+        const SHOW_FILE: usize = 9;
         const RECONNECT: usize = 10;
         const DISCONNECT: usize = 11;
         const AUTOSTART: usize = 13;
@@ -83,6 +85,8 @@ mod win32 {
         recording: bool,
         /// Mirrors the HKCU Run key so the menu shows a truthful checkmark.
         autostart: bool,
+        /// A file was received this session — enables "Show last received".
+        has_last_file: bool,
     }
 
     struct Ctx {
@@ -120,6 +124,12 @@ mod win32 {
         pub fn set_autostart(&self, on: bool) {
             if let Ok(mut s) = self.shared.lock() {
                 s.autostart = on;
+            }
+        }
+
+        pub fn set_has_last_file(&self, on: bool) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.has_last_file = on;
             }
         }
 
@@ -304,11 +314,11 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording, autostart) = {
+        let (status, features, recording, autostart, has_last_file) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
-            (s.status.clone(), s.features.clone(), s.recording, s.autostart)
+            (s.status.clone(), s.features.clone(), s.recording, s.autostart, s.has_last_file)
         };
 
         let Some(menu) = CreatePopupMenu().ok() else {
@@ -344,6 +354,10 @@ mod win32 {
         );
         append_item(menu, MF_STRING, Ids::CLIPBOARD,
                     crate::i18n::t("发送剪贴板到 iPhone", "Send Clipboard to iPhone"));
+        append_item(menu,
+                    if has_last_file { MF_STRING } else { MF_STRING | MF_GRAYED },
+                    Ids::SHOW_FILE,
+                    crate::i18n::t("显示最后接收的文件", "Show Last Received File"));
         append_separator(menu);
         append_item(menu, MF_STRING, Ids::RECONNECT, crate::i18n::t("重新连接", "Reconnect"));
         append_item(menu, MF_STRING, Ids::DISCONNECT, crate::i18n::t("断开连接", "Disconnect"));
@@ -394,6 +408,7 @@ mod win32 {
             )),
             Ids::RECORD => Some(TrayCommand::ToggleRecord),
             Ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
+            Ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
             Ids::RECONNECT => Some(TrayCommand::Reconnect),
             Ids::DISCONNECT => Some(TrayCommand::Disconnect),
             Ids::AUTOSTART => Some(TrayCommand::ToggleAutostart),
@@ -450,10 +465,13 @@ pub use win32::{start, disabled};
 pub struct TrayHandle;
 
 #[cfg(not(windows))]
+#[allow(dead_code)] // host builds only no-op; the real calls are windows-gated
 impl TrayHandle {
     pub fn set_status(&self, _status: &str) {}
     pub fn set_features(&self, _features: Option<rc_protocol::FeatureStateSnapshot>) {}
     pub fn set_recording(&self, _on: bool) {}
+    pub fn set_autostart(&self, _on: bool) {}
+    pub fn set_has_last_file(&self, _on: bool) {}
 }
 
 #[cfg(not(windows))]

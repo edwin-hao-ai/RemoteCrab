@@ -397,6 +397,9 @@ async fn main() -> ExitCode {
     // Recording: `--record` arms it, the `record` console command toggles it.
     let mut metadata: Option<rc_protocol::StreamMetadata> = None;
     let mut recording: Option<ActiveRecording> = None;
+    // The most recent received file, for the tray's "Show last received".
+    #[cfg(windows)]
+    let mut last_received_file: Option<std::path::PathBuf> = None;
     // Notification-area tray (menu mirrors the Mac's menu-bar popover).
     #[cfg(windows)]
     let (tray, mut tray_rx) = if args.no_tray {
@@ -585,7 +588,11 @@ async fn main() -> ExitCode {
                             session.send_frame(encode_file_ack(&ack).unwrap_or_default());
                             println!("  file: saved to {}", path.display());
                             #[cfg(windows)]
-                            rc_os::files::reveal(&path);
+                            {
+                                rc_os::files::reveal(&path);
+                                last_received_file = Some(path);
+                            }
+                            tray.set_has_last_file(true);
                         }
                     }
                     Event::SystemCommand(cmd) => {
@@ -747,6 +754,15 @@ async fn main() -> ExitCode {
                         tray.set_recording(recording.is_some());
                     }
                     Some(tray::TrayCommand::SendClipboard) => send_clipboard_to_iphone(&session),
+                    Some(tray::TrayCommand::ShowLastFile) => {
+                        #[cfg(windows)]
+                        match last_received_file.as_ref() {
+                            Some(path) => rc_os::files::reveal(path),
+                            None => println!("  no file received yet"),
+                        }
+                        #[cfg(not(windows))]
+                        println!("  show-last-file is Windows-only");
+                    }
                     Some(tray::TrayCommand::Reconnect) => session.retry_now(),
                     Some(tray::TrayCommand::Disconnect) => session.disconnect(),
                     Some(tray::TrayCommand::ToggleAutostart) => {
