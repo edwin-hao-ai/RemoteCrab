@@ -23,7 +23,15 @@ struct PreferencesView: View {
     @AppStorage("remotecrab.launchAtLogin")   private var launchAtLogin: Bool = false
     @AppStorage("remotecrab.autoReconnect")   private var autoReconnect: Bool = true
     @AppStorage("remotecrab.mac.peerToPeer")  private var peerToPeer: Bool = true
+    @AppStorage("remotecrab.mac.notifyRelay") private var notifyRelay: Bool = false
     @AppStorage("remotecrab.didFirstLaunch")  private var didFirstLaunch: Bool = false
+
+    /// Editable denylist for the notification relay. Starts from the
+    /// persisted list, or the built-in privacy-sensitive defaults.
+    @State private var notifyDenylist: [String] =
+        UserDefaults.standard.stringArray(forKey: "remotecrab.mac.notifyDenylist")
+        ?? NotificationFilter.defaultDenylist
+    @State private var newDeniedApp: String = ""
 
     /// Local mirrors so this window reflects a permission the user
     /// granted while it was already open (SetupStatus only polls while
@@ -112,6 +120,57 @@ struct PreferencesView: View {
                     .accessibilityHint(IBLocale.Update.autoUpdateDescription)
             } header: {
                 Text(IBLocale.Settings.general)
+            }
+
+            Section {
+                Toggle(IBLocale.Notify.forward, isOn: $notifyRelay)
+                    .accessibilityHint(Text(IBLocale.Notify.forwardHint))
+                    .onChange(of: notifyRelay) { _, enabled in
+                        session.setNotificationRelay(enabled)
+                    }
+                if notifyRelay {
+                    Text(IBLocale.Notify.forwardCaption)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    TextField(IBLocale.Notify.addPlaceholder, text: $newDeniedApp)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addDeniedApp() }
+                    Button(IBLocale.Notify.add) { addDeniedApp() }
+                        .controlSize(.small)
+                        .disabled(newDeniedApp.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                if notifyDenylist.isEmpty {
+                    Text(IBLocale.Notify.denylistEmpty)
+                        .font(IBFont.bodySmall)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(notifyDenylist, id: \.self) { app in
+                        HStack {
+                            Text(app)
+                                .font(IBFont.bodySmall)
+                            Spacer()
+                            Button {
+                                removeDeniedApp(app)
+                            } label: {
+                                Image(systemName: "minus.circle")
+                            }
+                            .buttonStyle(.borderless)
+                            .controlSize(.small)
+                            .help(Text(IBLocale.Notify.remove))
+                            .accessibilityLabel(Text(IBLocale.Notify.remove))
+                        }
+                    }
+                }
+            } header: {
+                Text(IBLocale.Notify.section)
+            } footer: {
+                Text(IBLocale.Notify.denylistFooter)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -366,6 +425,32 @@ struct PreferencesView: View {
         case .repairing:        return IBColor.accent
         case .failed:           return IBColor.error
         }
+    }
+
+    // MARK: - Notification relay denylist
+
+    private func addDeniedApp() {
+        let name = newDeniedApp.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        guard !notifyDenylist.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+            newDeniedApp = ""
+            return
+        }
+        notifyDenylist.append(name)
+        newDeniedApp = ""
+        persistDenylist()
+    }
+
+    private func removeDeniedApp(_ app: String) {
+        notifyDenylist.removeAll { $0 == app }
+        persistDenylist()
+    }
+
+    /// Persist the edited list and restart the live capture so it takes
+    /// effect without waiting for a reconnect.
+    private func persistDenylist() {
+        UserDefaults.standard.set(notifyDenylist, forKey: "remotecrab.mac.notifyDenylist")
+        if notifyRelay { session.setNotificationRelay(true) }
     }
 
     private func openAccessibilitySettings() {

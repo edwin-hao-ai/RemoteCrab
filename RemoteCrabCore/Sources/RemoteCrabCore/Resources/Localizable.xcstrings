@@ -8872,6 +8872,142 @@
           }
         }
       }
+    },
+    "Notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
+    "Forward notifications to iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward notifications to iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转发通知到 iPhone"
+          }
+        }
+      }
+    },
+    "Relay non-denylisted Mac notification banners to your iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay non-denylisted Mac notification banners to your iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "把 Mac 上不在黑名单里的通知横幅转发到你的 iPhone"
+          }
+        }
+      }
+    },
+    "Only banners that appear while you're connected are forwarded. Do Not Disturb / Focus notifications are not captured.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only banners that appear while you're connected are forwarded. Do Not Disturb / Focus notifications are not captured."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅转发连接期间弹出的通知横幅。勿扰/专注模式下的通知无法捕获。"
+          }
+        }
+      }
+    },
+    "App name to exclude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App name to exclude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要排除的 App 名称"
+          }
+        }
+      }
+    },
+    "Add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        }
+      }
+    },
+    "No excluded apps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No excluded apps"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有排除的 App"
+          }
+        }
+      }
+    },
+    "Notifications from these apps are never forwarded. Matching is case-insensitive on the app's display name.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications from these apps are never forwarded. Matching is case-insensitive on the app's display name."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些 App 的通知不会被转发。按 App 显示名进行不区分大小写的匹配。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

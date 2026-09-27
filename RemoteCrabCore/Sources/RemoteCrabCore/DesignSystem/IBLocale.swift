@@ -60,6 +60,19 @@ public enum IBLocale {
         public static let autoUpdateDescription = IBL("Download and install new versions in the background.")
     }
 
+    /// Mac notification relay (Mac Preferences; iOS list lives in Task 4).
+    public enum Notify {
+        public static let section = IBL("Notifications")
+        public static let forward = IBL("Forward notifications to iPhone")
+        public static let forwardHint = IBL("Relay non-denylisted Mac notification banners to your iPhone")
+        public static let forwardCaption = IBL("Only banners that appear while you're connected are forwarded. Do Not Disturb / Focus notifications are not captured.")
+        public static let addPlaceholder = IBL("App name to exclude")
+        public static let add = IBL("Add")
+        public static let remove = IBL("Remove")
+        public static let denylistEmpty = IBL("No excluded apps")
+        public static let denylistFooter = IBL("Notifications from these apps are never forwarded. Matching is case-insensitive on the app's display name.")
+    }
+
     public enum App {
         public static let name = IBL("RemoteCrab")
         public static let tagline = IBL("Mac receiver")

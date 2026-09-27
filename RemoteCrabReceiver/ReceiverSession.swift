@@ -81,6 +81,13 @@ final class ReceiverSession: ObservableObject {
     /// coordinates back to global cursor positions.
     private var lastScreenInfo: IBScreenInfo?
 
+    /// Best-effort capture of macOS notification banners, active only while
+    /// the session is live and `remotecrab.mac.notifyRelay` is on.
+    private var notificationCapture: NotificationCapture?
+    /// Reused Mac → iPhone event broadcaster (currently the notification
+    /// relay). Created when the session is accepted, cleared on disconnect.
+    private var broadcaster: IBEventBroadcaster?
+
     /// Last file received from the iPhone (menu bar → Show in Finder).
     @Published private(set) var lastReceivedFileURL: URL?
 
@@ -675,6 +682,45 @@ final class ReceiverSession: ObservableObject {
         Self.log.info("clipboard sent to iPhone (\(text.count) chars)")
     }
 
+    // MARK: - Notification relay (Mac → iPhone)
+
+    /// Start polling the Mac's Notification Center and relaying
+    /// non-denylisted banners. No-op unless `remotecrab.mac.notifyRelay`
+    /// is on (default off — privacy first). Best-effort: a missing
+    /// Accessibility grant or a changed AX tree just yields nothing.
+    private func startNotificationRelay() {
+        stopNotificationRelay()
+        guard UserDefaults.standard.bool(forKey: "remotecrab.mac.notifyRelay") else { return }
+        let denylist = UserDefaults.standard.stringArray(forKey: "remotecrab.mac.notifyDenylist")
+            ?? NotificationFilter.defaultDenylist
+        let capture = NotificationCapture(denylist: denylist)
+        capture.onBanner = { [weak self] notification in
+            self?.sendNotification(notification)
+        }
+        capture.start()
+        notificationCapture = capture
+        Self.log.info("notification relay started (denylist \(denylist.count, privacy: .public) apps)")
+    }
+
+    private func stopNotificationRelay() {
+        notificationCapture?.stop()
+        notificationCapture = nil
+    }
+
+    /// Preferences toggle: apply immediately while a session is live.
+    /// (When disconnected the setting is simply read on the next accept.)
+    func setNotificationRelay(_ enabled: Bool) {
+        guard sessionGranted else { return }
+        if enabled { startNotificationRelay() } else { stopNotificationRelay() }
+    }
+
+    /// Mac → iPhone: relay one captured notification banner. Silently
+    /// dropped when the session isn't live (v1 does not queue offline).
+    func sendNotification(_ notification: IBNotification) {
+        guard sessionGranted, let broadcaster else { return }
+        broadcaster.send(notification)
+    }
+
     // MARK: - Identity
 
     private static func loadMacId() -> String {
@@ -1095,8 +1141,12 @@ final class ReceiverSession: ObservableObject {
             if let name = currentPhoneName() {
                 state = .streaming(name: name, latencyMs: 0)
             }
-            if let connection { startPingLoop(on: connection) }
+            if let connection {
+                startPingLoop(on: connection)
+                broadcaster = IBEventBroadcaster(connection: connection, queue: .global())
+            }
             publishMacApps()
+            startNotificationRelay()
             // Headless e2e: apply a text transform to whatever is
             // selected on the Mac (point TextEdit at a scratch doc and
             // select-all first).
@@ -1232,6 +1282,8 @@ final class ReceiverSession: ObservableObject {
         screenStreamer?.stop()
         screenStreamer = nil
         lastScreenInfo = nil
+        stopNotificationRelay()
+        broadcaster = nil
         connection = nil
         connectedPhoneName = nil
         sessionGranted = false
