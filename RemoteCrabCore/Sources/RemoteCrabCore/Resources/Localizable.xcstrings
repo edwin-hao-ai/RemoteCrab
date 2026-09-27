@@ -2721,6 +2721,23 @@
         }
       }
     },
+    "Enable Screen Recording…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Screen Recording…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用屏幕录制…"
+          }
+        }
+      }
+    },
     "Grant Accessibility…": {
       "extractionState": "manual",
       "localizations": {
@@ -4026,6 +4043,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Option 键"
+          }
+        }
+      }
+    },
+    "Optional — needed only to mirror a Mac window to your iPhone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional — needed only to mirror a Mac window to your iPhone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选——仅在把电脑窗口镜像到你的 iPhone 时需要。"
           }
         }
       }

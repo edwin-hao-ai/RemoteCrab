@@ -22,8 +22,10 @@ enum WindowCapture {
 
     private static let log = Logger(subsystem: "com.remotecrab", category: "windowcapture")
 
-    /// True when macOS has granted this app Screen Recording.
-    static var isAuthorized: Bool { CGPreflightScreenCaptureAccess() }
+    /// True when macOS has granted this app Screen Recording. A pure C
+    /// query, so `nonisolated` lets non-main types (e.g. `SetupStatus`)
+    /// read it without hopping actors.
+    nonisolated static var isAuthorized: Bool { CGPreflightScreenCaptureAccess() }
 
     /// Ask macOS to show the Screen Recording prompt. Returns immediately
     /// (the grant is asynchronous, via System Settings).

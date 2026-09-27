@@ -23,6 +23,7 @@ private let log = Logger(subsystem: "com.remotecrab", category: "setup")
 final class SetupStatus: ObservableObject, @unchecked Sendable {
 
     @Published private(set) var hasAccessibility: Bool = AXIsProcessTrusted()
+    @Published private(set) var hasScreenRecording: Bool = WindowCapture.isAuthorized
     @Published private(set) var cameraDeviceVisible: Bool = false
     @Published private(set) var micDriverInstalled: Bool = false
 
@@ -44,6 +45,7 @@ final class SetupStatus: ObservableObject, @unchecked Sendable {
     /// the HAL/CMIO daemons and don't need to run while idle.
     func refresh() {
         hasAccessibility = AXIsProcessTrusted()
+        hasScreenRecording = WindowCapture.isAuthorized
         cameraDeviceVisible = cmioDevice(uid: IBCameraDevice.uid) != nil
         micDriverInstalled = halMicDriverInstalled()
     }

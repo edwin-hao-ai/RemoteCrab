@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import SwiftUI
 import RemoteCrabCore
 
@@ -14,8 +15,9 @@ import RemoteCrabCore
 /// whether a step "took".
 ///
 /// Accessibility is not skippable (without it the trackpad and keyboard
-/// — the core of the product — don't work). The virtual camera and
-/// microphone are optional and offer "Skip for now".
+/// — the core of the product — don't work). Screen Recording (for the
+/// window mirror), the virtual camera and the microphone are optional
+/// and offer "Skip for now".
 struct SetupAssistantView: View {
     @Binding var didComplete: Bool
     @EnvironmentObject private var setupStatus: SetupStatus
@@ -31,30 +33,34 @@ struct SetupAssistantView: View {
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private enum SetupStep: Int, CaseIterable, Hashable {
-        case welcome, accessibility, camera, microphone, done
+        case welcome, accessibility, screenRecording, camera, microphone, done
 
         var title: String {
             switch self {
-            case .welcome:       return IBLocale.Setup.stepWelcome
-            case .accessibility: return IBLocale.Setup.stepAccessibility
-            case .camera:        return IBLocale.Setup.stepCamera
-            case .microphone:    return IBLocale.Setup.stepMicrophone
-            case .done:          return IBLocale.Setup.stepDone
+            case .welcome:         return IBLocale.Setup.stepWelcome
+            case .accessibility:   return IBLocale.Setup.stepAccessibility
+            case .screenRecording: return IBLocale.Setup.stepScreenRecording
+            case .camera:          return IBLocale.Setup.stepCamera
+            case .microphone:      return IBLocale.Setup.stepMicrophone
+            case .done:            return IBLocale.Setup.stepDone
             }
         }
 
         var symbol: String {
             switch self {
-            case .welcome:       return "hand.wave"
-            case .accessibility: return "accessibility"
-            case .camera:        return "camera.fill"
-            case .microphone:    return "mic.fill"
-            case .done:          return "checkmark.circle"
+            case .welcome:         return "hand.wave"
+            case .accessibility:   return "accessibility"
+            case .screenRecording: return "rectangle.dashed.badge.record"
+            case .camera:          return "camera.fill"
+            case .microphone:      return "mic.fill"
+            case .done:            return "checkmark.circle"
             }
         }
 
         /// Steps the user may pass on and finish later from Preferences.
-        var isOptional: Bool { self == .camera || self == .microphone }
+        var isOptional: Bool {
+            self == .screenRecording || self == .camera || self == .microphone
+        }
     }
 
     var body: some View {
@@ -194,6 +200,13 @@ struct SetupAssistantView: View {
                 captionText(IBLocale.Setup.restartHint)
             }
 
+        case .screenRecording:
+            statusRow(done: setupStatus.hasScreenRecording,
+                      doneText: IBLocale.Permission.granted,
+                      pendingText: IBLocale.Permission.notGranted)
+            bodyText(IBLocale.Permission.screenRecordingReason)
+            captionText(IBLocale.Setup.screenRecordingOptional)
+
         case .camera:
             statusRow(done: setupStatus.cameraReady,
                       doneText: IBLocale.Settings.cameraExtensionActiveHint,
@@ -216,6 +229,9 @@ struct SetupAssistantView: View {
             summaryRow(IBLocale.Setup.stepAccessibility,
                        ok: setupStatus.hasAccessibility,
                        skipped: false)
+            summaryRow(IBLocale.Setup.stepScreenRecording,
+                       ok: setupStatus.hasScreenRecording,
+                       skipped: skipped.contains(.screenRecording))
             summaryRow(IBLocale.Setup.stepCamera,
                        ok: setupStatus.cameraReady,
                        skipped: skipped.contains(.camera))
@@ -250,6 +266,24 @@ struct SetupAssistantView: View {
                     secondaryButton(IBLocale.Setup.restartToApply) {
                         SetupStatus.relaunchApp()
                     }
+                }
+            }
+
+        case .screenRecording:
+            if setupStatus.hasScreenRecording {
+                primaryButton(IBLocale.Onboarding.nextBtn, symbol: "arrow.right") {
+                    advance()
+                }
+            } else {
+                VStack(alignment: .leading, spacing: IBSpace.m.pt) {
+                    primaryButton(IBLocale.Setup.grantScreenRecording,
+                                  symbol: "rectangle.dashed.badge.record") {
+                        requestAndOpenScreenRecording()
+                    }
+                    secondaryButton(IBLocale.Permission.openSystemSettings) {
+                        requestAndOpenScreenRecording()
+                    }
+                    skipButton(.screenRecording)
                 }
             }
 
@@ -328,6 +362,17 @@ struct SetupAssistantView: View {
                 sysexManager.activate()
             }
         }
+    }
+
+    // MARK: - Screen Recording step pieces
+
+    /// Ask macOS for Screen Recording (which is what adds RemoteCrab to
+    /// the System Settings list) and take the user straight to the pane
+    /// so they only have to flip the switch. The actual grant is
+    /// asynchronous; the 1 s poll picks it up and auto-advances.
+    private func requestAndOpenScreenRecording() {
+        _ = CGRequestScreenCaptureAccess()
+        SetupStatus.openScreenRecordingSettings()
     }
 
     // MARK: - Building blocks
@@ -453,11 +498,12 @@ struct SetupAssistantView: View {
 
     private func isComplete(_ s: SetupStep) -> Bool {
         switch s {
-        case .welcome:       return step != .welcome
-        case .accessibility: return setupStatus.hasAccessibility
-        case .camera:        return setupStatus.cameraReady
-        case .microphone:    return setupStatus.micDriverInstalled
-        case .done:          return false
+        case .welcome:         return step != .welcome
+        case .accessibility:   return setupStatus.hasAccessibility
+        case .screenRecording: return setupStatus.hasScreenRecording
+        case .camera:          return setupStatus.cameraReady
+        case .microphone:      return setupStatus.micDriverInstalled
+        case .done:            return false
         }
     }
 

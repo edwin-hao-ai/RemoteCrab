@@ -471,6 +471,7 @@ public enum IBLocale {
 
         public static let stepWelcome = IBL("Welcome")
         public static let stepAccessibility = IBL("Accessibility")
+        public static let stepScreenRecording = IBL("Screen Recording")
         public static let stepCamera = IBL("Virtual Camera")
         public static let stepMicrophone = IBL("Virtual Microphone")
         public static let stepDone = IBL("All Set")
@@ -490,6 +491,9 @@ public enum IBLocale {
         public static let cameraAwaiting = IBL("Waiting for approval — allow RemoteCrab in System Settings → Privacy & Security.")
         public static let cameraSteps = IBL("Open System Settings → General → Login Items & Extensions, then turn on RemoteCrab under Camera Extensions.")
         public static let cameraOptional = IBL("Optional — the trackpad and keyboard work without it.")
+
+        public static let grantScreenRecording = IBL("Enable Screen Recording…")
+        public static let screenRecordingOptional = IBL("Optional — needed only to mirror a Mac window to your iPhone.")
 
         public static let microphoneOptional = IBL("Optional — without it, iPhone audio only plays through your Mac's speakers.")
         public static let micPkgMissing = IBL("The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.")
