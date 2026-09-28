@@ -211,8 +211,21 @@ if [[ -f "$PROJECT_YML" ]]; then
 import re, sys
 path, version, build_version = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(path).read()
+before = src
+# project-ios.yml is the source of truth — xcodegen rewrites the generated
+# Info.plist from it, so bumping Info.plist alone is undone on the next
+# generate (lesson 31). The yml spells these the Info.plist way; the
+# MARKETING_VERSION / CURRENT_PROJECT_VERSION spellings are kept for an
+# older yml. Matching nothing used to be a SILENT no-op, which shipped a
+# stale build number (Xcode's auto-increment quietly covered it up in the
+# export), so a failed match is now fatal.
+src = re.sub(r'^(\s*CFBundleShortVersionString:\s*)\S+', rf'\g<1>"{version}"', src, flags=re.M)
+src = re.sub(r'^(\s*CFBundleVersion:\s*)\S+', rf'\g<1>"{build_version}"', src, flags=re.M)
 src = re.sub(r'^(\s*MARKETING_VERSION:\s*)\S+', rf'\g<1>{version}', src, flags=re.M)
 src = re.sub(r'^(\s*CURRENT_PROJECT_VERSION:\s*)\S+', rf'\g<1>{build_version}', src, flags=re.M)
+if src == before:
+    sys.exit(f"ERROR: {path} version bump matched nothing — "
+             f"expected CFBundleShortVersionString/CFBundleVersion (or MARKETING_VERSION/CURRENT_PROJECT_VERSION)")
 open(path, 'w').write(src)
 print(f"  ✓ project.yml → version={version}, build={build_version}")
 PY
