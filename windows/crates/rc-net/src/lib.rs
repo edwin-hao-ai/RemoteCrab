@@ -1000,6 +1000,10 @@ fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>) {
                 emit(events_tx, Event::FileComplete(c));
             }
         }
+        // Mac → iPhone notification relay. Not implemented on Windows, but
+        // recognised on purpose: without a kind it would decode as `Video`
+        // and the JSON payload would reach the H.264 decoder.
+        Kind::Notification => {}
         _ => {}
     }
 }

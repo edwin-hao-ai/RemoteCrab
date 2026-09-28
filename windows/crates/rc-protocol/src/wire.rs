@@ -64,6 +64,11 @@ pub enum Kind {
     ScreenInfo = 0x1F,
     InstalledAppsRequest = 0x20,
     InstalledApps = 0x21,
+    // Mac → iPhone notification relay (`IBNotification`, JSON). The Windows
+    // receiver does not relay notifications, but it MUST recognise the kind
+    // for the same reason as the mirror kinds above: an unknown byte decodes
+    // as `Video`, and this JSON payload would be handed to the H.264 decoder.
+    Notification = 0x22,
 }
 
 impl Kind {
@@ -120,6 +125,7 @@ impl Kind {
             0x1F => Kind::ScreenInfo,
             0x20 => Kind::InstalledAppsRequest,
             0x21 => Kind::InstalledApps,
+            0x22 => Kind::Notification,
             _ => Kind::Video,
         }
     }
