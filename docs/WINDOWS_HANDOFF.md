@@ -6,22 +6,35 @@
 > `docs/WINDOWS_PORT_PLAN.md` (the original port plan); where they disagree,
 > this file is newer.
 
-Last updated: 2026-09-27 (device/mac side is iOS+Mac; this file is the
-Windows receiver only). **State**: the receiver is feature-complete for the
-"utility" surface (discovery/handshake/video/audio/input/mirror/recording/tray
-/launcher/clipboard) — `windows` 127 tests + host/`x86_64-pc-windows-gnu`
-clippy clean. **The only remaining feature work is virtual camera + virtual
-microphone** (§5a/§5b), and both need the user's Windows 11 box. **Next
-concrete action for a new session**: have the user run the already-written
-vcam spike on Windows (`cargo run -p rc-vcam -- RemoteCrab 20`, §5a) and
-report its 3 lines, then implement the COM `IMFMediaSource` that feeds it.
+Last updated: 2026-09-28 (on the Windows box — a source-level parity audit).
+**State**: the receiver is feature-complete for the "utility" surface
+(discovery/handshake/video/audio/input/mirror/recording/tray/launcher/
+clipboard) — `windows` **153 tests** (`cargo test --workspace` on MSVC) +
+clippy `-D warnings` clean. **The only remaining feature work is virtual
+camera + virtual microphone** (§5a/§5b), and both need the user's Windows 11
+box. **Next concrete action for a new session**: have the user run the
+already-written vcam spike on Windows (`cargo run -p rc-vcam -- RemoteCrab 20`,
+§5a) and report its 3 lines, then implement the COM `IMFMediaSource` that
+feeds it.
+
+> **2026-09-28 audit (on the Windows box)** — four protocol-parity bugs were
+> found by diffing every `rc-protocol` field/enum against the Swift sources,
+> and fixed. They were all compiler-invisible, so `cargo test`/clippy stayed
+> green while the features were silently broken on a real phone. See §3.14.
+> New guards: `rc-protocol/tests/wire_keys.rs` (exact JSON keys + every
+> Kind/enum raw value), a `rc-input` keymap test over the Mac's full
+> `keycode(forCharacter:)` table, and a runnable `rc-os` live smoke check
+> (`cargo run -p rc-os --example live_check`). Live-verified on the box:
+> `--selftest`, `--preview-selftest`, `--audio-selftest`, `live_check`.
 
 ---
 
 ## 0. TL;DR status
 
-**Done and shipped** (host + `x86_64-pc-windows-gnu` `cargo test` 127,
-`clippy -D warnings` clean on both targets; runtime needs the user's box):
+**Done and shipped** (`cargo test --workspace` **153** on Windows/MSVC;
+`clippy -D warnings` clean. The `x86_64-pc-windows-gnu` cross-check is the
+macOS-side equivalent — run it there via `cargo check --target
+x86_64-pc-windows-gnu --workspace`):
 
 - Discovery (mDNS `mdns-sd` + hotspot/last-IP/`/24` fallback), handshake
   (`clientHello`/`sessionReply`, token pairing, 6 s handshake timeout), 2 s
@@ -167,6 +180,23 @@ cargo run -p rc-app -- --no-preview # console only
     sidecar**. A single muxed file needs Media Foundation (Windows-only) —
     fine, but do it on the box.
 13. **The mono accent** for `mutool` `icon` etc. — non-issue; keep files small.
+14. **serde `rename_all = "camelCase"` silently mangles acronym fields.** The
+    Swift structs use verbatim property names, so `iconPNG` / `snapshotJPEG`
+    became `iconPng` / `snapshotJpeg` and the iPhone found no key — app icons
+    and window thumbnails were silently empty. Fix is an explicit
+    `rename = "iconPNG"`. **Never assume camelCase matches the Swift key**;
+    any field with a run of capitals needs an explicit `rename` and a test.
+15. **A missing enum variant breaks the WHOLE frame, not just that value.**
+    The Swift `IBFeature`/`Surface` gained a `screen` case for the mirror, but
+    the Rust enums were not updated: `activeSurface: "screen"` made the entire
+    `featureState` snapshot fail to decode the moment the user opened the
+    mirror. Enums that cross the wire must be diffed against Swift whenever
+    the Mac adds a case — `wire_keys.rs` now pins every raw value.
+16. **A `Kind` byte with no arm decodes as `Video`** (the parser's fallback).
+    That is why 0x1A–0x22 had to be added as explicit kinds: an unknown byte
+    hands its JSON payload to the H.264 decoder. Any new wire kind must be
+    added to `Kind` + `from_u8_or_video` + a recognise-and-ignore (or handle)
+    arm in `rc-net::dispatch_frame`.
 
 ---
 
