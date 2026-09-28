@@ -45,6 +45,10 @@ final class LocalNotifier: @unchecked Sendable {
                 .filter { !$0.isEmpty }
                 .joined(separator: "\n")
             content.sound = .default
+            // Carried so a tap can switch the Mac to that app (and window):
+            // the banner itself is not routable.
+            content.userInfo = [NotificationTapRouter.appKey: n.app,
+                                NotificationTapRouter.windowTitleKey: n.windowTitle ?? ""]
             let request = UNNotificationRequest(identifier: UUID().uuidString,
                                                 content: content,
                                                 trigger: nil)

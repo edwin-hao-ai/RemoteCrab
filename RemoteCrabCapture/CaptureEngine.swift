@@ -263,6 +263,7 @@ final class CaptureEngine: ObservableObject {
         Forensic.reset()
         Forensic.MainStallMonitor.start()
         Forensic.SelfShot.install()
+        installNotificationTapRouting()
         Self.forensic("startIfNeeded begin")
         Forensic.log("[e2e] startIfNeeded begin")
 
@@ -573,6 +574,35 @@ final class CaptureEngine: ObservableObject {
         Task { @MainActor [weak self] in
             await self?.requestNotificationAuthorization()
         }
+    }
+
+    /// Register the tap router. Called once at launch; a tap that cold-started
+    /// the app is delivered as soon as the handler exists.
+    func installNotificationTapRouting() {
+        NotificationTapRouter.shared.setHandler { [weak self] appName, windowTitle in
+            Task { @MainActor [weak self] in
+                self?.activateRelayedApp(named: appName, windowTitle: windowTitle)
+            }
+        }
+    }
+
+    /// A tap on a relayed notification: switch the Mac to the app (and
+    /// window) that sent it — the same "tap a notification, land in the app"
+    /// behaviour as a local notification.
+    ///
+    /// Does nothing when that app is no longer running: activating an app the
+    /// user quit would be a surprise, and the sender name is the only
+    /// identity the banner carries. Logged, so "the tap did nothing" is never
+    /// silent. The app name is the *sender*, not notification content, so it
+    /// is safe to record (the file is DEBUG/devicectl-only).
+    func activateRelayedApp(named appName: String, windowTitle: String?) {
+        guard let app = NotificationAppResolver.resolve(name: appName, in: macApps) else {
+            Forensic.log("[notify] tap: '\(appName)' not running — ignored")
+            return
+        }
+        let hasWindow = !(windowTitle ?? "").isEmpty
+        Forensic.log("[notify] tap: activating '\(app.name)' window=\(hasWindow ? "yes" : "no")")
+        activateMacApp(id: app.id, windowTitle: windowTitle)
     }
 
     // MARK: - App screen mirror
@@ -1810,6 +1840,17 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    /// E2E: a tap-on-notification needs a human finger on the phone, so this
+    /// runs the *same* action the tap router runs, right after a relayed
+    /// notification arrives — which lets the device e2e assert the Mac's
+    /// `activated app` line. Only with REMOTECRAB_E2E_NOTIFY_TAP=1.
+    private func runE2ENotifyTap(_ n: IBNotification) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.activateRelayedApp(named: n.app, windowTitle: n.windowTitle)
+        }
+    }
+
     /// E2E self-test: right after connect, emit a scripted touch-move
     /// burst plus one text event so the Mac side can prove CGEventPost
     /// injection really moves the cursor and types. Only runs when the
@@ -2059,6 +2100,9 @@ final class CaptureEngine: ObservableObject {
                     // system banner appears as soon as the user allows.
                     requestNotificationAuthorizationIfNeeded()
                     localNotifier.post(n)
+                    if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_NOTIFY_TAP"] == "1" {
+                        runE2ENotifyTap(n)
+                    }
                 }
             case .fileAck:
                 if let ack = try? IBWire.decodeFileAck(frame) {

@@ -718,7 +718,36 @@ final class ReceiverSession: ObservableObject {
     /// dropped when the session isn't live (v1 does not queue offline).
     func sendNotification(_ notification: IBNotification) {
         guard sessionGranted, let broadcaster else { return }
-        broadcaster.send(notification)
+        // Attach the notifying app's current front window so tapping the
+        // banner on the iPhone lands in that window (the Mac side's
+        // `activateApp` raises it by title). Nil when Screen Recording is not
+        // granted — window *names* are redacted without it — in which case a
+        // tap still just activates the app.
+        let withWindow = IBNotification(app: notification.app,
+                                        title: notification.title,
+                                        subtitle: notification.subtitle,
+                                        body: notification.body,
+                                        windowTitle: frontWindowTitle(ownerName: notification.app))
+        broadcaster.send(withWindow)
+    }
+
+    /// Title of `ownerName`'s frontmost normal window, or nil.
+    ///
+    /// One `CGWindowListCopyWindowInfo` call; the list is front-to-back, so
+    /// the selection logic lives in the pure, tested `NotificationWindowMatch`.
+    private func frontWindowTitle(ownerName: String) -> String? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        let windows = list.compactMap { info -> NotificationWindowInfo? in
+            guard let owner = info[kCGWindowOwnerName as String] as? String,
+                  let pid = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value,
+                  let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue else { return nil }
+            return NotificationWindowInfo(ownerName: owner, pid: pid, layer: layer,
+                                          title: info[kCGWindowName as String] as? String)
+        }
+        return NotificationWindowMatch.frontWindowTitle(ownerName: ownerName, in: windows)
     }
 
     // MARK: - Identity

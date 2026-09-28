@@ -564,12 +564,19 @@ public struct IBNotification: Codable, Sendable, Equatable {
     public let title: String
     public let subtitle: String
     public let body: String
+    /// The notifying app's front window title at capture time, when the Mac
+    /// could read it (needs Screen Recording — window *names* are redacted
+    /// without it). Optional so a tap can still raise the app without it,
+    /// and so an older Mac/iOS build decodes as nil rather than failing.
+    public let windowTitle: String?
 
-    public init(app: String, title: String, subtitle: String = "", body: String = "") {
+    public init(app: String, title: String, subtitle: String = "", body: String = "",
+                windowTitle: String? = nil) {
         self.app = app
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.windowTitle = windowTitle
     }
 }
 

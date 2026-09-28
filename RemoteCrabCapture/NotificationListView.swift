@@ -17,8 +17,19 @@ struct NotificationListView: View {
                 } else {
                     List {
                         ForEach(store.entries) { entry in
-                            row(entry.notification, at: entry.receivedAt)
-                                .listRowBackground(Color.clear)
+                            // Tapping a row does exactly what tapping the
+                            // system banner does: switch the Mac to the app
+                            // that sent it.
+                            Button {
+                                engine.activateRelayedApp(named: entry.notification.app,
+                                                          windowTitle: entry.notification.windowTitle)
+                                dismiss()
+                            } label: {
+                                row(entry.notification, at: entry.receivedAt)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.insetGrouped)

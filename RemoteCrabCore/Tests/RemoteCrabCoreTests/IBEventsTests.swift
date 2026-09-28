@@ -242,4 +242,31 @@ final class IBEventsTests: XCTestCase {
         let decoded = try IBWire.decodeNotification(frames[0])
         XCTAssertEqual(decoded, n)
     }
+
+    func testNotificationCarriesTheWindowTitleWhenPresent() throws {
+        let n = IBNotification(app: "OpenCode", title: "Task finished",
+                               subtitle: "", body: "done",
+                               windowTitle: "agent — session 3")
+        let parser = IBWire.Parser()
+        let decoded = try IBWire.decodeNotification(parser.append(try IBWire.encode(notification: n))[0])
+        XCTAssertEqual(decoded.windowTitle, "agent — session 3")
+    }
+
+    /// Backward compatibility both ways: a frame from a build that predates
+    /// `windowTitle` (or one captured without Screen Recording) must decode
+    /// with nil, not fail.
+    func testNotificationWithoutWindowTitleDecodesAsNil() throws {
+        let legacy = #"{"app":"OpenCode","title":"Task finished","subtitle":"","body":"done"}"#
+        var payload = Data([IBWire.Kind.notification.rawValue])
+        payload.append(legacy.data(using: .utf8)!)
+        var framed = Data()
+        let length = UInt32(payload.count)
+        framed.append(contentsOf: [UInt8(length >> 24 & 0xff), UInt8(length >> 16 & 0xff),
+                                   UInt8(length >> 8 & 0xff), UInt8(length & 0xff)])
+        framed.append(payload)
+        let frame = try XCTUnwrap(IBWire.Parser().append(framed).first)
+        let decoded = try IBWire.decodeNotification(frame)
+        XCTAssertNil(decoded.windowTitle)
+        XCTAssertEqual(decoded.body, "done")
+    }
 }

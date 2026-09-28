@@ -1,7 +1,20 @@
 import SwiftUI
+import UIKit
+import UserNotifications
+
+/// Exists so the notification-tap delegate is installed before the system
+/// delivers a tap that *launched* the app (see `NotificationTapRouter`).
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication,
+                     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        NotificationTapRouter.shared.install()
+        return true
+    }
+}
 
 @main
 struct RemoteCrabCaptureApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var engine = CaptureEngine()
     @Environment(\.scenePhase) private var scenePhase
 
