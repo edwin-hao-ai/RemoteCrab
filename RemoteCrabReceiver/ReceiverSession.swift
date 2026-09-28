@@ -929,7 +929,11 @@ final class ReceiverSession: ObservableObject {
     /// hotspot clients, but the phone itself is always the gateway).
     private func fallbackCandidates() -> [String] {
         var out: [String] = []
-        if let last = UserDefaults.standard.string(forKey: "remotecrab.lastPhoneIP") {
+        // Only a plausible LAN address is a candidate. A persisted loopback
+        // or link-local address is not the phone, and dialling it attaches to
+        // whatever else answers (a simulator, in practice).
+        if let last = UserDefaults.standard.string(forKey: "remotecrab.lastPhoneIP"),
+           DirectDialAddress.isUsable(last) {
             out.append(last)
         }
         if Self.localIPv4InHotspotSubnet() {
@@ -1026,6 +1030,13 @@ final class ReceiverSession: ObservableObject {
               case .hostPort(let host, _) = remote,
               case .ipv4(let addr) = host else { return }
         let ip = "\(addr)"
+        // Never remember an address that cannot be a phone on the LAN —
+        // persisting one makes the fallback dial a phantom and re-persist it
+        // on every "successful" connect (see DirectDialAddress).
+        guard DirectDialAddress.isUsable(ip) else {
+            Self.log.info("not persisting unusable phone address \(ip, privacy: .public)")
+            return
+        }
         UserDefaults.standard.set(ip, forKey: "remotecrab.lastPhoneIP")
         if let name = connectedPhoneName {
             var map = Self.phoneNameByIP
