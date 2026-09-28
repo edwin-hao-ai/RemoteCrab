@@ -215,15 +215,21 @@ def update_app_info_metadata(client, app_id, metadata):
     )
     existing = {l["attributes"]["locale"]: l["id"] for l in locs.get("data", [])}
     for locale, attrs in metadata["locales"].items():
-        if "subtitle" not in attrs:
+        if "subtitle" not in attrs and "name" not in attrs:
             continue
         loc_id = existing.get(locale)
         if not loc_id:
             print(f"  (no appInfoLocalization for {locale}; skipping subtitle)")
             continue
+        # `name` belongs here too: the App Store name is app-level (not per
+        # version), so a "Mac" left in the zh name survived the 5.2.5
+        # trademark sweep while the English name was fixed (lesson 53).
+        attributes = {k: attrs[k] for k in ("name", "subtitle") if k in attrs}
+        if not attributes:
+            continue
         payload = {"data": {"type": "appInfoLocalizations", "id": loc_id,
-                            "attributes": {"subtitle": attrs["subtitle"]}}}
-        print(f"  Updating subtitle {locale}...")
+                            "attributes": attributes}}
+        print(f"  Updating app info {locale}...")
         client.patch(
             f"https://api.appstoreconnect.apple.com/v1/appInfoLocalizations/{loc_id}", payload
         )
