@@ -27,4 +27,17 @@ public struct NotificationFilter: Sendable {
         let a = app.lowercased()
         return !denylist.contains { !$0.isEmpty && a.contains($0.lowercased()) }
     }
+
+    /// Deny when either the parsed app name **or** the raw banner
+    /// description matches.
+    ///
+    /// The description check is deliberate: the source app name is a
+    /// heuristic (`NotificationBannerParsing.appName`) that falls back to the
+    /// whole description when it cannot find a clean cut, and the denylist is
+    /// the only confidentiality control on a cleartext link. An unparseable
+    /// banner must therefore fail **closed** — worse to relay a private
+    /// message with a mangled app name than to drop a benign banner.
+    public func shouldRelay(app: String, description: String) -> Bool {
+        shouldRelay(app: app) && shouldRelay(app: description)
+    }
 }

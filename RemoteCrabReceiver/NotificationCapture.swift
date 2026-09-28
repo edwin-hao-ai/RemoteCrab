@@ -33,7 +33,10 @@ import RemoteCrabCore
 @MainActor
 final class NotificationCapture {
 
-    private static let log = Logger(subsystem: "com.remotecrab", category: "notifycapture")
+    // `nonisolated`: `poll()` runs on the capture queue, not the main actor,
+    // so it cannot reach main-actor-isolated statics (the compiler rejects
+    // it — this is the compile-time half of the isolation trap in lesson 80).
+    nonisolated private static let log = Logger(subsystem: "com.remotecrab", category: "notifycapture")
 
     /// Poll interval. Banners live ~5 s, so 0.5 s is comfortably inside.
     private static let pollInterval: TimeInterval = 0.5
@@ -57,6 +60,10 @@ final class NotificationCapture {
     /// Content key → last-seen time. Pruned past `contentWindow`.
     private var seenContent: [String: Date] = [:]
     private var contentOrder: [String] = []
+
+    /// `REMOTECRAB_DEBUG_NOTIFY=1` logs one line per scan tick.
+    nonisolated private static let debugScan =
+        ProcessInfo.processInfo.environment["REMOTECRAB_DEBUG_NOTIFY"] == "1"
 
     init(denylist: [String]) {
         self.filter = NotificationFilter(denylist: denylist)
@@ -97,10 +104,15 @@ final class NotificationCapture {
     /// Runs on the background queue: read the AX tree (can block), then
     /// hand the parsed banners back to the main actor for dedup + filter.
     private nonisolated func poll() {
-        let banners = readNotificationBanners()
-        guard !banners.isEmpty else { return }
+        let scan = readNotificationBanners()
+        if Self.debugScan {
+            // One line per tick: the only way to tell "no banner on screen"
+            // from "the AX read returned nothing".
+            Self.log.info("scan plan=\(String(describing: scan.plan), privacy: .public) windows=\(scan.windows, privacy: .public) dialogs=\(scan.dialogs, privacy: .public) banners=\(scan.banners.count, privacy: .public)")
+        }
+        guard !scan.banners.isEmpty else { return }
         Task { @MainActor [weak self] in
-            self?.ingest(banners)
+            self?.ingest(scan.banners)
         }
     }
 
@@ -116,7 +128,7 @@ final class NotificationCapture {
                   seenContent[contentKey] == nil else { continue }
             markSeen(banner.id)
             markContent(contentKey, at: now)
-            guard filter.shouldRelay(app: banner.app) else {
+            guard filter.shouldRelay(app: banner.app, description: banner.description) else {
                 // `.private`: the app name is benign, but the fallback can
                 // echo title/body fragments — never leak those to the log.
                 Self.log.info("filtered notification from \(banner.app, privacy: .private)")
@@ -171,61 +183,96 @@ private struct CapturedBanner: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    /// Raw banner `AXDescription`. The denylist also matches this: `app` is a
+    /// heuristic, and it must not be the only thing standing between a
+    /// private message and a cleartext wire.
+    let description: String
 
     /// Identity independent of the (sometimes-unstable) AX UUID.
     var contentKey: String {
-        [app, title, subtitle, body].joined(separator: "\u{0}")
+        NotificationBannerParsing.contentKey(app: app, title: title,
+                                             subtitle: subtitle, body: body)
     }
+}
+
+/// One scan tick's outcome. `plan`/`windows`/`dialogs` are carried so the
+/// debug log can tell "nothing on screen" apart from "the walk found
+/// nothing" — indistinguishable without them, which is what made this
+/// feature hard to diagnose in the field.
+private struct ScanResult {
+    var plan: NotificationBannerParsing.ScanPlan = .none
+    var windows = 0
+    var dialogs = 0
+    var banners: [CapturedBanner] = []
 }
 
 /// Read every notification banner currently in the Accessibility tree.
-/// Returns an empty array on any failure (best-effort).
-private func readNotificationBanners() -> [CapturedBanner] {
-    guard let pid = notificationCenterPID() else { return [] }
+/// Returns an empty result on any failure (best-effort).
+private func readNotificationBanners() -> ScanResult {
+    var result = ScanResult()
+    guard let pid = notificationCenterPID() else { return result }
+
     let app = AXUIElementCreateApplication(pid)
-
-    // The banner lives under the app's windows (`AXWindow/AXSystemDialog`).
     let windows = (axAttribute(app, kAXWindowsAttribute) as? [AXUIElement]) ?? []
+    result.windows = windows.count
 
-    // Cheap early-out: a banner only ever appears inside Notification
-    // Center's panel, which is marked `AXSystemDialog` (on the window
-    // itself or its immediate child). With no such window this tick,
-    // nothing is on screen — skip the whole subtree walk instead of
-    // re-walking it every 0.5 s.
-    let dialogs = windows.filter { hasSystemDialogMarker($0) }
-    guard !dialogs.isEmpty else {
-        // Defensive fallback for a build that exposes the panel as a
-        // direct child of the app rather than a window.
-        if windows.isEmpty {
-            var out: [CapturedBanner] = []
-            for root in axChildren(app) {
-                collectBanners(in: root, depth: 0, into: &out)
-            }
-            return out
+    // Two cheap marker probes per window. The panel that hosts banners is
+    // marked `AXSystemDialog`; a banner itself is marked
+    // `AXNotificationCenterBanner` (we look one level deeper for it, because
+    // the banner is normally a grandchild: window → dialog → banner).
+    let dialogWindows = windows.filter { hasMarker($0, depth: 1, matching: isDialogElement) }
+    let bannerWindows = windows.filter { hasMarker($0, depth: 2, matching: isBannerElement) }
+    result.dialogs = dialogWindows.count
+
+    switch NotificationBannerParsing.scanPlan(dialogMarkedWindows: dialogWindows.count,
+                                             bannerMarkedWindows: bannerWindows.count,
+                                             totalWindows: windows.count) {
+    case .dialogWindows:
+        result.plan = .dialogWindows
+        for root in dialogWindows {
+            collectBanners(in: root, depth: 0, into: &result.banners)
         }
-        return []
+    case .allWindows:
+        // No dialog marker anywhere, but something looked like a banner:
+        // walk every window rather than give up. (Desktop widgets keep
+        // `windows` non-empty, so "no windows at all" is not the test for
+        // whether a banner can be present.)
+        result.plan = .allWindows
+        for root in windows {
+            collectBanners(in: root, depth: 0, into: &result.banners)
+        }
+    case .appChildren:
+        // No windows at all: the panel is a direct child of the app.
+        result.plan = .appChildren
+        for root in axChildren(app) {
+            collectBanners(in: root, depth: 0, into: &result.banners)
+        }
+    case .none:
+        result.plan = .none
     }
-
-    var out: [CapturedBanner] = []
-    for root in dialogs {
-        collectBanners(in: root, depth: 0, into: &out)
-    }
-    return out
+    return result
 }
 
-/// True when the element is, or directly contains, an `AXSystemDialog`
-/// (Notification Center's banner panel). Two attribute reads per element,
-/// so this stays cheap at 0.5 s.
-private func hasSystemDialogMarker(_ element: AXUIElement) -> Bool {
-    if isSystemDialog(element) { return true }
-    return axChildren(element).contains(where: isSystemDialog)
+/// True when `element` or a descendant within `depth` satisfies `predicate`.
+/// Shallow on purpose — this runs every 0.5 s.
+private func hasMarker(_ element: AXUIElement, depth: Int,
+                       matching predicate: (AXUIElement) -> Bool) -> Bool {
+    if predicate(element) { return true }
+    guard depth > 0 else { return false }
+    return axChildren(element).contains { hasMarker($0, depth: depth - 1, matching: predicate) }
 }
 
-private func isSystemDialog(_ element: AXUIElement) -> Bool {
-    let role = axAttribute(element, kAXRoleAttribute) as? String
-    let subrole = axAttribute(element, kAXSubroleAttribute) as? String
-    return role?.contains("AXSystemDialog") == true
-        || subrole?.contains("AXSystemDialog") == true
+private func isDialogElement(_ element: AXUIElement) -> Bool {
+    NotificationBannerParsing.isSystemDialog(
+        role: axAttribute(element, kAXRoleAttribute) as? String,
+        subrole: axAttribute(element, kAXSubroleAttribute) as? String)
+}
+
+private func isBannerElement(_ element: AXUIElement) -> Bool {
+    NotificationBannerParsing.isBanner(
+        role: axAttribute(element, kAXRoleAttribute) as? String,
+        subrole: axAttribute(element, kAXSubroleAttribute) as? String,
+        identifier: axAttribute(element, kAXIdentifierAttribute) as? String)
 }
 
 /// Pid of the notification-center UI process, or nil when it isn't running
@@ -243,15 +290,13 @@ private func collectBanners(in element: AXUIElement, depth: Int, into out: inout
     guard depth < 8 else { return }
     let identifier = axAttribute(element, kAXIdentifierAttribute) as? String
     // The probe-verified element is `AXGroup` with **subrole**
-    // `AXNotificationCenterBanner` (its `AXIdentifier` is the banner
-    // UUID, not the marker). Role/identifier are also checked so a future
-    // macOS that moves the marker still matches.
+    // `AXNotificationCenterBanner` (its `AXIdentifier` is the banner UUID,
+    // not the marker). Role/identifier are also checked so a future macOS
+    // that moves the marker still matches — see the pure, tested
+    // `NotificationBannerParsing.isBanner`.
     let role = axAttribute(element, kAXRoleAttribute) as? String
     let subrole = axAttribute(element, kAXSubroleAttribute) as? String
-    let isBanner = subrole == "AXNotificationCenterBanner"
-        || (identifier?.contains("AXNotificationCenterBanner") ?? false)
-        || (role?.contains("AXNotificationCenterBanner") ?? false)
-    if isBanner {
+    if NotificationBannerParsing.isBanner(role: role, subrole: subrole, identifier: identifier) {
         if let banner = parseBanner(element, identifier: identifier) {
             out.append(banner)
         }
@@ -262,11 +307,9 @@ private func collectBanners(in element: AXUIElement, depth: Int, into out: inout
     }
 }
 
-/// Turn a banner AX element into a `CapturedBanner`, or nil when it lacks
-/// a usable UUID / any text.
+/// Turn a banner AX element into a `CapturedBanner`, or nil when it carries
+/// no text at all.
 private func parseBanner(_ element: AXUIElement, identifier: String?) -> CapturedBanner? {
-    guard let id = identifier, !id.isEmpty else { return nil }
-
     var title = ""
     var subtitle = ""
     var body = ""
@@ -280,34 +323,20 @@ private func parseBanner(_ element: AXUIElement, identifier: String?) -> Capture
         default:         break
         }
     }
-    guard !(title.isEmpty && subtitle.isEmpty && body.isEmpty) else { return nil }
+    guard NotificationBannerParsing.hasAnyText(title: title, subtitle: subtitle, body: body) else {
+        return nil
+    }
 
     let description = (axAttribute(element, kAXDescriptionAttribute) as? String) ?? ""
-    let app = extractAppName(description: description,
-                             title: title, subtitle: subtitle, body: body)
-    guard !app.isEmpty else { return nil }
-
-    return CapturedBanner(id: id, app: app, title: title, subtitle: subtitle, body: body)
-}
-
-/// App name is the banner `AXDescription` prefix before the title/subtitle/
-/// body text ("<app> <title>, <subtitle>, <body>"). Cut at the earliest
-/// matching field, then trim separators. Falls back to the text before the
-/// first comma when nothing matched.
-private func extractAppName(description: String, title: String, subtitle: String, body: String) -> String {
-    var cut = description.endIndex
-    for field in [title, subtitle, body] where !field.isEmpty {
-        if let range = description.range(of: field), range.lowerBound < cut {
-            cut = range.lowerBound
-        }
-    }
-    var name = String(description[..<cut])
-    name = name.trimmingCharacters(in: CharacterSet(charactersIn: " ,，、:：-—"))
-    if name.isEmpty,
-       let comma = description.firstIndex(where: { $0 == "," || $0 == "，" }) {
-        name = String(description[..<comma]).trimmingCharacters(in: .whitespaces)
-    }
-    return name
+    let app = NotificationBannerParsing.appName(axDescription: description,
+                                               title: title, subtitle: subtitle, body: body)
+    let contentKey = NotificationBannerParsing.contentKey(app: app, title: title,
+                                                          subtitle: subtitle, body: body)
+    // A missing/unstable AX UUID no longer drops the banner: the content key
+    // is the fallback identity (dedup still suppresses identical content).
+    let id = NotificationBannerParsing.bannerID(axIdentifier: identifier, contentKey: contentKey)
+    return CapturedBanner(id: id, app: app, title: title, subtitle: subtitle, body: body,
+                          description: description)
 }
 
 /// Copy one AX attribute, or nil on failure.
