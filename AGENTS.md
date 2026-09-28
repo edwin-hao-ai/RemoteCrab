@@ -2217,6 +2217,59 @@ is tracked in the Roadmap section — don't duplicate it here.
     description so a degraded name fails the denylist **closed**). Windows
     `rc-protocol` also learned `0x22`, which had decoded as `Kind::Video`.
 
+82. **Tapping a relayed notification switches the Mac to that app *and
+    window* (2026-09-27/28).** The point is the loop the user described: an
+    agent finishes → the banner reaches the phone → one tap → you are back in
+    that agent's window to give the next instruction. Both paths verified on
+    a real iPhone:
+    - app still running → iOS `[notify] tap: activating '脚本编辑器'
+      window=yes` → Mac `activated app 脚本编辑器 window=打开` +
+      `raised window 打开`.
+    - app quit → iOS `[notify] tap: '脚本编辑器' not running — ignored`, and
+      **nothing happens** (deliberate: activating an app the user quit is a
+      surprise). Logged, never silent.
+    **The Mac side needed no change** — `activateApp(id:windowTitle:)` already
+    did `activate(.activateAllWindows)` + `raiseWindow` (un-minimize, raise,
+    set main + focused) and already no-opped for a quit app. The work was
+    entirely (a) carrying enough identity and (b) routing the tap.
+    **Four things that will bite again:**
+    (a) **Install the `UNUserNotificationCenterDelegate` from
+    `application(_:didFinishLaunchingWithOptions:)`.** A tap that *launched*
+    the app is delivered to the delegate immediately after launch, so
+    installing it from a view `.task` (or an engine init that runs later)
+    silently drops that first tap — the same too-early/too-late trap as the
+    camera extension and Sparkle. The router holds taps until a handler
+    exists, so a cold-launch tap still lands.
+    (b) **Implement `willPresent`** or iOS suppresses the banner (and the tap)
+    whenever RemoteCrab happens to be frontmost — which reads as "the relay
+    broke".
+    (c) **`windowTitle` needs Screen Recording**: `kCGWindowName` is redacted
+    without it, so `NotificationWindowMatch.frontWindowTitle` returns nil and
+    a tap just activates the app. Don't treat nil as an error. Verified on
+    this Mac that `kCGWindowOwnerName` **is** the app display name (matching
+    what the banner reports) and that `CGWindowListCopyWindowInfo` comes back
+    front-to-back — which is what makes "the first layer-0 window of that
+    owner" the frontmost. Only that first window is considered: returning a
+    *later* window's title would raise the wrong window, worse than none.
+    (d) **An `osascript display notification` is attributed to Script
+    Editor**, not the terminal that ran it — that is where the mysterious
+    `app=5 chars` came from (脚本编辑器). It also means a synthetic test hits
+    the "not running" path unless Script Editor is running; `open -a "Script
+    Editor"` first, and the success path exercises properly. Real app
+    notifications behave normally.
+    **Scope/limits:** only the sender's *localized display name* travels (the
+    AX tree exposes no bundle id), so `NotificationAppResolver` matches
+    exact → case-insensitive → contains (which also bridges helper processes:
+    a "Google Chrome Helper" banner lands on "Google Chrome"). Window-level
+    restore is best-effort by *title*; the per-window state is not restored.
+    `IBNotification.windowTitle` is optional so old peers decode nil (tested).
+    New pure/tested surface: `NotificationAppResolver`,
+    `NotificationWindowMatch` (262 tests). E2E: `REMOTECRAB_E2E_NOTIFY_TAP=1`
+    runs the same action the tap runs, so the device e2e can assert it without
+    a finger. Build 7 (`RemoteCrab-1.0.6.zip`, `sparkle:version 7`).
+    **Not yet shipped to users:** the tap routing is iPhone-side, so this
+    needs an iOS build (the Mac half alone only adds the window title).
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
