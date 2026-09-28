@@ -36,6 +36,7 @@ final class LocalNotifier: @unchecked Sendable {
             case .authorized, .provisional, .ephemeral:
                 break
             default:
+                Forensic.log("[notify] system banner skipped (notifications not authorized)")
                 return
             }
             let content = UNMutableNotificationContent()
@@ -47,7 +48,9 @@ final class LocalNotifier: @unchecked Sendable {
             let request = UNNotificationRequest(identifier: UUID().uuidString,
                                                 content: content,
                                                 trigger: nil)
-            center.add(request)
+            center.add(request) { error in
+                Forensic.log("[notify] system banner \(error == nil ? "posted" : "failed: \(error!.localizedDescription)")")
+            }
         }
     }
 }

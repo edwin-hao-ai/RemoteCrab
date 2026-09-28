@@ -2050,6 +2050,10 @@ final class CaptureEngine: ObservableObject {
                 // the in-app inbox; add a system banner too when allowed.
                 if let n = try? IBWire.decodeNotification(frame) {
                     notificationStore.append(n)
+                    // Marker only — never the notification's text (the whole
+                    // point of the relay audit was that this half had no
+                    // observable evidence at all).
+                    Forensic.log("[notify] relayed notification received (app=\(n.app.count) chars, unread=\(notificationStore.unread))")
                     // Permission is asked here (in context) rather than at
                     // boot — the in-app inbox works without it, and the
                     // system banner appears as soon as the user allows.
