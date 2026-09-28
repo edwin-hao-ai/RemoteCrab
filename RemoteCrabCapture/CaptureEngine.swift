@@ -1547,7 +1547,17 @@ final class CaptureEngine: ObservableObject {
                 self?.toggleExtendedDisplay()
                 // …then switch back to window mirroring (the mutual switch):
                 // the Mac must resume following the frontmost window.
-                try? await Task.sleep(for: .seconds(2))
+                //
+                // Wait for the extended display to actually be established
+                // (screenInfo reports appId "extended") rather than sleeping a
+                // fixed interval: the virtual display takes ~3 s to appear, and
+                // switching before that took the "stop the viewer" branch
+                // instead of "switch sources", so this assertion could never
+                // pass — the hook was testing the wrong branch.
+                for _ in 0..<40 {                       // ≤10 s
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if self?.isExtendedDisplayOn == true { break }
+                }
                 self?.toggleScreenMirror()
             }
         }

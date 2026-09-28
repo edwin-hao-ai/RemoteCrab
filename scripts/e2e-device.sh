@@ -88,15 +88,32 @@ nohup log stream --predicate 'subsystem == "com.remotecrab"' --info --style comp
 disown 2>/dev/null || true
 sleep 1
 # TextEdit is the app-switcher target + the typing target.
+# TextEdit is the app-switcher target + the typing target.
+# Script Editor is the sender of an `osascript display notification`,
+# and the tap can only activate a RUNNING app (a quit one is ignored).
 open -a TextEdit; sleep 1
-env REMOTECRAB_E2E_RECORD=1 /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
+open -a "Script Editor"; sleep 1
+env REMOTECRAB_E2E_RECORD=1 REMOTECRAB_DEBUG_NOTIFY=1 REMOTECRAB_E2E_NOTIFY_RELAY=1 \
+    /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
 disown 2>/dev/null || true
 sleep 3
 xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
-  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1","REMOTECRAB_E2E_EXTEND":"1"}' \
+  --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1","REMOTECRAB_E2E_EXTEND":"1","REMOTECRAB_E2E_NOTIFY_TAP":"1"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
 echo "  waiting 30s for the scripted run…"
-sleep 30
+sleep 20
+# The relay needs a live session; fire a real banner and let it cross the
+# wire, then let the iPhone run the same action a tap would.
+#
+# Wake the display first: macOS does NOT show a banner (so the AX tree has
+# no banner element and the relay has nothing to forward) while the screen is
+# asleep, which made this assertion fail for a reason that had nothing to do
+# with the relay. `caffeinate -u` simulates user activity to wake it.
+caffeinate -u -t 3 >/dev/null 2>&1 || true
+sleep 1
+osascript -e 'display notification "e2e relay check" with title "RemoteCrab E2E" subtitle "relay"' >/dev/null 2>&1 || true
+echo "  fired a notification; waiting for the relay + tap…"
+sleep 12
 pkill -f "log stream --predicate" 2>/dev/null
 
 # Best-effort: pull the iPhone's forensic log so we can assert the mirror
@@ -132,6 +149,9 @@ check "virtual display created"           "Extended Display: virtual display cre
 check "streaming extended display"        "mirror streams the virtual display"
 check "reason=follow"                     "switched Extended → window mirror (mutual toggle)"
 check "streaming display"                 "mirror followed Show Desktop → display capture"
+check "notification relay started"        "notification relay armed"
+check "relaying notification from"        "notification relayed to the iPhone"
+check "activated app"                     "tapping the notification switched the Mac app"
 
 echo
 echo "== $pass passed, $fail failed =="

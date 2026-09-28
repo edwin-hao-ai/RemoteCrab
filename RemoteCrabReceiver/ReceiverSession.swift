@@ -690,7 +690,10 @@ final class ReceiverSession: ObservableObject {
     /// Accessibility grant or a changed AX tree just yields nothing.
     private func startNotificationRelay() {
         stopNotificationRelay()
-        guard UserDefaults.standard.bool(forKey: "remotecrab.mac.notifyRelay") else { return }
+        // E2E may force it on for one run so the suite can cover the relay
+        // without touching the user's saved preference (mirrors AUTOPAIR).
+        let forced = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_NOTIFY_RELAY"] == "1"
+        guard forced || UserDefaults.standard.bool(forKey: "remotecrab.mac.notifyRelay") else { return }
         let denylist = UserDefaults.standard.stringArray(forKey: "remotecrab.mac.notifyDenylist")
             ?? NotificationFilter.defaultDenylist
         let capture = NotificationCapture(denylist: denylist)
