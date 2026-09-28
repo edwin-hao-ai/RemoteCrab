@@ -191,6 +191,12 @@ def attach_build_to_version(client, version_id, build_id):
 def cmd_submit(client, m, version_string):
     """Submit the version for App Store review.
 
+    NOTE: swapping the build of a version that is already in review cannot be
+    automated. `reviewSubmissions` allows only CREATE / GET / UPDATE — a
+    DELETE is refused with "The resource 'reviewSubmissions' does not allow
+    'DELETE'" — so "Remove from Review" has to be done in the App Store
+    Connect UI first.
+
     The modern flow is reviewSubmissions -> reviewSubmissionItems ->
     `submitted: true`; it refuses when anything required is missing, so the
     guards below exist to fail with a readable reason instead of an opaque
