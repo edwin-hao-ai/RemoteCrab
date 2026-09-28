@@ -69,9 +69,18 @@ final class NotificationCapture {
         source.schedule(deadline: .now() + Self.pollInterval,
                         repeating: Self.pollInterval,
                         leeway: .milliseconds(100))
-        source.setEventHandler { [weak self] in
+        // The timer fires on `queue`, never on the main actor, so the handler
+        // must be an explicitly-`@Sendable` closure. A closure literal
+        // written in this `@MainActor` method inherits the actor isolation
+        // and traps in `swift_task_checkIsolated` (SIGTRAP via
+        // `_dispatch_assert_queue_fail`) the first time the timer fires —
+        // i.e. ~0.5 s after a session is accepted with the relay on, which
+        // killed the whole receiver. Same class of bug as lessons 2 / 7 / 53.
+        // `poll()` is `nonisolated` and hops back to the main actor itself.
+        let handler: @Sendable () -> Void = { [weak self] in
             self?.poll()
         }
+        source.setEventHandler(handler: handler)
         source.resume()
         timer = source
         Self.log.info("notification capture started")
