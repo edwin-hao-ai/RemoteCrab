@@ -61,12 +61,21 @@ shot() {
 }
 
 ONLY_LOCALE="${4:-}"
+
+# Inbox content for the notifications slide. Injected through the
+# environment (never shipped in the app); `append` prepends, so the LAST
+# entry is what appears at the top of the list.
+SEED_EN='[{"app":"Calendar","title":"Design review","subtitle":"in 10 minutes","body":""},{"app":"Slack","title":"#design","subtitle":"","body":"Ada: shipping the new onboarding today"},{"app":"Xcode","title":"Build Succeeded","subtitle":"","body":"RemoteCrab — 0 errors, 2 warnings"},{"app":"OpenCode","title":"Task finished","subtitle":"","body":"Refactored the pairing store — 12 files changed"}]'
+SEED_ZH='[{"app":"日历","title":"设计评审","subtitle":"10 分钟后","body":""},{"app":"飞书","title":"设计群","subtitle":"","body":"Ada：新版引导页今天上线"},{"app":"Xcode","title":"构建成功","subtitle":"","body":"RemoteCrab — 0 错误，2 警告"},{"app":"OpenCode","title":"任务完成","subtitle":"","body":"重构了配对存储 — 12 个文件"}]'
+
 for round in "zh-Hans zh_CN" "en-US en_US"; do
   set -- $round
   LANG_CODE="$1"; LOCALE="$2"
   [[ -n "$ONLY_LOCALE" && "$LANG_CODE" != "$ONLY_LOCALE" ]] && continue
   echo "== locale $LANG_CODE =="
   set_language "$LANG_CODE" "$LOCALE"
+
+  if [[ "$LANG_CODE" == "zh-Hans" ]]; then SEED="$SEED_ZH"; else SEED="$SEED_EN"; fi
 
   shot "$LANG_CODE" camera \
     REMOTECRAB_AUTO_START=1 REMOTECRAB_AUTOSTREAM=1 REMOTECRAB_E2E_AUTOPAIR=1 REMOTECRAB_E2E_SURFACE=camera
@@ -76,6 +85,11 @@ for round in "zh-Hans zh_CN" "en-US en_US"; do
     REMOTECRAB_AUTO_START=1 REMOTECRAB_E2E_AUTOPAIR=1 REMOTECRAB_E2E_SURFACE=keyboard
   shot "$LANG_CODE" trackpad-mic \
     REMOTECRAB_AUTO_START=1 REMOTECRAB_E2E_AUTOPAIR=1 REMOTECRAB_E2E_MIC=1 REMOTECRAB_E2E_SURFACE=trackpad
+  shot "$LANG_CODE" notifications \
+    REMOTECRAB_AUTO_START=1 REMOTECRAB_E2E_AUTOPAIR=1 REMOTECRAB_E2E_SHEET=notifications \
+    REMOTECRAB_E2E_NOTIFY_SEED="$SEED"
+  shot "$LANG_CODE" context \
+    REMOTECRAB_AUTO_START=1 REMOTECRAB_E2E_AUTOPAIR=1 REMOTECRAB_E2E_SHEET=context
 done
 
 xcrun simctl terminate "$SIM" "$BUNDLE_IOS" 2>/dev/null || true

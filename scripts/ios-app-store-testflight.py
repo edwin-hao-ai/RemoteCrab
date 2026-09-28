@@ -193,6 +193,11 @@ def main():
     p.add_argument("--status", action="store_true")
     p.add_argument("--setup-internal", action="store_true")
     p.add_argument("--attach-build")
+    p.add_argument("--groups-only", action="store_true",
+                   help="with --attach-build: only add the build to the internal "
+                        "TestFlight group, leave the App Store version alone "
+                        "(attaching to a version that is WAITING_FOR_REVIEW can "
+                        "pull it out of review — the user's call, not the script's)")
     p.add_argument("--version-string", default="1.0")
     args = p.parse_args()
 
@@ -216,9 +221,12 @@ def main():
         if b["attributes"]["processingState"] != "VALID":
             print(f"Build {args.attach_build} not VALID yet: {b['attributes']['processingState']}")
         # attach to version (for eventual App Store submission)
-        v = find_version(client, m["appId"], args.version_string)
-        if v:
-            attach_build_to_version(client, v, b["id"])
+        if args.groups_only:
+            print("  (--groups-only: skipping the App Store version)")
+        else:
+            v = find_version(client, m["appId"], args.version_string)
+            if v:
+                attach_build_to_version(client, v, b["id"])
         # attach to internal group (for TestFlight)
         g = find_group(client, m["appId"], INTERNAL_GROUP_NAME)
         if g:

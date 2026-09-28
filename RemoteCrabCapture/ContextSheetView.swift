@@ -161,7 +161,7 @@ struct ContextSheetView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Image(systemName: symbol)
                     .font(.system(size: 19, weight: .medium))
-                Text(LocalizedStringKey(label))
+                Text(IBLocale.string(label))
                     .font(IBFont.caption.weight(.semibold))
             }
             .foregroundStyle(.white)
@@ -176,7 +176,7 @@ struct ContextSheetView: View {
             .contentShape(RoundedRectangle(cornerRadius: IBRadius.l.pt, style: .continuous))
         }
         .buttonStyle(GlassPressButtonStyle(cornerRadius: IBRadius.l.pt))
-        .accessibilityLabel(label)
+        .accessibilityLabel(IBLocale.string(label))
     }
 
     private func heroVoiceButton(label: String, symbol: String) -> some View {
@@ -188,7 +188,7 @@ struct ContextSheetView: View {
                 Text(voice.isRecovering ? IBLocale.Voice.recovering : IBLocale.Voice.releaseToSend)
                     .font(IBFont.bodyMedium.weight(.semibold))
             } else {
-                Text(LocalizedStringKey(label))
+                Text(IBLocale.string(label))
                     .font(IBFont.bodyMedium.weight(.semibold))
             }
         }
@@ -203,7 +203,7 @@ struct ContextSheetView: View {
                 .onChanged { _ in startVoice() }
                 .onEnded { _ in stopVoice() }
         )
-        .accessibilityLabel(label)
+        .accessibilityLabel(IBLocale.string(label))
     }
 
     private func startVoice() {

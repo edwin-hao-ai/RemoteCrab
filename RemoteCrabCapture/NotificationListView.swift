@@ -50,6 +50,9 @@ struct NotificationListView: View {
         }
         .onAppear {
             store.markAllRead()
+            // Screenshot runs must not drop the system permission alert over
+            // the very inbox they are capturing.
+            guard ProcessInfo.processInfo.environment["REMOTECRAB_E2E_NO_NOTIFY_PROMPT"] != "1" else { return }
             // Ask for banner permission here, in context — never at boot,
             // where the system alert would block the E2E bootstrap.
             Task { await engine.requestNotificationAuthorization() }

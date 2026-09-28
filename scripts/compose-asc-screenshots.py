@@ -61,43 +61,43 @@ def load_font(locale, weight, size):
 
 # ---------------------------------------------------------------- subtitles
 SUBTITLES = {
-    "01-concept":  {"zh-Hans": "纯本地 WiFi 直连 · 无账号 · 无订阅",
-                    "en-US": "Local WiFi · No account · No subscription"},
-    "02-camera":   {"zh-Hans": "Zoom、Teams、FaceTime、OBS 直接可用",
+    "01-hero":     {"zh-Hans": "本地 WiFi 直连 · 无账号 · 无云 · 无订阅",
+                    "en-US": "Local WiFi · No account · No cloud · No subscription"},
+    "02-notify":   {"zh-Hans": "点一下，直接跳回那个应用和窗口",
+                    "en-US": "Tap one and jump straight back to that app and window"},
+    "03-camera":   {"zh-Hans": "Zoom、Teams、FaceTime、OBS 直接可用",
                     "en-US": "Works in Zoom, Teams, FaceTime and OBS"},
-    "03-mic":      {"zh-Hans": "一键安装,全系统可用",
+    "04-mic":      {"zh-Hans": "一键安装,全系统可用",
                     "en-US": "One-click install, available system-wide"},
-    "04-trackpad": {"zh-Hans": "双指滚动 · 右键 · 三指手势 · ⌃⌥⌘⇧ 修饰键",
+    "05-trackpad": {"zh-Hans": "双指滚动 · 右键 · 三指手势 · ⌃⌥⌘⇧ 修饰键",
                     "en-US": "Scroll, right-click, gestures & modifiers"},
-    "05-keyboard": {"zh-Hans": "系统输入法,中文听写都可以",
+    "06-keyboard": {"zh-Hans": "系统输入法,中文听写都可以",
                     "en-US": "Full IME support — Chinese & dictation"},
-    "06-voice":    {"zh-Hans": "端侧语音识别,不上云",
-                    "en-US": "On-device recognition, nothing leaves the LAN"},
-    "07-files":    {"zh-Hans": "照片文件直发 电脑,Finder 自动打开",
-                    "en-US": "Files land in Downloads, revealed in Finder"},
+    "07-context":  {"zh-Hans": "快捷键跟着 电脑 前台应用自动切换",
+                    "en-US": "Keynote, Xcode, Finder, browsers, editors…"},
     "08-privacy":  {"zh-Hans": "你的数据,永远不离开你的局域网",
                     "en-US": "Your data never leaves your network"},
 }
 
-SLOTS = ["01-concept", "02-camera", "03-mic", "04-trackpad",
-         "05-keyboard", "06-voice", "07-files", "08-privacy"]
+SLOTS = ["01-hero", "02-notify", "03-camera", "04-mic",
+         "05-trackpad", "06-keyboard", "07-context", "08-privacy"]
 
 # per-key title overrides (device names differ on iPad; ios-metadata.json
 # stays the iPhone single source of truth)
 TITLE_OVERRIDES = {
     "ipad129": {
-        "01-concept": {"en-US": "Your iPad is your computer's camera, mic, trackpad & keyboard",
-                       "zh-Hans": "你的 iPad,电脑 的摄像头·麦克风·触控板·键盘"},
-        "02-camera": {"en-US": "Turn a spare iPad into a 1080p webcam",
+        "01-hero": {"en-US": "Your iPad is your computer's camera, mic, trackpad & keyboard",
+                    "zh-Hans": "你的 iPad,电脑 的摄像头·麦克风·触控板·键盘"},
+        "03-camera": {"en-US": "Turn a spare iPad into a 1080p webcam",
                       "zh-Hans": "旧 iPad,变身高清会议摄像头"},
     },
 }
 
 # which raw phone capture each slot embeds (None = no device frame)
-SLOT_SOURCE = {"01-concept": "trackpad", "02-camera": "camera",
-               "03-mic": "trackpad-mic", "04-trackpad": "trackpad",
-               "05-keyboard": "keyboard", "06-voice": "trackpad",
-               "07-files": "trackpad", "08-privacy": None}
+SLOT_SOURCE = {"01-hero": "trackpad", "02-notify": "notifications",
+               "03-camera": "camera", "04-mic": "trackpad-mic",
+               "05-trackpad": "trackpad", "06-keyboard": "keyboard",
+               "07-context": "context", "08-privacy": None}
 
 FEATURE_LABELS = {
     "zh-Hans": ["摄像头", "麦克风", "触控板", "键盘"],
@@ -807,7 +807,7 @@ def compose(key, locale, slot, titles, cfg):
     canvas = vgrad(W, H, BG_TOP, BG_BOTTOM).convert("RGBA")
 
     top = None
-    if slot == "01-concept":
+    if slot == "01-hero":
         top = cfg["concept_app_icon_top"] + cfg["concept_app_icon"] + 36
     elif slot == "08-privacy":
         top = cfg["privacy_title_top"]
@@ -816,20 +816,22 @@ def compose(key, locale, slot, titles, cfg):
     title_bottom = draw_title_block(canvas, locale, title,
                                     SUBTITLES[slot][locale], cfg, top=top)
 
-    if slot == "01-concept":
+    if slot == "01-hero":
         slot_01(canvas, key, locale, cfg)
-    elif slot == "02-camera":
+    elif slot == "02-notify":
+        # The new headline feature gets a plain single-device frame: the
+        # seeded inbox is the whole story.
+        slot_single(canvas, key, locale, cfg, "notifications")
+    elif slot == "03-camera":
         slot_02(canvas, key, locale, cfg)
-    elif slot == "03-mic":
+    elif slot == "04-mic":
         slot_03(canvas, key, locale, cfg)
-    elif slot == "04-trackpad":
+    elif slot == "05-trackpad":
         slot_single(canvas, key, locale, cfg, "trackpad", ("erase-card",))
-    elif slot == "05-keyboard":
+    elif slot == "06-keyboard":
         slot_single(canvas, key, locale, cfg, "keyboard")
-    elif slot == "06-voice":
-        slot_single(canvas, key, locale, cfg, "trackpad", ("erase-card", "ptt-ring"))
-    elif slot == "07-files":
-        slot_07(canvas, key, locale, cfg)
+    elif slot == "07-context":
+        slot_single(canvas, key, locale, cfg, "context")
     elif slot == "08-privacy":
         slot_08(canvas, key, locale, cfg, title_bottom)
 

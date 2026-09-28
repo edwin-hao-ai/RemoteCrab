@@ -586,8 +586,7 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
-    /// A tap on a relayed notification: switch the Mac to the app (and
-    /// window) that sent it — the same "tap a notification, land in the app"
+    /// A tap on a relayed notification: switch the Mac to the app (and    /// window) that sent it — the same "tap a notification, land in the app"
     /// behaviour as a local notification.
     ///
     /// Does nothing when that app is no longer running: activating an app the
@@ -603,6 +602,18 @@ final class CaptureEngine: ObservableObject {
         let hasWindow = !(windowTitle ?? "").isEmpty
         Forensic.log("[notify] tap: activating '\(app.name)' window=\(hasWindow ? "yes" : "no")")
         activateMacApp(id: app.id, windowTitle: windowTitle)
+    }
+
+    /// Screenshot/E2E hook: fill the in-app inbox from a JSON array of
+    /// `IBNotification`. Lets the App Store screenshots show a realistic
+    /// inbox without a live Mac, while keeping demo content *out* of the
+    /// shipping binary — the data comes from the capture script's environment.
+    func seedNotifications(json: String) {
+        guard let data = json.data(using: .utf8),
+              let items = try? JSONDecoder().decode([IBNotification].self, from: data) else { return }
+        notificationStore.clear()
+        // `append` prepends, so the last item ends up at the top of the list.
+        for item in items { notificationStore.append(item) }
     }
 
     // MARK: - App screen mirror

@@ -20,6 +20,18 @@ private func IBL(_ key: String) -> String {
 }
 
 public enum IBLocale {
+
+    /// Localize a string that is **data**, not a literal — e.g. the
+    /// context-mode action labels, which come from `ContextProfiles` and so
+    /// cannot be wrapped in `IBL(...)` at the call site.
+    ///
+    /// `Text(LocalizedStringKey(label))` is NOT equivalent: it looks the key
+    /// up in `Bundle.main`, but the catalog lives in this package, so the
+    /// lookup silently misses and the raw English key is shown — translations
+    /// existed and still never appeared. Same class as lesson 8's corollary.
+    public static func string(_ key: String) -> String {
+        NSLocalizedString(key, bundle: .module, comment: "")
+    }
     public enum Launcher {
         public static let title = IBL("Applications")
         public static let searchPlaceholder = IBL("Search apps")

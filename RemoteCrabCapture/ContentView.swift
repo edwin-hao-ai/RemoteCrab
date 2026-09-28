@@ -380,6 +380,13 @@ struct ContentView: View {
             case "context":             engine.showContextSheet = true
             case "send":                showSendDialog = true
             case "settings":            showSettings = true
+            case "notifications":
+                // Screenshot run: show a realistic inbox. The content comes
+                // from the capture script (never shipped with the app).
+                if let seed = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_NOTIFY_SEED"] {
+                    engine.seedNotifications(json: seed)
+                }
+                showNotifications = true
             default: break
             }
         }
