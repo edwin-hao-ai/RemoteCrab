@@ -51,6 +51,37 @@ cargo run -p rc-app -- --connect <ip>:8765    # bypass discovery
 
 Tests: `cargo test` (96) + `cargo clippy --all-targets -- -D warnings` (clean).
 
+### Building it on a fresh Windows machine
+
+Nothing exotic, but the toolchain must be present:
+
+| Need | Why | Install |
+|---|---|---|
+| Rust (MSVC toolchain) | everything | `rustup default stable-msvc` |
+| Visual Studio C++ build tools | MSVC linker | VS 2022 Build Tools |
+| Windows SDK | Win32 APIs (`SendInput`, clipboard…) | bundled with VS Build Tools |
+
+**No** CMake, **no** FFmpeg, **no** nasm, **no** libopus — that was a
+deliberate call (see Gotchas). `cargo build` on a clean checkout just works.
+
+---
+
+## How to merge this branch
+
+The Windows tree is additive: it adds `windows/` plus the `docs/` plan and
+this file, and it **modifies 9 iOS/core Swift files** (see below). It does
+not touch `RemoteCrabReceiver/` (the Mac app) at all.
+
+```
+git checkout main && git pull
+git merge --no-ff feat/windows-receiver     # or open a PR
+./scripts/test.sh                           # MUST pass — see the warning below
+cd windows && cargo test                    # 96 tests
+```
+
+The branch is based on `origin/main` as of the session start; a fresh
+`git rebase origin/main` before merging is fine (it already was rebased once).
+
 ---
 
 ## The iOS-side changes (already on this branch)
@@ -82,9 +113,48 @@ Files touched (all iOS/core):
 
 **⚠️ These iOS changes have NOT been compiled on a Mac.** A Windows machine
 has no Swift toolchain, so only the *Windows* side is verified by build/test.
-**The Mac session should run `./scripts/test.sh` first**; expect at most
-minor Swift compile nits (nothing structural — brace balance and API usage
-were reviewed by hand).
+**The Mac session must run `./scripts/test.sh` first.**
+
+What to check per file (highest risk first):
+
+| File | Change | Watch for |
+|---|---|---|
+| `Networking/IBEvents.swift` | `IBClientHello` gained `platform` + custom `init(from:)` + explicit `CodingKeys` | The struct is `Codable`; with a custom decoder Swift still synthesizes `encode(to:)` from `CodingKeys`. If it complains, add an explicit `encode(to:)`. `Equatable` synthesis is unaffected. |
+| `Components/IBModifierBar.swift` | new `PeerPlatform` enum, `platform` param (defaulted), `windowsLabel` | `IBModifierBar(activeModifiers:)` callers still compile (the new param is defaulted). `IBDesignSystemShowcase` preview passes nothing — fine. |
+| `State/MacPairingStore.swift` | new `SeenComputer`, `seen` list, `noteSeen`/`platform(for:)/forgetSeen`, `loadSeen`/`saveSeen` | `SeenComputer` must be `Codable` (it is). The `init` now loads two lists — make sure both keys are distinct (`...pairedMacs` vs `...pairedMacs.seenComputers`). |
+| `CaptureEngine.swift` | `seenComputers`, `connectedPlatform`, `connectedIsWindows`, `setPreferredComputer`, `noteSeen` call in `handleHello`, platform set in `grant` | `@Published private(set)` props are read by views in the same module — OK. `connectedIsWindows` is internal, read from `RemoteCrabCapture` views — same module, OK. |
+| `MacPickerView.swift` | rewritten: `seenSection` replaces `pairedSection`; `computerIcon()` helper | Uses `Label { Text } icon: { Image }` trailing-closure form. `isConnected` is used in `.disabled(...)`. |
+| `KeyboardScreen.swift` | platform branch in `shortcutBar`; `modifierKey` uses `windowsLabel` | `shortcutKey(text:keycode:extra:)` signature unchanged. The Windows branch uses `extra: 8 \| 1` (command+shift) — valid `UInt8`. |
+| `TouchpadScreen.swift` | passes `platform:` to `IBModifierBar` | One call site. |
+| `DesignSystem/IBLocale.swift` | renamed some `Pairing.*` copy to say "computer"; added `seenComputers`, `notPairedBadge` | Old key names (`pairedMacs`, `macPickerTitle`, …) kept — all existing references still resolve. |
+| `Tests/PairingTests.swift` | +7 cases | Uses `MacPairingStore.seenLimit` (public) and `SeenComputer.isWindows`. |
+
+Nothing here is structurally risky — brace counts balance and the APIs used
+(`@Published private(set)`, `Codable` with `decodeIfPresent`, defaulted
+initializer params) are all standard. Expect at most a naming/typo nit.
+
+---
+
+## First 30 minutes on the Mac (do this in order)
+
+```sh
+git fetch origin
+git checkout feat/windows-receiver
+git pull
+
+# 1. Does the iOS/core change even compile? (the one unknown)
+./scripts/test.sh
+
+# 2. The Windows side is independent — it should build/test anywhere.
+cd windows && cargo test && cargo clippy --all-targets -- -D warnings
+
+# 3. Optional live check: run the receiver on a Windows box while the iPhone
+#    streams, and confirm the keyboard shows Ctrl/Alt and the picker lists
+#    the PC by name.
+```
+
+If `./scripts/test.sh` fails on a Swift file, the per-file table above says
+what each change was meant to do — the fixes should be mechanical.
 
 ---
 
