@@ -178,6 +178,7 @@ async fn serve(
             keyboard_on: true,
             active_surface: Surface::Trackpad,
             camera_position: rc_protocol::CameraPosition::Back,
+            screen_on: false,
             timestamp_micros: 123,
         };
         if let Ok(frame) = encode_feature_state(&snap) {

@@ -183,6 +183,9 @@ pub enum Feature {
     Voice,
     Trackpad,
     Keyboard,
+    /// The iPhone is showing the receiver's mirrored screen. Without this
+    /// variant a `featureControl {feature:"screen"}` frame fails to decode.
+    Screen,
 }
 
 /// Receiver → iPhone: toggle a feature remotely (kind `0x07`).
@@ -223,6 +226,9 @@ pub enum Surface {
     Trackpad,
     Keyboard,
     CameraPreview,
+    /// The iPhone is on the screen-mirror surface. Missing this variant made
+    /// the whole `featureState` snapshot fail to decode while mirroring.
+    Screen,
 }
 
 /// iPhone → receiver: full feature-state snapshot (kind `0x08`).
@@ -239,6 +245,10 @@ pub struct FeatureStateSnapshot {
     /// still decode.
     #[serde(default)]
     pub camera_position: CameraPosition,
+    /// Whether the receiver's app-window mirror is live. Defaults to false
+    /// for snapshots from builds that predate the mirror.
+    #[serde(default)]
+    pub screen_on: bool,
     #[serde(default)]
     pub timestamp_micros: u64,
 }
@@ -312,7 +322,13 @@ pub struct AppInfo {
     pub is_active: bool,
     /// PNG of the app's icon (base64). Only populated when the iPhone
     /// explicitly asks.
+    ///
+    /// The explicit `rename` is load-bearing: Swift's property is `iconPNG`,
+    /// so the wire key is `iconPNG`. `rename_all = "camelCase"` would emit
+    /// `iconPng`, the iPhone's decoder would find no key, and app icons
+    /// would silently never appear.
     #[serde(
+        rename = "iconPNG",
         default,
         skip_serializing_if = "Option::is_none",
         with = "base64_serde::opt"
@@ -363,7 +379,11 @@ pub struct WindowInfo {
     pub width: f64,
     #[serde(default)]
     pub height: f64,
+    /// Explicit `rename`: Swift's property is `snapshotJPEG`, so the wire key
+    /// is `snapshotJPEG` (camelCase would give `snapshotJpeg` → thumbnails
+    /// would never reach the iPhone).
     #[serde(
+        rename = "snapshotJPEG",
         default,
         skip_serializing_if = "Option::is_none",
         with = "base64_serde::opt"
@@ -669,7 +689,11 @@ pub struct InstalledApp {
     pub name: String,
     /// PNG of the app's icon (base64), so the iPhone's launcher can render
     /// a Dock-style grid of real icons. Absent when the receiver has none.
+    ///
+    /// Explicit `rename`: Swift's property is `iconPNG` (see the same note on
+    /// `AppInfo::icon_png`).
     #[serde(
+        rename = "iconPNG",
         default,
         skip_serializing_if = "Option::is_none",
         with = "base64_serde::opt"

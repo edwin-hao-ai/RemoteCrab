@@ -298,6 +298,7 @@ fn feature_state_snapshot_json_round_trip() {
         keyboard_on: true,
         active_surface: Surface::Trackpad,
         camera_position: CameraPosition::Front,
+        screen_on: false,
         timestamp_micros: 123_456,
     };
     let data = serde_json::to_string(&snap).unwrap();
