@@ -2270,6 +2270,38 @@ is tracked in the Roadmap section — don't duplicate it here.
     **Not yet shipped to users:** the tap routing is iPhone-side, so this
     needs an iOS build (the Mac half alone only adds the window title).
 
+83. **"It connects sometimes" was a phantom: a persisted loopback address
+    (2026-09-28).** The reported symptom was vague — *时灵时不灵*, "sometimes
+    it works, sometimes it doesn't" — and it was **my own test debris**.
+    The receiver learns the phone's IPv4 from every successful connect
+    (`persistLastPhoneEndpoint`) and re-dials it whenever Bonjour comes up
+    empty. Screenshot work left two **booted simulators** with the app
+    installed, so a listener sat on `127.0.0.1:8765`; the fallback connected
+    to it, and that "success" persisted `remotecrab.lastPhoneIP = 127.0.0.1`.
+    From then on the fallback dialled loopback forever, attaching to the
+    phantom and **re-persisting it on every connect** — a self-reinforcing
+    loop that the log hid, because it never printed *which* address it was
+    dialling (only `connection failed: … Connection reset by peer`, in a
+    believable 12-20 s retry cadence that looked like normal backoff).
+    **Diagnosis that cracked it:** `lsof -nP -iTCP:8765` showed the Mac
+    connected to `192.168.31.26`, `169.254.228.39` (link-local!) and loopback,
+    and `nc -z 127.0.0.1 8765` answered while no phone was around. The
+    defaults were the evidence: `defaults read … remotecrab.lastPhoneIP`
+    → `127.0.0.1`, and `phoneNameByIP` full of `%en0`-scoped junk.
+    **Fix:** `DirectDialAddress.isUsable` (pure, tested) rejects loopback,
+    link-local `169.254/16`, `0.0.0.0`/broadcast, non-dotted-quads and the
+    `%en0` scope form `currentPath.remoteEndpoint` sometimes prints — used at
+    **both** the persistence site and in `fallbackCandidates`, so a poisoned
+    default heals rather than being dialled. Build 8 (`RemoteCrab-1.0.7.zip`).
+    **Two rules for the next agent:** (1) **shut down simulators when you are
+    done capturing** — `xcrun simctl shutdown all` — a booted sim is a live
+    listener on loopback and the receiver will happily attach to it; (2) any
+    address that gets *persisted and re-dialled later* must be validated as a
+    plausible LAN host at write time, not just at read time.
+    **Also:** when a reconnect loop looks suspicious, **log the address**; a
+    loop that "retries every ~15 s" is indistinguishable from a healthy one
+    until you can see *what* it retries.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
