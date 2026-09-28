@@ -2171,6 +2171,52 @@ is tracked in the Roadmap section — don't duplicate it here.
     **Result:** real-device e2e went 5/23 → **23/23**; build 5
     (`RemoteCrab-1.0.4.zip`, `sparkle:version 5`) is notarized and live.
 
+81. **The notification relay is verified end-to-end on a real iPhone
+    (2026-09-28), and the first "no banners on this Mac" conclusion was a
+    bad probe, not a bad Mac.** Chain, 3/3, all on device:
+    Mac banner → AX scan → denylist → `0x22` → iPhone inbox → system banner.
+    Evidence, both halves:
+    - Mac: `scan plan=dialogWindows windows=4 dialogs=1 banners=1` then
+      `relaying notification from <private>` (`REMOTECRAB_DEBUG_NOTIFY=1`).
+    - iPhone (`Documents/forensic.log`, pulled with `devicectl device copy
+      from`): `[notify] relayed notification received (… unread=1/2/3)` +
+      `[notify] system banner posted` ×3.
+    **The wrong conclusion, and why:** an AX probe that dumped only each
+    window's *direct children* found no `AXNotificationCenterBanner` and I
+    concluded "this Mac never shows banners" — hours of work chasing the
+    wrong problem. The real banner sits at **depth 2**
+    (window → dialog → banner, `dialogs=1` every tick), so a one-level dump
+    can never see it. **Lesson: an AX/AX-like probe must dump at least as
+    deep as the code under test walks** (`collectBanners` descends to 8) —
+    a probe shallower than the code is evidence about the probe, not the
+    system. Note the useful side-effect: the same probe DID prove
+    `windows=4` is永不 empty (panel + 3 desktop widgets owned by
+    `notificationcenterui`), which is the F1 dead-fallback finding below.
+    **New diagnostic surface (keep it):** the Mac's `REMOTECRAB_DEBUG_NOTIFY=1`
+    per-tick line (plan/windows/dialogs/banners) and the iOS `[notify]`
+    forensic markers. Before these, "no banner on screen" and "the AX read
+    returned nothing" were indistinguishable in every log — that ambiguity,
+    not the code, is what made this take so long. Both are marker-only; the
+    notification's text is never logged (the iOS one logs the app-name
+    *length*, the Mac the app name at `.private`).
+    **Same pass:** adding that log line to the Mac's `nonisolated poll()`
+    made the compiler reject `Self.log` — "main actor-isolated static
+    property can not be referenced from a nonisolated context". That is the
+    **compile-time** form of lesson 80's runtime trap, and it only appeared
+    because `poll()` had never logged before. Mark such statics
+    `nonisolated`.
+    **Audit follow-up (e77b68a/e3366e6 + build 6, `sparkle:version 6`):**
+    the scan decisions moved into the pure, tested
+    `RemoteCrabCore/State/NotificationBannerParsing.swift` (243 tests), fixing
+    three silent-failure modes: the dead `windows.isEmpty` fallback (a banner
+    outside a dialog-marked window was missed forever — `scanPlan` now keys
+    off the banner marker), a banner with no `AXIdentifier` being dropped
+    (content key is the fallback identity), and an app-name parse that
+    produced "" dropping the notification (falls back to the pre-comma text,
+    then the whole description — with the filter also matching the raw
+    description so a degraded name fails the denylist **closed**). Windows
+    `rc-protocol` also learned `0x22`, which had decoded as `Kind::Video`.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -2358,21 +2404,27 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-28 (**Mac notification relay + OpenCode context suite +
-permission UX + Mac build 4** — the Mac now polls Notification Center banners
-via AX and relays each one to the iPhone as wire kind `0x22` (denylist,
-default off, banners only); a dedicated **OpenCode** context suite maps
-New Session / Previous Session / Next Session / Search Sessions; the
-missing-permission UX now **opens the Screen Recording Settings pane** (plus a
-Preferences status row) instead of only calling the request API, and the
-setup assistant invites Screen Recording as a **skippable** step. Mac
-**build 4** (`RemoteCrab-1.0.3.zip`, `sparkle:version 4`) is notarized,
-uploaded and installed locally, and the Developer-ID provisioning profile
-(lesson 75) is embedded + backed up locally and on the VPS. The iOS half of
-the relay is **simulator-verified only** (a `0x22` frame fires the lazy
-notification-permission request) and is still **unreleased** — the iOS build
-is blocked on the team mismatch. TCC grants must be re-taken by hand after any
-signing-identity change. 224 tests + both apps. Lesson 79.)_
+_Last updated: 2026-09-28 (**notification relay verified end-to-end on a real
+iPhone + iOS device builds fixed + Mac build 6** — the relay chain Mac banner →
+AX scan → denylist → `0x22` → iPhone inbox → system banner is **verified 3/3 on
+real hardware** (Mac `REMOTECRAB_DEBUG_NOTIFY=1` scan lines + `relaying
+notification`; iPhone `[notify] relayed notification received` + `system banner
+posted`). Three device-day bugfixes made that possible: the relay **crashed the
+whole receiver** ~0.5 s after a session was accepted (a `@MainActor` class's
+`DispatchSourceTimer` closure inherited actor isolation — 4th recurrence of the
+lessons 2/7/53 trap, lesson 80), the iOS device build was blocked by a wrong
+`DEVELOPMENT_TEAM` copied from a certificate's CN instead of its OU (lesson 80),
+and `scripts/e2e-device.sh` was silently replacing the user's Developer ID
+install with a dev-signed build (dropping every TCC grant — lesson 80).
+Real-device e2e went 5/23 → **23/23**. The relay's scan decisions were then
+moved into a pure, tested layer (`NotificationBannerParsing`, 243 tests) fixing
+three silent-failure modes, and both halves gained marker-only diagnostics
+(`REMOTECRAB_DEBUG_NOTIFY=1` on the Mac; `[notify]` in the iOS forensic log) so
+the feature can never again fail invisibly. Mac **build 6**
+(`RemoteCrab-1.0.5.zip`, `sparkle:version 6`) is notarized, uploaded and
+installed. TCC grants survive same-identity Sparkle upgrades; only a
+signing-identity change (or the e2e clobber, now fixed) drops them. 243 tests +
+both apps. Lessons 79-81.)_
 
 _Previous: 2026-09-27 (**website screenshots + promo video** — ten per-feature
 landing pages under `/remotecrab/features/`, a new `/remotecrab/suites/` page for the
