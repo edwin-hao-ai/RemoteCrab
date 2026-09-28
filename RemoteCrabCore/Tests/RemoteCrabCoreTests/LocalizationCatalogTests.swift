@@ -51,4 +51,41 @@ final class LocalizationCatalogTests: XCTestCase {
             XCTAssertNotNil(locs["zh-Hans"], "missing zh-Hans: \(key)")
         }
     }
+
+    /// Every context-mode action label must ship a `zh-Hans` translation.
+    ///
+    /// The labels are *data* (`ContextProfiles`), so they cannot be `IBL(...)`
+    /// at the call site; they render through `IBLocale.string(_:)`. That
+    /// indirection already hid one real bug — the sheet used
+    /// `Text(LocalizedStringKey(label))`, which resolves against
+    /// `Bundle.main`, and the catalog lives in this package, so the lookup
+    /// silently fell back to the English key *even though every translation
+    /// existed*. Deriving the keys from the registry (rather than a hardcoded
+    /// list) means a new suite that forgets its translations fails here.
+    ///
+    /// Only `zh-Hans` is required: these entries carry no `en` unit by design
+    /// (the key IS the English source).
+    func testEveryContextActionLabelIsTranslated() throws {
+        var labels = Set<String>()
+        for profile in ContextProfiles.all {
+            for action in profile.actions {
+                switch action {
+                case .key(let label, _, _, _),
+                     .system(let label, _, _),
+                     .voiceHero(let label, _):
+                    labels.insert(label)
+                }
+            }
+        }
+        XCTAssertGreaterThan(labels.count, 50, "expected the full suite registry")
+
+        let strings = try catalog()
+        let missing = labels.sorted().filter { label in
+            let entry = strings[label] as? [String: Any]
+            let locs = entry?["localizations"] as? [String: Any]
+            let zh = (locs?["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+            return (zh?["value"] as? String)?.isEmpty != false
+        }
+        XCTAssertTrue(missing.isEmpty, "context labels with no zh-Hans translation: \(missing)")
+    }
 }
