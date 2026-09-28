@@ -29,6 +29,22 @@ DD_ROOT="$ROOT/.build/e2e-derived"
 DD_MAC="$DD_ROOT/Build/Products/Debug/RemoteCrab.app"
 DD_IOS="$DD_ROOT/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
 LOG=/tmp/remotecrab-e2e.log
+# The deploy step overwrites /Applications/RemoteCrab.app with a locally
+# built (Apple Development) binary. That is a SIGNING-IDENTITY change for
+# the app as far as TCC is concerned, so it silently drops EVERY grant the
+# user had — Accessibility AND Screen Recording (lesson 79). Keep a copy of
+# whatever was installed and put it back on exit, so running the e2e does
+# not cost the user their permissions or their release build.
+RELEASE_BACKUP=/tmp/remotecrab-e2e-release-install.app
+restore_release_install() {
+  [ -d "$RELEASE_BACKUP" ] || return 0
+  pkill -9 -x RemoteCrab >/dev/null 2>&1 || true
+  rm -rf /Applications/RemoteCrab.app
+  ditto "$RELEASE_BACKUP" /Applications/RemoteCrab.app
+  rm -rf "$RELEASE_BACKUP"
+  echo "  ↩︎ restored your release install to /Applications/RemoteCrab.app"
+}
+trap restore_release_install EXIT
 
 pass=0; fail=0
 check() { # check <marker> <label>
@@ -60,7 +76,10 @@ xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCaptur
 
 echo "[3/5] deploy + install"
 pkill -9 -x RemoteCrab 2>/dev/null; sleep 1
+rm -rf "$RELEASE_BACKUP"
+[ -d /Applications/RemoteCrab.app ] && ditto /Applications/RemoteCrab.app "$RELEASE_BACKUP"
 rm -rf /Applications/RemoteCrab.app && ditto "$DD_MAC" /Applications/RemoteCrab.app
+echo "  (using a temporary dev-signed build; your install is backed up + restored on exit)"
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1
 
 echo "[4/5] run"
