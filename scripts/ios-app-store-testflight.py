@@ -188,11 +188,65 @@ def attach_build_to_version(client, version_id, build_id):
     print(f"  build {build_id} -> version {version_id}")
 
 
+def cmd_submit(client, m, version_string):
+    """Submit the version for App Store review.
+
+    The modern flow is reviewSubmissions -> reviewSubmissionItems ->
+    `submitted: true`; it refuses when anything required is missing, so the
+    guards below exist to fail with a readable reason instead of an opaque
+    409 from Apple.
+    """
+    B = "https://api.appstoreconnect.apple.com/v1"
+    version_id = find_version(client, m["appId"], version_string)
+    if not version_id:
+        sys.exit(f"version {version_string} not found")
+
+    # relationships come back as links only unless `include` is asked for,
+    # so without this the build guard always reported "no build attached".
+    v = client.get(f"{B}/appStoreVersions/{version_id}?include=build")["data"]
+    state = v["attributes"]["appStoreState"]
+    if state != "PREPARE_FOR_SUBMISSION":
+        sys.exit(f"version {version_string} is {state}, not PREPARE_FOR_SUBMISSION")
+
+    build = v["relationships"].get("build", {}).get("data")
+    if not build:
+        sys.exit(f"version {version_string} has no build attached")
+    b = client.get(f"{B}/builds/{build['id']}")["data"]
+    if b["attributes"]["processingState"] != "VALID":
+        sys.exit(f"build {b['attributes']['version']} is {b['attributes']['processingState']}")
+
+    shots = 0
+    for L in client.get(f"{B}/appStoreVersions/{version_id}/appStoreVersionLocalizations")["data"]:
+        for s in client.get(
+            f"{B}/appStoreVersionLocalizations/{L['id']}/appScreenshotSets"
+        )["data"]:
+            shots += len(client.get(f"{B}/appScreenshotSets/{s['id']}/appScreenshots")["data"])
+    if shots == 0:
+        sys.exit("no screenshots uploaded")
+
+    print(f"  version {version_string} | build {b['attributes']['version']} | {shots} screenshots")
+    sub = client.post(f"{B}/reviewSubmissions", {
+        "data": {"type": "reviewSubmissions", "attributes": {"platform": "IOS"},
+                 "relationships": {"app": {"data": {"type": "apps", "id": m["appId"]}}}}})
+    sid = sub["data"]["id"]
+    print(f"  review submission {sid}")
+    client.post(f"{B}/reviewSubmissionItems", {
+        "data": {"type": "reviewSubmissionItems",
+                 "relationships": {
+                     "reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sid}},
+                     "appStoreVersion": {"data": {"type": "appStoreVersions", "id": version_id}}}}})
+    r = client.patch(f"{B}/reviewSubmissions/{sid}", {
+        "data": {"type": "reviewSubmissions", "id": sid, "attributes": {"submitted": True}}})
+    print(f"  submitted: {r['data']['attributes'].get('state')}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--status", action="store_true")
     p.add_argument("--setup-internal", action="store_true")
     p.add_argument("--attach-build")
+    p.add_argument("--submit", action="store_true",
+                   help="submit the version for App Store review")
     p.add_argument("--groups-only", action="store_true",
                    help="with --attach-build: only add the build to the internal "
                         "TestFlight group, leave the App Store version alone "
@@ -204,6 +258,10 @@ def main():
     load_env()
     m = meta()
     client = ASCClient()
+
+    if args.submit:
+        cmd_submit(client, m, args.version_string)
+        return
 
     if args.status or not any([args.setup_internal, args.attach_build]):
         cmd_status(client, m)

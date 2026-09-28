@@ -9,14 +9,16 @@
       "keywords": "webcam,mic,trackpad,keyboard,remote control,virtual camera,second display,notifications",
       "marketingUrl": "https://vgoapp.com/remotecrab/",
       "supportUrl": "https://vgoapp.com/remotecrab/",
-      "promotionalText": "Your computer's notifications on your iPhone — tap one to jump back to that app and window. Plus camera, mic, trackpad, keyboard and a second display. Local WiFi."
+      "promotionalText": "Your computer's notifications on your iPhone — tap one to jump back to that app and window. Plus camera, mic, trackpad, keyboard and a second display. Local WiFi.",
+      "subtitle": "Camera, mic, trackpad & more"
     },
     "zh-Hans": {
       "description": "RemoteCrab 把你的 iPhone / iPad 变成 电脑 的摄像头、麦克风、触控板和键盘——全部通过本地 WiFi 直连。它还能把 电脑 的通知送到你手机上，并把 iPad 变成一块真正的第二屏幕。没有云端、没有账号、没有订阅、没有数据分析。你的画面、声音和按键，永远不离开你的局域网。\n\n【这些场景，你可能正需要它】\n• 电脑 上的通知，手机上收。通知会像本机通知一样弹在你手机上；点一下，电脑 立刻切回发通知的那个应用和窗口，接着干活。\n• 台式 电脑 没有摄像头？旧 iPhone 就是一枚 1080p 高清摄像头，在 Zoom、Teams、FaceTime、OBS 里直接选择「RemoteCrab Camera」。\n• 屏幕不够用？把 iPad 变成真正的第二块屏幕，直接把窗口拖过去——不用线材，不用转接器。\n• 会议太长？躺在沙发上用完整触控板控制接电视的 电脑：拖动、双指滚动、右键、三指手势、⌃⌥⌘⇧ 修饰键。\n• 电脑 麦克风太远太吵？iPhone 就是一支无线麦克风——按住说话，语音还能实时变成 电脑 上的文字。\n• 用你最熟悉的输入法打字——中文、听写都支持——文字直接出现在 电脑 光标处。\n\n【功能】\n• 通知中继：电脑 上的通知横幅实时送到 iPhone；点一下，电脑 切到对应应用，并把你带到那个窗口。\n• 摄像头：1080p 30fps，硬件 H.264 编码；安装随附的虚拟摄像头组件后，在任何 电脑 App 里作为标准摄像头出现。\n• 麦克风：实时串流；一键安装虚拟麦克风驱动后全系统可用。\n• 扩展显示器：把桌面扩展到 iPhone / iPad，并可在触摸屏上直接操作。\n• 投屏：在手机上看 电脑 当前窗口，并直接点按、拖动、滚动、输入。\n• 触控板：顺滑加速曲线、惯性滚动、拖拽、双指缩放、三指手势、触觉反馈。\n• 键盘：系统输入法、快捷键条（⌘C ⌘V ⌘Z ⌘⇥）、迷你触控板。\n• 按住说话：端侧语音识别，说话直接变成 电脑 上的文字。\n• 情景模式：快捷键条会跟着 电脑 前台应用自动切换——Keynote、Xcode、访达、浏览器、编辑器等，还有音量、亮度、媒体键。\n• App 切换与启动：点一下切到某个应用，或搜索并打开 电脑 上任何已安装的应用。\n• 剪贴板：两端剪贴板一键互发。\n• 文件：照片和文件直发 电脑，自动存入下载文件夹并在访达中显示。\n\n【隐私】\nRemoteCrab 是纯本地应用：不跑服务器、不需要账号、不收集任何数据、没有内购和订阅。一切都在你自己的 WiFi 里。\n\n【开始使用】\n需要搭配免费的 电脑 端 RemoteCrab Receiver（App 内有获取链接）。两端打开后自动发现，点一下即可配对。",
       "keywords": "摄像头,麦克风,触控板,键盘,视频会议,网络摄像头,无线鼠标,遥控,扩展屏,通知,剪贴板",
       "marketingUrl": "https://vgoapp.com/remotecrab/",
       "supportUrl": "https://vgoapp.com/remotecrab/",
-      "promotionalText": "电脑 上的通知，手机上收；点一下直接跳回那个应用和窗口。还有摄像头、麦克风、触控板、键盘，以及一块真正的第二屏幕。本地直连，无云无订阅。"
+      "promotionalText": "电脑 上的通知，手机上收；点一下直接跳回那个应用和窗口。还有摄像头、麦克风、触控板、键盘，以及一块真正的第二屏幕。本地直连，无云无订阅。",
+      "subtitle": "iPhone 变 电脑 的摄像头与触控板"
     }
   },
   "subtitles": {

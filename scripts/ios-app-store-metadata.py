@@ -199,6 +199,36 @@ def update_metadata(client, version_id, metadata, version_string):
             client.post("https://api.appstoreconnect.apple.com/v1/appStoreVersionLocalizations", payload)
 
 
+def update_app_info_metadata(client, app_id, metadata):
+    """Subtitle (and future app-level fields) live on `appInfoLocalizations`,
+    a different resource from the version localizations — skip it and the
+    store keeps a stale subtitle, which is how "Mac" survived the 5.2.5
+    trademark sweep in lesson 53."""
+    infos = client.get(
+        f"https://api.appstoreconnect.apple.com/v1/apps/{app_id}/appInfos"
+    ).get("data", [])
+    if not infos:
+        return
+    info_id = infos[0]["id"]
+    locs = client.get(
+        f"https://api.appstoreconnect.apple.com/v1/appInfos/{info_id}/appInfoLocalizations?limit=20"
+    )
+    existing = {l["attributes"]["locale"]: l["id"] for l in locs.get("data", [])}
+    for locale, attrs in metadata["locales"].items():
+        if "subtitle" not in attrs:
+            continue
+        loc_id = existing.get(locale)
+        if not loc_id:
+            print(f"  (no appInfoLocalization for {locale}; skipping subtitle)")
+            continue
+        payload = {"data": {"type": "appInfoLocalizations", "id": loc_id,
+                            "attributes": {"subtitle": attrs["subtitle"]}}}
+        print(f"  Updating subtitle {locale}...")
+        client.patch(
+            f"https://api.appstoreconnect.apple.com/v1/appInfoLocalizations/{loc_id}", payload
+        )
+
+
 def md5_file(path):
     h = hashlib.md5()
     with open(path, "rb") as f:
@@ -360,6 +390,7 @@ def main():
     if args.metadata:
         print("Updating metadata...")
         update_metadata(client, version_id, metadata, args.version)
+        update_app_info_metadata(client, metadata["appId"], metadata)
 
     if args.screenshots:
         print("Updating screenshots...")
