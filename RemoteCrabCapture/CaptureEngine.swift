@@ -1572,11 +1572,16 @@ final class CaptureEngine: ObservableObject {
         }
         // E2E: the switcher's Desktop quick action — REMOTECRAB_E2E_DESKTOP=1
         // sends showDesktop; the Mac log confirms "showDesktop requested".
-        // After the typing (3 s) + mirror input (~5 s) so it doesn't hide
-        // the target apps mid-assertion.
+        //
+        // 20 s, i.e. AFTER the extend/mutual-switch hook (5 s + up to 10 s of
+        // polling). showDesktop hides every app, so if it lands while the
+        // switch back to window mirroring is in flight the frontmost app has
+        // no eligible window and the Mac correctly falls back to capturing the
+        // whole display (lesson 73) — no "follow" at all, for a reason that
+        // has nothing to do with the mutual toggle.
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_DESKTOP"] == "1" {
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(10))
+                try? await Task.sleep(for: .seconds(20))
                 self?.sendSystemCommand(IBSystemCommand(command: .showDesktop))
                 Forensic.log("[e2e] showDesktop sent")
             }

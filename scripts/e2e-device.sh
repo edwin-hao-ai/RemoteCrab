@@ -46,7 +46,7 @@ restore_release_install() {
 }
 trap restore_release_install EXIT
 
-pass=0; fail=0
+pass=0; fail=0; skipped=0
 check() { # check <marker> <label>
   if grep -aq -- "$1" "$LOG"; then
     printf '  \033[32m✓\033[0m %s\n' "$2"; pass=$((pass+1))
@@ -101,19 +101,26 @@ xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
   --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1","REMOTECRAB_E2E_EXTEND":"1","REMOTECRAB_E2E_NOTIFY_TAP":"1"}' \
   "$BUNDLE_IOS" >/dev/null 2>&1
 echo "  waiting 30s for the scripted run…"
-sleep 20
+sleep 12
 # The relay needs a live session; fire a real banner and let it cross the
 # wire, then let the iPhone run the same action a tap would.
 #
-# Wake the display first: macOS does NOT show a banner (so the AX tree has
-# no banner element and the relay has nothing to forward) while the screen is
-# asleep, which made this assertion fail for a reason that had nothing to do
-# with the relay. `caffeinate -u` simulates user activity to wake it.
-caffeinate -u -t 3 >/dev/null 2>&1 || true
-sleep 1
-osascript -e 'display notification "e2e relay check" with title "RemoteCrab E2E" subtitle "relay"' >/dev/null 2>&1 || true
-echo "  fired a notification; waiting for the relay + tap…"
-sleep 12
+# Unique content per attempt, because macOS can decline to banner a repeat,
+# and `caffeinate -u` first because no banner is shown while the display
+# sleeps. Fired here — before the Desktop hook hides every app — so the
+# desktop state can't be a factor.
+for attempt in 1 2 3; do
+  caffeinate -u -t 2 >/dev/null 2>&1 || true
+  osascript -e "display notification \"e2e relay $attempt $(date +%s)\" with title \"RemoteCrab E2E\" subtitle \"relay\"" >/dev/null 2>&1 || true
+  sleep 5
+  if grep -q "relaying notification from" "$LOG" 2>/dev/null; then
+    echo "  relayed on attempt $attempt"
+    break
+  fi
+  echo "  no banner relayed yet (attempt $attempt)"
+done
+echo "  waiting for the rest of the scripted run…"
+sleep 14
 pkill -f "log stream --predicate" 2>/dev/null
 
 # Best-effort: pull the iPhone's forensic log so we can assert the mirror
@@ -147,14 +154,36 @@ check "showDesktop requested"             "Desktop quick action (showDesktop)"
 check "toggle extended display"           "Extended Display toggle fired (top-bar button path)"
 check "virtual display created"           "Extended Display: virtual display created"
 check "streaming extended display"        "mirror streams the virtual display"
-check "reason=follow"                     "switched Extended → window mirror (mutual toggle)"
+# Assert the INTENT ("the Mac resumed following"), not a particular reason
+# label: after a Show Desktop the follow legitimately resolves to whole-display
+# capture (lesson 73), so requiring reason=follow made this depend on hook
+# timing rather than on the mutual toggle working.
+check "screen mirror following frontmost app" "switched Extended → window mirror (resumed following)"
 check "streaming display"                 "mirror followed Show Desktop → display capture"
 check "notification relay started"        "notification relay armed"
-check "relaying notification from"        "notification relayed to the iPhone"
-check "activated app"                     "tapping the notification switched the Mac app"
+# The relay can only be exercised if macOS actually SHOWED a banner. The
+# scanner's debug line is the signal that the input existed: with
+# `banners=0` on every tick a missing relay is indistinguishable from "no
+# banner on screen" (locked/asleep display, coalescing), so report that as
+# skipped rather than as a broken feature. `banners=1` means a real banner
+# appeared, and then the relay MUST have forwarded it.
+if grep -qE "banners=[1-9]" "$LOG" 2>/dev/null; then
+  # The Mac logs "activated app" for the app-switch hook too, so it is a
+  # false positive here; "[notify] tap:" is emitted only by the router
+  # that a banner tap (or REMOTECRAB_E2E_NOTIFY_TAP) drives.
+  check "relaying notification from"        "notification relayed to the iPhone"
+  # Escaped: in a BRE `[notify]` is a CHARACTER CLASS, so an unescaped
+  # pattern can never match the literal marker.
+  check '\[notify\] tap:'                  "tapping the notification switched the Mac app"
+else
+  echo "  ⤼ SKIP notification relay — macOS showed no banner during the run"
+  echo "       (scanner saw banners=0 on every tick; see AGENTS lesson 82 for the"
+  echo "        manual real-device verification of the full relay + tap chain)"
+  skipped=$((skipped + 2))
+fi
 
 echo
-echo "== $pass passed, $fail failed =="
+echo "== $pass passed, $fail failed, $skipped skipped =="
 echo "log: $LOG"
 
 # Leave the app terminated. A headless run launches with REMOTECRAB_AUTO_START=1,
