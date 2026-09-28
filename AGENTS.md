@@ -2302,6 +2302,46 @@ is tracked in the Roadmap section — don't duplicate it here.
     loop that "retries every ~15 s" is indistinguishable from a healthy one
     until you can see *what* it retries.
 
+84. **A string in a SwiftUI `Text` is looked up in the WRONG bundle, so a
+    label renders English even though the translation exists (2026-09-28).**
+    The context-sheet actions rendered `Text(LocalizedStringKey(label))`,
+    where `label` is a dynamic `String` read from `ContextProfiles`. The
+    Chinese catalog lives in the **Core package** (`RemoteCrabCore/.../
+    Localizable.xcstrings`), but `Text(_:)` with a `LocalizedStringKey`
+    resolves against **`Bundle.main`** — the *app* bundle. Result: every one
+    of the 79 action labels showed **English in the Chinese UI** while the
+    exact translation was sitting in the catalog the whole time. (SwiftUI
+    only runs the catalog lookup for a `Text("literal")`; a `String` routed
+    through a property or a `row(title:)` helper is a different path — this
+    is lesson 8's cousin, one layer deeper: the string WAS a
+    `LocalizedStringKey`, it just resolved in the wrong bundle.)
+    **Fix:** `IBLocale.string(_:)` (explicit
+    `String(localized:bundle:.module)`) used at all 4 render sites. The
+    lesson: **a label sourced from Core and rendered by the app crosses a
+    bundle boundary** — when in doubt, look it up explicitly against the
+    bundle that owns the catalog. Caught only by *screenshotting* the
+    Chinese UI, not by any test. Fixed in the iOS build **2026092404**
+    (already the build under review), so no re-submit.
+
+85. **Three of my own e2e-harness bugs, and the discipline they teach
+    (2026-09-28).** The device e2e caught these, and each is a class of
+    mistake worth avoiding in any test harness: (a) **A fixed sleep is not a
+    state wait** — the extended-display hook slept 2 s then sent `mirror`,
+    but the virtual display takes ~3 s to exist, so the mirror request
+    arrived while `isExtendedDisplayOn` was still false and took the
+    "close viewer" branch. Fix: poll the state, then send. (b) **Two hooks
+    can race** — the `showDesktop` hook (10 s) fired *after* the app-switch
+    hook, hiding the app that `showDesktop` needs, and by design (lesson 73)
+    the capture then falls back to whole-display, so the follow assertion
+    could never hold. Fix: sequence the hooks, and assert the *intent*
+    ("mirror resumes following the frontmost app") rather than one internal
+    `reason=` label. (c) **`grep`/BRE eats `[` `]`** — `check "[notify] tap:"`
+    is a *bracket-expression class* (matches any of n-o-t-i-f-y), not a
+    literal, so the assertion **failed on a run where the tap actually
+    happened**. Fix: escape (`\[notify\]`) — and the general rule: **when an
+    e2e assertion fails, first suspect the assertion.** A green assertion
+    and a red assertion are both only as trustworthy as the pattern.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -2336,12 +2376,21 @@ Headless e2e launch envs for the iOS app (via
   needs Screen Recording granted on the Mac)
 - `REMOTECRAB_E2E_INSTALLED_APPS=1` — request the installed-app list at 8 s
   (Mac log: `published N installed apps`)
-- `REMOTECRAB_E2E_DESKTOP=1` — send `showDesktop` at 10 s (Mac log:
+- `REMOTECRAB_E2E_DESKTOP=1` — send `showDesktop` at 20 s (Mac log:
   `showDesktop requested`, and a live mirror switches to `streaming display`)
 - `REMOTECRAB_E2E_SHEET=switcher|launcher` — present that sheet at launch
   (screenshot runs)
 - `REMOTECRAB_E2E_TAP=desktop` — with the switcher open, tap the Desktop card
   from code (exercises the exact button action, including `dismiss()`)
+- `REMOTECRAB_E2E_NOTIFY_RELAY=1` — force the Mac relay ON, post a unique
+  timestamped banner via Script Editor, wait for `relayed on attempt N`
+  (retries up to 3×), and assert the iPhone's forensic log received it.
+  Input-aware: if the Mac's `REMOTECRAB_DEBUG_NOTIFY=1` scan never reports
+  `banners>=1` (no banner on screen), it SKIPs with a reason instead of
+  reporting a false failure (lesson 85).
+- `REMOTECRAB_E2E_NOTIFY_TAP=1` — after the relay, run the exact tap the
+  notification tap performs: activating the front window of the notified app
+  (Mac log `activated app … window=…`; iOS forensic `[notify] tap: …`).
 
 Runbook for real-device testing:
 - `./scripts/install-to-iphone.sh` builds + installs + launches
@@ -2489,7 +2538,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-28 (**notification relay verified end-to-end on a real
+_Last updated: 2026-09-29 (**iOS 1.0 submitted for review with build 2026092404 + tap-to-activate + the phantom-loopback fix shipped as Mac build 8 + 32 fresh store screenshots** — the session's through-line was *finishing verification and shipping*, and it found three real App bugs. (1) **The context-mode action labels never localized** — `Text(LocalizedStringKey(label))` resolves against `Bundle.main` while the catalog lives in the **Core package**, so all 79 labels rendered English in the Chinese UI with the translations sitting right there; fixed with `IBLocale.string(_:)` at all 4 render sites (lesson 84). It is the only iOS-side change and it is **inside the build now under review** (fix committed 17:34, package archived 19:21), so **no re-submission is needed**. (2) **A phantom loopback connection** — my own screenshot debris left two booted simulators listening on `127.0.0.1:8765`; the receiver's direct-IP fallback attached to one, persisted `remotecrab.lastPhoneIP = 127.0.0.1`, and then re-persisted it on every connect, so the user's "时灵时不灵" was a self-reinforcing ghost dial. `DirectDialAddress.isUsable` now rejects loopback / link-local / `%en0` / non-dotted-quads at **both** the write and read sites (lesson 83). (3) The relay crash from the previous session (lesson 80). Two new e2e hooks (`REMOTECRAB_E2E_NOTIFY_RELAY` / `_NOTIFY_TAP`) make the relay chain and the tap assertion part of the device suite, and the suite's three flakiness sources — a fixed sleep, two racing hooks, and an unescaped BRE bracket class — were root-caused and fixed (lesson 85): the suite is **24 deterministic assertions green**, and the relay+tap pair is green whenever macOS actually presents a banner and honestly SKIPs when it doesn't. **Mac build 8** (`RemoteCrab-1.0.7.zip`, `sparkle:version 8`) is notarized, uploaded and running. **iOS 1.0 is `WAITING_FOR_REVIEW` on build 2026092404** with 32 new screenshots (8 story beats × 2 device classes × 2 locales), a full metadata rewrite, and a complete removal of the word "Mac" from every review-facing field (5.2.5). Note the release asymmetry this session exploited: **Mac needs no review** (Developer ID + Sparkle, 5 builds in a day), **iOS does** (one review cycle) — so Mac-side fixes should be preferred, and a swap on an already-submitted version costs a **manual browser withdrawal** because the ASC API has no `DELETE` on `reviewSubmissions`. Still open: real-device screenshots for the mirror/extended-display surfaces (no Mac in the simulator), the denylist filter on real hardware, and the Sparkle idle gate under a live session. 270 tests + both apps. Lessons 83-85.)_
+
+_Previous: 2026-09-28 (**notification relay verified end-to-end on a real
 iPhone + iOS device builds fixed + Mac build 6** — the relay chain Mac banner →
 AX scan → denylist → `0x22` → iPhone inbox → system banner is **verified 3/3 on
 real hardware** (Mac `REMOTECRAB_DEBUG_NOTIFY=1` scan lines + `relaying
