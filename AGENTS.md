@@ -2114,6 +2114,63 @@ is tracked in the Roadmap section — don't duplicate it here.
     manual tap). Real-device iOS test remains blocked by the signing-team gap
     above.
 
+80. **`project-ios.yml` had the wrong `DEVELOPMENT_TEAM`, and the
+    notification relay shipped a receiver crash (2026-09-28, real-device
+    session).** Both found by finally running the real-device e2e.
+    (a) **The yml said `DDG3CJL762`; the real team is `5XNDF727Y6`.**
+    `DDG3CJL762` is the **CN/UID** of the `Apple Development: Created via
+    API` certificate — the team ID is the cert's **OU**
+    (`security find-certificate -c "…" -p | openssl x509 -subject`), which is
+    `5XNDF727Y6`. Someone copied the wrong field into the yml. Every script
+    already passed `DEVELOPMENT_TEAM=5XNDF727Y6` on the command line, so only
+    a **bare** `xcodebuild` failed, with `No Account for Team "DDG3CJL762"` /
+    `No profiles for 'com.ibridge.iBridgeCapture'`. Fix the yml, don't work
+    around it. `project-mac.yml` was right all along.
+    (b) **The 4th recurrence of the isolation trap (lessons 2 / 7 / 53):**
+    `@MainActor final class NotificationCapture` created a
+    `DispatchSourceTimer` on its own background queue and wrote
+    `source.setEventHandler { [weak self] in self?.poll() }`. The closure
+    literal inherits the enclosing `@MainActor` isolation, the timer fires on
+    `com.remotecrab.notifycapture`, so **~0.5 s after a session is accepted
+    with the relay on** it trapped in
+    `_dispatch_assert_queue_fail → swift_task_checkIsolatedSwift` and killed
+    the whole receiver (SIGTRAP, type-309 corpse in DiagnosticReports). It
+    survived review because `notifyRelay` **defaults off** — the crash needs
+    the toggle AND a live session. **Fix:** type the handler explicitly
+    (`let handler: @Sendable () -> Void = { … }`) so it is nonisolated;
+    `poll()` is already `nonisolated` and hops back via `Task { @MainActor }`.
+    **Why it compiled:** under `-swift-version 5` the literal is *silently*
+    isolated-but-legal; the project is `SWIFT_VERSION 6.2`, where the same
+    literal traps at runtime. An 18-line standalone harness
+    (`@MainActor` class + background timer + nonisolated `tick`, printed
+    ticks via an `NSLock` counter) reproduces it exactly: Swift 5 → both
+    forms survive, Swift 6 → old form SIGTRAPs, `@Sendable` form ticks.
+    Lesson: **for any `@Sendable` callback handed to a background queue,
+    write the type explicitly** — the compiler will not save you, and
+    `ScreenStreamer`'s identical-looking timer is safe only because that class
+    is `@unchecked Sendable` (no isolation to inherit), not because the code
+    differs.
+    (c) **`scripts/e2e-device.sh` silently destroyed the user's release
+    install.** Step `[3/5]` did `rm -rf /Applications/RemoteCrab.app && ditto
+    "$DD_MAC" …`, replacing the Developer ID build with an Apple Development
+    one — a signing-identity change, so it dropped the Accessibility AND
+    Screen Recording grants (lesson 79) and left a dev build installed. It
+    now backs the install up first and restores it from an `EXIT` trap.
+    Corollary worth remembering: **a dev-signed build simply has no TCC
+    grant; the release build's grant was never lost.** Seeing
+    `accessibility trusted: false` right after an e2e run looked like a lost
+    permission and wasn't — reinstalling the same-identity Developer ID build
+    brought it straight back. Same-identity Sparkle upgrades keep grants.
+    (d) **Tooling gotcha:** for a **non-sandboxed** app that still has a
+    leftover sandbox container, `defaults write <bundle-id>` can land in
+    `~/Library/Containers/…/Preferences/` while the app reads
+    `~/Library/Preferences/…`. Toggling a `UserDefaults`-backed feature this
+    way silently does nothing. Write the key with `PlistBuddy` into
+    `~/Library/Preferences/<bundle-id>.plist`, `killall -u $USER cfprefsd`,
+    and relaunch.
+    **Result:** real-device e2e went 5/23 → **23/23**; build 5
+    (`RemoteCrab-1.0.4.zip`, `sparkle:version 5`) is notarized and live.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
