@@ -305,7 +305,10 @@ mod tests {
         assert_eq!(hdr.stride, W * 4);
         assert_eq!(hdr.frame_seq, 1);
         assert_eq!(hdr.write_idx, 1, "the first frame lands in buffer 1");
-        assert_eq!(reader.bytes_at(hdr.buf_offset(hdr.write_idx), FRAME), frame);
+        assert_eq!(
+            reader.bytes_at(hdr.buf_offset(hdr.write_idx).expect("valid header"), FRAME),
+            frame
+        );
     }
 
     #[test]
@@ -319,7 +322,10 @@ mod tests {
         let hdr = reader.header();
         assert_eq!(hdr.frame_seq, 2);
         assert_eq!(hdr.write_idx, 0, "second frame flips back to buffer 0");
-        assert_eq!(reader.bytes_at(hdr.buf_offset(0), 4), vec![2u8; 4]);
+        assert_eq!(
+            reader.bytes_at(hdr.buf_offset(0).expect("valid header"), 4),
+            vec![2u8; 4]
+        );
     }
 
     #[test]
