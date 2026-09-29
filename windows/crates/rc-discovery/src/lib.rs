@@ -137,21 +137,33 @@ pub fn local_ipv4_addresses() -> Vec<String> {
     out
 }
 
-/// Build the host addresses of the local `/24` subnet for `ip`
-/// (e.g. `192.168.31.159` → `192.168.31.1` … `192.168.31.254`).
+/// Build the host addresses of a `/24` for `target`.
+///
+/// Accepts either form:
+/// - `192.168.31.159` — a full address; that host is excluded from the sweep,
+///   because it is this PC talking to itself.
+/// - `192.168.31` — an explicit /24 prefix, used to look for a phone parked on
+///   a guest/IoT subnet that the router routes but isolates from the main LAN.
 ///
 /// Only `/24` is swept: it covers virtually every home/office LAN and keeps
-/// the scan bounded (254 probes). Other prefixes fall back to the same
-/// last-octet sweep, which is a best-effort convenience, not a guarantee.
-pub fn subnet_hosts(ip: &str) -> Vec<String> {
-    let parts: Vec<&str> = ip.split('.').collect();
-    if parts.len() != 4 {
+/// the scan bounded (254 probes).
+pub fn subnet_hosts(target: &str) -> Vec<String> {
+    let parts: Vec<&str> = target.trim().split('.').collect();
+    let octet = |s: &str| s.parse::<u8>().ok().filter(|o| *o <= 254);
+    let Some(a) = octet(parts.first().copied().unwrap_or_default()) else {
         return Vec::new();
-    }
-    let prefix = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
-    let self_last: u32 = parts[3].parse().unwrap_or(0);
+    };
+    let Some(b) = parts.get(1).and_then(|s| octet(s)) else {
+        return Vec::new();
+    };
+    let Some(c) = parts.get(2).and_then(|s| octet(s)) else {
+        return Vec::new();
+    };
+    let prefix = format!("{a}.{b}.{c}");
+    // A 4th part is this PC's own address; a 3-part target has none to skip.
+    let self_last: Option<u16> = parts.get(3).and_then(|s| s.parse::<u16>().ok());
     (1..=254)
-        .filter(|n| *n != self_last)
+        .filter(|n| Some(*n as u16) != self_last)
         .map(|n| format!("{prefix}.{n}"))
         .collect()
 }
@@ -270,6 +282,19 @@ mod tests {
     fn subnet_hosts_rejects_malformed() {
         assert!(subnet_hosts("not-an-ip").is_empty());
         assert!(subnet_hosts("192.168").is_empty());
+        assert!(subnet_hosts("192.168.300.1").is_empty());
+    }
+
+    /// A bare /24 prefix is a first-class input: it is how you look for a
+    /// phone on a guest subnet. Before this it silently returned an empty
+    /// list, so the scan reported "nothing found" having probed nothing.
+    #[test]
+    fn subnet_hosts_accepts_a_bare_prefix() {
+        let hosts = subnet_hosts("192.168.32");
+        assert_eq!(hosts.len(), 254, "a prefix has no self to exclude");
+        assert!(hosts.contains(&"192.168.32.1".to_string()));
+        assert!(hosts.contains(&"192.168.32.254".to_string()));
+        assert!(hosts.iter().all(|h| h.starts_with("192.168.32.")));
     }
 
     #[tokio::test]

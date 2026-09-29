@@ -211,6 +211,68 @@ async fn browse_once() -> Vec<String> {
     found
 }
 
+/// `run_doctor`: the `remotecrab doctor` entry point — print the evidence, then
+/// the ranked causes with what to do about each. Exits 0 when nothing is wrong
+/// and 1 when it found something to fix, so a support script can use it as a
+/// gate.
+pub async fn run_doctor(target: Option<&str>) -> std::process::ExitCode {
+    println!(
+        "RemoteCrab doctor {}\n",
+        crate::i18n::t("— 诊断为什么 iPhone 连不上", "— why the iPhone will not connect")
+    );
+    let evidence = collect(target).await;
+
+    println!("{}", crate::i18n::t("本机地址 / this PC:", "this PC:"));
+    for a in &evidence.local_addrs {
+        println!("  {a}");
+    }
+    match &evidence.route {
+        rc_net::route::RouteVerdict::Direct => println!(
+            "  {}",
+            crate::i18n::t("路由正常：走真实网卡", "route: direct (real adapter)")
+        ),
+        other => println!("  route: {}", rc_net::route::describe(other)),
+    }
+    if let Some(t) = &evidence.target {
+        let open = evidence.tcp_open.unwrap_or(false);
+        let state = if open {
+            crate::i18n::t("通", "open")
+        } else {
+            crate::i18n::t("不通", "closed")
+        };
+        println!(
+            "  {} {t} {state}",
+            crate::i18n::t("目标端口探测 / target probe:", "target probe:"),
+        );
+    }
+    if evidence.mdns.is_empty() {
+        println!(
+            "  {}",
+            crate::i18n::t("mDNS：没有发现任何 iPhone", "mDNS: no iPhone advertised")
+        );
+    } else {
+        println!("  mDNS: {}", evidence.mdns.join(", "));
+    }
+
+    let findings = rank(&evidence);
+    if findings.is_empty() {
+        println!(
+            "\n{}",
+            crate::i18n::t(
+                "没发现问题 —— 网络和手机都正常。",
+                "Nothing wrong here — the network and the phone look fine."
+            )
+        );
+        return std::process::ExitCode::SUCCESS;
+    }
+    println!();
+    for f in &findings {
+        println!("{}. {}", f.rank, f.problem);
+        println!("   → {}\n", f.fix);
+    }
+    std::process::ExitCode::from(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
