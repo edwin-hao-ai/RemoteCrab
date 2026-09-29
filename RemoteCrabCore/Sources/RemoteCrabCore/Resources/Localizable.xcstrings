@@ -9161,6 +9161,176 @@
           }
         }
       }
+    },
+    "In use now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In use now"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用中"
+          }
+        }
+      }
+    },
+    "Waiting for your approval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for your approval"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等待你允许"
+          }
+        }
+      }
+    },
+    "Found this iPhone, but %@ is using it": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Found this iPhone, but %@ is using it"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已找到这台 iPhone，但 %@ 正在使用"
+          }
+        }
+      }
+    },
+    "You declined this computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You declined this computer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你拒绝了这台电脑"
+          }
+        }
+      }
+    },
+    "Turned away — iPhone in use": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turned away — iPhone in use"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被拒绝 —— iPhone 正在被占用"
+          }
+        }
+      }
+    },
+    "Hasn't reached this iPhone yet — check the network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hasn't reached this iPhone yet — check the network"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有连上过这台 iPhone —— 请检查网络"
+          }
+        }
+      }
+    },
+    "Last tried %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last tried %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次尝试：%@"
+          }
+        }
+      }
+    },
+    "The connection to your Mac is slow. Video and input may lag.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to your Mac is slow. Video and input may lag."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与电脑的连接较慢，画面和操作可能会有延迟。"
+          }
+        }
+      }
+    },
+    "The camera could not start. Close any other app using it, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The camera could not start. Close any other app using it, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摄像头无法启动。请关闭正在使用摄像头的其他应用，然后重试。"
+          }
+        }
+      }
+    },
+    "RemoteCrab could not reach the local network. Check that Wi-Fi is on and this app may use it in Settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab could not reach the local network. Check that Wi-Fi is on and this app may use it in Settings."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RemoteCrab 无法访问本地网络。请确认 Wi-Fi 已开启，并在「设置」中允许此应用使用本地网络。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

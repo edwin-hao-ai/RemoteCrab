@@ -938,10 +938,19 @@ struct ContentView: View {
                                linkURL: RemoteCrabLinks.productPage,
                                mascot: true)
         case .failed:
+            // Name the actual cause. "Connection to Mac lost. Reconnecting…"
+            // is actively misleading for the two failures that never had
+            // anything to do with the Mac.
+            let subtitle: String
+            switch engine.failureReason {
+            case .captureStart: subtitle = IBLocale.Error.captureStartFailed
+            case .network:      subtitle = IBLocale.Error.networkUnavailable
+            case .linkLost, .none: subtitle = IBLocale.Error.connectionLost
+            }
             return StatusAlert(symbol: "exclamationmark.triangle.fill",
                                tint: IBColor.error,
                                title: IBLocale.Status.offline,
-                               subtitle: IBLocale.Error.connectionLost)
+                               subtitle: subtitle)
         }
     }
 

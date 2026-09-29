@@ -71,6 +71,11 @@ final class ReceiverSession: ObservableObject {
     /// silence as a dead link (see `startPingLoop`).
     private var lastPongAt: Date?
 
+    /// Our own ping cadence, and the discriminator that keeps the phone's
+    /// probes from being measured as our own echoes (see `IBPingProbe`).
+    private var pingProbe = IBPingProbe()
+    private var latencyTracker = IBLatencyTracker(window: 30)
+
     /// Mac → iPhone app-screen mirror. nil until the iPhone sends
     /// `screenControl(.start)`; torn down on `.stop` and on disconnect.
     private var screenStreamer: ScreenStreamer?
@@ -178,6 +183,11 @@ final class ReceiverSession: ObservableObject {
     /// doesn't hammer it — replaced by a single slow retry + manual.
     private var suppressReconnect = false
     private var slowRetryTask: Task<Void, Never>?
+    /// True while we are quietly re-trying our turn after being told the
+    /// iPhone is in use. The visible state is frozen for the duration so the
+    /// popover holds a single, useful line — "in use by <X>, switch on the
+    /// iPhone" — instead of flickering to a bare "connecting…" every 15 s.
+    private var waitingInBackground = false
     /// Abandons a direct-IP dial that hasn't reached `.ready` in 8 s —
     /// a stale address otherwise sits in `preparing` for the full ~75 s
     /// TCP timeout and blocks the healthy Bonjour path.
@@ -1064,7 +1074,9 @@ final class ReceiverSession: ObservableObject {
         connectedIsDirect = phone.serviceEndpoint == nil
         connectedDirectIP = phone.serviceEndpoint == nil ? phone.endpoint : nil
 
-        state = .connecting(name: phone.name)
+        if !waitingInBackground {
+            state = .connecting(name: phone.name)
+        }
         Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
 
         let conn: NWConnection
@@ -1128,10 +1140,15 @@ final class ReceiverSession: ObservableObject {
             // log it, show a human message.
             Self.log.error("connection failed: \(error, privacy: .public)")
             if !suppressReconnect { state = .error(IBLocale.Error.iPhoneConnectionLost) }
+            stopPingLoop()
+            pingProbe.reset()
+            latencyTracker.reset()
             clearConnectionState()
             scheduleReconnect()
         case .cancelled:
             stopPingLoop()
+            pingProbe.reset()
+            latencyTracker.reset()
             sessionGranted = false
             let keepError = suppressReconnect
             clearConnectionState()
@@ -1178,6 +1195,7 @@ final class ReceiverSession: ObservableObject {
         switch reply.result {
         case .accepted:
             suppressReconnect = false
+            waitingInBackground = false
             slowRetryTask?.cancel()
             slowRetryTask = nil
             sessionGranted = true
@@ -1226,8 +1244,15 @@ final class ReceiverSession: ObservableObject {
             sessionGranted = false
             suppressReconnect = true
             stopPingLoop()
-            state = .error(reply.ownerName.map { IBLocale.Error.iphoneBusy($0) }
-                           ?? IBLocale.Error.iphoneBusyUnknown)
+            if waitingInBackground {
+                // The popover is already showing the busy line with its
+                // "what to do"; re-setting it every attempt would only
+                // restart the same message and lose the scroll position.
+                Self.log.info("still busy (owner: \(reply.ownerName ?? "?", privacy: .public)) — holding the message")
+            } else {
+                state = .error(reply.ownerName.map { IBLocale.Error.iphoneBusy($0) }
+                               ?? IBLocale.Error.iphoneBusyUnknown)
+            }
             scheduleSlowRetry()
 
         case .denied:
@@ -1243,19 +1268,37 @@ final class ReceiverSession: ObservableObject {
     func retryNow() {
         suppressReconnect = false
         autoConnectSuppressed = false
+        waitingInBackground = false
         slowRetryTask?.cancel()
         slowRetryTask = nil
         state = .searching
         if let phone = preferredPhone() ?? discovered.first { connect(to: phone) }
     }
 
-    /// One polite retry 30 s after being refused, then stop.
+    /// Keep quietly asking for our turn, indefinitely.
+    ///
+    /// This used to be a single 30 s retry and then it gave up, which made
+    /// switching one-way: Mac → Windows worked on its own, but coming back to
+    /// the Mac meant walking over to it and pressing something. The iPhone
+    /// releases the session the moment the other computer disconnects (or its
+    /// 10 s owner watchdog fires), so polling is what turns that into a
+    /// two-way door.
+    ///
+    /// The loop re-arms through the refusal path: each attempt either wins the
+    /// session (which cancels this task) or is refused again, which calls back
+    /// into here and starts a fresh one. It also honours the user's
+    /// "don't auto-reconnect" preference rather than polling against it.
     private func scheduleSlowRetry() {
         slowRetryTask?.cancel()
         slowRetryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(30))
-            guard let self, self.suppressReconnect else { return }
-            self.retryNow()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard let self, self.suppressReconnect else { return }
+                guard UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true
+                else { return }
+                self.waitingInBackground = true
+                self.retryNow()
+            }
         }
     }
 
@@ -1273,7 +1316,7 @@ final class ReceiverSession: ObservableObject {
                 connection.cancel()
                 return
             }
-            let micros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
+            let micros = self.pingProbe.makeProbe(now: Date())
             connection.send(content: IBWire.encodePing(sentMicros: micros),
                             completion: .contentProcessed { _ in })
         }
@@ -1496,13 +1539,30 @@ final class ReceiverSession: ObservableObject {
                     continue
                 }
                 let sentMicros = IBWire.decodePing(frame)
+                // ANY ping arriving proves the link is alive, so the watchdog
+                // is satisfied either way.
                 lastPongAt = Date()
-                let nowMicros = UInt64(Date().timeIntervalSince1970 * 1_000_000)
-                let rttMs = Int((nowMicros &- sentMicros) / 1_000)
+                guard pingProbe.isOwnEcho(sentMicros) else {
+                    // A probe the iPhone originated, so the phone is the one
+                    // waiting to measure. Echoing it is what lets the phone
+                    // show latency at all — it cannot derive a round trip
+                    // from a timestamp stamped with the Mac's clock.
+                    //
+                    // Crucially this must NOT fall through to the RTT maths
+                    // below: subtracting the phone's timestamp from ours
+                    // yields the CLOCK OFFSET between the two machines, which
+                    // can be hours, and that number is what the menu bar
+                    // would display.
+                    self.connection?.send(content: IBWire.encodePing(sentMicros: sentMicros),
+                                          completion: .contentProcessed { _ in })
+                    break
+                }
+                guard let rttMs = pingProbe.roundTripMs(ofEcho: sentMicros, now: Date()) else { break }
                 latencyHistory.append(rttMs)
                 if latencyHistory.count > 30 {
                     latencyHistory.removeFirst(latencyHistory.count - 30)
                 }
+                latencyTracker.record(millis: rttMs)
                 if case .streaming(let name, _) = state {
                     state = .streaming(name: name, latencyMs: rttMs)
                 }

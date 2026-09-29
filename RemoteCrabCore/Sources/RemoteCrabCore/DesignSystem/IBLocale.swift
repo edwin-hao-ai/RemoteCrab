@@ -657,6 +657,31 @@ public enum IBLocale {
         }
         public static let cancelPreferred = IBL("Cancel Preference")
         public static let pickerFooter = IBL("Several computers are on this network. Pick one — it takes over on its next connect; the others see \"in use\".")
+        /// The last attempt's outcome, shown next to a computer in the picker.
+        ///
+        /// These three answers are what a user cannot work out for themselves:
+        /// "streaming" says which machine is live, "waiting for approval" says
+        /// the phone is holding a card they have not answered, and "in use" /
+        /// "declined" say the computer *did* find us and was turned away — as
+        /// opposed to never having found us at all, which is a network problem.
+        public enum Attempt {
+            public static let streaming = IBL("In use now")
+            public static let waitingApproval = IBL("Waiting for your approval")
+            public static let refusedBusy = IBL("Found you, but another computer is using the iPhone")
+            public static let denied = IBL("You declined this computer")
+            /// The absence of a knock is itself a diagnosis, so it gets words
+            /// rather than a blank row: this machine has never reached this
+            /// iPhone, which is a network problem and tapping the row will not
+            /// fix it.
+            public static let neverReached = IBL("Hasn't reached this iPhone yet — check the network")
+            public static let refusedBusyShort = IBL("Turned away — iPhone in use")
+            public static func refusedBusy(owner: String) -> String {
+                String(format: IBL("Found this iPhone, but %@ is using it"), owner)
+            }
+            public static func lastSeen(_ text: String) -> String {
+                String(format: IBL("Last tried %@"), text)
+            }
+        }
         /// Section header for computers seen on the network, paired or not.
         public static let seenComputers = IBL("On this network")
         /// Badge for a computer that has never been paired (first contact).
@@ -691,6 +716,16 @@ public enum IBLocale {
         /// then nothing ever happened, with the UI still claiming to be
         /// connected.
         public static let notConnectedToMac = IBL("Not connected to your Mac right now.")
+        /// Raised once when the measured round trip settles into "poor" and
+        /// retracted when it recovers — see `CaptureEngine.updateLatencyHint`.
+        public static let slowConnection = IBL("The connection to your Mac is slow. Video and input may lag.")
+        /// A failure that is not about the Mac at all — the old single
+        /// "Connection to Mac lost" sentence sent users looking at Wi-Fi
+        /// while the camera was the problem.
+        public static let captureStartFailed = IBL("The camera could not start. Close any other app using it, then try again.")
+        /// On iOS a listener that will not start is almost always the
+        /// local-network permission, so say that instead of "reconnecting".
+        public static let networkUnavailable = IBL("RemoteCrab could not reach the local network. Check that Wi-Fi is on and this app may use it in Settings.")
 
         // Multi-Mac pairing.
         public static func iphoneBusy(_ owner: String) -> String {

@@ -128,6 +128,24 @@ final class CaptureEngine: ObservableObject {
 
     let captureSession = AVCaptureSession()
 
+    /// Why the link is not up. The `.failed` state used to carry no reason,
+    /// so a camera that refused to start and a Wi-Fi that dropped both
+    /// produced the same sentence — "Connection to Mac lost. Reconnecting…" —
+    /// which is not only wrong for the former, it tells the user to do
+    /// something (wait) that will never help.
+    enum FailureReason: Equatable {
+        /// The capture session could not start (camera in use, denied, or an
+        /// unsupported preset). Nothing to do with the Mac.
+        case captureStart
+        /// The Bonjour listener could not start or died. On iOS this is
+        /// almost always the local-network permission.
+        case network
+        /// An established link went away. The Mac is reconnecting on its own.
+        case linkLost
+    }
+
+    @Published private(set) var failureReason: FailureReason?
+
     enum ConnectionState: Equatable {
         case idle
         case starting
@@ -183,6 +201,22 @@ final class CaptureEngine: ObservableObject {
     /// dead-but-still-"ready" socket must not keep answering other Macs
     /// `busy` forever.
     private var lastInboundAt = Date()
+    /// Our own latency probes, plus the window the results feed. The phone
+    /// used to only echo the Mac's pings, which measures nothing — a ping
+    /// carries the *sender's* clock, so whoever echoes cannot compute a
+    /// round trip. Now that the receiver echoes probes it didn't originate
+    /// (`IBPingProbe`), the phone initiates too and `lastLatencyMs` finally
+    /// has a real value.
+    private var latencyProbe = IBPingProbe()
+    private var latencyTracker = IBLatencyTracker()
+    private var latencyProbeTimer: Timer?
+    /// Flips to true the first time a probe comes back, which is also how we
+    /// learn the receiver is new enough to echo. An older one never answers
+    /// and the latency hint simply never appears.
+    private var latencyMeasured = false
+    /// Whether the "slow connection" hint is currently showing — the edge
+    /// detector for `updateLatencyHint()`.
+    private var latencyHintShown = false
     /// Set once the `REMOTECRAB_E2E_LINK_LOSS` script has run — see its
     /// call site in `grant()` for why it must not re-arm on reconnect.
     private var e2eLinkLossFired = false
@@ -388,6 +422,7 @@ final class CaptureEngine: ObservableObject {
         } catch {
             Self.log.error("capture start failed: \(error, privacy: .public)")
             connectionState = .failed
+            failureReason = .captureStart
             didConfigure = false
         }
 
@@ -779,6 +814,7 @@ final class CaptureEngine: ObservableObject {
             Self.log.error("listener start failed: \(error, privacy: .public)")
             Forensic.log("[e2e] listener start FAILED: \(error)")
             connectionState = .failed
+            failureReason = .network
         }
     }
 
@@ -1297,6 +1333,7 @@ final class CaptureEngine: ObservableObject {
         case .failed(let error):
             Self.log.error("listener failed: \(error, privacy: .public)")
             connectionState = .failed
+            failureReason = .network
         case .cancelled:
             connectionState = connection == nil ? .idle : .connected
         default:
@@ -1313,14 +1350,20 @@ final class CaptureEngine: ObservableObject {
     /// fix for multiple Macs fighting over one iPhone.
     private func accept(connection newConnection: NWConnection) {
         Forensic.log("[hs] accept ownerSet=\(connection != nil) pendingSet=\(pendingConnection != nil)")
-        // Read the hello before deciding anything: a Mac that reconnected
-        // after its socket dropped must be allowed to reclaim its own
-        // session, and we can only tell that from the hello's id.
-        if let pendingConnection, pendingConnection !== newConnection {
-            pendingConnection.cancel()
+        // Deliberately does **not** cancel a handshake that is already in
+        // progress. It used to, unconditionally, which made the single pending
+        // slot "last caller wins": two computers both retrying every few
+        // seconds kicked each other off the phone forever, and the one holding
+        // a valid token always won — so a Windows PC could be starved
+        // indefinitely by a Mac on the same network.
+        //
+        // `handleHello` now decides, and it has the hello (this function does
+        // not): the newcomer is told to wait, unless it is already paired, in
+        // which case it would be accepted immediately and it is what the user
+        // is trying to switch to.
+        if pendingConnection != nil {
+            Forensic.log("[hs] a handshake is already in progress — the newcomer will be told to wait")
         }
-        pendingConnection = nil
-        pendingHello = nil
         beginHandshake(with: newConnection)
     }
 
@@ -1391,15 +1434,35 @@ final class CaptureEngine: ObservableObject {
             existing.cancel()
             clearOwner(reason: .replaced)
         }
-        // A second Mac showed up while the first was mid-handshake.
-        if pendingConnection != nil && pendingConnection !== conn {
-            replyBusy(on: conn, ownerName: pendingMacName ?? "another computer")
-            return
+        // A second computer showed up while the first was mid-handshake.
+        if let pending = pendingConnection, pending !== conn {
+            let newcomerIsPaired = pairingStore.paired.contains { $0.id == hello.id }
+            let incumbentIsPaired = pendingHello.map { incumbent in
+                pairingStore.paired.contains { $0.id == incumbent.id }
+            } ?? false
+            if newcomerIsPaired && !incumbentIsPaired {
+                // The newcomer would be accepted immediately and it is the one
+                // the user just picked on this phone, so it takes the slot.
+                // Clearing all three here matters: leaving `pendingMacName`
+                // set would keep an approval card on screen for a connection
+                // that no longer exists, and the user would tap Allow on a
+                // dead card.
+                let incumbent = pendingMacName ?? "another computer"
+                Forensic.log("[hs] paired newcomer takes the pending slot from \(incumbent)")
+                pending.cancel()
+                pendingConnection = nil
+                pendingHello = nil
+                pendingMacName = nil
+            } else {
+                replyBusy(on: conn, ownerName: pendingMacName ?? "another computer")
+                return
+            }
         }
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
                                             preferred: pairingStore.preferred)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
+        noteOutcome(decision, for: hello)
         switch decision {
         case .accept:
             guard let mac = pairingStore.paired.first(where: { $0.id == hello.id }) else {
@@ -1429,6 +1492,23 @@ final class CaptureEngine: ObservableObject {
         case .busy(let ownerName):
             replyBusy(on: conn, ownerName: ownerName)
         }
+    }
+
+    /// Turn a pairing decision into something the computer list can show.
+    ///
+    /// This is the only way a user can tell "my PC cannot see the iPhone"
+    /// (a network problem) from "my PC found it and another computer is using
+    /// it" (a switching problem) — from the outside the two are identical, and
+    /// that ambiguity is what made this undiagnosable.
+    private func noteOutcome(_ decision: PairingDecision, for hello: IBClientHello) {
+        let outcome: AttemptOutcome
+        switch decision {
+        case .accept: outcome = .streaming
+        case .pending: outcome = .waitingApproval
+        case .busy(let ownerName): outcome = .refusedBusy(owner: ownerName)
+        }
+        pairingStore.noteOutcome(outcome, for: hello.id)
+        refreshPairedMacs()
     }
 
     /// Promote a connection to the session owner and start streaming.
@@ -1461,6 +1541,7 @@ final class CaptureEngine: ObservableObject {
             ?? mac.flatMap { pairingStore.platform(for: $0.id) }
             ?? "macos"
         connectionState = .connected
+        failureReason = nil
         startOwnerWatchdog()
         Self.log.info("session granted to \(self.connectedMacName ?? "?", privacy: .public)")
 
@@ -1744,6 +1825,7 @@ final class CaptureEngine: ObservableObject {
     func approvePendingMac() {
         guard let conn = pendingConnection, let hello = pendingHello else { return }
         let mac = pairingStore.pair(hello)
+        pairingStore.noteOutcome(.streaming, for: hello.id)
         refreshPairedMacs()
         sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
         grant(connection: conn, mac: mac, platform: hello.platform)
@@ -1751,7 +1833,9 @@ final class CaptureEngine: ObservableObject {
 
     /// Deny the waiting Mac and close its connection.
     func denyPendingMac() {
-        guard let conn = pendingConnection else { return }
+        guard let conn = pendingConnection, let hello = pendingHello else { return }
+        pairingStore.noteOutcome(.denied, for: hello.id)
+        refreshPairedMacs()
         sendSessionReply(IBSessionReply(result: .denied), on: conn)
         pendingConnection = nil
         pendingHello = nil
@@ -1773,11 +1857,11 @@ final class CaptureEngine: ObservableObject {
     /// Mark a paired Mac as the one this iPhone should serve. If a
     /// different Mac currently owns the session it is dropped; until
     /// the chosen Mac reconnects, every other Mac is answered "busy".
-    func setPreferredMac(id: String) {
+    func setPreferredMac(id: String, name: String? = nil) {
         // Already serving this Mac — a preference would just hold the
         // door against everyone else until it expires.
         guard ownerMac?.id != id else { return }
-        pairingStore.setPreferred(id: id)
+        pairingStore.setPreferred(id: id, name: nameForComputer(id: id))
         refreshPairedMacs()
         if ownerMac != nil {
             disconnectCurrentMac()
@@ -1947,11 +2031,22 @@ final class CaptureEngine: ObservableObject {
     /// makes "Choose a Computer" work when the current Mac won't release.
     func setPreferredComputer(id: String) {
         guard ownerMac?.id != id else { return }
-        pairingStore.setPreferred(id: id)
+        // The name travels with the preference so the policy can name this
+        // computer in `busy` even before it has ever been approved — without
+        // it the door does not open and the switch silently reverts.
+        pairingStore.setPreferred(id: id, name: nameForComputer(id: id))
         refreshPairedMacs()
         if ownerMac != nil {
             disconnectCurrentMac()
         }
+    }
+
+    /// The user-visible name we know for a computer id, preferring the live
+    /// connection over the remembered list.
+    private func nameForComputer(id: String) -> String? {
+        if connectedMacId == id, let name = connectedMacName { return name }
+        if let paired = pairingStore.paired.first(where: { $0.id == id }) { return paired.name }
+        return pairingStore.seen.first(where: { $0.id == id })?.name
     }
 
     /// E2E: a tap-on-notification needs a human finger on the phone, so this
@@ -2094,6 +2189,7 @@ final class CaptureEngine: ObservableObject {
         switch reason {
         case .lost:
             connectionState = .failed
+            failureReason = .linkLost
         case .disconnected:
             connectionState = .idle
         case .replaced:
@@ -2128,11 +2224,57 @@ final class CaptureEngine: ObservableObject {
         }
         RunLoop.main.add(timer, forMode: .common)
         ownerWatchdog = timer
+        startLatencyProbes()
     }
 
     private func stopOwnerWatchdog() {
         ownerWatchdog?.invalidate()
         ownerWatchdog = nil
+        stopLatencyProbes()
+    }
+
+    /// Probe the round trip every 3 s. A receiver too old to echo probes
+    /// never answers; that is not an error, it just means `latencyMeasured`
+    /// stays false and the UI shows nothing rather than guessing.
+    private func startLatencyProbes() {
+        stopLatencyProbes()
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.sendLatencyProbe() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        latencyProbeTimer = timer
+    }
+
+    private func stopLatencyProbes() {
+        latencyProbeTimer?.invalidate()
+        latencyProbeTimer = nil
+        latencyProbe.reset()
+        latencyTracker.reset()
+    }
+
+    private func sendLatencyProbe() {
+        guard let broadcaster, broadcaster.isReady else { return }
+        let micros = latencyProbe.makeProbe(now: Date())
+        broadcaster.sendPingEcho(IBWire.encodePing(sentMicros: micros))
+    }
+
+    /// Raise the poor-link hint on the *transition* only.
+    ///
+    /// The tracker already reports a stable quality, so what is left is to
+    /// not repeat ourselves: a link oscillating around the threshold would
+    /// otherwise re-raise the same sentence every few seconds, which trains
+    /// the user to ignore it. Announced once, retracted once, and re-armed
+    /// only after the link is demonstrably good again.
+    private func updateLatencyHint() {
+        let poor = latencyTracker.isPoor
+        guard poor != latencyHintShown else { return }
+        latencyHintShown = poor
+        if poor {
+            showHint(IBLocale.Error.slowConnection)
+        } else if transientHint == IBLocale.Error.slowConnection {
+            transientHint = nil
+            hintDismissTask?.cancel()
+        }
     }
 
     private func checkOwnerLiveness() {
@@ -2186,7 +2328,25 @@ final class CaptureEngine: ObservableObject {
                     switchCamera(to: command.position)
                 }
             case .ping:
-                broadcaster?.sendPingEcho(frame.payload)
+                // Either the echo of our own probe (a measurement) or the
+                // Mac's own probe (echo it back so ITS round trip closes).
+                // Getting this backwards would make the Mac compute the
+                // offset between the two machine clocks.
+                if frame.payload.count == 8,
+                   let rtt = latencyProbe.roundTripMs(
+                       ofEcho: IBWire.decodePing(frame), now: Date()) {
+                    latencyTracker.record(millis: rtt)
+                    if !latencyMeasured {
+                        latencyMeasured = true
+                        Forensic.log("[link] latency measured: \(rtt)ms")
+                    }
+                    if lastLatencyMs != latencyTracker.medianMs {
+                        lastLatencyMs = latencyTracker.medianMs
+                        updateLatencyHint()
+                    }
+                } else {
+                    broadcaster?.sendPingEcho(frame.payload)
+                }
             case .appList:
                 if let list = try? IBWire.decodeAppList(frame) {
                     macApps = list.apps
