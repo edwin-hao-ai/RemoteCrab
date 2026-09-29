@@ -5,6 +5,13 @@
 //! when the Windows UI language is Chinese and English otherwise — the same
 //! two languages the Apple side ships, chosen from the user's system
 //! setting rather than a flag.
+//!
+//! **What is localized**: everything a user *asked for* — the startup banner,
+//! `--help`, console-command feedback, tray rows, errors, the state line.
+//! **What stays English**: stream telemetry (NAL counts, latency spikes, file
+//! transfer progress, app-switch/mirror results) and every `--*-selftest`
+//! report. Those are developer logs, on the same footing as `cargo`'s own
+//! output, and translating them costs more than it buys.
 
 use std::sync::OnceLock;
 

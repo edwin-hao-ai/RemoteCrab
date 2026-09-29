@@ -23,20 +23,35 @@ impl Vcam {
     /// check fails — the receiver keeps running without a virtual camera.
     pub fn start(name: &str) -> Option<Vcam> {
         if let Err(e) = rc_vcam::install_source() {
-            eprintln!("  vcam: COM registration failed — {e}");
+            eprintln!(
+                "  vcam: {} — {e}",
+                crate::i18n::t("COM 注册失败", "COM registration failed")
+            );
             return None;
         }
         match rc_vcam::start_camera(name) {
             Ok(camera) => {
                 match camera.outcome() {
                     rc_vcam::StartOutcome::Started => println!(
-                        "  vcam: \"{name}\" is live — choose it in the Camera app / Zoom / OBS"
+                        "  vcam: \"{name}\" {}",
+                        crate::i18n::t(
+                            "已就绪 — 在相机应用 / Zoom / OBS 里选它",
+                            "is live — choose it in the Camera app / Zoom / OBS"
+                        )
                     ),
                     rc_vcam::StartOutcome::Failed => println!(
-                        "  vcam: camera created but Start() failed — the source DLL could not be activated"
+                        "  vcam: {}",
+                        crate::i18n::t(
+                            "虚拟摄像头已创建但 Start() 失败 — 源 DLL 无法被激活",
+                            "camera created but Start() failed — the source DLL could not be activated"
+                        )
                     ),
                     rc_vcam::StartOutcome::Unsupported => println!(
-                        "  vcam: this Windows build has no software-camera support (needs Windows 11 22H2+)"
+                        "  vcam: {}",
+                        crate::i18n::t(
+                            "这个 Windows 版本不支持软件摄像头（需要 Windows 11 22H2+）",
+                            "this Windows build has no software-camera support (needs Windows 11 22H2+)"
+                        )
                     ),
                 }
                 Some(Vcam {
@@ -68,7 +83,10 @@ impl Vcam {
             match rc_vcam::writer::FrameWriter::create(frame.width, frame.height, fps) {
                 Ok(w) => self.writer = Some(w),
                 Err(e) => {
-                    eprintln!("  vcam: could not create the frame ring — {e}");
+                    eprintln!(
+                        "  vcam: {} — {e}",
+                        crate::i18n::t("无法创建帧共享环", "could not create the frame ring")
+                    );
                     return;
                 }
             }

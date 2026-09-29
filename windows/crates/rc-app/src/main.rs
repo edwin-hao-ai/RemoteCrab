@@ -76,31 +76,71 @@ fn parse_args() -> Args {
     args
 }
 
+/// One row per `--help` line: `(argument, Chinese, English)`.
+///
+/// Data-driven on purpose: two hand-copied help blocks drift the moment a flag
+/// is added, and the flag list is exactly the part a user copy-pastes.
+const USAGE: &[(&str, &str, &str)] = &[
+    (
+        "remotecrab",
+        "自动发现并连接 iPhone，打开预览窗口",
+        "Discover, connect, and open a preview window",
+    ),
+    ("--connect IP[:P]", "直接连接（mDNS 被拦截时）", "Connect directly (when mDNS is blocked)"),
+    ("--no-input", "只看不操作（不控制本机）", "Watch only (do not drive this PC)"),
+    ("--no-preview", "只显示状态，不开视频窗口", "Console status only (no video window)"),
+    ("--list", "列出已发现的 iPhone 并等待", "List discovered iPhones and wait"),
+    ("--selftest", "本地假 iPhone 自检整条链路", "Run a fake iPhone locally and verify the pipeline"),
+    ("--preview-selftest", "把假 H.264 喂进预览窗口验证解码", "Stream fake H.264 into the preview window and verify decode"),
+    ("--scan", "扫描本机 /24 网段中 8765 端口的 iPhone", "Scan this PC's /24 for an iPhone on port 8765"),
+    ("--audio-selftest", "生成测试音 → 编码 Opus → 解码播放", "Generate a tone, encode to Opus, decode, and play it"),
+    ("--vcam", "把画面发布为 \"RemoteCrab\" 虚拟摄像头", "Publish the video to a \"RemoteCrab\" virtual camera"),
+    ("--vcam-selftest", "给虚拟摄像头喂动态测试图（无需手机）", "Feed a moving test pattern to the virtual camera (no phone)"),
+    ("--unmute", "把 iPhone 麦克风播到本机扬声器", "Play the iPhone mic on this PC's speakers"),
+    ("--record", "录制当前画面（见下方 record 命令）", "Record the live stream (see `record` below)"),
+    ("--no-tray", "不显示托盘图标", "Skip the notification-area tray icon"),
+];
+
+/// Live console commands, shown by both `--help` and the `help` command, so
+/// the two can never disagree: `(command, Chinese, English)`.
+const COMMANDS: &[(&str, &str, &str)] = &[
+    ("camera [on|off]", "摄像头开关", "Camera on/off"),
+    ("mic [on|off]", "麦克风开关", "Microphone on/off"),
+    ("voice [on|off]", "语音输入开关", "Dictation on/off"),
+    ("trackpad [on|off]", "触控板开关", "Trackpad on/off"),
+    ("keyboard [on|off]", "键盘开关", "Keyboard on/off"),
+    ("switch-camera", "切换前后摄像头", "Switch camera"),
+    ("clipboard", "把本机剪贴板发到 iPhone", "Send this PC's clipboard to the iPhone"),
+    ("record", "开始 / 停止录制", "Start / stop recording"),
+    ("autostart", "开机自启动开关", "Toggle start at login"),
+    ("help", "显示这份帮助", "Show this help"),
+    ("quit", "退出", "Quit"),
+];
+
 fn print_help() {
+    println!("RemoteCrab for Windows\n");
+    println!("{}", i18n::t("用法：", "Usage:"));
+    let wide = USAGE.iter().map(|(a, _, _)| a.chars().count()).max().unwrap_or(0);
+    for (arg, zh, en) in USAGE {
+        let desc = i18n::t(zh, en);
+        println!("  {arg:<wide$}  {desc}", wide = wide + 1);
+    }
+    println!();
     println!(
-        "RemoteCrab for Windows\n\
-         \n\
-         Usage:\n\
-         \x20 remotecrab                   Discover, connect, and open a preview window\n\
-         \x20 remotecrab --connect IP[:P]   Connect directly (when mDNS is blocked)\n\
-         \x20 remotecrab --no-input          Watch only (do not drive this PC)\n\
-         \x20 remotecrab --no-preview        Console status only (no video window)\n\
-         \x20 remotecrab --list              List discovered iPhones and wait\n\
-         \x20 remotecrab --selftest          Run a fake iPhone locally and verify the pipeline\n\
-         \x20 remotecrab --preview-selftest  Stream fake H.264 into the preview window and verify decode\n\
-         \x20 remotecrab --scan              Scan this PC's /24 for an iPhone on port 8765\n\
-         \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
-         \x20 remotecrab --vcam              Publish the video to a \"RemoteCrab\" virtual camera\n\
-         \x20 remotecrab --vcam-selftest     Feed a moving test pattern to the virtual camera (no phone)\n\
-         \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
-         \x20 remotecrab --record            Record the live stream (see `record` below)\n\
-         \x20 remotecrab --no-tray            Skip the notification-area tray icon\n\
-         \n\
-         While running, type these console commands (then Enter):\n\
-         \x20 camera [on|off]  mic [on|off]  voice [on|off]  trackpad [on|off]\n\
-         \x20 keyboard [on|off]  switch-camera  clipboard  record  help  quit\n\
-         \n\
-         Run the RemoteCrab iOS app first; both devices must share the same WiFi."
+        "{}",
+        i18n::t(
+            "运行时可以输入下面这些控制台命令（回车确认）：",
+            "While running, type these console commands (then Enter):"
+        )
+    );
+    print_console_help();
+    println!();
+    println!(
+        "{}",
+        i18n::t(
+            "请先打开 RemoteCrab iOS app；两台设备必须在同一 WiFi 下。",
+            "Run the RemoteCrab iOS app first; both devices must share the same WiFi."
+        )
     );
 }
 
@@ -125,9 +165,14 @@ fn spawn_console_reader() -> tokio::sync::mpsc::UnboundedReceiver<String> {
 
 fn print_console_help() {
     println!(
-        "  commands: camera [on|off] · mic [on|off] · voice [on|off] · \
-         trackpad [on|off] · keyboard [on|off] · switch-camera · clipboard · record · autostart · help · quit"
+        "  {}",
+        i18n::t("命令：", "commands:")
     );
+    let wide = COMMANDS.iter().map(|(c, _, _)| c.chars().count()).max().unwrap_or(0);
+    for (cmd, zh, en) in COMMANDS {
+        let desc = i18n::t(zh, en);
+        println!("  {cmd:<wide$}  {desc}", wide = wide + 1);
+    }
 }
 
 /// An in-progress recording. The muxer is pure; the Opus decoder is private
@@ -158,11 +203,11 @@ fn start_recording(width: i64, height: i64, fps: i64) -> Option<ActiveRecording>
     ) {
         Ok(rec) => rec,
         Err(e) => {
-            println!("  recording failed to start: {e}");
+            println!("  {} {e}", i18n::t("录制启动失败：", "recording failed to start:"));
             return None;
         }
     };
-    println!("  ● recording → {}", rec.mp4_path().display());
+    println!("  ● {} → {}", i18n::t("录制中", "recording"), rec.mp4_path().display());
     Some(ActiveRecording {
         recorder: rec,
         opus: rc_audio::OpusDecoder::new().ok(),
@@ -173,11 +218,15 @@ fn stop_recording(rec: ActiveRecording) {
     let mp4 = rec.recorder.mp4_path().to_path_buf();
     let (video_ok, _audio_ok) = rec.recorder.finish();
     if video_ok {
-        println!("  ■ recording saved: {}", mp4.display());
+        println!("  ■ {} {}", i18n::t("录制已保存：", "recording saved:"), mp4.display());
         #[cfg(windows)]
         rc_os::files::reveal(&mp4);
     } else {
-        println!("  recording stopped with no video frames: {}", mp4.display());
+        println!(
+            "  {} {}",
+            i18n::t("录制结束，但没有视频帧：", "recording stopped with no video frames:"),
+            mp4.display()
+        );
     }
 }
 
@@ -211,19 +260,21 @@ fn send_clipboard_to_iphone(session: &Session) {
                 Ok(frame) => {
                     session.send_frame(frame);
                     println!(
-                        "  → sent clipboard to iPhone ({} chars)",
-                        text.chars().count()
+                        "  → {} ({} {})",
+                        i18n::t("剪贴板已发到 iPhone", "sent clipboard to iPhone"),
+                        text.chars().count(),
+                        i18n::t("字符", "chars")
                     );
                 }
-                Err(_) => println!("  clipboard send failed"),
+                Err(_) => println!("  {}", i18n::t("剪贴板发送失败", "clipboard send failed")),
             }
         }
-        _ => println!("  clipboard is empty or not text"),
+        _ => println!("  {}", i18n::t("剪贴板为空或不是文本", "clipboard is empty or not text")),
     }
     #[cfg(not(windows))]
     {
         let _ = session;
-        println!("  clipboard send is Windows-only");
+        println!("  {}", i18n::t("剪贴板功能仅限 Windows", "clipboard send is Windows-only"));
     }
 }
 
@@ -244,27 +295,58 @@ fn handle_console_command(
         Some("on") | Some("1") | Some("true") => Some(true),
         Some("off") | Some("0") | Some("false") => Some(false),
         Some(other) => {
-            println!("  unknown state '{other}' (use on/off)");
+            println!(
+                "  {} '{other}' {}",
+                i18n::t("未知状态", "unknown state"),
+                i18n::t("（用 on / off）", "(use on/off)")
+            );
             return;
         }
     };
-    let feature = |which: rc_protocol::Feature, cur: bool, name: &str| {
+    let feature = |which: rc_protocol::Feature, cur: bool, zh: &str, en: &str| {
         let on = want.unwrap_or(!cur);
         session.set_feature(which, on);
-        println!("  → {name} {}", if on { "on" } else { "off" });
+        let name = i18n::t(zh, en);
+        let state = if on { i18n::t("开", "on") } else { i18n::t("关", "off") };
+        println!("  → {name} {state}");
     };
     let get = |pick: fn(&rc_protocol::FeatureStateSnapshot) -> bool| -> bool {
         last_features.as_ref().map(pick).unwrap_or(false)
     };
     match cmd {
-        "camera" => feature(rc_protocol::Feature::Camera, get(|f| f.camera_on), "camera"),
-        "mic" | "microphone" => feature(rc_protocol::Feature::Microphone, get(|f| f.mic_on), "mic"),
-        "voice" => feature(rc_protocol::Feature::Voice, get(|f| f.voice_on), "voice"),
-        "trackpad" => feature(rc_protocol::Feature::Trackpad, get(|f| f.trackpad_on), "trackpad"),
-        "keyboard" => feature(rc_protocol::Feature::Keyboard, get(|f| f.keyboard_on), "keyboard"),
+        "camera" => feature(
+            rc_protocol::Feature::Camera,
+            get(|f| f.camera_on),
+            "摄像头",
+            "camera",
+        ),
+        "mic" | "microphone" => feature(
+            rc_protocol::Feature::Microphone,
+            get(|f| f.mic_on),
+            "麦克风",
+            "mic",
+        ),
+        "voice" => feature(
+            rc_protocol::Feature::Voice,
+            get(|f| f.voice_on),
+            "语音输入",
+            "voice",
+        ),
+        "trackpad" => feature(
+            rc_protocol::Feature::Trackpad,
+            get(|f| f.trackpad_on),
+            "触控板",
+            "trackpad",
+        ),
+        "keyboard" => feature(
+            rc_protocol::Feature::Keyboard,
+            get(|f| f.keyboard_on),
+            "键盘",
+            "keyboard",
+        ),
         "switch-camera" | "flip-camera" => {
             session.switch_camera();
-            println!("  → switching camera");
+            println!("  → {}", i18n::t("正在切换摄像头", "switching camera"));
         }
         "clipboard" | "send-clipboard" => send_clipboard_to_iphone(session),
         "autostart" => {
@@ -272,14 +354,12 @@ fn handle_console_command(
             {
                 let want = want.unwrap_or(!rc_os::autostart::is_enabled());
                 let ok = rc_os::autostart::set_enabled(want);
-                println!(
-                    "  → autostart {} ({})",
-                    if want { "on" } else { "off" },
-                    if ok { "ok" } else { "failed" }
-                );
+                let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
+                let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
+                println!("  → {} {state} ({result})", i18n::t("开机自启动", "autostart"));
             }
             #[cfg(not(windows))]
-            println!("  autostart is Windows-only");
+            println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
         }
         "record" => {
             if let Some(rec) = recording.take() {
@@ -287,13 +367,20 @@ fn handle_console_command(
             } else {
                 match metadata {
                     Some(m) => *recording = start_recording(m.width, m.height, m.fps),
-                    None => println!("  not connected yet — nothing to record"),
+                    None => println!(
+                        "  {}",
+                        i18n::t("还没连上手机，没什么可录的", "not connected yet — nothing to record")
+                    ),
                 }
             }
         }
         "help" | "?" => print_console_help(),
         "quit" | "exit" => *quit_requested = true,
-        other => println!("  unknown command '{other}' — type `help`"),
+        other => println!(
+            "  {} '{other}' — {}",
+            i18n::t("未知命令", "unknown command"),
+            i18n::t("输入 help 查看帮助", "type `help`")
+        ),
     }
 }
 
@@ -380,7 +467,7 @@ async fn main() -> ExitCode {
         return vcam_selftest().await;
     }
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
-    println!("Looking for your iPhone on this WiFi…\n");
+    println!("{}\n", i18n::t("正在当前 WiFi 下寻找 iPhone…", "Looking for your iPhone on this WiFi…"));
 
     let session = Session::spawn(Config::default());
     let mut events = session.subscribe();
@@ -389,11 +476,11 @@ async fn main() -> ExitCode {
     if let Some(target) = &args.connect {
         match rc_discovery::parse_host_port(target, rc_net::DEFAULT_PORT) {
             Some((host, port)) => {
-                println!("Connecting to {host}:{port} …");
+                println!("{} {host}:{port} …", i18n::t("正在连接", "Connecting to"));
                 session.connect_manual(&host, port);
             }
             None => {
-                eprintln!("Invalid --connect value: {target}");
+                eprintln!("{}: {target}", i18n::t("--connect 参数无效", "Invalid --connect value"));
                 return ExitCode::from(2);
             }
         }
@@ -423,7 +510,11 @@ async fn main() -> ExitCode {
         match rc_render::PreviewPipeline::new() {
             Ok(p) => Some(p),
             Err(e) => {
-                eprintln!("video decoder unavailable ({e}); continuing without preview");
+                eprintln!(
+                    "{} ({e}); {}",
+                    i18n::t("视频解码器不可用", "video decoder unavailable"),
+                    i18n::t("继续运行，但不会有预览画面", "continuing without preview")
+                );
                 None
             }
         }
@@ -502,7 +593,7 @@ async fn main() -> ExitCode {
     tray.set_autostart(rc_os::autostart::is_enabled());
     tray.set_preview(preview_window.is_open());
     let mut tray_alive = true;
-    println!("Type `help` for live iPhone feature commands.");
+    println!("{}", i18n::t("输入 help 查看可用的实时控制命令。", "Type `help` for live iPhone feature commands."));
 
     loop {
         tokio::select! {
@@ -546,11 +637,17 @@ async fn main() -> ExitCode {
                     Event::Discovered(phones) => {
                         if args.list_only || last_label.is_empty() {
                             if phones.is_empty() {
-                                println!("  no iPhones found yet…");
+                                println!("  {}", i18n::t("还没发现 iPhone…", "no iPhones found yet…"));
                             } else {
                                 for p in &phones {
                                     let addr = p.host.as_deref().unwrap_or("(resolving)");
-                                    println!("  found: {}  @ {}:{}", p.name, addr, p.port);
+                                    println!(
+                                        "  {} {}  @ {}:{}",
+                                        i18n::t("已发现：", "found:"),
+                                        p.name,
+                                        addr,
+                                        p.port
+                                    );
                                 }
                             }
                         }
@@ -864,15 +961,26 @@ async fn main() -> ExitCode {
                         #[cfg(windows)]
                         match last_received_file.as_ref() {
                             Some(path) => rc_os::files::reveal(path),
-                            None => println!("  no file received yet"),
+                            None => println!(
+                                "  {}",
+                                i18n::t("还没有收到过文件", "no file received yet")
+                            ),
                         }
                         #[cfg(not(windows))]
-                        println!("  show-last-file is Windows-only");
+                        println!(
+                            "  {}",
+                            i18n::t("显示最后接收的文件仅限 Windows", "show-last-file is Windows-only")
+                        );
                     }
                     Some(tray::TrayCommand::TogglePreview) => {
                         let on = preview_window.toggle();
                         tray.set_preview(on);
-                        println!("  preview window {}", if on { "shown" } else { "hidden" });
+                        let state = if on {
+                            i18n::t("已显示", "shown")
+                        } else {
+                            i18n::t("已隐藏", "hidden")
+                        };
+                        println!("  {} {state}", i18n::t("预览窗口", "preview window"));
                     }
                     Some(tray::TrayCommand::Reconnect) => session.retry_now(),
                     Some(tray::TrayCommand::Disconnect) => session.disconnect(),
@@ -882,14 +990,12 @@ async fn main() -> ExitCode {
                             let want = !rc_os::autostart::is_enabled();
                             let ok = rc_os::autostart::set_enabled(want);
                             tray.set_autostart(rc_os::autostart::is_enabled());
-                            println!(
-                                "  autostart {} ({})",
-                                if want { "on" } else { "off" },
-                                if ok { "ok" } else { "failed" }
-                            );
+                            let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
+                            let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
+                            println!("  {} {state} ({result})", i18n::t("开机自启动", "autostart"));
                         }
                         #[cfg(not(windows))]
-                        println!("  autostart is Windows-only");
+                        println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
                     }
                     Some(tray::TrayCommand::Quit) => {
                         println!("\nShutting down…");
