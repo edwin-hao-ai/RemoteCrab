@@ -1,0 +1,97 @@
+name: windows
+
+# The Windows receiver is a separate Rust workspace with no CI of its own, so
+# `cargo test` only ran when someone remembered to run it. This is the gate:
+# tests and clippy on every push and PR.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Keep the build off the network next time it is resolved from scratch.
+  CARGO_NET_RETRY: 3
+
+jobs:
+  test:
+    name: test + clippy (MSVC)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      # Match the toolchain the app is developed against, rather than
+      # whatever the runner image happens to ship.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+
+      # The vcam crates are Windows-only by nature but compile anywhere, so
+      # there is nothing to cfg out — but the v2 probe needs a real SDK, and
+      # building it here means a broken example fails CI, not just release.
+      - name: Build every target, including the examples
+        run: cargo build --workspace --all-targets
+
+      - name: Tests
+        run: cargo test --workspace
+
+      # `-D warnings` is the point: the lints are the cheap review that does
+      # not need a human, and they were passing locally anyway.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Formatting
+        run: cargo fmt --workspace -- --check
+        continue-on-error: true
+
+  # The COM source and the virtual camera only work on Windows, so this job
+  # proves the pieces that need a real device-free Windows runtime: register
+  # the DLL, publish frames, and read them back through Media Foundation.
+  virtual-camera:
+    name: virtual camera E2E (no phone needed)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install stable --profile minimal
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: windows
+
+      # Two separate invocations on purpose: the `--example` build does not
+      # relink the cdylib, so building them together lets the probe run
+      # against a stale DLL — the exact trap recorded in WINDOWS_HANDOFF §3.24.
+      - name: Build the COM source
+        run: cargo build --release -p rc-vcam-source
+
+      - name: Build the probe
+        run: cargo build --release --example vcam_probe -p rc-vcam
+
+      - name: Register the COM source (HKLM)
+        run: cargo run --release -p rc-vcam -- install
+
+      - name: Probe the camera through Media Foundation
+        run: .\target\release\examples\vcam_probe.exe
+
+      - name: Remove the registration
+        if: always()
+        run: cargo run --release -p rc-vcam -- uninstall

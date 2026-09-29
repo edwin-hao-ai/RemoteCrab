@@ -58,3 +58,17 @@ tokio = { version = "1", features = [
     "signal",
 ] }
 mdns-sd = "0.21"
+
+# Release tuning. The receiver ships to end users, so the binary should be as
+# small and as fast as it reasonably can be:
+# - `lto`/`codegen-units` give the cross-crate inlining that the session hot
+#   path (H.264 NAL dispatch at 30 fps) benefits from.
+# - `panic = "abort"` would shrink it further, but a tray app that vanishes
+#   with no dialog is a worse failure mode than a crash dialog, and the code
+#   relies on catch_unwind-free panics not being turned into process death in
+#   the mirror thread — so it is deliberately off.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
