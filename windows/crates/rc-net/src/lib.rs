@@ -9,6 +9,7 @@
 //! [`Event`]s (video NALs, touch/key events, feature state, …) and accepts
 //! [`Command`]s. The app layer decides what to do with them.
 
+pub mod route;
 pub mod token;
 
 use std::collections::VecDeque;
@@ -750,9 +751,13 @@ async fn run_connection(
         Ok(Some(r)) => r,
         Ok(None) if reply_failed_to_decode => return ConnEndKind::Lost,
         Ok(None) => {
+            // Not a "backgrounded app" story: the iOS app only calls
+            // `startListener()` from `startStreaming()` (CaptureEngine.swift),
+            // so the port is not bound at all until the user presses Start
+            // on the phone — and it stays bound after that via `applyKeepAlive`.
             eprintln!(
-                "[net] the iPhone closed the connection before answering — it only listens \
-                 while the RemoteCrab app is open in the foreground"
+                "[net] the iPhone closed the connection before answering — usually the \
+                 RemoteCrab app has not been started on the phone (Start binds port 8765)"
             );
             return ConnEndKind::Lost;
         }

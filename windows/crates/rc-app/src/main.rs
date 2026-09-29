@@ -19,6 +19,7 @@ use rc_net::{Config, Event, Session, State};
 use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encode_window_list};
 
 #[cfg(windows)]
+mod doctor;
 mod mirror;
 #[cfg(windows)]
 mod vcam;
@@ -41,14 +42,29 @@ struct Args {
     unmute: bool,
     record: bool,
     no_tray: bool,
+    /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
+    doctor: bool,
 }
 
 fn parse_args() -> Args {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    parse_args_from(&raw)
+}
+
+/// Parse an already-collected argument list.
+///
+/// Takes a slice so it can be unit-tested; `parse_args` is the only caller
+/// that touches the real process arguments.
+fn parse_args_from(raw: &[String]) -> Args {
     let mut args = Args::default();
-    let mut it = std::env::args().skip(1);
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--connect" => args.connect = it.next(),
+    let mut help = false;
+    let mut i = 0;
+    while i < raw.len() {
+        match raw[i].as_str() {
+            "--connect" => {
+                i += 1;
+                args.connect = raw.get(i).cloned();
+            }
             "--no-input" => args.no_input = true,
             "--list" => args.list_only = true,
             "--selftest" => args.selftest = true,
@@ -62,12 +78,24 @@ fn parse_args() -> Args {
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--no-tray" => args.no_tray = true,
-            "--help" | "-h" => {
-                print_help();
-                std::process::exit(0);
+            // `--doctor [ip[:port]]`: the operand is optional and
+            // position-sensitive, so it is consumed here rather than left to
+            // fall through to the generic `--connect` handling.
+            "--doctor" => {
+                args.doctor = true;
+                if raw.get(i + 1).is_some_and(|n| !n.starts_with("--")) {
+                    i += 1;
+                    args.connect = raw.get(i).cloned();
+                }
             }
+            "--help" | "-h" => help = true,
             _ => {}
         }
+        i += 1;
+    }
+    if help {
+        print_help();
+        std::process::exit(0);
     }
     // The preview window opens by default; `--no-preview` is the opt-out.
     if !args.no_preview {
@@ -98,6 +126,7 @@ const USAGE: &[(&str, &str, &str)] = &[
     ("--vcam-selftest", "给虚拟摄像头喂动态测试图（无需手机）", "Feed a moving test pattern to the virtual camera (no phone)"),
     ("--unmute", "把 iPhone 麦克风播到本机扬声器", "Play the iPhone mic on this PC's speakers"),
     ("--record", "录制当前画面（见下方 record 命令）", "Record the live stream (see `record` below)"),
+    ("--doctor [ip[:port]]", "诊断“为什么连不上 iPhone”并给出解决办法", "Explain why the iPhone will not connect, and what to do about it"),
     ("--no-tray", "不显示托盘图标", "Skip the notification-area tray icon"),
 ];
 
@@ -114,6 +143,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("record", "开始 / 停止录制", "Start / stop recording"),
     ("autostart", "开机自启动开关", "Toggle start at login"),
     ("help", "显示这份帮助", "Show this help"),
+    ("doctor [ip[:port]]", "诊断连接问题（见上方 --doctor）", "Diagnose the connection (see --doctor above)"),
     ("quit", "退出", "Quit"),
 ];
 
@@ -459,6 +489,9 @@ async fn main() -> ExitCode {
     }
     if args.scan {
         return run_scan().await;
+    }
+    if args.doctor {
+        return run_doctor(args.connect.as_deref()).await;
     }
     if args.audio_selftest {
         return audio_selftest();
@@ -1253,6 +1286,73 @@ async fn vcam_selftest() -> ExitCode {
 /// `--scan`: sweep the local `/24` for anything on port 8765. This is the
 /// diagnostic for "mDNS found nothing" — it tells you whether the network
 /// allows your devices to see each other at all.
+/// `remotecrab doctor [ip[:port]]` — print the evidence, then the ranked
+/// causes with what to do about each. Exits 0 when nothing is wrong, 1 when it
+/// found something to fix, so a CI or support script can use it as a gate.
+async fn run_doctor(target: Option<&str>) -> ExitCode {
+    println!(
+        "RemoteCrab doctor {}\n",
+        i18n::t("— 诊断为什么 iPhone 连不上", "— why the iPhone will not connect")
+    );
+    let evidence = doctor::collect(target).await;
+
+    println!(
+        "{}",
+        i18n::t(
+            "本机地址 / this PC:",
+            "this PC:"
+        )
+    );
+    for a in &evidence.local_addrs {
+        println!("  {a}");
+    }
+    match &evidence.route {
+        rc_net::route::RouteVerdict::Direct => println!(
+            "  {}",
+            i18n::t("路由正常：走真实网卡", "route: direct (real adapter)")
+        ),
+        other => println!("  route: {}", rc_net::route::describe(other)),
+    }
+    if let Some(t) = &evidence.target {
+        let open = evidence.tcp_open.unwrap_or(false);
+        let state = if open {
+            i18n::t("通", "open")
+        } else {
+            i18n::t("不通", "closed")
+        };
+        println!(
+            "  {} {t} {state}",
+            i18n::t("目标端口探测 / target probe:", "target probe:"),
+        );
+    }
+    if evidence.mdns.is_empty() {
+        println!(
+            "  {}",
+            i18n::t("mDNS：没有发现任何 iPhone", "mDNS: no iPhone advertised")
+        );
+    } else {
+        println!("  mDNS: {}", evidence.mdns.join(", "));
+    }
+
+    let findings = doctor::rank(&evidence);
+    if findings.is_empty() {
+        println!(
+            "\n{}",
+            i18n::t(
+                "没发现问题 —— 网络和手机都正常。",
+                "Nothing wrong here — the network and the phone look fine."
+            )
+        );
+        return ExitCode::SUCCESS;
+    }
+    println!();
+    for f in &findings {
+        println!("{}. {}", f.rank, f.problem);
+        println!("   → {}\n", f.fix);
+    }
+    ExitCode::from(1)
+}
+
 async fn run_scan() -> ExitCode {
     let port = rc_net::DEFAULT_PORT;
     let ips = rc_discovery::local_ipv4_addresses();
@@ -1427,5 +1527,57 @@ pub fn tray_status(state: &State) -> String {
         }
         State::Searching => i18n::t("等待 iPhone…", "Waiting for an iPhone…").to_string(),
         State::Error(reason) => reason.clone(),
+    }
+}
+
+#[cfg(test)]
+mod arg_tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> Args {
+        parse_args_from(&list.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn flags_map_one_to_one() {
+        let a = args(&["--vcam", "--no-input", "--no-tray", "--record"]);
+        assert!(a.vcam && a.no_input && a.no_tray && a.record);
+        assert!(!a.doctor && !a.scan && !a.selftest);
+    }
+
+    #[test]
+    fn the_preview_window_is_on_unless_opted_out() {
+        assert!(args(&[]).preview, "preview is the default");
+        assert!(!args(&["--no-preview"]).preview);
+    }
+
+    #[test]
+    fn connect_takes_the_next_argument() {
+        assert_eq!(args(&["--connect", "10.0.0.2:1234"]).connect.as_deref(), Some("10.0.0.2:1234"));
+        // A trailing flag with no value must not panic or invent a target.
+        assert_eq!(args(&["--connect"]).connect, None);
+    }
+
+    #[test]
+    fn doctor_operand_is_optional() {
+        assert!(args(&["--doctor"]).doctor);
+        assert_eq!(args(&["--doctor"]).connect, None, "bare --doctor browses mDNS");
+
+        let with_ip = args(&["--doctor", "192.168.31.5"]);
+        assert!(with_ip.doctor);
+        assert_eq!(with_ip.connect.as_deref(), Some("192.168.31.5"));
+    }
+
+    #[test]
+    fn doctor_does_not_swallow_the_next_flag() {
+        let a = args(&["--doctor", "--vcam"]);
+        assert!(a.doctor && a.vcam);
+        assert_eq!(a.connect, None, "--vcam is a flag, not a doctor operand");
+    }
+
+    #[test]
+    fn unknown_arguments_are_ignored_rather_than_fatal() {
+        let a = args(&["--nonsense", "--vcam"]);
+        assert!(a.vcam);
     }
 }
