@@ -40,12 +40,40 @@ vars `REMOTECRAB_*`, and all scripts/docs.
 
 ## Rules for every change (learned the hard way — read first)
 
-1. **Find the root cause before changing any code.** No speculative edits, no
+1. **用户体验是唯一的仲裁标准 —— 而且三端都要稳固。** This is a commercial
+   product, not a demo. A feature that works on the Mac and is broken on
+   Windows (or vice versa) is *worse* than not shipping it, because the user
+   has no way to tell which half they got. Two things follow, both learned the
+   hard way on 2026-09-29 while making the Windows receiver connect reliably:
+   - **Never ship a debug affordance as the product's escape hatch.** No "enter
+     the IP manually", no raw error codes, no `advanced` panel. When the user
+     can't connect, the answer is *a status that explains itself plus one
+     obvious action* — never an input only a developer would use. (A proposed
+     「手动连接…」tray row was rejected for exactly this reason.)
+   - **The line that states what is happening must also state what to do.** A
+     status line is a UI surface, not a log line. Whenever the state is not
+     "working", it owes the user a *reason* and a *next step*. (The Windows
+     tray's status row was the only non-clickable row in the menu, and an entire
+     multi-session debugging saga existed because of it.)
+   - Corollary: prefer making the failure **impossible or self-healing** over
+     adding a control. Fix the cause; don't add a button for the symptom.
+2. **A new persisted field must be additive and defaulted, or it silently
+   destroys user data.** Both loaders swallow decode errors —
+   `MacPairingStore.loadSeen` returns `[]` (`MacPairingStore.swift:242-249`) and
+   `TokenStore::load` falls back to `default()` (`token.rs:37-42`) — so a single
+   missing `#[serde(default)]` wipes every existing user's paired tokens / seen
+   history with **no error anywhere**. Same class: a `Codable` struct in
+   `UserDefaults` or a JSON file is a shipped data format. Always add a test
+   that loads the **previous** format and asserts nothing was lost, and never
+   rename or retype an existing field. Wire frames get the same treatment: a new
+   field is `#[serde(default, skip_serializing_if = "Option::is_none")]` so older
+   peers keep working.
+3. **Find the root cause before changing any code.** No speculative edits, no
    "try this and see". Reproduce it, gather evidence (device `forensic.log`,
    `/usr/bin/log stream --predicate 'subsystem == "com.remotecrab"'`, crash
    reports), state the cause in one sentence, *then* fix that cause. A fix
    without a cause is a guess; a guess that works is a coincidence.
-2. **Before editing, write down the impact surface.** Every touched function
+4. **Before editing, write down the impact surface.** Every touched function
    has callers and shared state — list them and say how the change affects
    each. (Recent example: adding viewport insets to `ScreenZoomState` for the
    landscape "content hides under the top bar" bug silently changed the
@@ -53,16 +81,24 @@ vars `REMOTECRAB_*`, and all scripts/docs.
    instead of scrolls — the scroll regression was the *same edit*, not a new
    bug. The fix must handle both.) If a change has a plausible side effect,
    either prove it can't happen or fix the side effect in the same commit.
-3. **Bugfixes must be verified on the thing that reported them.** A device UI
+5. **Bugfixes must be verified on the thing that reported them.** A device UI
    bug needs a device check (or a documented, exact reproduction that can't be
    run headlessly). "Builds + unit tests pass" is not evidence a UI bug is
    fixed.
-4. **Don't stack a fix on a fix.** If a second attempt to fix the same issue
+6. **Don't stack a fix on a fix.** If a second attempt to fix the same issue
    fails, stop and re-do step 1 with the new evidence instead of adding more
    code (three failed attempts means the model is wrong).
-5. **Never trust a stale artifact.** Verify the build actually on the device
+7. **Never trust a stale artifact.** Verify the build actually on the device
    (a log line that only the new build emits is the cheapest proof), and
    re-pull logs/crash reports rather than reusing an older run's file.
+8. **A test suite that only exercises one connection cannot catch a
+   cross-connection bug.** The Windows suite (`rc-net/tests/session.rs`) had 9
+   good end-to-end tests and still shipped a receiver that asked the iPhone for
+   approval on *every* reconnect, because the token was never persisted — every
+   test made exactly one connection, and `token_path: None` meant persistence
+   was never touched. When a bug only appears on the second connect, across a
+   restart, or after a state migration, the test must span that boundary or it
+   proves nothing.
 
 ---
 
@@ -509,6 +545,33 @@ For new event types:
 ---
 
 ## State of the world (V0.3 — Sept 2026)
+
+### 💰 Monetization decided, crowdfunding paused (2026-09-29)
+- **The free tier stays free. Pro is the paid layer, and it is additive** — a
+  one-time purchase, never a subscription, because "no subscription" is the
+  entire brand. Split is by **scale, not by feature**: one phone + one Mac is
+  free forever; Pro sells multi-device, 4K, Extended Display, the recording
+  studio and the Windows receiver. The reasoning and the free/Pro boundary are
+  in **`docs/campaign/MONETIZATION_PLAN.md`** — read it before changing either.
+- **Sell on two channels**: App Store non-consumable IAP for iOS (15% under the
+  Small Business Program, which we qualify for but must still *apply* for), and
+  Lemon Squeezy for the Mac build (5% + $0.50, handles global VAT and license
+  keys). Do **not** plan around Apple's 2026-08-14 link-out proposal — it is a
+  filing in the Epic litigation, not a rule.
+- **A Kickstarter draft exists and is deliberately parked**
+  (`kickstarter.com/projects/1755279085/1224057860`, unpublished). Full
+  narrative, Risks, FAQ, 5 tiers and 6 items are written; the campaign copy is
+  `docs/campaign/KICKSTARTER_REMOTE_CRAB.md` and the hand-off checklist is
+  `docs/campaign/KS_TODO.md`. **Do not launch it for the Pro release** —
+  Kickstarter's terms say backers fund "something new, not ordering something
+  that already exists", the product is free and publicly downloadable, and
+  $25k/$59 needs ~5–8k pre-launch signups we don't have. Revisit only to fund
+  something genuinely unbuilt (the Android client, or the agent-routing half of
+  the notification relay), after Pro has run long enough to build a list.
+- Campaign art exists and is reproducible: `scripts/kickstarter-graphics.py`
+  (5 narrative plates + two hero variants from real `build/asc-raw/` device
+  captures — **never the `screenshots/` V0.2 mockups**, they are renders in the
+  old iBridge brand) and `scripts/kickstarter-discovery-video.sh` (9:16).
 
 ### 🚀 V1.0 release — submitted for review 2026-09-19 (current)
 - iOS 1.0 build **2026091802** uploaded to ASC app 6811599153, attached to
@@ -2502,6 +2565,17 @@ boundaries, think about it before reaching for `@unchecked Sendable`.
   the app. (2026-09-27: the ReplayKit recorder was built for our own demo
   footage and moved to DEBUG-only; its ReplayKit-linked code and its
   "records your screen" row in Settings are both gone from release builds.)
+- **Don't quote a price before checking what the category already charges**
+  (2026-09-29). I proposed "Pro perpetual $99, campaign price $39" for the
+  crowdfunding plan **without ever looking at a competitor's price page**.
+  Camo (Reincubate, Apple Design Award finalist, 10M users) charges
+  $8.99/mo · $49.99/yr · **$99.99 lifetime** — the $99 anchor I picked sat
+  exactly on their lifetime price, so any backer who searched would have found
+  a decade-old company with an award next to us. I had copied the *structure*
+  from Seedtime ($199 = 33% off a stated $295) without checking the *band* it
+  landed in. **A pricing anchor is a claim about the category, so it requires
+  category research; the structure and the number are separate questions.**
+  The plan, and the correction, are in `docs/campaign/MONETIZATION_PLAN.md`.
 
 ---
 
@@ -2578,6 +2652,42 @@ Two workflows that live outside this repo but are easy to lose:
   the dialog has settled — snapshotting earlier returns zero of them. Always
   check the `fill` return value before doing the next step: that unchecked
   failure is how a whole 1.4 KB description ended up inside a title field.
+
+### Browser automation against a hostile form (2026-09-29)
+
+Filling Kickstarter's project builder cost ~40 tool calls. The rules that would
+have saved most of them:
+
+- **A rich-text editor is not a form field. `fill` and `execCommand` mutate the
+  DOM without touching the editor's model, so the change vanishes on reload.**
+  Kickstarter's story is CKEditor; the only thing that persisted was
+  `inst.getData()` → string edit → `inst.setData(fixed)` (the instance hangs off
+  `window.ckeditorInstance`, or `el.ckeditorInstance`). `Input.insertText` via
+  CDP *does* work for bulk text entry (it is trusted input), and
+  `Input.dispatchKeyEvent` is needed for Backspace. But after the model and the
+  DOM have diverged once, no amount of synthetic editing recovers — I left a
+  `TEST LINE` in the published Story and had to fix it with `setData`.
+- **`upload` sets a file on an `<input type=file>`; it does not click the
+  button.** For a plain upload (an image field) that is enough. For anything
+  that then runs an XHR with a progress bar, it is not: the file lands, the
+  request never goes out. Kickstarter's video slots took `cdp
+  DOM.setFileInputFiles` (which *did* fire the upload) and still showed
+  "upload failed" with **zero upload requests in the network log** — the tell
+  that the failure is upstream of the file, not the file. Two videos therefore
+  have to be dragged in by hand.
+- **Kickstarter reward tiers silently refuse to save.** The `Digital reward
+  (no shipping)` radio is mandatory and the Save button looks perfectly enabled
+  without it. Filling title/description/amount/limit and clicking Save produced
+  no error and no row on reload. Native `Input.dispatchMouseEvent` at the
+  button's coordinates did not help either. Budgeted as manual.
+- **Cloudflare rate-limits a scripted session hard.** Several long
+  navigations returned a `正在进行安全验证` interstitial; a bare
+  `cdp Page.enable` cleared a stuck `beforeunload` dialog, and waiting 40–90 s
+  cleared the challenge. If a run of commands starts failing at once, check for
+  the challenge before assuming the tool is broken.
+- **Always re-read state after a save, from a fresh page load.** Twice a
+  change appeared to work in the DOM and was gone after reload — that is how
+  the "TEST LINE" survived two rounds of "fixes".
 
 ---
 
