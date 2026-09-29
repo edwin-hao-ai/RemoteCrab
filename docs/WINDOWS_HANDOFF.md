@@ -281,12 +281,25 @@ the box before touching §5a.
 
 ### Virtual camera — how to see what is happening
 
-23. **COM logs are opt-in.** `rc-vcam-source` writes `C:\ProgramData\rc-vcam.log`
-    **only** when `RCVCAM_LOG` is set (a path, or empty → disabled);
+23. **COM logs are opt-in, and the env var *is* the file path.**
+    `rc-vcam-source` appends one line per COM call to the file named by
+    `RCVCAM_LOG`; unset, empty, or a relative path means "the log lands in
+    whatever the hosting process's CWD happens to be" — use an absolute path.
     `trace.rs` is a `OnceLock<Option<PathBuf>>` so the hot path is one atomic
     load and a branch. Never ship a build with unbounded COM logging: the log
     reached 2.2 MB in a few minutes and the Frame Server holds the file.
     Read it, then delete it — and confirm a clean run does *not* recreate it.
+    A good log looks like this (all `S_OK`), which is how you know the *OS*
+    loaded the source rather than only our own probe:
+    ```
+    Set-Item Env:RCVCAM_LOG C:\ProgramData\rc-vcam.log
+    ```
+    ```
+    [pid N] DllGetClassObject rclsid=9D4B0D4D-… -> 0x00000000
+    [pid N] CreateInstance riid=7FEE9E9A-…      -> 0x00000000
+    [pid N] ActivateObject riid=3C9B2EB9-…      -> hr=0x00000000 ptr_null=false
+    [pid N] Source::Shutdown
+    ```
 24. **`vcam_probe` is the E2E gate, and it needs no phone.** It opens the real
     camera by CLSID (as an MF consumer would), reads 12 samples off the ring
     and asserts the pixels change:
@@ -299,6 +312,37 @@ the box before touching §5a.
     package separately after touching its sources, or the probe silently runs
     against the old DLL. `--vcam-selftest` (`rc-app`) is the longer 60 s
     variant; it stops on its own after `SECONDS = 60`.
+
+25. **A TUN-mode VPN silently kills every connection to the iPhone.** During
+    bring-up on 2026-09-29 the phone was on the same WiFi, VPN off on the
+    phone, the app open, `开始推流` pressed — and the PC could not reach it at
+    all: no ARP entry, no answer on 8765 anywhere in the /24, mDNS silent for
+    20 s. The cause was **Mihomo (Clash Meta) in TUN mode on the PC**: it owns
+    the default route, so traffic to a LAN address was pulled into the tunnel
+    and dropped. `Find-NetRoute -RemoteIPAddress <phone>` naming `Mihomo`
+    instead of `WLAN` is the tell.
+    - **Inbound is unaffected** (phone → PC works), which is why this looks
+      like a half-dead network and burns an hour.
+    - The same symptom has four other causes that look identical: the phone
+      on a guest network (Xiaomi guest nets are a separate subnet *and*
+      isolated), the iOS **Local Network** permission denied (the app then
+      neither advertises nor listens), and the app never started — iOS only
+      binds 8765 inside `startStreaming()` (`CaptureEngine.swift:686`), so an
+      open app that was never started looks exactly like an offline one.
+    - **Fix, in order of preference**: turn TUN off; or add the LAN to the
+      proxy's direct rules (`IP-CIDR,192.168.0.0/16,DIRECT,no-resolve` plus
+      `tun.route-exclude-address: [192.168.0.0/16]`); or, without touching the
+      proxy, a temporary host route (needs an elevated shell, `ActiveStore`
+      only, gone on reboot):
+      ```powershell
+      New-NetRoute -DestinationPrefix <phone>/32 -InterfaceAlias WLAN `
+        -NextHop <gateway> -RouteMetric 1 -PolicyStore ActiveStore
+      ```
+    - `remotecrab doctor` (§5c) detects and names this automatically.
+26. **`RCVCAM_LOG` is a file path, not a flag.** `RCVCAM_LOG=1` writes a file
+    literally named `1` into the hosting process's working directory — which
+    is how a stray `windows/1/` directory appeared during bring-up. Always
+    pass an absolute path; see §3.23 for what a healthy log looks like.
 
 ---
 
@@ -420,12 +464,41 @@ chosen route here. Until then, the app plays the iPhone mic on the speakers
 - Congratulate: mirror double/triple-click on Windows relies on event timing;
   verify word/paragraph select on device.
 
+### 5d. `remotecrab doctor` — why won't it connect?
+
+Run this **first** whenever the iPhone will not connect, before changing any
+setting. It gathers the evidence itself and prints ranked causes with fixes.
+
+```powershell
+cargo run --release -p rc-app -- --doctor              # browse mDNS only
+cargo run --release -p rc-app -- --doctor 192.168.31.5 # probe one address
+```
+
+Exit code 0 = nothing wrong, 1 = it found something to fix (usable as a gate
+in a support script).
+
+What it checks, and what each result means:
+
+| Check | How | Tells you |
+|---|---|---|
+| Local addresses | std UDP-connect route probe (`rc_net::route`) | which adapter this PC owns |
+| Route to the target | same probe, compared against our own addresses | **VPN/proxy TUN takeover** (§3.25) — the cause that looks like a dead phone |
+| mDNS `_remotecrab._tcp` | 6 s browse | whether any phone advertises at all |
+| TCP `8765` | connect probe | port bound, or the app was never started |
+| Handshake | previous run's outcome | "port open but the handshake stopped" → tap Allow on the phone |
+
+It never claims a problem when the port is open and the handshake succeeded —
+a tool that cries wolf gets ignored.
+
 ---
 
 ## 6. Real-machine test checklist (the user runs this)
 
 1. `cargo run -p rc-app` on Windows, RemoteCrab open + foreground on the iPhone
    on the same Wi-Fi. Expect `sessionReply: accepted`.
+   **If it never connects, run `--doctor` (§5d) before touching anything**, and
+   on the phone confirm 设置 → 隐私与安全性 → **本地网络** allows RemoteCrab and
+   that `开始推流` was pressed (the port only binds inside `startStreaming()`).
 2. Preview window shows video; tray → **Hide/Show Preview Window** works;
    closing the window yourself flips the label back.
 3. Trackpad: move, click, drag (double-tap-hold **and** long-press), scroll
@@ -452,8 +525,8 @@ chosen route here. Until then, the app plays the iPhone mic on the speakers
     *moving* picture that follows the phone, (c) moving on first open without
     a restart, and (d) quitting `rc-app` makes the camera stop delivering.
     Take a screenshot — this is the evidence that closes §5a. If it fails,
-    `Set-Item Env:RCVCAM_LOG 1` before starting, re-run, and read
-    `C:\ProgramData\rc-vcam.log`; delete the file afterwards.
+    `Set-Item Env:RCVCAM_LOG C:\ProgramData\rc-vcam.log` before starting,
+    re-run, and read that file; delete it afterwards.
 
 ---
 
