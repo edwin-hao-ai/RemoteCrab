@@ -11,12 +11,16 @@ design language (iOS 26 / macOS Tahoe+).
 | Design system + Liquid Glass tokens | ✅ done |
 | Xcode project scaffolding | 🔄 building |
 | iOS app — camera capture + H.264 encode | 🔄 building |
-| Mac app — Bonjour browse + H.264 decode + preview | 🔄 building |
-| V0.1 end-to-end (see iPhone camera on Mac) | 🎯 current goal |
-| V0.2 — audio + touchpad + keyboard | queued |
-| V0.3 — virtual camera / mic drivers + input injection | queued |
-| V1.0 — Windows support | queued |
-| V1.5 — Android support | queued |
+| Mac app — Bonjour browse + H.264 decode + preview | ✅ done |
+| V0.1 end-to-end (see iPhone camera on Mac) | ✅ done |
+| V0.2 — audio + touchpad + keyboard | ✅ done |
+| V0.3 — input injection | ✅ done |
+| V1.0 — Windows support | ✅ done |
+| V1.5 — virtual camera (macOS + Windows) | ✅ done |
+| V1.6 — Mac auto-update | ✅ done |
+| Virtual **microphone** (macOS HAL + Windows sysvad driver) | 🔄 building — macOS driver done; Windows needs a signed WDK build |
+| Windows installer + code signing | queued |
+| V2.0 — Android capture client | queued |
 
 ## Repository layout
 

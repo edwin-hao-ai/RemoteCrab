@@ -267,6 +267,6 @@ Two Windows-specific caveats:
 |---|---|
 | **P1 (this)** | discovery, handshake/pairing, video frames, trackpad, keyboard, status |
 | **P2 (done)** | audio, clipboard (both directions), file transfer → `~/Downloads/RemoteCrab`, window-based app switcher (thumbnails + activate/quit), system keys, selection rewrite, live feature control, app-window mirror, recording (MP4 + WAV) |
-| P3 | virtual camera (DirectShow / MF), virtual microphone, tray UI, installer + code signing |
+| P3 | ~~virtual camera~~ ✅, tray UI ✅ · **virtual microphone** (sysvad signed driver, WDK-only), installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).

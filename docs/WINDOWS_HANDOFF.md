@@ -42,10 +42,10 @@ is already green.
 
 ## 0. TL;DR status
 
-**Done and shipped** (`cargo test --workspace` **166** on Windows/MSVC;
-`clippy -D warnings` clean. The `x86_64-pc-windows-gnu` cross-check is the
-macOS-side equivalent — run it there via `cargo check --target
-x86_64-pc-windows-gnu --workspace`):
+**Done and shipped** (`cargo test --workspace` **207** on Windows/MSVC;
+`clippy -D warnings` clean, now enforced by CI (§5e). The
+`x86_64-pc-windows-gnu` cross-check is the macOS-side equivalent — run it
+there via `cargo check --target x86_64-pc-windows-gnu --workspace`):
 
 - Discovery (mDNS `mdns-sd` + hotspot/last-IP/`/24` fallback), handshake
   (`clientHello`/`sessionReply`, token pairing, 6 s handshake timeout), 2 s
@@ -82,13 +82,23 @@ x86_64-pc-windows-gnu --workspace`):
 
 1. **Virtual microphone** (appear as a system input device) — §5b.
 2. **Virtual camera — user-visible confirmation only.** The pipeline is
-   E2E-green (`vcam_probe` PASS, 166 tests, clippy clean) but *a person has
-   still not looked at it*: no iPhone has been connected with `--vcam` on, and
-   no camera app has shown the moving phone feed. That is the last gate, and
-   it is a manual one (§6 step 10).
+   E2E-green (`vcam_probe` PASS, 207 tests, clippy clean, CI-enforced) but
+   *a person has still not looked at it*: no iPhone has been connected with
+   `--vcam` on, and no camera app has shown the moving phone feed. That is the
+   last gate, and it is a manual one (§6 step 10).
 3. **App-window mirror** exists, but **Extended Display** (virtual second
    monitor) reports "not supported" on Windows (macOS has it via
    `CGVirtualDisplay`; Windows has no equivalent public API).
+4. **No installer and no code signing.** The binary is unsigned by choice
+   (a Windows OV/EV certificate is a real annual cost, and the CA/Browser
+   Forum's 2023 HSM rule removed the cheap instant certificates). Until then,
+   distribution is `irm … | iex`: running in memory means no
+   Mark-of-the-Web, so users do not meet the SmartScreen dialog at all. A
+   "publish a `.msi`" step is queued in the root README roadmap.
+5. **The tray popup is still the native `TrackPopupMenu`.** Its structure,
+   grouping, icons and wording now match the Mac popover and are unit-tested
+   (§5f), but Windows will not let an app style a native menu, so rounded
+   corners / hover fills / typography need a self-drawn panel.
 
 Everything else in the old P2/P3 list is either done or intentionally out of
 scope (see §4).
@@ -128,8 +138,16 @@ windows/
     │   └── src/ring.rs, trace.rs, attrs.rs  # ring reader, RCVCAM_LOG, media types
     ├── rc-testkit/            # fake iPhone for tests / --selftest
     └── rc-app/                # the `remotecrab` binary: CLI + tray + console
-        ├── main.rs            # arg parsing, the tokio::select! loop, console commands
-        ├── tray.rs            # Shell_NotifyIconW + popup menu (mirrors the Mac popover)
+        ├── main.rs            # the tokio::select! loop and startup wiring
+        ├── args.rs            # flags, the parser, its tests
+        ├── console.rs         # stdin reader, command dispatch, recording/clipboard
+        ├── selftest.rs        # the four `--*-selftest` commands
+        ├── doctor.rs          # `remotecrab doctor` — ranked connection diagnosis
+        ├── help.rs            # `--help` and the `help` table
+        ├── status.rs          # console + tray status lines
+        ├── scan.rs            # `--scan [subnet]`
+        ├── tray.rs            # Shell_NotifyIconW + the Win32 popup
+        ├── tray_menu.rs       # the menu's shape as data (sectioned, icon'd, tested)
         ├── mirror.rs          # MirrorController: capture/encode thread + input
         ├── vcam.rs            # Vcam: decoded frames → FrameWriter (behind --vcam)
         └── i18n.rs            # zh/en picker (GetUserDefaultUILanguage)
@@ -489,6 +507,46 @@ What it checks, and what each result means:
 
 It never claims a problem when the port is open and the handshake succeeded —
 a tool that cries wolf gets ignored.
+
+### 5e. CI (`.github/workflows/windows.yml`)
+
+The repository had **no** GitHub Actions at all, so this workspace's 207
+tests only ran when a human remembered. Two jobs, on `windows/**` changes:
+
+- **test + clippy** — `cargo build --workspace --all-targets` (so a broken
+  *example* fails CI, not just a release), `cargo test --workspace`, and
+  `clippy --workspace --all-targets -- -D warnings`. `cargo fmt --check` runs
+  informationally (`continue-on-error`) until the tree is actually formatted.
+- **virtual camera E2E** — the phone-free half of the story: build the COM
+  source, build the probe (as two separate invocations, §3.24), register under
+  HKLM, run `vcam_probe`, and unregister in an `always()` step. Every step of
+  this job was executed on a real Windows box before the workflow was
+  committed, so it is not aspirational.
+
+Both jobs use `windows-latest` + the stable toolchain, with
+`Swatinem/rust-cache` on the `windows` workspace.
+
+### 5f. The tray menu (`tray_menu.rs`)
+
+The tray used to be a flat grey list of twelve rows, next to a Mac popover
+that is deliberately "heavily sectioned". The menu is now described **once**, as
+data:
+
+```
+menu_rows(&MenuState) -> Vec<MenuRow { kind, id, text }>
+```
+
+`tray.rs` only draws it. The Mac popover (`MenuBarMenu.swift`) and this list
+are therefore reviewed against the same description, and eight tests hold the
+layout: sectioned into Features / Actions / Connection, an icon on every
+action, headings and the footer not clickable, wording that follows the state
+it describes, checkmarks that match the state, the version footer last, and a
+"show last received file" row greyed out when no file has arrived.
+
+**Known limit, stated rather than hidden**: the row chrome is still
+`TrackPopupMenu`, which Windows will not let an app style. Rounded corners,
+hover fills and typography require a self-drawn panel — separate work.
+Everything a native menu *can* express is matched.
 
 ---
 
