@@ -41,6 +41,29 @@ final class CaptureEngine: ObservableObject {
     @Published private(set) var connectionState: ConnectionState = .idle
     @Published private(set) var metadata: IBStreamMetadata = .defaultConfig()
     @Published private(set) var lastLatencyMs: Int?
+    /// A one-line message the user should see right now. Auto-clears after
+    /// a few seconds. Lives here rather than in a view because the most
+    /// important hints are raised from send paths deep in the engine, which
+    /// is exactly where the failure used to be invisible.
+    @Published private(set) var transientHint: String?
+    private var hintDismissTask: Task<Void, Never>?
+
+    /// Show a transient hint, re-arming the timer so a second message
+    /// extends the first instead of being cut short by its predecessor.
+    func showHint(_ text: String) {
+        hintDismissTask?.cancel()
+        transientHint = text
+        hintDismissTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.transientHint = nil
+        }
+    }
+
+    /// `true` only when a frame would actually leave the device. Commands
+    /// the user is watching (switch / quit / launch) check this so a dead
+    /// link says so instead of silently eating the tap.
+    private var canReachMac: Bool { broadcaster?.isReady ?? false }
 
     // Multi-Mac pairing surface for the UI.
     /// Every Mac the user has approved (settings → Paired Macs).
@@ -110,6 +133,18 @@ final class CaptureEngine: ObservableObject {
         case starting
         case connected
         case failed
+
+        /// Short label for forensic markers. The state was previously only
+        /// observable by looking at the UI, which is how a stale
+        /// `.connected` over a dropped link survived for so long.
+        var debugName: String {
+            switch self {
+            case .idle: return "idle"
+            case .starting: return "starting"
+            case .connected: return "connected"
+            case .failed: return "failed"
+            }
+        }
     }
 
     // MARK: - Private state
@@ -148,6 +183,9 @@ final class CaptureEngine: ObservableObject {
     /// dead-but-still-"ready" socket must not keep answering other Macs
     /// `busy` forever.
     private var lastInboundAt = Date()
+    /// Set once the `REMOTECRAB_E2E_LINK_LOSS` script has run — see its
+    /// call site in `grant()` for why it must not re-arm on reconnect.
+    private var e2eLinkLossFired = false
     /// Watchdog that releases a silent owner (see `lastInboundAt`).
     private var ownerWatchdog: Timer?
     /// Connection currently awaiting a `clientHello` (not yet granted).
@@ -759,9 +797,8 @@ final class CaptureEngine: ObservableObject {
         pendingHello = nil
         pendingMacName = nil
         connection?.cancel()
-        clearOwner()
+        clearOwner(reason: .disconnected)
         isStreaming = false
-        connectionState = .idle
         parser.reset()
         stopVideoWatchdog()
         UIApplication.shared.isIdleTimerDisabled = false
@@ -1352,7 +1389,7 @@ final class CaptureEngine: ObservableObject {
                 return
             }
             existing.cancel()
-            clearOwner()
+            clearOwner(reason: .replaced)
         }
         // A second Mac showed up while the first was mid-handshake.
         if pendingConnection != nil && pendingConnection !== conn {
@@ -1570,6 +1607,36 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[e2e] installed apps requested")
             }
         }
+        // E2E: REMOTECRAB_E2E_LINK_LOSS=1 drops the owner link the way a
+        // network stall does — the owner watchdog's decision, without
+        // needing the Mac to be `kill -STOP`ed. Stands in for the bug where
+        // the watchdog cleared the owner but left `connectionState` at
+        // `.connected`, so the UI claimed a live link while every switch
+        // tap was dropped (lesson 87). The suite asserts the state really
+        // becomes `.failed` and that a command issued afterwards is
+        // *refused visibly* rather than silently.
+        //
+        // The `fired` flag is load-bearing and is NOT the other hooks' pattern:
+        // this one *causes* a reconnect, and every reconnect runs `grant()`,
+        // so an unguarded hook re-arms itself and the phone loops
+        // offline → reconnect → offline forever (a 6 s + 3 s cycle, measured).
+        // The other hooks only replay a frame, so re-arming them is harmless.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_LINK_LOSS"] == "1",
+           !e2eLinkLossFired {
+            e2eLinkLossFired = true
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                guard let self else { return }
+                Forensic.log("[e2e] simulating owner silence")
+                self.lastInboundAt = Date(timeIntervalSinceNow: -30)
+                self.checkOwnerLiveness()
+                Forensic.log("[e2e] after link loss state=\(self.connectionState.debugName) hint=\(self.transientHint ?? "none")")
+                // The command that used to vanish without a trace.
+                self.activateMacApp(id: "com.apple.Safari", windowTitle: nil)
+                try? await Task.sleep(for: .milliseconds(300))
+                Forensic.log("[e2e] after refused switch state=\(self.connectionState.debugName) hint=\(self.transientHint ?? "none")")
+            }
+        }
         // E2E: the switcher's Desktop quick action — REMOTECRAB_E2E_DESKTOP=1
         // sends showDesktop; the Mac log confirms "showDesktop requested".
         //
@@ -1695,7 +1762,7 @@ final class CaptureEngine: ObservableObject {
     /// Drop the current owner (settings / connected banner).
     func disconnectCurrentMac() {
         connection?.cancel()
-        clearOwner()
+        clearOwner(reason: .disconnected)
     }
 
     func forgetPairedMac(id: String) {
@@ -1750,18 +1817,39 @@ final class CaptureEngine: ObservableObject {
 
     /// Launch an installed app on the receiver via `systemCommand(.launchApp)`.
     func launchInstalledApp(_ app: IBInstalledApp) {
+        guard canReachMac else {
+            reportNoLink()
+            return
+        }
         sendSystemCommand(IBSystemCommand(command: .launchApp, argument: app.id))
     }
 
     /// Bring a Mac app to the front, and optionally raise one specific
     /// window of it (matches the picked window card).
     func activateMacApp(id: String, windowTitle: String? = nil) {
+        guard canReachMac else {
+            reportNoLink()
+            return
+        }
         broadcaster?.send(IBActivateApp(id: id, windowTitle: windowTitle))
+    }
+
+    /// The single place a dropped link becomes visible to the user. Every
+    /// command below funnels through here instead of failing quietly.
+    @discardableResult
+    private func reportNoLink() -> Bool {
+        Forensic.log("[link] command refused — no live link")
+        showHint(IBLocale.Error.notConnectedToMac)
+        return false
     }
 
     /// Quit a Mac app. Graceful by default (the app may show a save sheet
     /// on the Mac); `force` terminates immediately and can lose work.
     func quitMacApp(id: String, force: Bool) {
+        guard canReachMac else {
+            reportNoLink()
+            return
+        }
         broadcaster?.send(IBQuitApp(id: id, force: force))
         // Optimistic: drop the app's cards from the open window picker
         // immediately. The Mac republishes the list right after the quit
@@ -1964,17 +2052,53 @@ final class CaptureEngine: ObservableObject {
             break // grant() already set everything up.
         case .failed(let error):
             Self.log.error("connection failed: \(error, privacy: .public)")
-            connectionState = .failed
-            clearOwner()
+            // `.cancelled` lands here too when it wasn't us who cancelled
+            // (a local cancel makes `connection` nil first, and the guard
+            // above drops the late callback), so it means the same thing:
+            // the link is gone and the user should know.
+            clearOwner(reason: .lost)
         case .cancelled:
-            connectionState = .idle
-            clearOwner()
+            clearOwner(reason: .lost)
         default:
             break
         }
     }
 
-    private func clearOwner() {
+    /// Why the session is being torn down.
+    ///
+    /// **This is deliberately the only input to the resulting
+    /// `connectionState` transition.** Two call sites used to clear the
+    /// owner *without* updating the state, and because `broadcaster` becomes
+    /// nil there while `connectionState` stayed `.connected`, the UI kept
+    /// showing a green "connected" over a dead link — so every app-switch
+    /// tap was silently dropped with no feedback at all (that is the
+    /// "switching apps doesn't work sometimes" report). Making the reason
+    /// mandatory means a new call site cannot forget it.
+    enum OwnerRelease {
+        /// The peer went away on its own or the link broke. The user has to
+        /// be told, and the Mac is (probably) reconnecting right now.
+        case lost
+        /// A deliberate local action — Stop, Disconnect, switching Macs.
+        /// Not an error, so no red card.
+        case disconnected
+        /// A different Mac took over. `grant(_:…)` sets `.connected` a few
+        /// lines later, so don't touch the state (it is still correct).
+        case replaced
+    }
+
+    /// Drop the owner connection and everything derived from it.
+    ///
+    /// Pass `reason` — it is what decides the visible connection state (see
+    /// `OwnerRelease`).
+    private func clearOwner(reason: OwnerRelease) {
+        switch reason {
+        case .lost:
+            connectionState = .failed
+        case .disconnected:
+            connectionState = .idle
+        case .replaced:
+            break
+        }
         stopOwnerWatchdog()
         broadcaster = nil
         audioEncoder?.stop()
@@ -2017,7 +2141,10 @@ final class CaptureEngine: ObservableObject {
         guard idle > 10 else { return }
         Self.log.error("owner silent for \(Int(idle), privacy: .public)s — releasing the session")
         connection?.cancel()
-        clearOwner()
+        // `.lost`, not `.disconnected`: this is the path that used to leave
+        // a green "connected" over a dropped link.
+        Forensic.log("[link] owner silent — state now \(self.connectionState.debugName)")
+        clearOwner(reason: .lost)
     }
 
     // MARK: - Receiving (Mac → iPhone control)
@@ -2036,8 +2163,7 @@ final class CaptureEngine: ObservableObject {
                 // can't silently swallow the next Mac's clientHello.
                 Task { @MainActor in
                     guard self.connection === connection else { return }
-                    self.connectionState = .idle
-                    self.clearOwner()
+                    self.clearOwner(reason: .lost)
                 }
                 return
             }

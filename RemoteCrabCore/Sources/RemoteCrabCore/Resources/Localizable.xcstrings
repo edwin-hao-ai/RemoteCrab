@@ -9144,6 +9144,23 @@
           }
         }
       }
+    },
+    "Not connected to your Mac right now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected to your Mac right now."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前未连接到电脑。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

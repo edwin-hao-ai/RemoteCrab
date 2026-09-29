@@ -685,6 +685,12 @@ public enum IBLocale {
         /// away from the receiver's perspective is the iPhone).
         public static let iPhoneConnectionLost = IBL("Connection to your iPhone was lost. Waiting for it to reconnect…")
         public static let streamingFailed = IBL("Streaming failed. Tap to retry.")
+        /// Raised when the user asks for something the receiver has to do
+        /// (switch app, quit it, launch one) while there is no live link to
+        /// ask over. Without it the tap was acknowledged by a haptic and
+        /// then nothing ever happened, with the UI still claiming to be
+        /// connected.
+        public static let notConnectedToMac = IBL("Not connected to your Mac right now.")
 
         // Multi-Mac pairing.
         public static func iphoneBusy(_ owner: String) -> String {

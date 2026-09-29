@@ -76,5 +76,25 @@ else
   fail "RemoteCrabReceiver build"
 fi
 
+# 3. Windows receiver (Rust workspace) — unit + integration tests. This is
+#    the suite that carries the cross-connection pairing tests, so it must run
+#    here or those bugs come back.
+#
+#    `--lib` on non-Windows: `rc-vcam`'s `vcam_probe` example is Media
+#    Foundation only and does not compile on macOS, so a bare
+#    `cargo test --workspace` errors out before running anything. CI runs on
+#    Windows and builds it there for real (see .github/workflows/windows.yml).
+echo ""
+echo "── Windows receiver (rc-net etc.) tests ──"
+CARGO_TEST_FLAGS="--workspace"
+if [ "$(uname -s)" != "MINGW"* ] && [ "$(uname -s)" != "CYGWIN"* ]; then
+  CARGO_TEST_FLAGS="$CARGO_TEST_FLAGS --lib"
+fi
+if (cd windows && cargo test $CARGO_TEST_FLAGS 2>&1 | tail -12); then
+  pass "Windows receiver tests"
+else
+  fail "Windows receiver tests"
+fi
+
 echo ""
 echo -e "${GREEN}All checks passed.${RESET}"

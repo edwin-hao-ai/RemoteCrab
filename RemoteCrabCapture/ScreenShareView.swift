@@ -145,6 +145,21 @@ struct ScreenShareView: View {
         )
         if reset { state.reset() }
         zoomState = state
+        // Degenerate layouts are the mirror's "black screen with a tiny
+        // thumbnail in the corner" failure: `fitSize` divides by
+        // `viewSize - insets`, which is floored at 1, so any frame where the
+        // GeometryReader reports a collapsed size yields a ~1 pt content rect
+        // — and `max(1, …)` in the view then keeps that 1 pt on screen
+        // instead of ignoring it. Log the inputs rather than guess which one
+        // was bad.
+        let c = state.displayedContentRect
+        if c.width < 40 || c.height < 40 || size.width < 40 || size.height < 40 {
+            Forensic.log("[mirror] degenerate layout view=\(Int(size.width))x\(Int(size.height))"
+                + " window=\(Int(windowWidth))x\(Int(windowHeight))"
+                + " usable=\(Int(state.fitSize.width))x\(Int(state.fitSize.height))"
+                + " content=\(Int(c.width))x\(Int(c.height))"
+                + " insets=\(Int(topInset))/\(Int(bottomInset)) zoom=\(state.zoom) reset=\(reset)")
+        }
     }
 
     /// `resizeAspect` letterboxes (fit); `resizeAspectFill` crops (fill).

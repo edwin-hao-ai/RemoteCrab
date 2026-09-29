@@ -14,19 +14,19 @@ use rc_discovery::{DiscoveredPhone, DiscoveryEvent};
 use rc_protocol::{
     decode_session_reply, encode_camera_command, encode_client_hello, encode_feature_control,
     encode_ping, ClientHello, FeatureControl, FeatureStateSnapshot, Frame, Kind, Parser,
-    SessionReplyResult,
+    SessionReplyResult, StreamMetadata,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, watch};
 
 use super::dispatch::{dispatch_frame, next_frame};
-use super::{emit, set_state};
+use super::{emit, set_health, set_state, Health};
 use super::token::TokenStore;
 use super::{
     Command, Config, ConnEndKind, ConnMsg, Event, State, Target, BUSY_RETRY_DELAY,
-    DIRECT_DIAL_TIMEOUT, FALLBACK_TICK, HANDSHAKE_TIMEOUT, PING_INTERVAL, PONG_TIMEOUT,
-    RECONNECT_DELAY,
+    DIRECT_DIAL_TIMEOUT, DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, PING_INTERVAL,
+    PONG_TIMEOUT, RECONNECT_DELAY,
 };
 
 pub(crate) struct ActiveConn {
@@ -46,11 +46,32 @@ pub(crate) async fn supervisor(
     mut cmd_rx: mpsc::UnboundedReceiver<Command>,
     events_tx: broadcast::Sender<Event>,
     state_tx: watch::Sender<State>,
+    health_tx: watch::Sender<Health>,
 ) {
     let mut tokens = TokenStore::load(config.token_path.clone());
     let mut discovered: Vec<DiscoveredPhone> = Vec::new();
-    let mut discovery_rx = rc_discovery::browse(&config.service_type).ok();
+    // A browse that fails to start used to be swallowed with `.ok()`, which
+    // left mDNS dead for the whole process lifetime with nothing in the log —
+    // the receiver simply never found anything again and looked like a network
+    // fault. Report it, and keep trying: the usual causes (the daemon losing
+    // its socket, an adapter appearing) clear on their own.
+    let (mut discovery_rx, browse_error) = match rc_discovery::browse(&config.service_type) {
+        Ok(rx) => (Some(rx), None),
+        Err(e) => (None, Some(e.to_string())),
+    };
     let mut discovery_active = discovery_rx.is_some();
+    if let Some(e) = &browse_error {
+        eprintln!(
+            "[net] mDNS browse could not start ({e}) — discovery is off for now, \
+             retrying every {}s; direct-IP fallback is unaffected",
+            DISCOVERY_RETRY.as_secs()
+        );
+    }
+    let mut next_discovery_retry: Option<tokio::time::Instant> = if discovery_active {
+        None
+    } else {
+        Some(tokio::time::Instant::now() + DISCOVERY_RETRY)
+    };
 
     // Recreated per connection; a keepalive sender prevents `recv()` from
     // returning `None` (which would busy-loop the select).
@@ -61,6 +82,18 @@ pub(crate) async fn supervisor(
     let mut target: Option<Target> = None;
     let mut suppress_auto = false;
     let mut reconnect_at: Option<tokio::time::Instant> = None;
+    // `/24` sweep pacing — see `sweep_interval`.
+    let mut last_sweep_at: Option<tokio::time::Instant> = None;
+    let mut sweep_misses: u32 = 0;
+    // `host:port` of the last endpoint that completed a handshake. Shown in
+    // the "why isn't this connecting" panel so the user can check the phone
+    // by hand if they want to, without the product ever offering them an
+    // address box.
+    let mut last_endpoint: Option<String> = None;
+    if let Some(h) = tokens.last_phone_host() {
+        let port = tokens.last_phone_port().unwrap_or(config.default_port);
+        last_endpoint = Some(format!("{h}:{port}"));
+    }
 
     let mut tick = tokio::time::interval(FALLBACK_TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -69,9 +102,27 @@ pub(crate) async fn supervisor(
     // derive the next position. Fed from the broadcast the connection task
     // publishes to.
     let mut feature_state: Option<FeatureStateSnapshot> = None;
+    // The phone's self-reported device name, learned from `metadata`. Kept
+    // because the token and the name arrive on different channels in an
+    // arbitrary order, and each needs to be able to finish the other's work.
+    let mut learned_name: Option<String> = None;
     let mut events_for_mirror = events_tx.subscribe();
 
     loop {
+        // Republish what we already know, before blocking again, so the
+        // "why isn't this connecting?" panel can answer from memory instead of
+        // probing the network (a browse would take 6 s and freeze the menu).
+        set_health(
+            &health_tx,
+            Health {
+                state: state_tx.borrow().clone(),
+                discovered: discovered.iter().map(|p| p.name.clone()).collect(),
+                last_endpoint: last_endpoint.clone(),
+                fallback_misses: sweep_misses,
+                mdns_alive: discovery_active,
+            },
+        );
+
         let mut action: Option<Action> = None;
 
         tokio::select! {
@@ -79,8 +130,22 @@ pub(crate) async fn supervisor(
                 action = cmd.map(Action::Cmd);
             }
             ev = events_for_mirror.recv() => {
-                if let Ok(Event::FeatureState(s)) = ev {
-                    feature_state = Some(s);
+                match ev {
+                    Ok(Event::FeatureState(s)) => feature_state = Some(s),
+                    // The phone tells us its own name in `metadata`. That is
+                    // the stable identity for its pairing token, so move the
+                    // token onto it and remember the address → name mapping.
+                    // Without this, the same device is keyed twice — once by
+                    // mDNS instance name, once by IP — and whichever path we
+                    // did not use has no token, so the phone asks for approval
+                    // all over again.
+                    Ok(Event::Metadata(md)) => {
+                        learn_phone_identity(&mut tokens, &mut learned_name, target.as_ref(), &md);
+                    }
+                    // Everything else is the app layer's business, and this
+                    // subscription exists only for the two events above.
+                    Ok(_) => {}
+                    Err(_) => continue,
                 }
                 continue;
             }
@@ -90,7 +155,15 @@ pub(crate) async fn supervisor(
             ev = discovery_rx.as_mut().unwrap().recv(), if discovery_active => {
                 match ev {
                     Some(e) => action = Some(Action::Discovery(e)),
-                    None => discovery_active = false,
+                    // The daemon closed the channel. Same treatment as a
+                    // failure to start: notice it, and rebuild.
+                    None => {
+                        eprintln!("[net] mDNS browse channel closed — restarting it");
+                        discovery_active = false;
+                        discovery_rx = None;
+                        next_discovery_retry =
+                            Some(tokio::time::Instant::now() + DISCOVERY_RETRY);
+                    }
                 }
             }
             _ = tick.tick() => {
@@ -116,6 +189,7 @@ pub(crate) async fn supervisor(
                         &mut active,
                         &mut conn_rx,
                         &mut conn_keepalive,
+                        &mut target,
                         Target::Phone(phone),
                     );
                 }
@@ -132,6 +206,7 @@ pub(crate) async fn supervisor(
                     &mut active,
                     &mut conn_rx,
                     &mut conn_keepalive,
+                    &mut target,
                     Target::Manual { host, port, name },
                 );
             }
@@ -154,6 +229,7 @@ pub(crate) async fn supervisor(
                         &mut active,
                         &mut conn_rx,
                         &mut conn_keepalive,
+                        &mut target,
                         t,
                     );
                 }
@@ -184,13 +260,29 @@ pub(crate) async fn supervisor(
                     let _ = conn.outbound_tx.send(frame);
                 }
             }
-            Action::Conn(ConnMsg::Connected { host }) => {
-                tokens.set_last_phone_host(&host);
+            Action::Conn(ConnMsg::Accepted { host, port, token, key }) => {
+                tokens.remember_endpoint(&host, port);
+                last_endpoint = Some(format!("{host}:{port}"));
+                if let Some(token) = token {
+                    if !key.is_empty() && !token.is_empty() {
+                        tokens.set_token(&key, &token);
+                        // `metadata` may have been processed before this
+                        // message (different channel, `select!` order), in
+                        // which case the rekey above had no token to move yet.
+                        settle_token_key(&mut tokens, &learned_name, &key);
+                    }
+                }
             }
             Action::Conn(ConnMsg::End(kind)) => {
                 active = None;
                 match kind {
                     ConnEndKind::Lost | ConnEndKind::HandshakeTimeout => {
+                        // Whatever we were dialing did not work. Forget it so
+                        // the fallbacks below get a turn — the next tick will
+                        // try the other known addresses instead of hammering
+                        // one dead one every three seconds. This is the exit
+                        // from the "re-dial a dead address forever" deadlock.
+                        target = None;
                         if !suppress_auto {
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }
@@ -255,12 +347,30 @@ pub(crate) async fn supervisor(
                         &mut active,
                         &mut conn_rx,
                         &mut conn_keepalive,
+                        &mut target,
                         t,
                     );
                 }
             }
             Action::FallbackTick => {
-                if active.is_none() && !suppress_auto && discovered.is_empty() {
+                // Discovery first: it is the primary path, and it is the one
+                // that can be *restored*. Everything below is a fallback for
+                // when it is unavailable.
+                if !discovery_active
+                    && next_discovery_retry.is_none_or(|t| t <= tokio::time::Instant::now())
+                {
+                    next_discovery_retry =
+                        Some(tokio::time::Instant::now() + DISCOVERY_RETRY);
+                    match rc_discovery::browse(&config.service_type) {
+                        Ok(rx) => {
+                            eprintln!("[net] mDNS browse running again");
+                            discovery_rx = Some(rx);
+                            discovery_active = true;
+                        }
+                        Err(e) => eprintln!("[net] mDNS still unavailable: {e}"),
+                    }
+                }
+                if fallback_allowed(active.is_some(), suppress_auto, target.is_some()) {
                     // Direct-IP fallback, in order of cost:
                     //   1. the last address we successfully connected to
                     //   2. the iPhone-hotspot gateway (172.20.10.1)
@@ -268,6 +378,7 @@ pub(crate) async fn supervisor(
                     // (3) is what makes this work on guest WiFi / mesh APs
                     // where mDNS multicast is silently dropped. It cannot
                     // defeat true AP isolation — nothing can.
+                    let port = tokens.last_phone_port().unwrap_or(config.default_port);
                     let mut candidates: Vec<String> = Vec::new();
                     if let Some(h) = tokens.last_phone_host() {
                         candidates.push(h);
@@ -276,12 +387,8 @@ pub(crate) async fn supervisor(
 
                     let mut hit: Option<String> = None;
                     for host in &candidates {
-                        if rc_discovery::probe_tcp(
-                            host,
-                            config.default_port,
-                            Duration::from_millis(2500),
-                        )
-                        .await
+                        if rc_discovery::probe_tcp(host, port, Duration::from_millis(2500))
+                            .await
                         {
                             hit = Some(host.clone());
                             break;
@@ -289,27 +396,31 @@ pub(crate) async fn supervisor(
                     }
 
                     if hit.is_none() {
-                        for ip in rc_discovery::local_ipv4_addresses() {
-                            let found = rc_discovery::scan_subnet_for_port(
-                                &ip,
-                                config.default_port,
-                                Duration::from_millis(250),
-                                128,
-                            )
-                            .await;
-                            if let Some(host) = found.into_iter().next() {
-                                hit = Some(host);
-                                break;
+                        // 254 connects per sweep, so it is rate-limited and
+                        // backs off while the LAN stays empty.
+                        let elapsed = last_sweep_at
+                            .map(|t| t.elapsed())
+                            .unwrap_or(Duration::from_secs(u64::MAX / 2));
+                        if elapsed >= sweep_interval(sweep_misses) {
+                            last_sweep_at = Some(tokio::time::Instant::now());
+                            for ip in sweep_targets(&rc_discovery::local_ipv4_addresses()) {
+                                let found = rc_discovery::scan_subnet_for_port(
+                                    &ip,
+                                    port,
+                                    Duration::from_millis(250),
+                                    128,
+                                )
+                                .await;
+                                if let Some(host) = found.into_iter().next() {
+                                    hit = Some(host);
+                                    break;
+                                }
                             }
                         }
                     }
+                    sweep_misses = if hit.is_some() { 0 } else { sweep_misses + 1 };
 
                     if let Some(host) = hit {
-                        target = Some(Target::Manual {
-                            host: host.clone(),
-                            port: config.default_port,
-                            name: format!("iPhone ({host})"),
-                        });
                         start_connection(
                             &config,
                             &mut tokens,
@@ -318,7 +429,12 @@ pub(crate) async fn supervisor(
                             &mut active,
                             &mut conn_rx,
                             &mut conn_keepalive,
-                            target.clone().unwrap(),
+                            &mut target,
+                            Target::Manual {
+                                host: host.clone(),
+                                port,
+                                name: format!("iPhone ({host})"),
+                            },
                         );
                     }
                 }
@@ -360,6 +476,7 @@ pub(crate) fn maybe_autoconnect(
             active,
             conn_rx,
             conn_keepalive,
+            target,
             Target::Phone(phone),
         );
     }
@@ -374,9 +491,19 @@ pub(crate) fn start_connection(
     active: &mut Option<ActiveConn>,
     conn_rx: &mut mpsc::UnboundedReceiver<ConnMsg>,
     conn_keepalive: &mut Option<mpsc::UnboundedSender<ConnMsg>>,
-    target: Target,
+    current: &mut Option<Target>,
+    next: Target,
 ) {
-    let name = target.name();
+    // Record what we are working on BEFORE spawning the task. This assignment
+    // used to be missing on every path except the subnet sweep, so
+    // `Action::Reconnect` found `None` and did nothing: a link drop on a
+    // phone we reached by mDNS (or by hand) never reconnected, and the
+    // fallbacks were gated off by the stale `discovered` list. Doing it here,
+    // in the one function that starts a connection, makes it impossible to
+    // forget again.
+    *current = Some(next.clone());
+
+    let name = next.name();
     set_state(state_tx, events_tx, State::Connecting { name: name.clone() });
 
     let (msg_tx, msg_rx) = mpsc::unbounded_channel::<ConnMsg>();
@@ -386,20 +513,58 @@ pub(crate) fn start_connection(
     let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     *active = Some(ActiveConn { outbound_tx: out_tx });
 
-    let token = tokens.token_for(&target.token_key());
+    // Read the token under the *resolved* key: the phone's real name when we
+    // have learned it for this address, otherwise the provisional one.
+    let token = tokens
+        .token_for(&tokens.resolve_key(&next.token_key(), next.ip()));
     let pc_id = tokens.pc_id().to_string();
     let pc_name = tokens.pc_name().to_string();
+    let token_key = tokens.resolve_key(&next.token_key(), next.ip());
     let config = config.clone();
     let events_tx = events_tx.clone();
     let state_tx = state_tx.clone();
 
     tokio::spawn(async move {
         let kind = run_connection(
-            config, target, token, pc_id, pc_name, out_rx, &events_tx, &state_tx, &msg_tx,
+            config, next, token, token_key, pc_id, pc_name, out_rx, &events_tx, &state_tx, &msg_tx,
         )
         .await;
         let _ = msg_tx.send(ConnMsg::End(kind));
     });
+}
+
+/// Fold a `metadata` frame into the identity we store.
+///
+/// Two facts arrive over two different channels — the device name on
+/// `Event::Metadata`, the token on `ConnMsg::Accepted` — and `select!` picks
+/// whichever is ready, so either can land first. Both sides therefore settle
+/// the same key: this records the name and moves the token if it is already
+/// there, and [`settle_token_key`] does the mirror image when the token
+/// arrives second. Doing it one-way only is a race, and a race here is exactly
+/// how a paired device ends up tokenless forever.
+fn learn_phone_identity(
+    tokens: &mut TokenStore,
+    learned: &mut Option<String>,
+    target: Option<&Target>,
+    md: &StreamMetadata,
+) {
+    let Some(target) = target else { return };
+    let name = md.device_name.trim();
+    if name.is_empty() {
+        return;
+    }
+    *learned = Some(name.to_string());
+    if let Some(ip) = target.ip() {
+        tokens.set_phone_name_for_ip(ip, name);
+    }
+    tokens.rekey_token(&target.token_key(), name);
+}
+
+/// The mirror of [`learn_phone_identity`]: a token just arrived under
+/// `provisional`, and we may already know the phone's real name.
+fn settle_token_key(tokens: &mut TokenStore, learned: &Option<String>, provisional: &str) {
+    let Some(real) = learned else { return };
+    tokens.rekey_token(provisional, real);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -407,6 +572,7 @@ pub(crate) async fn run_connection(
     config: Config,
     target: Target,
     token: Option<String>,
+    token_key: String,
     pc_id: String,
     pc_name: String,
     mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
@@ -507,10 +673,13 @@ pub(crate) async fn run_connection(
     };
     eprintln!("[net] sessionReply: {:?}", reply.result);
 
-    // The token the iPhone issued (when accepted) is persisted by the
-    // supervisor via the `FeatureState`/`Metadata` path; we only need to
-    // know the handshake succeeded here.
-    let _accepted_token = match reply.result {
+    // The token the phone issued when it accepted us. This MUST travel back
+    // to the supervisor and be persisted: it is the only thing that makes the
+    // next `clientHello` acceptable without a human tapping Allow. It used to
+    // be bound to `_accepted_token` and dropped on the floor, so the receiver
+    // asked the iPhone for approval on *every* reconnect for the life of the
+    // install.
+    let accepted_token = match reply.result {
         SessionReplyResult::Accepted => reply.token,
         SessionReplyResult::Pending => {
             // The iPhone shows an approval card; when approved it sends a
@@ -559,9 +728,15 @@ pub(crate) async fn run_connection(
     };
 
     // --- Streaming ------------------------------------------------------
-    // Remember the address that worked, so the next launch can dial it
-    // directly even if mDNS stays silent.
-    let _ = msg_tx.send(ConnMsg::Connected { host: host.clone() });
+    // Remember the address, port and token that worked, so the next launch
+    // can dial it directly (even if mDNS stays silent) and be recognised
+    // without another approval prompt.
+    let _ = msg_tx.send(ConnMsg::Accepted {
+        host: host.clone(),
+        port,
+        token: accepted_token,
+        key: token_key,
+    });
     set_state(
         state_tx,
         events_tx,
@@ -638,5 +813,147 @@ pub(crate) fn now_micros() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Fallback policy — pure, so the rules are testable without a network.
+//
+// The fallbacks exist because mDNS silently fails on some networks (a TUN-mode
+// VPN, guest WiFi, AP isolation). The bug this replaces gated them on
+// `discovered.is_empty()`, so a single stale Bonjour record disabled the
+// direct-IP path *permanently* and the receiver re-dialled one dead address
+// until the user intervened. The Mac had already fixed the equivalent
+// deadlock (lesson 21(b)); the Windows port shipped with the pre-fix logic.
+// ---------------------------------------------------------------------------
+
+/// May the direct-IP fallbacks run on this tick?
+///
+/// Deliberately **not** "the discovery list is empty". The question is
+/// "are we already working on something?", because a phone we are currently
+/// dialing is a phone the fallbacks must not second-guess. A discovered
+/// record we have given up on is handled separately, by clearing the target
+/// when the dial fails.
+pub(crate) fn fallback_allowed(active: bool, suppress_auto: bool, has_target: bool) -> bool {
+    !active && !suppress_auto && !has_target
+}
+
+/// How long to wait before the next `/24` sweep, given how many sweeps in a
+/// row have found nothing.
+///
+/// A sweep is 254 TCP connects. Running one every tick would be a small
+/// denial-of-service against the user's own LAN, so an empty LAN backs off to
+/// a 60 s heartbeat instead. Any success resets the count.
+pub(crate) fn sweep_interval(consecutive_misses: u32) -> Duration {
+    const FIRST: Duration = Duration::from_secs(15);
+    const MAX: Duration = Duration::from_secs(60);
+    match consecutive_misses {
+        0 => FIRST,
+        1 => Duration::from_secs(30),
+        _ => MAX,
+    }
+}
+
+/// Turn this machine's addresses into subnets worth sweeping.
+///
+/// The filter is the point. A TUN-mode VPN (Clash / Mihomo / sing-box — and
+/// most Chinese "加速器") owns the default route, so
+/// [`rc_discovery::local_ipv4_addresses`] reports the *tunnel's* address rather
+/// than the WiFi NIC's. Sweeping `198.18.0.0/24` (Clash's fake-IP pool) probes
+/// 254 addresses that do not exist and never touches the real LAN, which is
+/// why the sweep came up empty on 2026-09-29 while the phone was sitting on the
+/// same WiFi. Ranges that no real home/office LAN uses are dropped; loopback
+/// is kept deliberately, because the simulator e2e and the loopback fallback
+/// test both live there.
+pub(crate) fn sweep_targets(local_addrs: &[String]) -> Vec<String> {
+    local_addrs
+        .iter()
+        .filter(|a| match a.parse::<std::net::Ipv4Addr>() {
+            Ok(ip) => !is_tunnel_range(ip),
+            // Not an IPv4 literal (a hostname, an IPv6 form) — let the caller
+            // try it rather than silently dropping a possible answer.
+            Err(_) => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// Address ranges that are never a real phone on a real LAN.
+fn is_tunnel_range(ip: std::net::Ipv4Addr) -> bool {
+    let o = ip.octets();
+    match o {
+        // 169.254.0.0/16 — link-local / DHCP-less adapters (Hyper-V, WSL, VPN).
+        [169, 254, _, _] => true,
+        // 198.18.0.0/15 — RFC 2544 benchmarking, de facto the Clash/Mihomo
+        // fake-IP pool.
+        [198, 18 | 19, _, _] => true,
+        // 100.64.0.0/10 — CGNAT; several TUN implementations hand out
+        // addresses from here.
+        [100, 64..=127, _, _] => true,
+        [0, 0, 0, 0] => true,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_idle_unencumbered_receiver_may_fall_back() {
+        assert!(fallback_allowed(false, false, false));
+    }
+
+    /// The regression. A phone that was discovered but will not answer must
+    /// not disable the fallbacks for the rest of the session — that was the
+    /// "re-dial one dead address forever" deadlock.
+    #[test]
+    fn being_busy_is_the_only_thing_that_blocks_the_fallback() {
+        assert!(!fallback_allowed(true, false, false), "a live connection");
+        assert!(!fallback_allowed(false, true, false), "user said stop");
+        assert!(!fallback_allowed(false, false, true), "already dialing something");
+    }
+
+    #[test]
+    fn the_sweep_backs_off_and_never_below_the_floor() {
+        assert_eq!(sweep_interval(0), Duration::from_secs(15));
+        assert_eq!(sweep_interval(1), Duration::from_secs(30));
+        assert_eq!(sweep_interval(2), Duration::from_secs(60));
+        assert_eq!(sweep_interval(99), Duration::from_secs(60), "capped");
+    }
+
+    /// The regression that made the 2026-09-29 bring-up fail: with Mihomo in
+    /// TUN mode the only address the OS reports is the tunnel's fake-IP, and
+    /// sweeping that pool finds nothing on a perfectly healthy LAN.
+    #[test]
+    fn a_tunnel_address_is_never_swept() {
+        let addrs: Vec<String> = ["198.18.0.2", "100.64.0.1", "169.254.7.7", "0.0.0.0"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(
+            sweep_targets(&addrs).is_empty(),
+            "tunnel / link-local addresses must not become sweep targets: {:?}",
+            sweep_targets(&addrs)
+        );
+    }
+
+    /// A real WiFi address still gets swept, and so does loopback — the
+    /// simulator e2e runs the receiver against a listener on 127.0.0.1.
+    #[test]
+    fn real_and_loopback_addresses_are_swept() {
+        let addrs: Vec<String> = ["192.168.31.159", "127.0.0.1", "10.0.0.7"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(sweep_targets(&addrs), addrs);
+    }
+
+    /// A hostname is not a tunnel range, and dropping it would lose a real
+    /// candidate — pass it through for the caller to try.
+    #[test]
+    fn a_non_ipv4_candidate_is_passed_through() {
+        let addrs = vec!["myphone.local".to_string()];
+        assert_eq!(sweep_targets(&addrs), addrs);
+    }
 }
 

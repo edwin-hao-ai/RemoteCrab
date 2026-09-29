@@ -23,6 +23,25 @@ pub struct TokenStoreData {
     /// Last address we successfully connected to (direct-IP fallback).
     #[serde(default)]
     pub last_phone_host: Option<String>,
+    /// Port that address answered on.
+    ///
+    /// The iPhone prefers 8765 but falls back to a dynamic port when that is
+    /// taken (`CaptureEngine.startListener`), so a hardcoded 8765 in the
+    /// fallbacks cannot reach a phone that moved. Learned from whichever
+    /// connection last worked.
+    #[serde(default)]
+    pub last_phone_port: Option<u16>,
+    /// IP → the phone's self-reported device name.
+    ///
+    /// A token is keyed by a *provisional* name at handshake time (the mDNS
+    /// instance name, or `iPhone (<ip>)` on a direct dial), which means the
+    /// same physical device answers to two different keys depending on how we
+    /// reached it — and the direct-IP path is the only one that works when
+    /// mDNS is dead. `metadata` carries the real name, so we record the
+    /// address → name mapping and the token follows it. Mirrors the Mac's
+    /// `phoneNameByIP` (`ReceiverSession.rekeyDirectConnection`).
+    #[serde(default)]
+    pub phones_by_ip: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +103,64 @@ impl TokenStore {
     pub fn set_last_phone_host(&mut self, host: &str) {
         self.data.last_phone_host = Some(host.to_string());
         self.save();
+    }
+
+    /// The port the last successful connection used, or `None` if we have
+    /// never connected. Callers fall back to [`super::DEFAULT_PORT`].
+    pub fn last_phone_port(&self) -> Option<u16> {
+        self.data.last_phone_port
+    }
+
+    pub fn set_last_phone_port(&mut self, port: u16) {
+        self.data.last_phone_port = Some(port);
+        self.save();
+    }
+
+    /// Remember a `host:port` pair as "the phone we are talking to".
+    pub fn remember_endpoint(&mut self, host: &str, port: u16) {
+        self.data.last_phone_host = Some(host.to_string());
+        self.data.last_phone_port = Some(port);
+        self.save();
+    }
+
+    /// The device name the phone reported for `ip`, if we have connected to
+    /// that address before.
+    pub fn name_for_ip(&self, ip: &str) -> Option<&str> {
+        self.data.phones_by_ip.get(ip).map(String::as_str)
+    }
+
+    pub fn set_phone_name_for_ip(&mut self, ip: &str, name: &str) {
+        self.data
+            .phones_by_ip
+            .insert(ip.to_string(), name.to_string());
+        self.save();
+    }
+
+    /// Move a token from a provisional key to the phone's real name.
+    ///
+    /// Returns `true` if a token actually moved. Idempotent: re-running it
+    /// with the same name is a no-op, so a phone that reports metadata on
+    /// every connection does not rewrite the file every time.
+    pub fn rekey_token(&mut self, from: &str, to: &str) -> bool {
+        if from == to {
+            return false;
+        }
+        let Some(token) = self.data.tokens.remove(from) else {
+            return false;
+        };
+        self.data.tokens.insert(to.to_string(), token);
+        self.save();
+        true
+    }
+
+    /// The key a token should be read from / written to for a given
+    /// provisional identity, resolved through the IP → name map when we know
+    /// it. This is what makes a direct dial find a token that was originally
+    /// stored under an mDNS instance name, and vice versa.
+    pub fn resolve_key(&self, provisional: &str, ip: Option<&str>) -> String {
+        ip.and_then(|ip| self.name_for_ip(ip))
+            .unwrap_or(provisional)
+            .to_string()
     }
 
     fn save(&mut self) {
@@ -154,6 +231,47 @@ mod tests {
         let reloaded = TokenStore::load(Some(path.clone()));
         assert_eq!(reloaded.pc_id(), id);
         assert_eq!(reloaded.token_for("Phone").as_deref(), Some("abc"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A token file written by an OLDER build must load with nothing lost.
+    ///
+    /// `TokenStore::load` swallows every decode error and falls back to
+    /// `default()`, so a new field without `#[serde(default)]` would silently
+    /// wipe every paired token in the field — and the iPhone would go back to
+    /// asking for approval on every reconnect. This is the regression test for
+    /// that (AGENTS.md rule 2).
+    #[test]
+    fn an_older_token_file_loads_without_losing_anything() {
+        let dir = std::env::temp_dir().join(format!("rc-token-old-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("tokens.json");
+        // Exactly the shape on disk before this change: no port, no phone map.
+        std::fs::write(
+            &path,
+            r#"{
+              "pc_id": "11111111-2222-4333-8444-555555555555",
+              "pc_name": "DESKTOP-OLD",
+              "tokens": { "iPhone": "tok-1" },
+              "last_phone_host": "192.168.1.5"
+            }"#,
+        )
+        .unwrap();
+
+        let store = TokenStore::load(Some(path.clone()));
+        assert_eq!(store.pc_id(), "11111111-2222-4333-8444-555555555555");
+        assert_eq!(store.pc_name(), "DESKTOP-OLD");
+        assert_eq!(
+            store.token_for("iPhone").as_deref(),
+            Some("tok-1"),
+            "an old file's pairing token must survive"
+        );
+        assert_eq!(store.last_phone_host().as_deref(), Some("192.168.1.5"));
+        // Fields the old file never had must read as "unknown", not as a
+        // default that would make the receiver dial a wrong port.
+        assert!(store.last_phone_port().is_none());
+        assert!(store.name_for_ip("192.168.1.5").is_none());
 
         let _ = std::fs::remove_file(&path);
     }

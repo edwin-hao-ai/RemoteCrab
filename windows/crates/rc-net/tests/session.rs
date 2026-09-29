@@ -278,3 +278,248 @@ async fn disconnect_returns_to_searching() {
     .await;
     assert!(searching.is_some(), "expected Searching after disconnect");
 }
+
+#[tokio::test]
+async fn link_loss_reconnects_on_its_own() {
+    // A phone that completes the handshake and then immediately hangs up.
+    //
+    // This is the field case: a WiFi blip, the iPhone locking, the laptop
+    // changing AP. The receiver used to notice the loss, set a 3 s reconnect
+    // timer, and then find `target == None` — because only the subnet-sweep
+    // path ever recorded what it was dialing — so it silently never came back.
+    use rc_protocol::{encode_session_reply, Kind, SessionReply, SessionReplyResult};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let connects = Arc::new(AtomicUsize::new(0));
+    let counter = connects.clone();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            counter.fetch_add(1, Ordering::SeqCst);
+            tokio::spawn(async move {
+                let (mut rd, mut wr) = stream.into_split();
+                let mut parser = rc_protocol::Parser::new();
+                let mut buf = vec![0u8; 4096];
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+                loop {
+                    let Ok(n) = rd.read(&mut buf).await else { return };
+                    if parser.append(&buf[..n]).iter().any(|f| f.kind == Kind::ClientHello) {
+                        break;
+                    }
+                    if tokio::time::Instant::now() > deadline {
+                        return;
+                    }
+                }
+                let reply = SessionReply {
+                    result: SessionReplyResult::Accepted,
+                    owner_name: None,
+                    token: Some("test-token".to_string()),
+                };
+                let _ = wr.write_all(&encode_session_reply(&reply).unwrap()).await;
+                // `stream` drops here — the link dies without a FIN handshake
+                // the receiver can interpret as "the user left".
+            });
+        }
+    });
+
+    let session = Session::spawn(test_config());
+    session.connect_manual("127.0.0.1", port);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+    while connects.load(Ordering::SeqCst) < 2 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the receiver gave up after a link drop instead of re-dialing (connects = {})",
+            connects.load(Ordering::SeqCst)
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pairing-token persistence — the cross-connection tests.
+//
+// The nine tests above all make EXACTLY ONE connection and stop. That is the
+// blind spot that let the receiver ship while asking the iPhone for approval
+// on *every* reconnect: the token the phone issues in `sessionReply` was
+// assigned to `_accepted_token` and dropped on the floor, so the second
+// `clientHello` went out tokenless and the phone answered `pending` again.
+//
+// Every test below spans a connection or a restart, because that is the only
+// way to see this class of bug. (AGENTS.md rule 8.)
+// ---------------------------------------------------------------------------
+
+/// A config that persists to a real file, so the round-trip through
+/// `serde` is actually exercised. The tests above pass `token_path: None`,
+/// which keeps the store in memory and would hide a "never written" bug.
+fn test_config_with_token_file(tag: &str) -> (Config, std::path::PathBuf) {
+    let path = std::env::temp_dir().join(format!("rc-session-{}-{tag}.json", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    (
+        Config {
+            token_path: Some(path.clone()),
+            ..test_config()
+        },
+        path,
+    )
+}
+
+async fn recv_hello(phone: &mut FakeIphone) -> rc_protocol::ClientHello {
+    tokio::time::timeout(Duration::from_secs(5), phone.hellos.recv())
+        .await
+        .expect("clientHello timeout")
+        .expect("hello channel closed")
+}
+
+#[tokio::test]
+async fn token_is_persisted_after_accepted() {
+    let (config, path) = test_config_with_token_file("persist");
+    // Default config answers `accepted` with token "test-token".
+    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
+        .await
+        .expect("did not reach streaming");
+
+    // The write happens on the supervisor task, just after the handshake.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let raw = loop {
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        if raw.contains("test-token") {
+            break raw;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the token the phone issued was never written to {path:?}: {raw}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let _ = std::fs::remove_file(&path);
+    assert!(raw.contains("test-token"), "{raw}");
+}
+
+#[tokio::test]
+async fn second_connection_sends_the_stored_token() {
+    let (config, path) = test_config_with_token_file("second");
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let session = Session::spawn(config);
+
+    // Connection 1: tokenless is CORRECT — the phone has not issued one yet.
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let first = recv_hello(&mut phone).await;
+    assert_eq!(first.token, None, "the first connection cannot carry a token");
+
+    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
+        .await
+        .expect("first session did not stream");
+
+    // Connection 2: it MUST echo the token, or the phone shows the approval
+    // card again and the user has to tap Allow every single time.
+    session.disconnect();
+    wait_for_state(&session, |s| matches!(s, State::Searching), Duration::from_secs(3)).await;
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let second = recv_hello(&mut phone).await;
+    let dump = std::fs::read_to_string(&path).unwrap_or_default();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        second.token.as_deref(),
+        Some("test-token"),
+        "the second clientHello must carry the token the phone issued.\nstore = {dump}"
+    );
+}
+
+#[tokio::test]
+async fn token_survives_a_restart() {
+    let (config, path) = test_config_with_token_file("restart");
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+
+    {
+        let session = Session::spawn(config.clone());
+        session.connect_manual("127.0.0.1", phone.addr.port());
+        let _ = recv_hello(&mut phone).await;
+        wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
+            .await
+            .expect("first session did not stream");
+        session.disconnect();
+    }
+    // A brand-new process reading the same file. This is the case that matters
+    // in the field: the user relaunches the tray app, and the iPhone must not
+    // ask them to approve a computer they already approved.
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let after_restart = recv_hello(&mut phone).await;
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        after_restart.token.as_deref(),
+        Some("test-token"),
+        "a relaunched receiver must still know its token"
+    );
+}
+
+#[tokio::test]
+async fn token_is_rekeyed_to_the_phones_reported_name() {
+    // The token arrives keyed by a *provisional* name — the mDNS instance
+    // name, or `iPhone (<ip>)` for a direct dial. Those are two different keys
+    // for one physical device, so without a rekey the direct-IP path (the only
+    // one that works when mDNS is dead) can never be paired silently. The
+    // phone tells us its real name in `metadata`; that is the stable key.
+    let (config, path) = test_config_with_token_file("rekey");
+    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
+        .await
+        .expect("did not stream");
+
+    // The fake phone reports `device_name: "Fake iPhone"`.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let raw = loop {
+        let raw = std::fs::read_to_string(&path).unwrap_or_default();
+        if raw.contains("Fake iPhone") {
+            break raw;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the token was never rekeyed to the phone's real name: {raw}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        raw.contains("Fake iPhone"),
+        "the token must be keyed by the device name from metadata, got: {raw}"
+    );
+}
+
+#[tokio::test]
+async fn direct_dial_after_an_mdns_session_still_carries_the_token() {
+    // The rekey must not break the provisional key: a *different* connection
+    // path (mDNS here, direct IP next) has to find the same token. This is the
+    // TUN scenario — mDNS dies, the sweep dials the IP, and if the token is
+    // stranded under the other name the user gets an approval card anyway.
+    let (config, path) = test_config_with_token_file("crosskey");
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let session = Session::spawn(config);
+
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let _ = recv_hello(&mut phone).await;
+    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
+        .await
+        .expect("did not stream");
+
+    session.disconnect();
+    wait_for_state(&session, |s| matches!(s, State::Searching), Duration::from_secs(3)).await;
+    // Same address, so the IP→name map learned from `metadata` applies.
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let second = recv_hello(&mut phone).await;
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(
+        second.token.as_deref(),
+        Some("test-token"),
+        "the IP learned from metadata must resolve back to the same token"
+    );
+}

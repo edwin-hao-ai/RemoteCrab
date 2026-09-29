@@ -129,6 +129,17 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .notification) { try IBWire.encode(notification: notification) }
     }
 
+    /// Whether a frame handed to `send` right now would actually leave the
+    /// device.
+    ///
+    /// `send(kind:_:)` silently drops anything whose connection isn't
+    /// `.ready`. That is the right behaviour for the data plane (touch, key,
+    /// video — dropping one is better than stalling), but useless for a
+    /// *command* the user just asked for and is now watching for: the tap
+    /// is acknowledged by a haptic and then nothing happens, ever. Callers
+    /// that need honest feedback check this first.
+    public var isReady: Bool { connection.state == .ready }
+
     private func send(kind: IBWire.Kind, _ encode: () throws -> Data) {
         guard connection.state == .ready else { return }
         do {

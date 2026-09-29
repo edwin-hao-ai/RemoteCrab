@@ -39,6 +39,10 @@ pub(crate) const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 /// computer to disconnect, so retrying hard would just be noise.
 pub(crate) const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
 pub(crate) const FALLBACK_TICK: Duration = Duration::from_secs(5);
+/// How often to try to (re)start mDNS after it failed. Discovery is the
+/// primary path, so it is worth retrying even though the direct-IP fallbacks
+/// keep the product usable meanwhile.
+pub(crate) const DISCOVERY_RETRY: Duration = Duration::from_secs(10);
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -156,6 +160,7 @@ pub struct Session {
     cmd_tx: mpsc::UnboundedSender<Command>,
     events_tx: broadcast::Sender<Event>,
     state_rx: watch::Receiver<State>,
+    health_rx: watch::Receiver<Health>,
 }
 
 impl Session {
@@ -165,19 +170,28 @@ impl Session {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (events_tx, _) = broadcast::channel(1024);
         let (state_tx, state_rx) = watch::channel(State::Searching);
+        let (health_tx, health_rx) = watch::channel(Health::default());
 
         tokio::spawn(supervisor::supervisor(
             config,
             cmd_rx,
             events_tx.clone(),
             state_tx,
+            health_tx,
         ));
 
         Session {
             cmd_tx,
             events_tx,
             state_rx,
+            health_rx,
         }
+    }
+
+    /// What the receiver currently knows and has already tried. Cheap: no
+    /// sockets, no browse, no timers — safe to call from a UI thread.
+    pub fn health(&self) -> watch::Receiver<Health> {
+        self.health_rx.clone()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -239,9 +253,23 @@ pub(crate) enum Command {
 
 #[derive(Debug)]
 pub(crate) enum ConnMsg {
-    /// Emitted once the handshake is accepted, so the supervisor can
-    /// remember the working address for the direct-IP fast path.
-    Connected { host: String },
+    /// Emitted once the handshake is accepted, so the supervisor can persist
+    /// the working endpoint AND the token the iPhone issued.
+    ///
+    /// The token is not optional in practice on a healthy pairing: the phone
+    /// sends it with every `accepted` reply, and it is the only thing that
+    /// stops the iPhone asking the user to approve this computer again on the
+    /// next connect. It is `Option` because a `Pending` → `Denied` path (and
+    /// legacy phones) may never hand one over.
+    Accepted {
+        host: String,
+        port: u16,
+        /// The phone's `sessionReply` token, if it issued one.
+        token: Option<String>,
+        /// The token key this connection resolved to, captured at spawn time
+        /// so it can never disagree with the token it travels with.
+        key: String,
+    },
     End(ConnEndKind),
 }
 
@@ -279,6 +307,23 @@ impl Target {
         }
     }
 
+    /// The address we dial, when it is known. `None` while mDNS is still
+    /// resolving.
+    fn ip(&self) -> Option<&str> {
+        match self {
+            Target::Phone(p) => p.host.as_deref(),
+            Target::Manual { host, .. } => Some(host.as_str()),
+        }
+    }
+
+    /// The *provisional* token key: the mDNS instance name, or
+    /// `iPhone (<ip>)` on a direct dial.
+    ///
+    /// It is provisional because the same device answers to two different
+    /// names depending on how we reached it. Resolve it through
+    /// [`TokenStore::resolve_key`] before reading or writing a token — and
+    /// prefer `Target::Phone`'s instance name when present, since it is the
+    /// only one the user ever sees.
     fn token_key(&self) -> String {
         self.name()
     }
@@ -287,6 +332,41 @@ impl Target {
 pub(crate) fn set_state(state_tx: &watch::Sender<State>, events_tx: &broadcast::Sender<Event>, s: State) {
     let _ = state_tx.send(s.clone());
     emit(events_tx, Event::State(s));
+}
+
+/// A cheap, I/O-free snapshot of what the receiver knows and has tried.
+///
+/// This is the raw material for the "why isn't it connecting?" panel, so it
+/// must never block: everything in here is a copy of state the supervisor is
+/// already tracking, and the expensive probes (a 6 s mDNS browse, a TCP
+/// connect) are the caller's job, run only when the user actually asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Health {
+    pub state: State,
+    /// User-visible names of the phones mDNS has resolved this session.
+    pub discovered: Vec<String>,
+    /// `host:port` of the last endpoint that completed a handshake.
+    pub last_endpoint: Option<String>,
+    /// How many `/24` sweeps in a row have found nothing on our LAN.
+    pub fallback_misses: u32,
+    /// False once a browse has failed or its channel closed.
+    pub mdns_alive: bool,
+}
+
+impl Default for Health {
+    fn default() -> Self {
+        Health {
+            state: State::Searching,
+            discovered: Vec::new(),
+            last_endpoint: None,
+            fallback_misses: 0,
+            mdns_alive: false,
+        }
+    }
+}
+
+pub(crate) fn set_health(health_tx: &watch::Sender<Health>, h: Health) {
+    let _ = health_tx.send(h);
 }
 
 pub(crate) fn emit(events_tx: &broadcast::Sender<Event>, e: Event) {

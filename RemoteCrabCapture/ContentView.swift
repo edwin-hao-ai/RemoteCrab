@@ -8,7 +8,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("remotecrab.ios.demoMode") private var demoMode = false
     @State private var backgroundPausePending = false
-    @State private var showResumedHint = false
     @State private var showConnectionSheet = false
     @State private var showSettings = false
     @State private var showAppSwitcher = false
@@ -132,8 +131,8 @@ struct ContentView: View {
                     transferBanner(progress)
                 }
 
-                if showResumedHint {
-                    hintBanner(IBLocale.Error.resumedAfterBackground)
+                if let hint = engine.transientHint {
+                    hintBanner(hint)
                 }
             }
             .animation(IBAnimation.snappy, value: voice.isRunning || voiceSentFlash || voiceErrorFlash)
@@ -323,11 +322,7 @@ struct ContentView: View {
                 backgroundPausePending = true
             } else if phase == .active, backgroundPausePending {
                 backgroundPausePending = false
-                withAnimation(IBAnimation.snappy) { showResumedHint = true }
-                Task { @MainActor in
-                    try? await Task.sleep(for: .seconds(3))
-                    withAnimation(IBAnimation.snappy) { showResumedHint = false }
-                }
+                engine.showHint(IBLocale.Error.resumedAfterBackground)
             }
         }
         .onChange(of: voice.lastError) { _, newError in

@@ -288,7 +288,6 @@ mod tests {
             mdns_skipped: false,
         }
     }
-
     #[test]
     fn a_clean_network_produces_no_findings() {
         let mut e = base();
