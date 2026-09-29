@@ -6,16 +6,20 @@
 > `docs/WINDOWS_PORT_PLAN.md` (the original port plan); where they disagree,
 > this file is newer.
 
-Last updated: 2026-09-28 (on the Windows box — a source-level parity audit).
+Last updated: 2026-09-29 (on the Windows box — virtual camera brought up end to
+end).
 **State**: the receiver is feature-complete for the "utility" surface
 (discovery/handshake/video/audio/input/mirror/recording/tray/launcher/
-clipboard) — `windows` **153 tests** (`cargo test --workspace` on MSVC) +
-clippy `-D warnings` clean. **The only remaining feature work is virtual
-camera + virtual microphone** (§5a/§5b), and both need the user's Windows 11
-box. **Next concrete action for a new session**: have the user run the
-already-written vcam spike on Windows (`cargo run -p rc-vcam -- RemoteCrab 20`,
-§5a) and report its 3 lines, then implement the COM `IMFMediaSource` that
-feeds it.
+clipboard **+ virtual camera**) — `windows` **166 tests** (`cargo test
+--workspace` on MSVC) + clippy `-D warnings` clean. **The only remaining
+feature work is the virtual microphone** (§5b), plus the Extended Display
+limit (§4), and both need the user's Windows 11 box. **Next concrete action
+for a new session**: the vcam is wired and E2E-green on this box (§5a); what is
+still owed is a *real* visual confirmation by the user — iPhone connected,
+`remotecrab --vcam`, then pick **RemoteCrab Camera** in the Windows Camera
+app / Zoom / OBS and confirm moving pixels that track the phone. Everything
+that can be verified without the phone (unit tests, `vcam_probe` E2E, clippy)
+is already green.
 
 > **2026-09-28 audit (on the Windows box)** — four protocol-parity bugs were
 > found by diffing every `rc-protocol` field/enum against the Swift sources,
@@ -27,11 +31,18 @@ feeds it.
 > (`cargo run -p rc-os --example live_check`). Live-verified on the box:
 > `--selftest`, `--preview-selftest`, `--audio-selftest`, `live_check`.
 
+> **2026-09-29 (on the Windows box)** — the virtual camera went from spike to
+> shipped: the COM `IMFMediaSource` loads in the Frame Server, delivers real
+> samples to any MF consumer, and `vcam_probe` proves it without a phone.
+> Six distinct root causes were found on real hardware; all six are written
+> down in §3.17–§3.22 and the bring-up recipe is §5a. **No other session may
+> "simplify" any of those six fixes without re-proving them on the box.**
+
 ---
 
 ## 0. TL;DR status
 
-**Done and shipped** (`cargo test --workspace` **153** on Windows/MSVC;
+**Done and shipped** (`cargo test --workspace` **166** on Windows/MSVC;
 `clippy -D warnings` clean. The `x86_64-pc-windows-gnu` cross-check is the
 macOS-side equivalent — run it there via `cargo check --target
 x86_64-pc-windows-gnu --workspace`):
@@ -56,16 +67,25 @@ x86_64-pc-windows-gnu --workspace`):
   `PW_RENDERFULLCONTENT` + OpenH264 encode + absolute input), recording
   (H.264 passthrough MP4 + PCM WAV), start-at-login (HKCU Run), tray icon
   (embedded product PNG → HICON), bilingual tray/console (`GetUserDefaultUILanguage`).
+- **Virtual camera** (Media Foundation): `rc-vcam` (ring + writer +
+  `MFCreateVirtualCamera`) and the in-proc `IMFMediaSource` cdylib
+  `rc-vcam-source` — see §5a for the recipe and §3.17–§3.22 for the six root
+  causes it took. E2E gate: `cargo build --release --example vcam_probe -p
+  rc-vcam` must print `RESULT: PASS` (no phone needed).
 - **Windows-target compile check**: `brew install mingw-w64` +
   `rustup target add x86_64-pc-windows-gnu`, then
   `cargo check/clippy --target x86_64-pc-windows-gnu --workspace`.
   **This is mandatory** — `#[cfg(windows)]` code is invisible to the macOS
   build (a `TerminateProcess(...).as_bool()` shipped broken for exactly this).
 
-**Not done** (the only remaining feature work):
+**Not done**:
 
-1. **Virtual camera** (appear in Zoom/Teams/OBS as “RemoteCrab Camera”).
-2. **Virtual microphone** (appear as a system input device).
+1. **Virtual microphone** (appear as a system input device) — §5b.
+2. **Virtual camera — user-visible confirmation only.** The pipeline is
+   E2E-green (`vcam_probe` PASS, 166 tests, clippy clean) but *a person has
+   still not looked at it*: no iPhone has been connected with `--vcam` on, and
+   no camera app has shown the moving phone feed. That is the last gate, and
+   it is a manual one (§6 step 10).
 3. **App-window mirror** exists, but **Extended Display** (virtual second
    monitor) reports "not supported" on Windows (macOS has it via
    `CGVirtualDisplay`; Windows has no equivalent public API).
@@ -93,11 +113,25 @@ windows/
     │                          #   system_keys, selection, autostart, icon, thumbnail
     ├── rc-record/             # H.264 passthrough MP4 + WAV sidecar
     ├── rc-mirror/             # app-window mirror: capture + encode + geometry
+    ├── rc-vcam/                # virtual camera, app side:
+    │   │                          ring file + FrameWriter + MFCreateVirtualCamera
+    │   ├── src/shm.rs          #   ring layout (64-byte header + 2 BGRA buffers)
+    │   ├── src/writer.rs       #   FrameWriter: create/publish (NULL DACL section)
+    │   ├── src/win.rs          #   HKLM CLSID registration + Start/Stop camera
+    │   └── examples/vcam_probe.rs  # E2E: real MF consumer reads our samples
+    ├── rc-vcam-source/         # virtual camera, COM side (separate cdylib,
+    │   │                          loaded BY THE FRAME SERVER, not by us):
+    │   ├── src/source.rs       #   IMFMediaSource (+ hand-written vtable)
+    │   ├── src/stream.rs       #   IMFMediaStream: queue + sample clock
+    │   ├── src/activator.rs    #   IClassFactory → COM object lifetime
+    │   ├── src/exports.rs      #   DllGetClassObject / DllCanUnloadNow
+    │   └── src/ring.rs, trace.rs, attrs.rs  # ring reader, RCVCAM_LOG, media types
     ├── rc-testkit/            # fake iPhone for tests / --selftest
     └── rc-app/                # the `remotecrab` binary: CLI + tray + console
         ├── main.rs            # arg parsing, the tokio::select! loop, console commands
         ├── tray.rs            # Shell_NotifyIconW + popup menu (mirrors the Mac popover)
         ├── mirror.rs          # MirrorController: capture/encode thread + input
+        ├── vcam.rs            # Vcam: decoded frames → FrameWriter (behind --vcam)
         └── i18n.rs            # zh/en picker (GetUserDefaultUILanguage)
 ```
 
@@ -198,6 +232,74 @@ cargo run -p rc-app -- --no-preview # console only
     added to `Kind` + `from_u8_or_video` + a recognise-and-ignore (or handle)
     arm in `rc-net::dispatch_frame`.
 
+### Virtual camera — six root causes (all hit on real hardware, do not "simplify")
+
+Every one of these failed *silently or misleadingly*: builds were green, the
+camera enumerated, and only the pixels were wrong or absent. Re-prove them on
+the box before touching §5a.
+
+17. **The source DLL must be registered in HKLM, not HKCU.** The Windows
+    Frame Server (the service that activates `IMFMediaSource` for Camera.exe /
+    Zoom / OBS) runs as `LocalService` and never reads `HKCU`. With a
+    per-user CLSID the camera *enumerated fine* and then activated a missing
+    object. `rc-vcam::install_source` writes
+    `HKLM\Software\Classes\CLSID\{…}\InprocServer32` once, elevated; a
+    normal run re-reads HKLM first so it becomes a no-op afterwards.
+18. **The frame ring must be a file-backed section with a NULL DACL.** A
+    named *private* section lives in one session; the Frame Server is a
+    different session/user and `OpenFileMappingW` there fails. The ring lives
+    at `%ProgramData%\RemoteCrab\vcam-ring.bin` with a NULL DACL so the
+    consumer can open it. Consequence: never truncate that file.
+    `CREATE_ALWAYS` returns `ERROR_USER_MAPPED_FILE (0x4C8)` whenever any
+    consumer still has it mapped (e.g. the Frame Server keeping the section
+    open across an app restart) — observed for real. The writer uses
+    `OPEN_ALWAYS` + `grow_to()` (grow-only); the header carries the geometry
+    so a stale, larger tail is harmless.
+19. **A Rust `&dyn Trait` is not a COM vtable.** `activator.rs` hand-writes
+    the raw vtable layout (`QueryInterface`/`AddRef`/`Release` …) and
+    `AtomicU32` for the reference count. Boxed trait objects append a data
+    pointer that COM callers do not expect — the first real activation reads
+    garbage and dies inside the Frame Server, with no log anywhere.
+20. **`ReadSample` out-params must be passed as `Some(&mut …)`.** Media
+    Foundation writes `E_POINTER (0x80004003)` and returns no sample if they
+    are `None`. Also, `Source::Start` must do all three: `SetStreamState(RUNNING)`
+    + queue `MESourceStarted` + `MENewStream`, or the consumer waits forever
+    for a stream it was never told exists.
+21. **Sample timestamps must be on the `MFGetSystemTime()` clock** (100 ns
+    units, ~30e9 magnitude). Using the ring's persistent `frame_seq` — or a
+    0-based ordinal — makes MF *drop* every sample and the consumer parks on
+    `MFSRC_STREAMTICK (0x100)` indefinitely. `StreamCore::next_sample_time()`
+    derives timestamps from `MFGetSystemTime()` with a monotonic fallback;
+    `SetStreamState(RUNNING)` resets that clock (`reset_sample_clock()`).
+22. **`SECURITY_ATTRIBUTES::lpSecurityDescriptor` must outlive the attributes.**
+    Returning `(SECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES)` from a function and
+    dropping the tuple leaves `sa` pointing at a *moved-from* local. Release
+    builds passed by luck (stack residue); the kernel validated garbage and
+    returned `ERROR_INVALID_REVISION (0x80070519)` on the debug test build.
+    The descriptor now lives in the caller's frame (`everyone_security_descriptor()`
+    returns it by value; `create()` builds `sa` in place beside it).
+
+### Virtual camera — how to see what is happening
+
+23. **COM logs are opt-in.** `rc-vcam-source` writes `C:\ProgramData\rc-vcam.log`
+    **only** when `RCVCAM_LOG` is set (a path, or empty → disabled);
+    `trace.rs` is a `OnceLock<Option<PathBuf>>` so the hot path is one atomic
+    load and a branch. Never ship a build with unbounded COM logging: the log
+    reached 2.2 MB in a few minutes and the Frame Server holds the file.
+    Read it, then delete it — and confirm a clean run does *not* recreate it.
+24. **`vcam_probe` is the E2E gate, and it needs no phone.** It opens the real
+    camera by CLSID (as an MF consumer would), reads 12 samples off the ring
+    and asserts the pixels change:
+    ```powershell
+    cargo build --release -p rc-vcam-source
+    cargo build --release --example vcam_probe -p rc-vcam
+    .\target\release\examples\vcam_probe.exe   # must print RESULT: PASS, exit 0
+    ```
+    The `--example` build does **not** relink `rc-vcam-source` — build that
+    package separately after touching its sources, or the probe silently runs
+    against the old DLL. `--vcam-selftest` (`rc-app`) is the longer 60 s
+    variant; it stops on its own after `SECONDS = 60`.
+
 ---
 
 ## 4. What is explicitly out of scope
@@ -213,51 +315,83 @@ cargo run -p rc-app -- --no-preview # console only
 
 ## 5. Remaining work — implementation plan
 
-### 5a. Virtual camera (~2–4 days, needs the Windows box)
+### 5a. Virtual camera — **shipped; one gate left (user must look at it)**
 
 **Goal**: `RemoteCrab Camera` appears in Zoom/Teams/OBS/Chrome as a webcam
-fed by the live iPhone H.264.
+fed by the live iPhone video. **Route chosen: Media Foundation** (Windows 11
+22H2+ — DirectShow/`regsvr32`/signing was deliberately not taken).
 
-**Two routes — pick after a spike (recommended: route 1):**
+**Architecture** (the six pitfalls it depends on are §3.17–§3.22):
 
-- **Route 1 — Media Foundation virtual camera (Windows 11 22H2+).**
-  `MFCreateVirtualCamera` (+ `MFVirtualCameraLifetime_Session`,
-  `MFVirtualCameraAccess_CurrentUser`) creates a *session-scoped* virtual
-  camera for the calling app's user; you supply frames through an
-  `IMFMediaSource` you implement (`IMFMediaStream` → `MEMediaSample`).
-  *Pros*: in-box API, no driver, no signing. *Cons*: Windows 11+ only, and
-  the camera exists only while the app runs (that's fine for us).
-  Steps: create the camera → implement a minimal MF media source that pulls
-  decoded frames (reuse `rc-render`'s OpenH264 decode, feed NV12/BGRA) →
-  `MFCreateVirtualCamera` → publish → verify in the Windows Camera app.
-- **Route 2 — DirectShow source filter (any Windows).**
-  A COM in-proc server (`.ax`) registered with `regsvr32`; implements
-  `IBaseFilter`/`IPin` producing BGRA frames from our ring buffer.
-  *Pros*: works on Win10, all apps. *Cons*: registration + admin, signing
-  for distribution, and a lot of COM.
-  Start from the `windows` crate’s `Win32_Media_DirectShow` bindings; keep the
-  frame source pluggable so the same code feeds either route.
-
-**Shared pieces already in the repo**: H.264 decode (`rc-render`), BGRA/YUV
-conversion ability (`OpenH264`’s `YUVSource`), the `FrameSlot` fan-out
-(`rc-render::window::FrameSlot`) to a second consumer.
-
-**Spike that already exists** (`windows/crates/rc-vcam`): checks
-`MFIsVirtualCameraTypeSupported`, calls `MFCreateVirtualCamera`, `Start`s it
-with a no-op callback and keeps it alive so the device enumerates. Run on the
-Windows box:
-
-```powershell
-cargo run -p rc-vcam -- RemoteCrab 20   # then open the Camera app / OBS
+```
+iPhone H.264 ──▶ rc-render (OpenH264 decode, BGRA)
+                     │  rc-app --vcam  →  vcam::Vcam::publish
+                     ▼
+        rc-vcam::FrameWriter  ── writes ─▶  %ProgramData%\RemoteCrab\vcam-ring.bin
+        (64-byte header + 2 BGRA buffers, NULL DACL, file-backed)
+                     ▲  mapped read-only by CLSID {9D4B0D4D-…-7F6E5D4C3B2A}
+                     │
+   rc-vcam-source.dll (in-proc COM IMFMediaSource, loaded by the Frame Server)
+                     │  MFCreateVirtualCamera("RemoteCrab") by rc-vcam::start_camera
+                     ▼
+        Windows Frame Server ──▶ Camera.exe / Zoom / OBS / Chrome
 ```
 
-It reports the support flag, any `MFCreateVirtualCamera` error, and the
-`Start()` error (expected until the media-source DLL is registered). That one
-run tells us whether the OS/permission path works before writing the COM
-media source.
+Two crates, deliberately separate: **`rc-vcam`** is linked into our app (ring +
+writer + camera lifetime), **`rc-vcam-source`** is a standalone `cdylib` that
+*the Frame Server loads* — it must never pull our app's dependencies in.
 
-**Verification** (after the media source lands): the Windows Camera app / OBS
-selects “RemoteCrab Camera” and shows live pixels; assert a non-black average.
+**One-time bring-up (elevated).** The CLSID registration is machine-wide:
+
+```powershell
+# as Administrator, from windows/
+cargo build --release -p rc-vcam-source
+cargo run --release -p rc-vcam -- install   # writes HKLM\...\CLSID\{…}\InprocServer32
+```
+
+`install_source()` re-reads HKLM first, so afterwards every normal
+(non-elevated) run is a no-op; if the key already points at this build's DLL
+it writes nothing at all (that is the path taken above — the box is already
+registered). Registration now **persists across runs** — `Vcam::drop` stops
+the session camera but no longer unregisters, which previously made an
+elevated run silently undo itself and forced elevation on the next start.
+Undo it with `cargo run --release -p rc-vcam -- uninstall` (elevated).
+
+> Registration is worth **re-proving once** if activation ever fails again:
+> `Get-ItemProperty 'HKLM:\Software\Classes\CLSID\{9D4B0D4D-1D2A-4B3E-9C0A-7F6E5D4C3B2A}\InprocServer32'`
+> must return the `rc_vcam_source.dll` you expect.
+
+**Everyday use**
+
+```powershell
+cargo run -p rc-app -- --vcam            # phone video → virtual camera
+cargo run -p rc-app -- --vcam --no-preview
+cargo run -p rc-app -- --vcam-selftest   # moving test pattern, no phone; stops after 60 s
+```
+
+**Verification ladder** (bottom rungs are automatic; only the top needs a human):
+
+1. `cargo test --workspace` → **166** + `cargo clippy --workspace --all-targets -- -D warnings` clean.
+2. `vcam_probe` (E2E, no phone) — opens the camera **by CLSID like a real
+   consumer**, reads 12 samples, asserts the pixels change:
+   ```powershell
+   cargo build --release -p rc-vcam-source
+   cargo build --release --example vcam_probe -p rc-vcam   # separate! -p rc-vcam-source
+   .\target\release\examples\vcam_probe.exe                # RESULT: PASS, exit 0
+   ```
+   Last run on this box: `RESULT: PASS — RemoteCrab delivered 11 samples
+   with 31680 changing bytes`, exit 0, and **no** `rc-vcam.log` created
+   (confirming `RCVCAM_LOG` gating works).
+3. `rc-app --vcam-selftest` for a 60 s soak through our own app path.
+4. **Manual gate (still owed)** — with a real iPhone: start `rc-app --vcam`,
+   open the Windows Camera app / Zoom / OBS, pick **RemoteCrab Camera**, and
+   confirm the picture moves and tracks the phone. Until a person has seen
+   this, §5a is not closed.
+
+**Known limits**: Windows 11 22H2+ only; the camera exists while the app
+runs (session-scoped by `MFCreateVirtualCamera`); geometry follows the
+decoded frame (`vcam::publish` re-creates the ring on a size change, which is
+why the ring is grown, never truncated).
 
 ### 5b. Virtual microphone (~3–6 days, needs the Windows box + signing)
 
@@ -274,9 +408,10 @@ audio device)**: this is genuinely hard and needs a **test/EV-signed driver**
   `VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK` can *capture an app’s* audio — the
   reverse of what we need; not a general virtual mic.
 
-**Plan**: spike Route A (MF virtual camera) and the audio driver in a
-throwaway repo first; only commit a chosen route here. Until then, the app
-plays the iPhone mic on the speakers (`--unmute`).
+**Plan**: spike the audio driver in a throwaway repo first; only commit a
+chosen route here. Until then, the app plays the iPhone mic on the speakers
+(`--unmute`). (The MF-virtual-camera spike it used to sit beside is finished
+— see §5a.)
 
 ### 5c. Polish backlog (small)
 
@@ -311,6 +446,14 @@ plays the iPhone mic on the speakers (`--unmute`).
    `Downloads\RemoteCrab` and Explorer reveals it.
 9. Audio: `--unmute` plays the iPhone mic (watch for pitch if the device is
    44.1 kHz — the log warns).
+10. **Virtual camera — the outstanding gate (see §5a).** With a real iPhone:
+    `cargo run -p rc-app -- --vcam`, then in the Windows Camera app / Zoom /
+    OBS / Chrome pick **RemoteCrab Camera**. Expect (a) it enumerates, (b) a
+    *moving* picture that follows the phone, (c) moving on first open without
+    a restart, and (d) quitting `rc-app` makes the camera stop delivering.
+    Take a screenshot — this is the evidence that closes §5a. If it fails,
+    `Set-Item Env:RCVCAM_LOG 1` before starting, re-run, and read
+    `C:\ProgramData\rc-vcam.log`; delete the file afterwards.
 
 ---
 
