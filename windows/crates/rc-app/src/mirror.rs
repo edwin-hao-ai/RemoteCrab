@@ -30,6 +30,17 @@ struct Shared {
     geometry: Option<(f64, f64, f64, f64)>,
 }
 
+/// Lock that survives a poisoned mutex.
+///
+/// A panic elsewhere can never leave `Shared` half-written (it is three plain
+/// fields plus an `Option`), so the data is still valid — but `lock().unwrap()`
+/// would turn that unrelated panic into a second one, and in a tray app a panic
+/// anywhere takes the whole process (notification area and all) with it. Recover
+/// the guard instead of propagating.
+fn lock(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
+    shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Owns the mirror capture thread. Cheap to keep for the app's lifetime.
 pub struct MirrorController {
     session: Session,
@@ -58,7 +69,7 @@ impl MirrorController {
         self.stop_thread();
         let max_pixel = max_pixel.unwrap_or(DEFAULT_MAX_PIXEL).clamp(320, 4096);
         {
-            let mut s = self.shared.lock().unwrap();
+            let mut s = lock(&self.shared);
             s.running = true;
             s.max_pixel = max_pixel;
             s.geometry = None;
@@ -73,7 +84,7 @@ impl MirrorController {
     /// Stop streaming and clear the target.
     pub fn stop(&mut self) {
         {
-            let mut s = self.shared.lock().unwrap();
+            let mut s = lock(&self.shared);
             s.running = false;
             s.desired = None;
             s.geometry = None;
@@ -84,13 +95,13 @@ impl MirrorController {
     /// Pin to `id`, or follow the frontmost window when `None`. The running
     /// thread picks the change up on its next iteration.
     pub fn select(&mut self, id: Option<String>) {
-        let mut s = self.shared.lock().unwrap();
+        let mut s = lock(&self.shared);
         s.desired = id;
     }
 
     /// The current target frame, for input mapping. `None` when not mirroring.
     pub fn geometry(&self) -> Option<(f64, f64, f64, f64)> {
-        self.shared.lock().unwrap().geometry
+        lock(&self.shared).geometry
     }
 
     fn stop_thread(&mut self) {
@@ -117,7 +128,7 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
 
     while !stop.load(Ordering::SeqCst) {
         let (running, desired, max_pixel) = {
-            let s = shared.lock().unwrap();
+            let s = lock(&shared);
             (s.running, s.desired.clone(), s.max_pixel)
         };
         if !running {
@@ -127,7 +138,7 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
         let target = rc_mirror::resolve_target(desired.as_deref());
         let Some(target) = target else {
             {
-                let mut s = shared.lock().unwrap();
+                let mut s = lock(&shared);
                 s.geometry = None;
             }
             if last_target.take().is_some() || last_info.elapsed() >= INFO_INTERVAL {
@@ -154,7 +165,7 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
 
         let geo = target.geometry;
         {
-            let mut s = shared.lock().unwrap();
+            let mut s = lock(&shared);
             s.geometry = Some((geo.origin_x, geo.origin_y, geo.width, geo.height));
         }
 
@@ -215,5 +226,43 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
     }
 
     // Dropping the target geometry keeps input mapping from firing after stop.
-    shared.lock().unwrap().geometry = None;
+    lock(&shared).geometry = None;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression: a panic on any thread used to poison this mutex, and the
+    /// next `lock().unwrap()` on it panicked again — killing the process and the
+    /// notification-area icon with it. The guard must come back instead.
+    #[test]
+    fn lock_recovers_from_a_poisoned_mutex() {
+        let m = Arc::new(Mutex::new(Shared::default()));
+        let poisoned_by = m.clone();
+        let _ = std::thread::spawn(move || {
+            let _held = poisoned_by.lock().unwrap();
+            panic!("thread panicked while holding the lock");
+        })
+        .join();
+        assert!(m.is_poisoned(), "the test must actually poison the mutex");
+
+        let mut s = lock(&m);
+        s.running = true;
+        s.geometry = Some((1.0, 2.0, 3.0, 4.0));
+        assert!(s.running);
+        assert_eq!(s.geometry, Some((1.0, 2.0, 3.0, 4.0)));
+    }
+
+    /// The healthy path is unchanged: no poisoning, plain guard.
+    #[test]
+    fn lock_on_a_healthy_mutex_reads_shared_state() {
+        let m = Mutex::new(Shared::default());
+        {
+            let mut s = lock(&m);
+            s.max_pixel = 1280;
+        }
+        assert_eq!(lock(&m).max_pixel, 1280);
+        assert!(!m.is_poisoned());
+    }
 }
