@@ -2343,6 +2343,66 @@ is tracked in the Roadmap section — don't duplicate it here.
     e2e assertion fails, first suspect the assertion.** A green assertion
     and a red assertion are both only as trustworthy as the pattern.
 
+86. **A tapped notification aborted the whole app — an `async`
+    `UNUserNotificationCenterDelegate` is a landmine (2026-09-29).**
+    User report: 收到推送没事,**点一下整个 app 崩**。Three crashes, all with
+    the same signature: `EXC_CRASH / SIGABRT`, an ObjC
+    `NSInternalInconsistencyException` ("`_userInfoForFileAndLine`" +
+    `objc_exception_throw`, i.e. an `NSAssert` — uncatchable in Swift), on a
+    thread whose queue is **`com.apple.root.user-initiated-qos.cooperative`**,
+    not `com.apple.main-thread`.
+    **Two independent traps, both required:**
+    1. **`UNUserNotificationCenter` delivers its delegate callbacks off the
+       main thread** — measured directly (`willPresent` logged
+       `pthread_main_np() == 0`), and the `UNNotification*` object graph is
+       main-thread-only.
+    2. **Declaring the method `async` adds a second failure the first one
+       doesn't explain.** The Swift runtime bridges an async ObjC delegate
+       through `_runTaskForBridgedAsyncMethod` (visible in the crash stack
+       as `completeTaskWithClosure` → `thunk for @escaping @isolated(any)
+       @async`), which runs the body on a cooperative thread **and finishes
+       the bridge on that same cooperative thread**. Hoisting the body read
+       into `MainActor.run` fixed the body (`run-body main=true`) and the app
+       **still aborted** — because the abort was in the trailing bridge
+       step. **Only per-line instrumentation showed this**: every log line of
+       the body printed, then `Terminating app`. Without it I would have
+       "fixed" the read and declared victory.
+    **Fix:** both methods use the **completion-handler (non-`async`) form**,
+    with a `Task { @MainActor }` hop that reads the objects, delivers, and
+    calls the handler. `UncheckedBox` (`@unchecked Sendable`) carries
+    `UNNotificationResponse` and the completion handler across the hop —
+    Swift 6 otherwise rejects both. Corollary: `@MainActor` on the method is
+    *not* a fix by itself; Swift 6 refuses it
+    (`non-Sendable parameter … cannot be sent into main actor-isolated
+    implementation`).
+    **Why it only ever showed on a tap:** `willPresent` never dereferences
+    its argument, so receiving + showing a banner was always safe. Any
+    `UN` delegate method that *touches* its parameter is a landmine, and the
+    crash is on the delivery path a reviewer never exercises.
+    **Two process lessons:**
+    - **`devicectl device process launch --console` is the reliable way to
+      get the exception text.** `idevicesyslog` (even `-n`) died after
+      seconds on this device and missed every crash, and the `.ips` alone
+      never carries the assertion reason. `--console` also shows the app's
+      own `Forensic.log` lines, so instrumentation and the crash arrive in
+      one stream.
+    - **Lesson 82's e2e was green while the app was aborting.** It asserted
+      the iOS `[notify] tap:` line and the Mac's `activated app` — both
+      printed, *then* the process died. **An e2e must also assert the
+      process is still alive**, and must assert that the *delegate* path ran
+      at all: `REMOTECRAB_E2E_NOTIFY_TAP` drives `activateRelayedApp`
+      directly, i.e. the **in-app inbox** path, so it emits the same `tap:`
+      line and **structurally cannot cover this bug no matter what you
+      assert**. The delegate path has no headless trigger at all — it needs
+      a real system banner and a finger. What protects it instead: a
+      permanent `[notify] banner tapped (delegate path)` marker, the warning
+      on both delegate methods, and a manual device tap. Do not let a green
+      suite imply that path is covered.
+    The user's follow-up "点了之后打开 app 是黑屏" was **a symptom of the
+    abort**, not a second bug — it disappeared once the crash was fixed.
+    **This is in iOS build 2026092404, the build under App Review**, so it is
+    a release-blocker decision, not just a patch.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
@@ -2539,7 +2599,9 @@ If you're new, also read:
 
 ---
 
-_Last updated: 2026-09-29 (**iOS 1.0 submitted for review with build 2026092404 + tap-to-activate + the phantom-loopback fix shipped as Mac build 8 + 32 fresh store screenshots** — the session's through-line was *finishing verification and shipping*, and it found three real App bugs. (1) **The context-mode action labels never localized** — `Text(LocalizedStringKey(label))` resolves against `Bundle.main` while the catalog lives in the **Core package**, so all 79 labels rendered English in the Chinese UI with the translations sitting right there; fixed with `IBLocale.string(_:)` at all 4 render sites (lesson 84). It is the only iOS-side change and it is **inside the build now under review** (fix committed 17:34, package archived 19:21), so **no re-submission is needed**. (2) **A phantom loopback connection** — my own screenshot debris left two booted simulators listening on `127.0.0.1:8765`; the receiver's direct-IP fallback attached to one, persisted `remotecrab.lastPhoneIP = 127.0.0.1`, and then re-persisted it on every connect, so the user's "时灵时不灵" was a self-reinforcing ghost dial. `DirectDialAddress.isUsable` now rejects loopback / link-local / `%en0` / non-dotted-quads at **both** the write and read sites (lesson 83). (3) The relay crash from the previous session (lesson 80). Two new e2e hooks (`REMOTECRAB_E2E_NOTIFY_RELAY` / `_NOTIFY_TAP`) make the relay chain and the tap assertion part of the device suite, and the suite's three flakiness sources — a fixed sleep, two racing hooks, and an unescaped BRE bracket class — were root-caused and fixed (lesson 85): the suite is **24 deterministic assertions green**, and the relay+tap pair is green whenever macOS actually presents a banner and honestly SKIPs when it doesn't. **Mac build 8** (`RemoteCrab-1.0.7.zip`, `sparkle:version 8`) is notarized, uploaded and running. **iOS 1.0 is `WAITING_FOR_REVIEW` on build 2026092404** with 32 new screenshots (8 story beats × 2 device classes × 2 locales), a full metadata rewrite, and a complete removal of the word "Mac" from every review-facing field (5.2.5). Note the release asymmetry this session exploited: **Mac needs no review** (Developer ID + Sparkle, 5 builds in a day), **iOS does** (one review cycle) — so Mac-side fixes should be preferred, and a swap on an already-submitted version costs a **manual browser withdrawal** because the ASC API has no `DELETE` on `reviewSubmissions`. Still open: real-device screenshots for the mirror/extended-display surfaces (no Mac in the simulator), the denylist filter on real hardware, and the Sparkle idle gate under a live session. 270 tests + both apps. Lessons 83-85.)_
+_Last updated: 2026-09-29, later (**a real crash in the build currently under App Review — tapping a relayed notification killed the app** — user report 收到推送没事,**点一下整个 app 崩**). Root-caused on a real iPhone 14 / iOS 26.6.2 across **four** reproductions with the same signature: `EXC_CRASH / SIGABRT` from an ObjC `NSInternalInconsistencyException` ("`_userInfoForFileAndLine`") on a **cooperative-pool** queue, not the main thread. Two traps stacked: `UNUserNotificationCenter` delivers delegate callbacks **off the main thread** (measured — `willPresent` runs with `pthread_main_np() == 0`), *and* an `async` delegate method is bridged by the Swift runtime through `_runTaskForBridgedAsyncMethod`, which also **finishes the bridge on that cooperative thread**. The first "fix" (hopping the read into `MainActor.run`) made the body run on the main thread and **still aborted** — only per-line instrumentation revealed the abort came *after* the last line of the body. Fix: both delegate methods use the **completion-handler (non-`async`) form** with a `Task { @MainActor }` hop (lesson 86). The follow-up "点了之后打开 app 是黑屏" was a **symptom of the abort**, not a second bug. Verified on device: `[notify] banner tapped (delegate path)` → `tap: activating` → no abort, plus 270 tests and both app targets. **This bug is in iOS build 2026092404, the build sitting in `WAITING_FOR_REVIEW`**, so shipping it means either withdrawing the submission (a **manual browser** step — the ASC API has no `DELETE` on `reviewSubmissions`) or waiting for a rejection. Two process lessons came out of it: `idevicesyslog` is useless on this device (dies in seconds, never saw a crash) while `devicectl device process launch --console` carries both the exception text and the app's own `Forensic.log` in one stream; and lesson 82's tap e2e was **green while the app was aborting** — it asserted the log line and the Mac-side `activated app`, both printed, *then* the process died, so an e2e must also assert the process is alive (and that the delegate path ran at all, since the in-app inbox emits the same `tap:` line — hence the new marker). Previous entry below._
+
+_Previous: 2026-09-29 (**iOS 1.0 submitted for review with build 2026092404 + tap-to-activate + the phantom-loopback fix shipped as Mac build 8 + 32 fresh store screenshots** — the session's through-line was *finishing verification and shipping*, and it found three real App bugs. (1) **The context-mode action labels never localized** — `Text(LocalizedStringKey(label))` resolves against `Bundle.main` while the catalog lives in the **Core package**, so all 79 labels rendered English in the Chinese UI with the translations sitting right there; fixed with `IBLocale.string(_:)` at all 4 render sites (lesson 84). It is the only iOS-side change and it is **inside the build now under review** (fix committed 17:34, package archived 19:21), so **no re-submission is needed**. (2) **A phantom loopback connection** — my own screenshot debris left two booted simulators listening on `127.0.0.1:8765`; the receiver's direct-IP fallback attached to one, persisted `remotecrab.lastPhoneIP = 127.0.0.1`, and then re-persisted it on every connect, so the user's "时灵时不灵" was a self-reinforcing ghost dial. `DirectDialAddress.isUsable` now rejects loopback / link-local / `%en0` / non-dotted-quads at **both** the write and read sites (lesson 83). (3) The relay crash from the previous session (lesson 80). Two new e2e hooks (`REMOTECRAB_E2E_NOTIFY_RELAY` / `_NOTIFY_TAP`) make the relay chain and the tap assertion part of the device suite, and the suite's three flakiness sources — a fixed sleep, two racing hooks, and an unescaped BRE bracket class — were root-caused and fixed (lesson 85): the suite is **24 deterministic assertions green**, and the relay+tap pair is green whenever macOS actually presents a banner and honestly SKIPs when it doesn't. **Mac build 8** (`RemoteCrab-1.0.7.zip`, `sparkle:version 8`) is notarized, uploaded and running. **iOS 1.0 is `WAITING_FOR_REVIEW` on build 2026092404** with 32 new screenshots (8 story beats × 2 device classes × 2 locales), a full metadata rewrite, and a complete removal of the word "Mac" from every review-facing field (5.2.5). Note the release asymmetry this session exploited: **Mac needs no review** (Developer ID + Sparkle, 5 builds in a day), **iOS does** (one review cycle) — so Mac-side fixes should be preferred, and a swap on an already-submitted version costs a **manual browser withdrawal** because the ASC API has no `DELETE` on `reviewSubmissions`. Still open: real-device screenshots for the mirror/extended-display surfaces (no Mac in the simulator), the denylist filter on real hardware, and the Sparkle idle gate under a live session. 270 tests + both apps. Lessons 83-85.)_
 
 _Previous: 2026-09-28 (**notification relay verified end-to-end on a real
 iPhone + iOS device builds fixed + Mac build 6** — the relay chain Mac banner →
