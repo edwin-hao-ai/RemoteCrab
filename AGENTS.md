@@ -2466,6 +2466,67 @@ is tracked in the Roadmap section — don't duplicate it here.
     **This is in iOS build 2026092404, the build under App Review**, so it is
     a release-blocker decision, not just a patch.
 
+87. **"切换应用切不过去" was a stale green checkmark, not latency — the
+    iOS state machine lied about a dropped link (2026-09-30).** User report:
+    switching apps on the phone sometimes did nothing at all; their guess was
+    a momentary network drop. **Their guess was half right — the trigger
+    really is a network stall, but the symptom is a state bug, and no amount
+    of "high latency" UI would have touched it.**
+    `checkOwnerLiveness()` released the session when the Mac went silent for
+    10 s, but `clearOwner()` nil'd `connection`/`broadcaster` **without ever
+    assigning `connectionState`** — and the `.cancelled` callback that
+    followed was swallowed by `handleOwnerState`'s `guard connection === conn`
+    (the connection was already nil). So the top bar kept a green
+    `checkmark.circle.fill` over a dead link, and `activateMacApp`'s
+    `broadcaster?.send(...)` — an optional-chained no-op — dropped every tap
+    with **no log, no hint, nothing**. Two call sites did this: the owner
+    watchdog and the explicit Disconnect / Mac-switch.
+    **How it was proven** (three independent signals, not one):
+    `kill -STOP` the receiver (lesson 46's method) → the user confirms the
+    icon is still green AND the Mac never switches; and the Mac's
+    `activated app` log count stays at **0**, which localises the loss to the
+    iPhone rather than the Mac. The iOS side then had no marker at all, so
+    `Forensic.log("[link] …")` was added — the state was previously only
+    observable by looking at the screen, which is how it survived so long.
+    **Fix:** `clearOwner(reason:)` is now the *only* thing that changes
+    `connectionState` (`.lost → .failed`, `.disconnected → .idle`,
+    `.replaced → untouched because `grant()` sets it a line later), and the
+    four call sites no longer assign the state themselves. A mandatory
+    parameter is the point: a new call site cannot forget.
+    `activateMacApp` / `quitMacApp` / `launchInstalledApp` now check
+    `IBEventBroadcaster.isReady` (added for this — `send` drops anything not
+    `.ready`, right for the data plane, useless for a command a user is
+    watching) and raise the shared `transientHint` instead. `hintBanner` used
+    to be hard-wired to one caller and is now the engine's general channel.
+    **Two traps worth keeping:**
+    - **An e2e hook that *causes* a reconnect and lives in `grant()` will
+      re-arm itself forever.** `REMOTECRAB_E2E_LINK_LOSS` dropped the link,
+      the reconnect ran `grant()`, which re-armed the hook — a measured 6 s +
+      3 s offline↔reconnect loop. It looked exactly like a product regression
+      and was reported as one. The other hooks only replay a frame, so
+      re-arming them is harmless — but the one that perturbs the link needs
+      its own once-per-launch flag.
+    - **A fixed green status can hide a link that is genuinely flapping.** A
+      clean restart showed zero resets for 45 s, so at least some of the
+      instability was the hook's; but the lesson stands — a UI that cannot
+      show a failure will also hide a real one, and "I never saw this before"
+      is not evidence the bug is new.
+    Verified on device: `owner silent` → `state=failed` → a switch tap
+    shows 「当前未连接到电脑。」; 270 tests + both apps. **Note:** these changes
+    are recorded in AGENTS.md but were committed inside a *Windows* commit
+    (`0b89c23`) by a parallel session that swept the working tree — the code
+    is correct, the attribution is not.
+    **Still open:** the mirror's own "switch app → the video stays frozen /
+    goes black" is a *separate* bug on the `ScreenStreamer` →
+    `ScreenDecoder` → `ScreenZoomState` path, still unrooted. Ruled out so
+    far: the Mac's target resolution (its `resolve: target=… same=false` +
+    `streaming window` + rising `screen frames sent` are all healthy) and
+    the viewport math (a `[mirror] degenerate layout` marker reported
+    nothing). The user's screenshot shows a *correct but tiny* window image
+    in the corner, which points at the display-layer geometry rather than at
+    decode. The one capture that showed it had no iOS-side log at all — the
+    marker landed afterwards — so it has not been reproduced since.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
