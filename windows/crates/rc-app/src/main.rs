@@ -31,6 +31,7 @@ mod scan;
 mod selftest;
 mod status;
 mod tray;
+mod tray_menu;
 #[cfg(windows)]
 mod vcam;
 

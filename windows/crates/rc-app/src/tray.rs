@@ -1,9 +1,20 @@
 //! System-tray icon + context menu.
 //!
-//! Mirrors the Mac menu-bar popover's structure and wording (`MenuBarMenu`):
-//! a status line, the same four feature-toggle rows the Mac exposes
-//! (Camera / Microphone / Trackpad / Keyboard), then Start/Stop Recording,
-//! Send Clipboard to iPhone, Reconnect, Disconnect and `Quit RemoteCrab`.
+//! Follows the Mac menu-bar popover (`MenuBarMenu.swift`) rather than the
+//! Win32 default: a status header, a **labelled section per group**, an icon
+//! on every row, and a version footer — because "Real macOS menus are heavily
+//! sectioned" is the standard the two products should meet, and a flat grey
+//! list of twelve rows is what made this look cheap next to the Mac.
+//!
+//! The same rows the Mac exposes (Camera / Microphone / Trackpad / Keyboard,
+//! record, clipboard, last file, preview, reconnect, disconnect, start at
+//! login, quit) with the same bilingual wording.
+//!
+//! Known limit: the row chrome is still the native `TrackPopupMenu`, which
+//! Windows will not let an app style — rounded corners, hover fills and
+//! typography have to wait for a self-drawn panel. Everything that *is*
+//! expressible in a native menu (information architecture, grouping, icons,
+//! wording, ordering) is matched here.
 //!
 //! The menu rebuilds fresh on every open from a `Shared` snapshot the app
 //! loop keeps updated, and every selection is forwarded over a channel to
@@ -12,6 +23,8 @@
 //! the handle is a no-op stub so the wiring compiles unchanged everywhere.
 
 use rc_protocol::Feature;
+
+pub use crate::tray_menu::{decorate, flags_for, menu_rows, MenuRow, MenuState, Row};
 
 /// One user action from the tray menu, routed to the app loop.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -31,7 +44,6 @@ pub enum TrayCommand {
 // ---------------------------------------------------------------------------
 // Windows implementation
 // ---------------------------------------------------------------------------
-
 #[cfg(windows)]
 mod win32 {
     use std::sync::atomic::{AtomicIsize, Ordering};
@@ -51,7 +63,7 @@ mod win32 {
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
         DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, HICON, HMENU, IDI_APPLICATION,
-        IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING,
+        IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED,
         MSG, MENU_ITEM_FLAGS, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
         SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, WNDCLASSW,
         CreateIconIndirect, ICONINFO,
@@ -354,61 +366,29 @@ mod win32 {
             return;
         };
 
-        append_item(menu, MF_STRING | MF_GRAYED, 0, &status);
-        append_separator(menu);
-
-        for (id, name, on) in [
-            (Ids::CAMERA, crate::i18n::t("摄像头", "Camera"), features.as_ref().map(|f| f.camera_on)),
-            (Ids::MICROPHONE, crate::i18n::t("麦克风", "Microphone"), features.as_ref().map(|f| f.mic_on)),
-            (Ids::TRACKPAD, crate::i18n::t("触控板", "Trackpad"), features.as_ref().map(|f| f.trackpad_on)),
-            (Ids::KEYBOARD, crate::i18n::t("键盘", "Keyboard"), features.as_ref().map(|f| f.keyboard_on)),
-        ] {
-            let mut flags = MF_STRING;
-            if on == Some(true) {
-                flags |= MF_CHECKED;
-            }
-            append_item(menu, flags, id, name);
+        // Draw the shared menu model. One description of the menu (see
+        // `menu_rows`) means the Windows popup and the Mac popover are
+        // reviewed against the same list, and the layout is unit-tested.
+        let state = super::MenuState {
+            camera: features.as_ref().is_some_and(|f| f.camera_on),
+            microphone: features.as_ref().is_some_and(|f| f.mic_on),
+            trackpad: features.as_ref().is_some_and(|f| f.trackpad_on),
+            keyboard: features.as_ref().is_some_and(|f| f.keyboard_on),
+            recording,
+            has_last_file,
+            preview_on,
+            autostart,
+        };
+        let mut model = super::menu_rows(&state);
+        model.insert(0, super::MenuRow {
+            kind: super::Row::Info,
+            id: 0,
+            text: status.clone(),
+        });
+        for row in &model {
+            let flags = super::flags_for(row, &state);
+            append_item(menu, flags, row.id as usize, &super::decorate(row));
         }
-        append_separator(menu);
-
-        append_item(
-            menu,
-            MF_STRING,
-            Ids::RECORD,
-            if recording {
-                crate::i18n::t("停止录制", "Stop Recording")
-            } else {
-                crate::i18n::t("开始录制", "Start Recording")
-            },
-        );
-        append_item(menu, MF_STRING, Ids::CLIPBOARD,
-                    crate::i18n::t("发送剪贴板到 iPhone", "Send Clipboard to iPhone"));
-        append_item(menu,
-                    if has_last_file { MF_STRING } else { MF_STRING | MF_GRAYED },
-                    Ids::SHOW_FILE,
-                    crate::i18n::t("显示最后接收的文件", "Show Last Received File"));
-        append_separator(menu);
-        append_item(menu,
-                    MF_STRING,
-                    Ids::PREVIEW,
-                    if preview_on {
-                        crate::i18n::t("隐藏预览窗口", "Hide Preview Window")
-                    } else {
-                        crate::i18n::t("显示预览窗口", "Show Preview Window")
-                    });
-        append_separator(menu);
-        append_item(menu, MF_STRING, Ids::RECONNECT, crate::i18n::t("重新连接", "Reconnect"));
-        append_item(menu, MF_STRING, Ids::DISCONNECT, crate::i18n::t("断开连接", "Disconnect"));
-        append_separator(menu);
-        let mut autostart_flags = MF_STRING;
-        if autostart {
-            autostart_flags |= MF_CHECKED;
-        }
-        append_item(menu, autostart_flags, Ids::AUTOSTART,
-                    crate::i18n::t("开机自启动", "Start at login"));
-        append_separator(menu);
-        append_item(menu, MF_STRING, Ids::QUIT, crate::i18n::t("退出 RemoteCrab", "Quit RemoteCrab"));
-
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
         let _ = SetForegroundWindow(hwnd);
@@ -464,12 +444,6 @@ mod win32 {
         pick: fn(&FeatureStateSnapshot) -> bool,
     ) -> bool {
         features.as_ref().map(pick).unwrap_or(false)
-    }
-
-    fn append_separator(menu: HMENU) {
-        unsafe {
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
-        }
     }
 
     fn append_item(
@@ -598,3 +572,4 @@ pub fn start(_tip: &str) -> (TrayHandle, tokio::sync::mpsc::UnboundedReceiver<Tr
     drop(tx);
     (TrayHandle, rx)
 }
+
