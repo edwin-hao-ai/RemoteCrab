@@ -1007,6 +1007,8 @@ dependencies = [
  "rc-record",
  "rc-render",
  "rc-testkit",
+ "rc-vcam",
+ "rc-vcam-source",
  "serde_json",
  "tokio",
  "windows",
@@ -1109,6 +1111,15 @@ dependencies = [
 name = "rc-vcam"
 version = "0.1.0"
 dependencies = [
+ "windows",
+ "windows-core",
+]
+
+[[package]]
+name = "rc-vcam-source"
+version = "0.1.0"
+dependencies = [
+ "rc-vcam",
  "windows",
  "windows-core",
 ]

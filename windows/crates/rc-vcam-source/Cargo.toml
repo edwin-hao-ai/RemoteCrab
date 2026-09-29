@@ -1,0 +1,29 @@
+[package]
+name = "rc-vcam-source"
+description = "RemoteCrab virtual camera — in-proc COM IMFMediaSource (loaded by the consuming app)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# Cargo forbids hyphens in library target names, so the cdylib lands on disk
+# as `rc_vcam_source.dll`. `rc_vcam::source_dll_path()` looks for exactly
+# that (it also accepts a hyphenated name in case a build script renames it).
+name = "rc_vcam_source"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rc-vcam = { path = "../rc-vcam" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_MediaFoundation",
+    "Win32_Media_KernelStreaming",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_Memory",
+    "Win32_Storage_FileSystem",
+] }
+windows-core = "0.62"

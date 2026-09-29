@@ -72,3 +72,55 @@ impl H264PreviewDecoder {
         (self.width, self.height)
     }
 }
+
+impl RgbaFrame {
+    /// Pack the frame into tightly-packed **BGRA** bytes — the layout the
+    /// virtual-camera shared-memory ring (and Media Foundation `RGB32`)
+    /// consumes. The alpha byte is forced opaque (`0xFF`) so consumers that
+    /// honour alpha never see a transparent frame; `RgbaFrame` itself carries
+    /// no alpha (`0x00RRGGBB`).
+    pub fn to_bgra(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.pixels.len() * 4);
+        for &p in &self.pixels {
+            out.push((p & 0xFF) as u8); // B
+            out.push(((p >> 8) & 0xFF) as u8); // G
+            out.push(((p >> 16) & 0xFF) as u8); // R
+            out.push(0xFF); // A
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RgbaFrame;
+
+    #[test]
+    fn to_bgra_reorders_channels_and_forces_opaque_alpha() {
+        // 0x00RRGGBB: one red, one green, one blue pixel.
+        let frame = RgbaFrame {
+            width: 3,
+            height: 1,
+            pixels: vec![0x00FF_0000, 0x0000_FF00, 0x0000_00FF],
+        };
+        let bgra = frame.to_bgra();
+        assert_eq!(bgra.len(), 12);
+        assert_eq!(
+            &bgra[0..4],
+            &[0x00, 0x00, 0xFF, 0xFF],
+            "red pixel is B,G,R,A"
+        );
+        assert_eq!(&bgra[4..8], &[0x00, 0xFF, 0x00, 0xFF]);
+        assert_eq!(&bgra[8..12], &[0xFF, 0x00, 0x00, 0xFF]);
+    }
+
+    #[test]
+    fn to_bgra_of_empty_frame_is_empty() {
+        let frame = RgbaFrame {
+            width: 0,
+            height: 0,
+            pixels: vec![],
+        };
+        assert!(frame.to_bgra().is_empty());
+    }
+}

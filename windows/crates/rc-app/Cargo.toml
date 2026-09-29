@@ -26,6 +26,11 @@ serde_json.workspace = true
 tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+rc-vcam = { path = "../rc-vcam" }
+# Not used as a library: depending on it makes Cargo emit
+# `rc-vcam-source.dll` into the same `target/<profile>/` directory as
+# `remotecrab.exe`, which is where `rc_vcam::install_source` looks for it.
+rc-vcam-source = { path = "../rc-vcam-source" }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_LibraryLoader",

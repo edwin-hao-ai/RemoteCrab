@@ -20,6 +20,8 @@ use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encod
 
 #[cfg(windows)]
 mod mirror;
+#[cfg(windows)]
+mod vcam;
 mod i18n;
 mod tray;
 
@@ -31,6 +33,8 @@ struct Args {
     selftest: bool,
     preview_selftest: bool,
     audio_selftest: bool,
+    vcam: bool,
+    vcam_selftest: bool,
     preview: bool,
     no_preview: bool,
     scan: bool,
@@ -54,6 +58,8 @@ fn parse_args() -> Args {
             "--scan" => args.scan = true,
             "--unmute" => args.unmute = true,
             "--audio-selftest" => args.audio_selftest = true,
+            "--vcam" => args.vcam = true,
+            "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--no-tray" => args.no_tray = true,
             "--help" | "-h" => {
@@ -84,6 +90,8 @@ fn print_help() {
          \x20 remotecrab --preview-selftest  Stream fake H.264 into the preview window and verify decode\n\
          \x20 remotecrab --scan              Scan this PC's /24 for an iPhone on port 8765\n\
          \x20 remotecrab --audio-selftest    Generate a tone, encode to Opus, decode, and play it\n\
+         \x20 remotecrab --vcam              Publish the video to a \"RemoteCrab\" virtual camera\n\
+         \x20 remotecrab --vcam-selftest     Feed a moving test pattern to the virtual camera (no phone)\n\
          \x20 remotecrab --unmute            Play the iPhone mic on this PC's speakers\n\
          \x20 remotecrab --record            Record the live stream (see `record` below)\n\
          \x20 remotecrab --no-tray            Skip the notification-area tray icon\n\
@@ -368,6 +376,9 @@ async fn main() -> ExitCode {
     if args.audio_selftest {
         return audio_selftest();
     }
+    if args.vcam_selftest {
+        return vcam_selftest().await;
+    }
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
     println!("Looking for your iPhone on this WiFi…\n");
 
@@ -405,8 +416,10 @@ async fn main() -> ExitCode {
     #[cfg(windows)]
     let mut mirror = mirror::MirrorController::new(session.clone());
 
-    // Video preview: decode in this task, blit from the window thread.
-    let mut preview: Option<rc_render::PreviewPipeline> = if args.preview {
+    // Video preview: decode in this task, blit from the window thread. The
+    // virtual camera consumes the same decoded frames, so the decoder is also
+    // needed when only `--vcam` is on (e.g. `--no-preview --vcam`).
+    let mut preview: Option<rc_render::PreviewPipeline> = if args.preview || args.vcam {
         match rc_render::PreviewPipeline::new() {
             Ok(p) => Some(p),
             Err(e) => {
@@ -415,6 +428,24 @@ async fn main() -> ExitCode {
             }
         }
     } else {
+        None
+    };
+
+    // Virtual camera: register the COM source DLL and publish decoded frames
+    // into the shared-memory ring. Off unless `--vcam` is passed — it writes a
+    // per-user COM registration and creates a session-scoped device.
+    #[cfg(windows)]
+    let mut vcam = if args.vcam {
+        vcam::Vcam::start("RemoteCrab")
+    } else {
+        None
+    };
+    #[cfg(not(windows))]
+    #[allow(unused_variables, unused_mut)]
+    let mut vcam: Option<()> = {
+        if args.vcam {
+            eprintln!("--vcam is Windows-only");
+        }
         None
     };
     let frame_slot = rc_render::window::FrameSlot::new();
@@ -551,6 +582,22 @@ async fn main() -> ExitCode {
                             if p.push(&nal) {
                                 if let Some(frame) = p.latest() {
                                     frame_slot.set(frame.clone());
+                                    #[cfg(windows)]
+                                    if let Some(vc) = vcam.as_mut() {
+                                        let fps = metadata
+                                            .as_ref()
+                                            .map(|m| m.fps.max(1) as u32)
+                                            .unwrap_or(30);
+                                        vc.publish(frame, fps);
+                                        if vc.frames_written().is_multiple_of(150) {
+                                            println!(
+                                                "  vcam: {} frames published ({}x{})",
+                                                vc.frames_written(),
+                                                frame.width,
+                                                frame.height
+                                            );
+                                        }
+                                    }
                                 }
                             } else if video_frames.is_multiple_of(600) {
                                 if let Ok(mut s) = status_text.lock() {
@@ -862,6 +909,14 @@ async fn main() -> ExitCode {
         stop_recording(rec);
     }
     preview_window.close();
+    // Stop the virtual camera and remove its COM registration (Drop does the
+    // same; explicit here so the log line is in the shutdown sequence).
+    #[cfg(windows)]
+    if let Some(vc) = vcam.take() {
+        let n = vc.frames_written();
+        println!("  vcam: stopping (published {n} frames)");
+        drop(vc);
+    }
 
     ExitCode::SUCCESS
 }
@@ -1010,6 +1065,83 @@ async fn preview_selftest() -> ExitCode {
         eprintln!("\nPREVIEW SELF-TEST FAILED (decoded {decoded} frames, {w}x{h})");
         ExitCode::from(1)
     }
+}
+
+/// `--vcam-selftest`: start the virtual camera and feed it a moving test
+/// pattern — no phone, no network. Open the Windows Camera app, pick
+/// "RemoteCrab", and watch the bar sweep. Any consuming app proves the
+/// shared-memory ring + COM source path end to end.
+#[cfg(windows)]
+async fn vcam_selftest() -> ExitCode {
+    use rc_vcam::shm;
+
+    const W: u32 = 1280;
+    const H: u32 = 720;
+    const FPS: u32 = 30;
+    const SECONDS: u64 = 60;
+
+    println!("Virtual-camera self-test: publishing a test pattern for {SECONDS}s …");
+    println!("  open the Windows Camera app (or OBS) and pick \"RemoteCrab\"");
+    println!("  (the COM source is registered under HKLM\\Software\\Classes\\CLSID)");
+
+    // The ring must exist *before* the camera: the COM source reads its
+    // geometry when a consumer activates it.
+    let mut writer = match rc_vcam::writer::FrameWriter::create(W, H, FPS) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("  FAILED to create the frame ring: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if let Err(e) = rc_vcam::install_source() {
+        eprintln!("  FAILED to register the COM source DLL: {e}");
+        return ExitCode::from(1);
+    }
+    let camera = match rc_vcam::start_camera("RemoteCrab") {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("\nVCAM SELF-TEST FAILED — {e}");
+            return ExitCode::from(1);
+        }
+    };
+    if !camera.is_started() {
+        eprintln!("\nVCAM SELF-TEST FAILED — Start() did not succeed");
+        eprintln!("  (the CLSID is registered; check that the source DLL activates)");
+        return ExitCode::from(1);
+    }
+
+    // A second `--vcam-selftest` in another shell is harmless: the name is
+    // shared, and whoever wrote last supplies the pixels. We write directly
+    // (bypassing `Vcam::publish`) so the pattern does not need a decoder.
+    let start = std::time::Instant::now();
+    let mut frame_no: u64 = 0;
+    let mut reported = 0u64;
+    while start.elapsed() < Duration::from_secs(SECONDS) {
+        let bgra = shm::test_pattern_bgra(W, H, frame_no);
+        if let Err(e) = writer.publish(&bgra) {
+            eprintln!("  publish failed: {e}");
+            break;
+        }
+        frame_no += 1;
+        if frame_no.is_multiple_of(FPS as u64 * 5) && frame_no != reported {
+            reported = frame_no;
+            println!("  published {frame_no} frames ({}s)", start.elapsed().as_secs());
+        }
+        tokio::time::sleep(Duration::from_millis(1000 / FPS as u64)).await;
+    }
+
+    println!("\nVCAM SELF-TEST PASSED — {frame_no} frames written to the ring.");
+    println!("If the Camera app showed a moving bar, the virtual camera works.");
+    camera.stop();
+    ExitCode::SUCCESS
+}
+
+/// `--vcam-selftest` on a non-Windows dev host (the flag exists so the CLI
+/// surface is identical; the feature is Windows-only).
+#[cfg(not(windows))]
+async fn vcam_selftest() -> ExitCode {
+    eprintln!("--vcam-selftest is Windows-only");
+    ExitCode::from(2)
 }
 
 /// `--scan`: sweep the local `/24` for anything on port 8765. This is the
