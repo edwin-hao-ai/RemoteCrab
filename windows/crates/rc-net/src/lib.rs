@@ -716,10 +716,26 @@ async fn run_connection(
     // Frames that arrive interleaved with the handshake (e.g. the iPhone's
     // first `metadata` / `featureState`) must be dispatched, not dropped.
     eprintln!("[net] TCP connected to {host}:{port}, sending clientHello…");
+    // Distinguishes "the phone hung up" from "a reply arrived but would not
+    // decode" — collapsing both into one message sends you hunting for a
+    // backgrounded app when the real cause is wire drift.
+    let mut reply_failed_to_decode = false;
     let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         loop {
             match next_frame(&mut read_half, &mut parser, &mut queue, &mut buf).await {
-                Some(f) if f.kind == Kind::SessionReply => break decode_session_reply(&f).ok(),
+                Some(f) if f.kind == Kind::SessionReply => {
+                    match decode_session_reply(&f) {
+                        Ok(reply) => break Some(reply),
+                        Err(e) => {
+                            eprintln!(
+                                "[net] sessionReply arrived but would not decode ({e}) — \
+                                 this build and the iOS app disagree on the wire format"
+                            );
+                            reply_failed_to_decode = true;
+                            break None;
+                        }
+                    }
+                }
                 Some(f) => {
                     eprintln!("[net] pre-handshake frame: {:?} ({} bytes)", f.kind, f.payload.len());
                     dispatch_frame(&f, events_tx);
@@ -732,8 +748,12 @@ async fn run_connection(
 
     let reply = match reply {
         Ok(Some(r)) => r,
+        Ok(None) if reply_failed_to_decode => return ConnEndKind::Lost,
         Ok(None) => {
-            eprintln!("[net] connection closed before sessionReply");
+            eprintln!(
+                "[net] the iPhone closed the connection before answering — it only listens \
+                 while the RemoteCrab app is open in the foreground"
+            );
             return ConnEndKind::Lost;
         }
         Err(_) => {
