@@ -163,16 +163,28 @@ struct CameraExtensionCard: View {
     }
 
     private func openExtensionSettings() {
-        // Prefer the Camera Extensions pane; fall back to the Login Items
-        // & Extensions pane, then to System Settings generally.
+        // Camera Extensions used to have their own pane,
+        // `com.apple.ExtensionsPreferences`. On macOS 26 that identifier is
+        // gone — it is not among the 32 pane identifiers the System Settings
+        // binary still contains — and the CMIO extension is approved from
+        // General ▸ Login Items & Extensions.
+        //
+        // Note we do NOT treat `NSWorkspace.open` returning true as "this
+        // pane exists": it only means the request was accepted, so the old
+        // first-candidate-is-invalid version silently opened whatever pane
+        // System Settings felt like and never tried the next URL. The list
+        // is therefore ordered best-first with nothing depending on the
+        // return value.
         let candidates = [
-            "x-apple.systempreferences:com.apple.ExtensionsPreferences",
             "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-            "x-apple.systempreferences:com.apple.preference.security"
+            "x-apple.systempreferences:com.apple.settings.LoginItems-Settings.extension",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+            "x-apple.systempreferences:com.apple.preferences"
         ]
         for candidate in candidates {
-            if let url = URL(string: candidate), NSWorkspace.shared.open(url) {
-                return
+            if let url = URL(string: candidate) {
+                NSWorkspace.shared.open(url)
+                return   // one panel, one open — not a tour
             }
         }
     }

@@ -102,6 +102,18 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .ping) { IBWire.encodeFrame(kind: .ping, payload: payload) }
     }
 
+    /// Send a latency probe stamped with OUR clock.
+    ///
+    /// Deliberately takes microseconds rather than bytes:
+    /// `IBWire.encodePing` returns a *complete frame* (4-byte length +
+    /// kind + payload), and handing that to `sendPingEcho` produces a
+    /// 13-byte "ping" that the receiver rejects as malformed — which is
+    /// exactly the bug this happened to have, so the payload/frame
+    /// distinction is now impossible to get wrong at the call site.
+    public func sendLatencyProbe(_ micros: UInt64) {
+        send(kind: .ping) { IBWire.encodePing(sentMicros: micros) }
+    }
+
     // MARK: - App screen mirror
 
     /// Mac → iPhone: one H.264 NAL of the mirrored window.

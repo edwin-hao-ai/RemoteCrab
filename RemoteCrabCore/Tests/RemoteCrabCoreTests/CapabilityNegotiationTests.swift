@@ -99,4 +99,23 @@ final class CapabilityNegotiationTests: XCTestCase {
         }
         XCTAssertEqual(l.pendingCount, 0, "nothing to confirm, nothing pending")
     }
+
+    /// The bug this guards: `sendPingEcho` takes a *payload* while
+    /// `IBWire.encodePing` returns a *complete frame*, so passing one to the
+    /// other produced a 13-byte ping that the receiver discarded as
+    /// malformed — every probe, forever, with the symptom being "latency
+    /// simply never appears".
+    func testALatencyProbeIsEightBytesOfPayloadNotAThirteenByteFrame() {
+        let encoded = try? IBWire.encodePing(sentMicros: 1_700_000_000_000_000)
+        XCTAssertEqual(encoded?.count, 13, "encodePing returns a whole frame")
+
+        // What the receiver actually validates after stripping the header.
+        let parser = IBWire.Parser()
+        let frames = parser.append(encoded ?? Data())
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames.first?.kind, .ping)
+        XCTAssertEqual(frames.first?.payload.count, 8,
+                       "the receiver requires exactly 8 bytes here")
+    }
 }
+
