@@ -217,6 +217,23 @@ pub fn handle_console_command(
                 }
             }
         }
+        // The help lists this, so it has to exist. It re-runs the same
+        // diagnosis the tray's "Why not connected" row shows, which is the
+        // point: a user who found the command in the help must not be told it
+        // does not exist.
+        "doctor" => {
+            // The evidence-gathering is async (a 6 s mDNS browse), and the
+            // console reader is a blocking stdin thread — so it runs on the
+            // runtime and prints when it has an answer.
+            let session = session.clone();
+            tokio::spawn(async move {
+                let h = session.health().borrow().clone();
+                let verdict = crate::doctor::route_verdict(&h);
+                let zh = i18n::is_chinese();
+                println!();
+                println!("{}", crate::doctor::panel(&h, &verdict, zh));
+            });
+        }
         "help" | "?" => print_console_help(),
         "quit" | "exit" => *quit_requested = true,
         other => println!(

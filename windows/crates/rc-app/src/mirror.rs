@@ -172,7 +172,14 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
                     height: 0.0,
                     pixel_width: 0,
                     pixel_height: 0,
-                    shows_cursor: true,
+                    // Honest, and the reason the iOS side is built for it:
+                    // `PrintWindow` renders the *window's* own content and
+                    // structurally cannot draw a pointer. Claiming true would
+                    // have the phone show a cursor that never moves — or, on
+                    // some paths, a stale one captured at start-up, which is
+                    // worse than none. The iPhone draws its own dot from the
+                    // input it sends, so nothing is lost.
+                    shows_cursor: false,
                 };
                 session.send_frame(encode_screen_info(&info).unwrap_or_default());
             }
@@ -209,7 +216,8 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
                 height: geo.height,
                 pixel_width: pixel_w,
                 pixel_height: pixel_h,
-                shows_cursor: true,
+                // See the note above: the transport cannot carry a pointer.
+                shows_cursor: false,
             };
             session.send_frame(encode_screen_info(&info).unwrap_or_default());
         }

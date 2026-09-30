@@ -361,6 +361,26 @@ pub fn panel(h: &rc_net::Health, verdict: &RouteVerdict, zh: bool) -> String {
     out
 }
 
+/// Ask the OS whether traffic to the last-known phone address leaves directly
+/// or through a tunnel.
+///
+/// One UDP connect, microseconds, and it is the difference between "not found
+/// yet" and "your VPN is eating the LAN" — which look identical from the
+/// outside. `Unknown` when there is no endpoint yet, which the panel words as
+/// "still looking" rather than as a fault.
+pub fn route_verdict(h: &rc_net::Health) -> RouteVerdict {
+    h.last_endpoint
+        .as_deref()
+        .and_then(|ep| ep.rsplit_once(':'))
+        .and_then(|(host, port)| {
+            let ip: std::net::IpAddr = host.parse().ok()?;
+            let port: u16 = port.parse().ok()?;
+            Some(std::net::SocketAddr::new(ip, port))
+        })
+        .map(|addr| rc_net::route::classify_route(addr, &rc_net::route::local_ipv4()))
+        .unwrap_or(RouteVerdict::Unknown)
+}
+
 /// The one-line reason, for the menu row itself.
 ///
 /// The menu must answer "why not?" without a click — a status line that owes

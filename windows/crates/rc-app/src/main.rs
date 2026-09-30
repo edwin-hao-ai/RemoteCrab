@@ -301,7 +301,13 @@ async fn main() -> ExitCode {
                 if let State::Error(_) = st {
                     // Point at the surface that explains itself, not at a
                     // developer-only flag (AGENTS.md rule 1).
-                    println!("   (open the tray menu and choose \"Why not connected\" — it names the cause and what to do)");
+                    println!(
+                        "   {}",
+                        crate::i18n::t(
+                            "（点托盘菜单里的「为什么连不上」—— 它会写明原因和该做什么）",
+                            "(choose \"Why not connected\" in the tray menu — it names the cause and what to do)"
+                        )
+                    );
                 }
                 // Keep the tray's status row in sync (single-line pill-style).
                 tray.set_status(&status::tray_status(&st));
@@ -315,20 +321,7 @@ async fn main() -> ExitCode {
                 // probed — the receiver already knows everything else.
                 {
                     let h = health.borrow().clone();
-                    let verdict = h
-                        .last_endpoint
-                        .as_deref()
-                        .and_then(|ep| ep.rsplit_once(':'))
-                        .and_then(|(host, port)| {
-                            let ip: std::net::IpAddr = host.parse().ok()?;
-                            let port: u16 = port.parse().ok()?;
-                            Some((std::net::SocketAddr::new(ip, port), h.clone()))
-                        })
-                        .map(|(addr, _)| {
-                            let ours = rc_net::route::local_ipv4();
-                            rc_net::route::classify_route(addr, &ours)
-                        })
-                        .unwrap_or(rc_net::route::RouteVerdict::Unknown);
+                    let verdict = doctor::route_verdict(&h);
                     let zh = crate::i18n::is_chinese();
                     tray.set_diagnosis(
                         &doctor::panel_summary(&h, &verdict, zh),
