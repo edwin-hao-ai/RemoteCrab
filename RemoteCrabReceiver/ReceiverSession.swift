@@ -1596,9 +1596,18 @@ final class ReceiverSession: ObservableObject {
                 if latencyHistory.count > 30 {
                     latencyHistory.removeFirst(latencyHistory.count - 30)
                 }
+                // The **median**, not this sample. A single reading is a
+                // measurement of one packet: it moves with whatever else the
+                // Mac was doing, and a menu-bar number that flickers to 400 ms
+                // because Spotlight woke up reads as "the link is bad" when the
+                // link is fine. The Windows receiver has always reported the
+                // median (`IBLatencyTracker.medianMs`), so showing the latest
+                // value here also made the two receivers disagree about the same
+                // measurement.
                 latencyTracker.record(millis: rttMs)
+                let reported = latencyTracker.medianMs ?? rttMs
                 if case .streaming(let name, _) = state {
-                    state = .streaming(name: name, latencyMs: rttMs)
+                    state = .streaming(name: name, latencyMs: reported)
                 }
             case .appListRequest:
                 publishMacApps(includeIcons: true)
@@ -1699,7 +1708,12 @@ final class ReceiverSession: ObservableObject {
         connectedPhoneName = realName
         lastAttemptedPhoneName = realName
         if case .streaming = state {
-            state = .streaming(name: realName, latencyMs: latencyHistory.last ?? 0)
+            // Same rule on reconnect: a fresh tracker has no median yet, so
+            // the first sample is the honest answer until there are enough for
+            // one.
+            state = .streaming(name: realName,
+                               latencyMs: latencyTracker.medianMs
+                                   ?? latencyHistory.last ?? 0)
         }
         Self.log.info("direct connection identified as \(realName, privacy: .public) — token re-keyed")
     }

@@ -12,6 +12,7 @@
 pub mod dispatch;
 pub mod firstrun;
 pub mod notify;
+pub mod update_gate;
 pub mod ping;
 pub mod route;
 mod supervisor;

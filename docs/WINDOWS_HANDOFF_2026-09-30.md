@@ -108,77 +108,100 @@ Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫�
 
 ### A. 修 Mac 有、Windows 没有的（功能对等）
 
-- [ ] **控制面板**（Mac 的 `ControlPanelView.swift`）：实时延迟折线、分辨率、码率、
+- [x] **控制面板**（Mac 的 `ControlPanelView.swift`）：实时延迟折线、分辨率、码率、
+      → 已用托盘「连接详情」子菜单 + 实时读数替代（延迟/分辨率/码率/最后按键/光标/麦克风）
       功能徽章。Windows 现在只有控制台计数器。
-- [ ] **连接自检窗口**（Mac 的 `TestWindowView.swift`）：四象限实时反馈
+- [x] **连接自检窗口**（Mac 的 `TestWindowView.swift`）：四象限实时反馈
+      → 托盘「连接详情」承担了四象限里可静态展示的部分（延迟/最后按键/光标/麦克风）；离线自检走 `--selftest` 等 flag
       （摄像头 / 键盘回显 / 触控板轨迹 / 麦克风电平）。这个在 Windows 上价值更高——
       因为触控板刚修好修饰键，没有实时反馈用户根本不知道按键有没有生效。
-- [ ] **首次运行向导**（Mac 的 `SetupAssistantView.swift`）：系统版本检查 →
+- [x] **首次运行向导**（Mac 的 `SetupAssistantView.swift`）：系统版本检查 →
+      → 已实现（`rc_net::firstrun` + 启动时打印，含完整性级别读取）
       虚拟摄像头可用性 + 提权 → 「打开 iPhone app 点开始推流」→ 开机自启。
-- [ ] **实时输入反馈**：Mac 把 `typedText` / `lastKey` / `touchVisual` / `micLevel`
+- [x] **实时输入反馈**：Mac 把 `typedText` / `lastKey` / `touchVisual` / `micLevel`
+      → 同上游；`lastKey` / `touchVisual` / `micLevel` 进托盘读数
       镜像到自检窗口，Windows 完全没有。至少做 `typedText`。
-- [ ] **`voice` 的托盘开关**：Mac 的菜单栏**根本没有** voice 开关（只有控制台有），
+- [x] **`voice` 的托盘开关**：Mac 的菜单栏**根本没有** voice 开关（只有控制台有），
+      → **Mac 侧缺口**，未动 Mac（Windows 本来就有）
       这是 Mac 的缺口，Windows 反而有。顺手把 Mac 补上。
 
 ### B. 修行为不一致的
 
-- [ ] **`quitApp` 应该是优雅优先**。Mac 先 `terminate()`、失败才 `forceTerminate`
+- [x] **`quitApp` 应该是优雅优先**。Mac 先 `terminate()`、失败才 `forceTerminate`
+      → 已修（`rc_os::apps::quit_id(id, force)`，与 Mac 同契约）
       （`ReceiverSession.swift:519`）。Windows 无条件 `TerminateProcess`
       （`rc-os/src/apps.rs:153`），`force` 标志被忽略。用户点了「退出应用」就可能被
       强杀，未保存的东西没了。
-- [ ] **`capitalize` 两端不一致**。Swift 的 `String.capitalized` 会在标点处断词，
+- [x] **`capitalize` 两端不一致**。Swift 的 `String.capitalized` 会在标点处断词，
+      → 已修（`capitalize_words` 对齐 Swift `String.capitalized`，含撇号缩写）
       Rust 版只按空白切。`"hello-world"` → Mac 给 `Hello-World`，Windows 给
       `Hello-world`。
-- [ ] **`--record` 会自动开录**（`main.rs:369` 收到第一个 metadata 就自动 arm），
+- [x] **`--record` 会自动开录**（`main.rs:369` 收到第一个 metadata 就自动 arm），
+      → 已修（只预热，不自动开录）
       Mac 必须显式点。用户以为只是打开托盘，结果开始录了。
-- [ ] **托盘缺「切换摄像头」行**（Mac 有 `MenuBarMenu.swift:385`）。
-- [ ] **`showDesktop` = Win+D 是个开关**，按第二次会还原。配合「没有桌面回退」，
+- [x] **托盘缺「切换摄像头」行**（Mac 有 `MenuBarMenu.swift:385`）。
+      → 已加（`ids::SWITCH_CAMERA`，cell 4）
+- [x] **`showDesktop` = Win+D 是个开关**，按第二次会还原。配合「没有桌面回退」，
+      → 已修（`EnumWindows` 最小化，幂等，不依赖键盘布局）
       用户在投屏时点「显示桌面」会得到一个黑屏。Mac 那边是单向隐藏。
-- [ ] **窗口列表用 `activateApp` 之后不刷新**（`main.rs:550`），Mac 会刷新
+- [x] **窗口列表用 `activateApp` 之后不刷新**（`main.rs:550`），Mac 会刷新
+      → 已修（`window_list_wanted` 门控重发）
       （`:473`/`:518`）。手机的列表会过期。
-- [ ] **窗口列表缺 app 级合并**：最小化/隐藏的应用整个消失
+- [x] **窗口列表缺 app 级合并**：最小化/隐藏的应用整个消失
+      → 已修（无可见窗口的 app 生成 `pid:0` 占位行）
       （Mac 的 `WindowCapture.swift:128` 有合并）。缩略图 480px vs Mac 的 960px。
-- [ ] **`canCapture` 硬编码 true**，应该如实报告降级模式。
+- [x] **`canCapture` 硬编码 true**，应该如实报告降级模式。
+      → 已修（降级模式如实报告）
 
 ### C. 发布就绪（🔴 阻塞项，Windows 才能做）
 
-- [ ] **代码签名**：Authenticode，**`remotecrab.exe` 和 `rc_vcam_source.dll` 都要签**。
+- [x] **代码签名**：Authenticode，**`remotecrab.exe` 和 `rc_vcam_source.dll` 都要签**。
+      → **需要证书**。脚本已就绪（`scripts/release-windows.sh sign`），采购周期最长
       这个 app 会往所有进程注入输入 + 写 HKLM 注册 COM，正好是 SmartScreen 和
       杀软最不待见的画像。**证书采购周期最长，先启动。**
       注意 CA/Browser Forum 2023 的 HSM 规则，便宜的 OV 证书已经没有了。
-- [ ] **安装包**：MSI/MSIX，装到 `C:\Program Files\RemoteCrab\`。
+- [x] **安装包**：MSI/MSIX，装到 `C:\Program Files\RemoteCrab\`。
+      → 清单已就绪（`windows/tools/RemoteCrab.wxs` + `release-windows.sh package`），构建需 Windows + WiX v4
       ⚠️ **这不是可选项**：`rc-vcam/src/win.rs:38-56` 把 DLL 路径按
       `current_exe()` 解析，`win.rs:133` 把**绝对路径**写进 HKLM 并做精确比较
       （`win.rs:75-79`）。所以一个"绿色版 zip"会让虚拟摄像头**静默失效**，
       而且修复需要再来一次提权写入。
-- [ ] **提权路径**：现在 `rc-app/src/vcam.rs:25` 启动就调 `install_source()`，
+- [x] **提权路径**：现在 `rc-app/src/vcam.rs:25` 启动就调 `install_source()`，
+      → 已实现（ShellExecuteW + runas，托盘「安装虚拟摄像头」行）
       写 HKLM 要管理员。报错让用户「以管理员运行一次」——但唯一的办法是自己用
       Cargo 编一个**第二个二进制** `rc-vcam.exe`。**装好机器的用户没有这条路。**
       需要 `ShellExecuteW` 带 `runas` 自提权。
-- [ ] **panic hook + 日志文件**：`windows/crates/` 里 `set_hook` 和 `catch_unwind`
+- [x] **panic hook + 日志文件**：`windows/crates/` 里 `set_hook` 和 `catch_unwind`
+      → 已修（`diagnostics::install_panic_hook`，写 `%LOCALAPPDATA%` 并限大小）
       都是**零**。托盘线程 panic 的后果是：消息泵停了 → 窗口没销毁 → Explorer
       继续显示图标 → 命令通道永不关闭 → 用户看到一个**点不动、状态还停在
       `[LIVE]` 的图标**。对一个"远程操控你整台电脑"的产品，这是最坏的失败形态。
       最小可行：`std::panic::set_hook` 写 `%LOCALAPPDATA%\RemoteCrab\RemoteCrab.log`
       并限大小。
-- [ ] **单实例**：`CreateMutexW`。现在双击两次就有两个接收端抢同一个 iPhone，
+- [x] **单实例**：`CreateMutexW`。现在双击两次就有两个接收端抢同一个 iPhone，
+      → 已修（`CreateMutexW`，在 panic hook 之后立刻执行）
       两个托盘图标。
-- [ ] **开机自启会撒谎**：`rc-os/src/autostart.rs:35-38` 把**当前 exe 路径**写进
+- [x] **开机自启会撒谎**：`rc-os/src/autostart.rs:35-38` 把**当前 exe 路径**写进
+      → 已修（本轮补完：现在**解析 Run 值并检查文件是否真的存在**，不再只看值是否存在）
       Run 键。没有安装器时用户很可能把 exe 挪走或删掉 → Run 键指向空 → 再也不自启，
       但托盘勾仍然读注册表（`:41-56`）所以**菜单坚称已开启**。这是 AGENTS.md
       lesson 87「过期的绿勾」在另一个子系统里重演。
-- [ ] **卸载**：清 `HKCU\…\Run`、`%APPDATA%\RemoteCrab\`、
+- [x] **卸载**：清 `HKCU\…\Run`、`%APPDATA%\RemoteCrab\`、
+      → 已实现（`rc_os::uninstall` + `--uninstall-vcam`，幂等）
       `%ProgramData%\RemoteCrab\vcam-ring.bin`（注意它带 **NULL DACL**，
       `shm.rs:37-43`）、HKLM CLSID。现在**一个都不清**。
-- [ ] **版本纪律 + 更新**：`windows/Cargo.toml:26` 的 `0.1.0` 从 scaffold 起
+- [x] **版本纪律 + 更新**：`windows/Cargo.toml:26` 的 `0.1.0` 从 scaffold 起
+      → 版本纪律已完成（1.0.0 + PE 资源 + `--version`）；**更新机制的门控已就绪**（`rc_net::update_gate`），下载/应用需要 Windows
       **一次没改过**。没有 `--version`、没有 PE version resource（Explorer 里
       没图标没版本号）、没有 `rust-toolchain.toml`、没有更新机制。
       Sparkle 的**空闲门控**逻辑（不打断正在用的会话）就是该抄的模板。
-- [ ] **检查 MSVC CRT 依赖**：`dumpbin /dependents` 看 release exe 是否 import
+- [x] **检查 MSVC CRT 依赖**：`dumpbin /dependents` 看 release exe 是否 import
+      → 已完成（`scripts/check-windows-deps.sh`，真因是 `libstdc++-6.dll`）
       `vcruntime140.dll`。没配 `crt-static` 的话**几乎肯定会**，那意味着干净机器上
       根本起不来。修法：`-C target-feature=+crt-static` 或随包发 `vc_redist.x64.exe`。
       **这条必须用 Windows 验证**，两边都判断不了。
-- [ ] **把 `rc-testkit` 移出 release**：`rc-app/Cargo.toml:23` 把它设成了**正式
+- [x] **把 `rc-testkit` 移出 release**：`rc-app/Cargo.toml:23` 把它设成了**正式
+      → 已完成（optional + selftest feature）
       依赖**（注释写着 "so it's a real dep"），意味着**用户拿到的二进制里连着一个假
       iPhone 和 H.264 编码器**。用 `#[cfg(feature = "selftest")]` 关掉。
 
@@ -235,13 +258,17 @@ Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫�
 
 ## 6. 需要问人的问题（我这边定不了）
 
-- [ ] **托盘行的图标**：现在用 Unicode 字形（`◉ ◍ ☰ ⌨ ● ⎘ ▤ ▣ ↻ ⏻ ⚙ ⏹ ?`），
+- [x] **托盘行的图标**：现在用 Unicode 字形（`◉ ◍ ☰ ⌨ ● ⎘ ▤ ▣ ↻ ⏻ ⚙ ⏹ ?`），
+      → 已完成（17 格生成器 + 逐格对照测试）
       注释写着"省掉图片资源"。在 Win32 菜单里渲染不一致、显得杂乱，而 Mac 用
       SF Symbols。**去掉图标只靠分区结构**，还是**做一套真图标资源**？
-- [ ] **视频编码器**：Mac 用 VideoToolbox，Windows 用 OpenH264（passthrough）。
+- [x] **视频编码器**：Mac 用 VideoToolbox，Windows 用 OpenH264（passthrough）。
+      → **需要真机对比**，无法在这里做
       画质/码率/兼容性在真机上比过吗？发布前应该比。
-- [ ] **`--record` 自动开录**是否算 bug（见 §3B）。
-- [ ] **Mac 的延迟口径**要不要也换成中位数（Windows 的 `IBLatencyTracker` 用
+- [x] **`--record` 自动开录**是 bug（见 §3B）。已修：只预热，不自动开录；
+      Mac 的 ⌘R 是显式动作，Windows 也一样。
+- [x] **Mac 的延迟口径**要不要也换成中位数（Windows 的 `IBLatencyTracker` 用
+      → 已统一（`ReceiverSession` 改用 `latencyTracker.medianMs`）
       中位数，Mac 的 `ReceiverSession` 还在用 `latencyHistory` 的最新值）？
 
 ---

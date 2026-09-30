@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RemoteCrab for Windows — installer manifest (WiX v4).
+
+  The install directory here is load-bearing, not cosmetic. `rc-vcam` resolves
+  the COM source DLL relative to `current_exe()` and then writes that ABSOLUTE
+  path into `HKLM\Software\Classes\CLSID\{…}\InprocServer32`, comparing it
+  exactly on every subsequent run. So a user who moves the install folder gets
+  a virtual camera that has silently stopped being registered, and the only
+  way back is another elevated registry write. Hence a fixed
+  `C:\Program Files\RemoteCrab`, and an uninstall that puts the registry back
+  the way it found it.
+
+  @VERSION@ / @PAYLOAD@ are substituted by scripts/release-windows.sh.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="RemoteCrab"
+           Manufacturer="Beijing VGO Co.,Ltd"
+           Version="@VERSION@"
+           UpgradeCode="7C1E4B92-3A6D-4F58-9B21-0D5E8A3C7F14"
+           Scope="perMachine"
+           Compressed="yes">
+
+    <SummaryInformation Description="RemoteCrab @VERSION@ — your iPhone as camera, microphone, trackpad and keyboard" />
+
+    <!-- Windows 10 1809+. The virtual camera needs 11 22H2+, but the receiver
+         itself does not, and refusing to install on 10 would be a worse answer
+         than a feature that is unavailable. -->
+    <Launch Condition="VersionNT64 >= 10.0.17763" Message="RemoteCrab needs Windows 10 version 1809 or newer." />
+
+    <MajorUpgrade Schedule="installRemoveInitializeVersion"
+                  AllowDowngrades="no"
+                  AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Feature Id="Main" Title="RemoteCrab" Level="1">
+      <ComponentGroupRef Id="Payload" />
+      <ComponentGroupRef Id="Shortcuts" />
+      <ComponentGroupRef Id="Uninstall" />
+    </Feature>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="RemoteCrab" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ShortcutFolder" Name="RemoteCrab" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
+      <!-- The receiver. Not writable by the user: a modified binary loses its
+           signature and Windows then refuses to load it, so an "anyone" ACL
+           here is a support ticket waiting to happen. -->
+      <Component Id="PayloadExe" Guid="2B8F1A44-7C03-4E91-B6D2-5A7C9E1F3B60" Directory="INSTALLFOLDER">
+        <File Id="remotecrab.exe" Source="@PAYLOAD@\remotecrab.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- The COM source. Must be present, or the tray's install row registers
+           a DLL that does not exist and the camera silently never appears. -->
+      <Component Id="PayloadDll" Guid="4C7A2E85-1B96-4D38-A0F2-9E5C3B7D1A08" Directory="INSTALLFOLDER">
+        <File Id="rc_vcam_source.dll" Source="@PAYLOAD@\rc_vcam_source.dll" KeyPath="yes" />
+      </Component>
+
+      <!-- The MinGW C++ runtime, only if the build actually needs it. The MSVC
+           build does not, and shipping a second C++ runtime is how an app ends
+           up with a version conflict on someone else's machine. The preprocessor
+           condition keeps one manifest for both toolchains. -->
+      <!-- The MinGW C++ runtime, only if the build actually needs it. The MSVC
+           build does not, and shipping a second C++ runtime on a machine that
+           already has a newer one is how an app causes version conflicts in
+           software it has never heard of. -->
+      <?ifndef var.define.MsvcBuild ?>
+      <Component Id="PayloadRuntime" Guid="F1B63D09-7A24-4E85-9C70-2B48D6E9F3A5" Directory="INSTALLFOLDER">
+        <File Id="libstdcxx" Source="@PAYLOAD@\libstdc++-6.dll" KeyPath="yes" />
+        <File Id="libgcc" Source="@PAYLOAD@\libgcc_s_seh-1.dll" />
+      </Component>
+      <?endif?>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Shortcuts" Directory="ShortcutFolder">
+      <!-- No Start Menu or desktop shortcut. The product is a tray app with no
+           window: a shortcut launches it, it appears in the notification area,
+           and the user is left hunting for a window that will never open. The
+           uninstaller entry is the honest entry point. -->
+      <Component Id="UninstallShortcut" Guid="9D4C2E17-8B65-4A03-9F71-2C6D0E8B5A94" Directory="ShortcutFolder">
+        <Shortcut Id="UninstallShortcut"
+                  Name="Uninstall RemoteCrab"
+                  Description="Removes RemoteCrab, its camera registration and its files"
+                  Target="[System64Folder]msiexec.exe"
+                  Arguments="/x [ProductCode]" />
+        <RemoveFolder Id="RemoveShortcutFolder" Directory="ShortcutFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="UninstallShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Uninstall" Directory="INSTALLFOLDER">
+      <!-- Everything the app wrote outside its own folder, removed on uninstall.
+           The ring file has a NULL DACL so the Frame Server can map it while
+           running as LocalService, which is precisely why an ordinary user
+           cannot delete it — an installer that leaves it behind leaves a
+           world-writable buffer that the next install inherits. -->
+      <Component Id="CleanupUserState" Guid="5E1A8B93-2D47-4F60-8C15-7B93E0D4A682" Directory="INSTALLFOLDER">
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="RemoteCrab" Type="string" Value="" KeyPath="yes" />
+        <RemoveFolder Id="RemoveAppData" Directory="CommonAppDataFolder" On="uninstall" />
+        <util:RemoveFolderEx xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+                            On="uninstall" Property="APPDATA\RemoteCrab" />
+        <util:RemoveFolderEx xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+                            On="uninstall" Property="ProgramData\RemoteCrab" />
+      </Component>
+
+      <!-- The COM registration. HKLM is machine-wide, which is why the app needs
+           one elevated moment to install it — and why the installer has to
+           undo it. The app's own uninstall flag does the same job at runtime;
+           this is the belt to that braces. -->
+      <Component Id="CleanupClsid" Guid="D6F3B208-7A19-4C52-B0E4-3F81A9C6D257" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{8B2C4D19-6E3A-4F87-B5C1-7D2E9A4F8B03}">
+          <RegistryValue Name="" Type="string" Value="RemoteCrab Camera Source" KeyPath="yes" />
+        </RegistryKey>
+        <util:RegistrySearch xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util"
+                             Id="FindCameraClsid" Root="HKLM"
+                             Key="Software\Classes\CLSID\{8B2C4D19-6E3A-4F87-B5C1-7D2E9A4F8B03}" />
+        <RemoveFolder Id="RemoveCameraClsid" On="uninstall" />
+      </Component>
+    </ComponentGroup>
+  </Package>
+</Wix>
