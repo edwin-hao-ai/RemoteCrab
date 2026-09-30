@@ -2544,25 +2544,37 @@ that all used to render the same misleading sentence.
 > a regression test runs 20 probes against a clock three hours out to prove no
 > false echo.
 
-**Still to do — B2, deliberately deferred** because a parallel session had
-`windows/crates/rc-protocol/src/wire.rs` mid-refactor (51 files, +2430/−759),
-and Windows' `_ => Kind::Video` fallback means an unsynchronised new kind
-feeds JSON to the H.264 decoder (lesson 68). The design:
+**Also shipped (`b3a8c02`) — command results.** Every control the user taps
+was fire-and-forget, so a missing Accessibility grant, an app that quit in
+the meantime and a window that closed all looked identical from the phone:
+nothing, with no explanation. New kind **`commandResult = 0x23`**,
+`IBCommandResult { requestId, status, detail? }`, `status ∈ ok /
+appNotRunning / noPermission / noWindow / failed`. The three request structs
+gain an **optional** `requestId` in both directions (rule 2: an old phone's
+request still decodes and is still honoured — it just gets no answer).
+- **No retry, deliberately, and tested as such.** A retry is useless against
+  all three failure causes; the genuinely transient case is already covered by
+  `reportNoLink()`, and `clearOwner` drops the ledger so a dropped link cannot
+  emit a burst of "too old" hints contradicting the "not connected" one.
+- **Silence ≠ failure.** A receiver predating 0x23 never answers and the
+  phone cannot distinguish that from a lost frame, so it says "your Mac app
+  may be out of date" — a capability gap, not an accusation. 1.5 s window,
+  then it stops.
+- Two receiver return values that were being **discarded** now carry the
+  status: `NSRunningApplication.activate()` returns false on exactly the case
+  that matters (no Accessibility grant), and `raiseWindow` reported success
+  even when AX could not list windows at all.
+- Windows needed `0x23 => Kind::CommandResult` for the reason in lesson 68,
+  and a parallel session independently wrote `rc-net/src/ping.rs`
+  (`PingProbe`) — the Rust twin of `IBPingProbe`, same single-value
+  rationale. The two ends agree by construction, but they are two
+  implementations of one rule: if either is ever changed, change both.
+- 317 Core tests, both app targets, Windows suite, clippy clean including the
+  `x86_64-pc-windows-gnu` cross-check.
 
-- New kind **`commandResult = 0x23`**, `IBCommandResult { requestId, status,
-  detail? }`; `status ∈ ok / appNotRunning / noPermission / noWindow / failed`.
-- `IBActivateApp` / `IBQuitApp` / `IBSystemCommand` gain an optional
-  `requestId` (`#[serde(default, skip_serializing_if = "Option::is_none")]`,
-  per rule 2 — an old receiver must keep working).
-- The receiver replies after handling; the phone maps `status` to a specific
-  sentence. On a 1.5 s silence it reports "your Mac app is too old to confirm"
-  **and does not retry**.
-- **No automatic retry, deliberately.** A retry is useless against a missing
-  Accessibility grant, a quit app, or a vanished window — it would burn three
-  seconds and then say the same thing. The self-healing case (the link is
-  down) is already covered by `reportNoLink()`. The value here is *naming the
-  reason*, not retrying.
-- Windows needs `0x23 => Kind::CommandResult` or the mirror breaks.
+**Not yet verified on hardware.** Both B1 and B2 are compile- and
+unit-verified only; the end-to-end pass needs a **Mac build 9** (B1's ordering
+constraint) and, for B2, a phone build against it.
 
 Also considered and rejected: re-probing the local-network permission at
 launch. `PermissionFlow.probeLocalNetwork` already answers granted/denied, but
