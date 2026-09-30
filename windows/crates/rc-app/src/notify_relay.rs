@@ -330,3 +330,30 @@ mod integrity_tests {
         assert_eq!(integrity_rid(&[1, 0, 0, 0, 0, 0, 0, 6]), None);
     }
 }
+
+/// Has the setup wizard been opened on this machine?
+///
+/// A flag file next to the relay's, rather than a field in its JSON: the two
+/// decisions are unrelated, and putting "seen the wizard" into the denylist file
+/// means a corrupt relay config could also make the wizard reappear forever.
+#[allow(dead_code)] // see the module note
+pub fn wizard_seen() -> bool {
+    std::env::var_os("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Users\Default\AppData\Roaming"))
+        .join("RemoteCrab")
+        .join("wizard-seen")
+        .is_file()
+}
+
+/// Record that the wizard has been shown. Written on open, not on completion:
+/// a user who quits halfway has still been introduced, and a wizard that comes
+/// back after a quit is a nag.
+#[allow(dead_code)] // see the module note
+pub fn mark_wizard_seen() {
+    if let Some(p) = std::env::var_os("APPDATA").map(std::path::PathBuf::from) {
+        let dir = p.join("RemoteCrab");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("wizard-seen"), b"1");
+    }
+}

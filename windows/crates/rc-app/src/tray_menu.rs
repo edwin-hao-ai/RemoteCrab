@@ -71,6 +71,11 @@ pub mod ids {
     /// Forward desktop notifications to the phone (kind `0x22`). Off by
     /// default — see `rc_net::notify` for why that is not negotiable.
     pub const NOTIFY: usize = 122;
+    /// Reopen the setup wizard. Present always: the state it checks can change
+    /// after first run (a declined camera install, a moved exe), and a wizard
+    /// reachable only once is a wizard that cannot help the user who needs it
+    /// a second time.
+    pub const SETUP: usize = 123;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -385,6 +390,7 @@ pub fn known_ids() -> &'static [usize] {
         ids::DIAGNOSIS,
         ids::INSTALL_VCAM,
         ids::NOTIFY,
+        ids::SETUP,
     ]
 }
 
@@ -434,6 +440,7 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::QUIT => 13,
         ids::INSTALL_VCAM => 15,
         ids::NOTIFY => 16,
+        ids::SETUP => 17,
         // `RECORD` is deliberately absent: it is the one row whose glyph
         // depends on state, so it goes through [`record_icon_cell`] and not
         // through here. Letting both decide it is how they drift apart.
@@ -466,7 +473,7 @@ pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 17;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 18;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -838,6 +845,7 @@ mod sheet_order_tests {
             (ids::QUIT, 13),
             (ids::INSTALL_VCAM, 15),
             (ids::NOTIFY, 16),
+            (ids::SETUP, 17),
         ];
         for (id, cell) in expected {
             assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
@@ -884,6 +892,7 @@ mod sheet_order_tests {
                 "stop" => ids::RECORD,
                 "install_vcam" => ids::INSTALL_VCAM,
                 "notify" => ids::NOTIFY,
+                "setup" => ids::SETUP,
                 other => panic!("the generator draws {other:?}, which no menu row claims"),
             };
             assert_eq!(

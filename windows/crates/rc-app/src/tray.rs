@@ -576,6 +576,12 @@ mod win32 {
             }
             #[cfg(not(windows))]
             ids::INSTALL_VCAM => None,
+            // Reopen the setup wizard. Not first-run-only: a user who declined
+            // the camera install has no other way back into it.
+            ids::SETUP => {
+                crate::open_wizard();
+                None
+            }
             ids::NOTIFY => {
                 let now_on = !crate::notify_relay::is_enabled();
                 crate::notify_relay::set_enabled(now_on);

@@ -28,6 +28,9 @@ mod args;
 mod console;
 mod diagnostics;
 mod notify_relay;
+mod wizard;
+#[cfg(windows)]
+mod wizard_win;
 
 mod doctor;
 #[cfg(windows)]
@@ -180,9 +183,11 @@ async fn main() -> ExitCode {
     }
 
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
-    // Before the search, so a first-time user reads "here is what you have to
-    // do" *before* the thing they are waiting for, not after a timeout.
-    show_first_run_check();
+    // The wizard, before the search: a first-time user is walked through what
+    // this PC needs *before* they start waiting for a phone that cannot connect
+    // yet. It appears once — a wizard that reappears is a nag — and the tray's
+    // "Setup wizard…" row brings it back.
+    maybe_show_wizard();
     println!(
         "{}\n",
         i18n::t(
@@ -933,44 +938,56 @@ async fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// The first-run check, printed once at launch and only when something is
-/// genuinely missing.
-///
-/// Not a window: this program is a tray app, and a modal dialog on first launch
-/// is the fastest way to teach a user that your software is in the way. Printing
-/// it is also more useful than a window, because the console is where a user
-/// who is already looking for it will be. A wizard that reappears with nothing
-/// to say is a nag, so the gate is "is anything **blocking** unfinished".
+/// The state the wizard reports on, read fresh each time.
 #[cfg(windows)]
-fn show_first_run_check() {
+fn current_first_run() -> rc_net::firstrun::FirstRun {
     use rc_net::firstrun::{Camera, FirstRun};
-
-    let camera = if vcam::is_registered() {
-        Camera::Ready
-    } else {
-        Camera::Missing
-    };
-    let fr = FirstRun {
-        camera,
+    FirstRun {
+        camera: if vcam::is_registered() {
+            Camera::Ready
+        } else {
+            Camera::Missing
+        },
         integrity: notify_relay::integrity(),
         autostart: rc_os::autostart::is_enabled(),
         notify_relay: notify_relay::is_enabled(),
-    };
-    if !fr.has_anything_to_say() {
+    }
+}
+
+/// Open the wizard on the first run, and only then.
+///
+/// The gate is "has the user seen it", **not** "is something wrong". A wizard
+/// that appears only when it has something to fix is a wizard most first-time
+/// users never see — and the whole value of walking someone through a setup is
+/// that they learn what it does. A wizard that reappears is a nag, so the flag
+/// is written the moment it opens, not when it is finished: a user who quits
+/// halfway has still been introduced.
+#[cfg(windows)]
+fn maybe_show_wizard() {
+    if notify_relay::wizard_seen() {
         return;
     }
-    println!();
-    println!("{}", i18n::t("开始之前：", "Before you start:"));
-    for step in fr.steps() {
-        if !step.blocking || step.done {
-            continue;
-        }
-        let (title, remedy) = (step.title, step.remedy.unwrap());
-        println!("  • {}", i18n::t(title.0.as_str(), title.1.as_str()));
-        println!("    {}", i18n::t(&remedy.0, &remedy.1));
-    }
-    println!();
+    notify_relay::mark_wizard_seen();
+    open_wizard();
 }
 
 #[cfg(not(windows))]
-fn show_first_run_check() {}
+fn maybe_show_wizard() {}
+
+/// Open the wizard now, from the tray or from first run.
+#[cfg(windows)]
+fn open_wizard() {
+    wizard_win::show(
+        current_first_run(),
+        Box::new(|| {
+            // The action on the camera page: the same one-click, UAC-raising path
+            // the tray's install row uses. The wizard does not get a private way
+            // to do it, so the two cannot drift.
+            vcam::install_with_elevation();
+        }),
+    );
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)] // the tray row that opens it is Windows-shaped
+fn open_wizard() {}
