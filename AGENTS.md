@@ -2527,6 +2527,49 @@ is tracked in the Roadmap section — don't duplicate it here.
     decode. The one capture that showed it had no iOS-side log at all — the
     marker landed afterwards — so it has not been reproduced since.
 
+### In flight (2026-09-30): latency + failure-reason work, and one hard deployment constraint
+
+**Shipped but NOT yet verified on hardware** (`2df2d9a`): the phone finally
+measures its own round trip (`IBLatencyTracker` + `IBPingProbe`, 26 new
+tests), and `FailureReason` separates "the camera would not start" from
+"the local network is not reachable" from "the link dropped" — three cases
+that all used to render the same misleading sentence.
+
+> **⚠️ DEPLOYMENT ORDER IS A HARD CONSTRAINT.** The phone now *initiates*
+> latency probes. An **old receiver** treats the phone's timestamp as its own
+> echo, subtracts, and paints the **clock offset between the two machines**
+> in its menu bar — which can be hours. So **the Mac build must ship first, or
+> in the same release.** Never ship the iOS build alone. Both ends discriminate
+> with `IBPingProbe.isOwnEcho` (byte-identical to the last stamp we sent), and
+> a regression test runs 20 probes against a clock three hours out to prove no
+> false echo.
+
+**Still to do — B2, deliberately deferred** because a parallel session had
+`windows/crates/rc-protocol/src/wire.rs` mid-refactor (51 files, +2430/−759),
+and Windows' `_ => Kind::Video` fallback means an unsynchronised new kind
+feeds JSON to the H.264 decoder (lesson 68). The design:
+
+- New kind **`commandResult = 0x23`**, `IBCommandResult { requestId, status,
+  detail? }`; `status ∈ ok / appNotRunning / noPermission / noWindow / failed`.
+- `IBActivateApp` / `IBQuitApp` / `IBSystemCommand` gain an optional
+  `requestId` (`#[serde(default, skip_serializing_if = "Option::is_none")]`,
+  per rule 2 — an old receiver must keep working).
+- The receiver replies after handling; the phone maps `status` to a specific
+  sentence. On a 1.5 s silence it reports "your Mac app is too old to confirm"
+  **and does not retry**.
+- **No automatic retry, deliberately.** A retry is useless against a missing
+  Accessibility grant, a quit app, or a vanished window — it would burn three
+  seconds and then say the same thing. The self-healing case (the link is
+  down) is already covered by `reportNoLink()`. The value here is *naming the
+  reason*, not retrying.
+- Windows needs `0x23 => Kind::CommandResult` or the mirror breaks.
+
+Also considered and rejected: re-probing the local-network permission at
+launch. `PermissionFlow.probeLocalNetwork` already answers granted/denied, but
+a second probe after the prompt has been answered has a 2.5 s `inconclusive`
+window and no guarantee, so the honest symptom (`networkUnavailable`) is
+driven off the listener failing instead.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
