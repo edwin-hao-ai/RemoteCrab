@@ -28,6 +28,7 @@ set -euo pipefail
 
 VERSION="${1:?Usage: release-mac.sh <version> [--skip-pkg] [--skip-app]}"
 shift || true
+
 SKIP_PKG=false
 SKIP_APP=false
 for arg in "$@"; do
@@ -38,7 +39,15 @@ for arg in "$@"; do
 done
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
+
+# Refuse to build if the system-extension / mic-driver build numbers moved.
+# Replacing either resets the user's approval for it (AGENTS.md lesson 5), and
+# that is a support call, not a cosmetic slip — a blanket find-and-replace on
+# the version string did exactly this once (2026-09-30).
+"$ROOT/scripts/check-bundle-versions.sh" || {
+  echo "❌ aborting before signing anything" >&2
+  exit 1
+}TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
 DEV_ID_APP="Developer ID Application: Beijing VGO Co;Ltd (${TEAM})"
 DEV_ID_INSTALLER="Developer ID Installer: Beijing VGO Co;Ltd (${TEAM})"
 OUT="$ROOT/dist"

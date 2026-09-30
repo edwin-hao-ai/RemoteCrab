@@ -301,20 +301,48 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     /// shortcut chords for the connected computer.
     public var platform: String?
 
+    /// What this receiver can cope with, declared up front so the phone can
+    /// stay quiet instead of probing into a wall.
+    ///
+    /// ADDITIVE + OPTIONAL, and **absence means "nothing"**. A Mac app from
+    /// before 1.1 omits the field entirely, so the phone's behaviour against
+    /// it is identical to what 1.0 did — no latency probes (which such a
+    /// receiver misreads as its own echo and turns into a multi-hour "latency"
+    /// in its menu bar) and no wait for command results it will never send.
+    public var capabilities: [Capability]?
+
+    /// Declared abilities. Raw values, because an unknown string from a newer
+    /// peer must decode rather than fail the whole handshake.
+    public enum Capability: String, Codable, Sendable, Equatable {
+        /// The receiver echoes probes it did not originate, so a phone can
+        /// measure its own round trip.
+        case latencyProbe
+        /// The receiver answers commands with `commandResult` (0x23).
+        case commandResult
+    }
+
     public init(name: String, id: String, token: String? = nil,
-                appVersion: String = "", platform: String? = nil) {
+                appVersion: String = "", platform: String? = nil,
+                capabilities: [Capability]? = nil) {
         self.name = name
         self.id = id
         self.token = token
         self.appVersion = appVersion
         self.platform = platform
+        self.capabilities = capabilities
+    }
+
+    /// `false` for any capability the receiver did not name — including every
+    /// capability, when it named none (i.e. an older receiver).
+    public func supports(_ capability: Capability) -> Bool {
+        capabilities?.contains(capability) ?? false
     }
 
     /// The platform, normalized, defaulting to `"macos"` for older senders.
     public var resolvedPlatform: String { platform ?? "macos" }
 
     private enum CodingKeys: String, CodingKey {
-        case name, id, token, appVersion, platform
+        case name, id, token, appVersion, platform, capabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -325,6 +353,15 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         appVersion = try c.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
         // Absent for older Macs — stay nil so `resolvedPlatform` reads macos.
         platform = try c.decodeIfPresent(String.self, forKey: .platform)
+        // Absent for every Mac before 1.1 → nil → `supports` is false for
+        // everything, which is exactly 1.0's behaviour.
+        //
+        // Decoded as [String] and then filtered, NOT as [Capability]: a
+        // receiver newer than this phone may advertise abilities it has
+        // never heard of, and one unknown raw value must not fail the
+        // handshake and cost the user their connection.
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)?
+            .compactMap(Capability.init(rawValue:))
     }
 }
 
