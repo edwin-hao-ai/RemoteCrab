@@ -25,6 +25,7 @@ mod args;
 mod console;
 mod diagnostics;
 mod single_instance;
+mod stream_stats;
 mod doctor;
 mod help;
 mod i18n;
@@ -157,6 +158,9 @@ async fn main() -> ExitCode {
     let session = Session::spawn(Config::default());
     let mut events = session.subscribe();
     let mut state_rx = session.state();
+    // The live readout behind the tray's "connection details" submenu. See
+    // `stream_stats` for why it is a submenu and not a window.
+    let mut stats = stream_stats::StreamStats::default();
     // Set while the iPhone is showing a list it asked for. Automatic
     // republishes of the *window* list are gated on it, because that frame
     // carries a JPEG per window and is far too expensive to send unasked —
@@ -378,6 +382,7 @@ async fn main() -> ExitCode {
                         }
                     }
                     Event::Metadata(m) => {
+                        stats.record_metadata(&m);
                         println!(
                             "  → streaming: {} {}x{} @ {}fps ({} kbps)",
                             m.resolution_label(),
@@ -393,6 +398,9 @@ async fn main() -> ExitCode {
                     }
                     Event::Video(nal) => {
                         video_frames += 1;
+                        // A decoded frame is the only proof the camera is
+                        // actually on, as opposed to merely enabled.
+                        stats.record_video(0, 0);
                         if let Some(rec) = recording.as_mut() {
                             match nal.kind {
                                 rc_protocol::NalKind::Sps => rec.recorder.set_sps(&nal.data),
@@ -440,6 +448,10 @@ async fn main() -> ExitCode {
                         }
                     }
                     Event::Touch(t) => {
+                        // Recorded before injection so the readout shows where
+                        // the phone *asked* the cursor to go, which is the only
+                        // way to tell a dropped modifier from a stuck one.
+                        stats.record_touch(&t);
                         #[cfg(windows)]
                         if let Some(inj) = injector.as_mut() {
                             inj.inject_touch(&t);
@@ -448,6 +460,7 @@ async fn main() -> ExitCode {
                         let _ = &t;
                     }
                     Event::Key(k) => {
+                        stats.record_key(&k);
                         #[cfg(windows)]
                         if let Some(inj) = injector.as_ref() {
                             inj.inject_key(&k);
@@ -473,12 +486,19 @@ async fn main() -> ExitCode {
                                 rec.recorder.add_audio(&pcm, rate, channels);
                             }
                         }
-                        // Surface the level alongside the video counter.
-                        if frame_slot.get().is_some() {
-                            // (level is shown in the console periodically)
-                        }
+                        // `AudioPlayer` already measures the decoded level
+                        // (it has the samples; we only ever see the Opus
+                        // packet), and its own doc comment says it exists "for
+                        // the connection-test UI" — which nothing was reading
+                        // until now.
+                        stats.record_audio(audio.level());
+                        tray.set_details(stream_stats::detail_rows(&stats));
                     }
                     Event::Latency(ms) => {
+                        stats.record_latency(ms);
+                        // Refresh the readout's contents; the tray re-renders
+                        // the submenu on each popup, so this is the only write.
+                        tray.set_details(stream_stats::detail_rows(&stats));
                         // Keep the console readable: report a lag spike only
                         // when it is both large AND rare (a rolling gate), not
                         // on every ping.
@@ -616,7 +636,15 @@ async fn main() -> ExitCode {
                         let _ = &q;
                     }
                     Event::FeatureState(s) => {
+                        // "Camera: off" next to a live picture is exactly the
+                        // kind of lie this product must not tell, so the note
+                        // comes from the phone's own state and `record_video`
+                        // clears it the moment a frame proves otherwise.
+                        if !s.camera_on {
+                            stats.set_camera_note(Some(i18n::t("已关闭", "off")));
+                        }
                         tray.set_features(Some(s.clone()));
+                        tray.set_details(stream_stats::detail_rows(&stats));
                         last_features = Some(s);
                     }
                     Event::ScreenControl(control) => {

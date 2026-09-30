@@ -34,7 +34,7 @@ pub use crate::tray_menu::flags_for;
 // Used by the Win32 menu builder, and by the menu model's own tests. They are
 // a deliberate part of the crate's testable surface, not leftovers.
 #[allow(unused_imports)]
-pub use crate::tray_menu::{decorate, menu_rows, MenuRow, MenuState, Row};
+pub use crate::tray_menu::{decorate, detail_rows, menu_rows, MenuRow, MenuState, Row};
 
 /// One user action from the tray menu, routed to the app loop.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -76,7 +76,8 @@ mod win32 {
         Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+        AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, MF_GRAYED,
+        MF_POPUP, MF_STRING,
         DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
         LoadImageW, MessageBoxW, MF_BYCOMMAND, PostMessageW, PostQuitMessage, RegisterClassW,
         SetMenuItemBitmaps,
@@ -121,6 +122,8 @@ mod win32 {
         diagnosis_summary: String,
         /// The full explanation, shown in a dialog when the row is clicked.
         diagnosis_detail: String,
+        /// Live readouts for the "connection details" submenu: `(label, value)`.
+        details: Vec<(String, String)>,
     }
 
     struct Ctx {
@@ -170,6 +173,13 @@ mod win32 {
         pub fn set_preview(&self, on: bool) {
             if let Ok(mut s) = self.shared.lock() {
                 s.preview_on = on;
+            }
+        }
+
+        /// Publish the live readouts behind the "connection details" submenu.
+        pub fn set_details(&self, details: Vec<(String, String)>) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.details = details;
             }
         }
 
@@ -378,7 +388,7 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording, autostart, has_last_file, preview_on, diagnosis) = {
+        let (status, features, recording, autostart, has_last_file, preview_on, diagnosis, details) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
@@ -390,12 +400,14 @@ mod win32 {
                 s.has_last_file,
                 s.preview_on,
                 s.diagnosis_summary.clone(),
+                s.details.clone(),
             )
         };
 
         let Some(menu) = CreatePopupMenu().ok() else {
             return;
         };
+
 
         // Draw the shared menu model. One description of the menu (see
         // `menu_rows`) means the Windows popup and the Mac popover are
@@ -410,8 +422,10 @@ mod win32 {
             preview_on,
             autostart,
             diagnosis,
+            details,
         };
         let mut model = super::menu_rows(&state);
+        // The status line goes first, above the readouts submenu.
         model.insert(
             0,
             super::MenuRow {
@@ -420,9 +434,27 @@ mod win32 {
                 text: status.clone(),
             },
         );
+        // A `Row::Sub` is a real Win32 submenu: build the child menu, then hand
+        // its `HMENU` to `AppendMenuW` as the item id alongside `MF_POPUP`. The
+        // flat model cannot express a handle, so this is the one place that
+        // knows about one — and the submenu rows are then dropped from the flat
+        // pass so they are not *also* drawn at the top level.
+        for row in model.iter().filter(|r| r.kind == super::Row::Sub) {
+            let Ok(inner) = CreatePopupMenu() else { continue };
+            for detail in super::detail_rows(&state) {
+                append_item(inner, MF_STRING | MF_GRAYED, 0, &detail.text);
+            }
+            let title: Vec<u16> =
+                super::decorate(row).encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                let _ = AppendMenuW(menu, MF_POPUP, inner.0 as usize, PCWSTR(title.as_ptr()));
+            }
+        }
+        let model: Vec<_> = model.into_iter().filter(|r| r.kind != super::Row::Sub).collect();
+
         // The icon sheet, cut into one bitmap per row. Loaded per popup
         // because a Win32 menu is rebuilt every time it opens; the alternative
-        // (a cached set on `TrayHandle`) buys nothing at a 16x16x14 sheet.
+        // (a cached set on `TrayHandle`) buys nothing at a 16x16x15 sheet.
         let icons = IconSheet::load();
         for row in &model {
             let flags = super::flags_for(row, &state);
@@ -753,6 +785,9 @@ impl TrayHandle {
 
     /// No-op off Windows: there is no tray to explain anything on.
     pub fn set_diagnosis(&self, _summary: &str, _detail: &str) {}
+
+    /// No-op off Windows: there is no tray to show readouts in.
+    pub fn set_details(&self, _details: Vec<(String, String)>) {}
 }
 
 #[cfg(not(windows))]

@@ -31,6 +31,11 @@ pub enum Row {
     Info,
     /// A clickable action.
     Item,
+    /// A collapsible group: its `rows` are the submenu's contents.
+    Sub,
+    /// One non-clickable line inside a submenu. Carries no icon — a submenu is
+    /// already a second level, and a column of glyphs inside it is noise.
+    Detail,
 }
 
 /// One row of the menu: its kind, its menu id (`0` for non-actionable rows) and
@@ -59,6 +64,7 @@ pub mod ids {
     pub const QUIT: usize = 117;
     pub const DIAGNOSIS: usize = 118;
     pub const SWITCH_CAMERA: usize = 119;
+    pub const DETAILS: usize = 120;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -77,6 +83,14 @@ pub struct MenuState {
     /// without the user having to click anything (AGENTS.md rule 1: the line
     /// that says what is happening must also say what to do).
     pub diagnosis: String,
+    /// Live readouts for the "connection details" submenu: `(label, value)`.
+    ///
+    /// The Windows counterpart of the Mac's `ControlPanelView` +
+    /// `TestWindowView`. Those are windows; this app has no main window, it is a
+    /// tray app, so the native equivalent is a submenu rebuilt on each popup.
+    /// Empty rows are dropped, so a field that has not arrived yet simply does
+    /// not appear rather than showing a zero that reads like a measurement.
+    pub details: Vec<(String, String)>,
 }
 
 /// The menu's shape, in draw order.
@@ -93,6 +107,17 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     // in a menu that cannot be styled.
     push(Row::Info, 0, t("状态", "Status").to_string());
     push(Row::Separator, 0, String::new());
+
+    // The live readout, first, so a user checking "is this thing actually
+    // working?" reads numbers rather than hunting through toggles.
+    if !state.details.is_empty() {
+        push(
+            Row::Sub,
+            ids::DETAILS,
+            t("连接详情", "Connection Details").to_string(),
+        );
+        push(Row::Separator, 0, String::new());
+    }
 
     push(Row::Section, 0, t("功能", "Features").to_string());
     push(Row::Item, ids::CAMERA, t("摄像头", "Camera").to_string());
@@ -224,6 +249,8 @@ pub fn flags_for(
         // A heading and the status/footer lines are informative, not
         // actionable: greyed so they cannot be "clicked" into a no-op.
         Row::Section | Row::Info => MF_STRING | MF_GRAYED,
+        // Readout lines: same reasoning, inside the submenu.
+        Row::Detail => MF_STRING | MF_GRAYED,
         Row::Item => {
             let mut f = MF_STRING;
             if is_on(row.id, state) {
@@ -234,7 +261,31 @@ pub fn flags_for(
             }
             f
         }
+        // `MF_POPUP` is added by the tray, which owns the submenu's `HMENU` —
+        // the flag and the handle have to be combined at the one call site that
+        // created it.
+        Row::Sub => MF_STRING,
     }
+}
+
+/// The submenu's rows, built from the live readouts.
+///
+/// Deliberately not clickable and deliberately not icon-bearing: a second
+/// level of menu with a column of glyphs in it is noise, and these are
+/// readings, not actions. An absent field is **omitted** rather than shown as
+/// a zero, because "latency 0 ms" reads as a measurement and "no sample yet"
+/// does not.
+pub fn detail_rows(state: &MenuState) -> Vec<MenuRow> {
+    state
+        .details
+        .iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(label, value)| MenuRow {
+            kind: Row::Detail,
+            id: 0,
+            text: format!("{label}: {value}"),
+        })
+        .collect()
 }
 
 /// Every id the click handler in `tray.rs` acts on.
@@ -333,8 +384,8 @@ pub fn decorate(row: &MenuRow) -> String {
         // En-dashes on both sides so a heading reads as one even in a menu
         // that cannot be styled.
         Row::Section => format!("— {} —", row.text),
-        Row::Info => row.text.clone(),
-        Row::Item => row.text.clone(),
+        Row::Info | Row::Detail => row.text.clone(),
+        Row::Item | Row::Sub => row.text.clone(),
     }
 }
 
