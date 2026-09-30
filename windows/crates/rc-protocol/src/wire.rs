@@ -69,6 +69,11 @@ pub enum Kind {
     // for the same reason as the mirror kinds above: an unknown byte decodes
     // as `Video`, and this JSON payload would be handed to the H.264 decoder.
     Notification = 0x22,
+    // Mac → iPhone command outcome (`IBCommandResult`, JSON). The Windows
+    // receiver does not send these yet, but it MUST recognise the kind for
+    // the same reason as 0x20–0x22 above: an unknown byte decodes as `Video`
+    // and this JSON would go to the H.264 decoder.
+    CommandResult = 0x23,
 }
 
 impl Kind {
@@ -126,6 +131,7 @@ impl Kind {
             0x20 => Kind::InstalledAppsRequest,
             0x21 => Kind::InstalledApps,
             0x22 => Kind::Notification,
+            0x23 => Kind::CommandResult,
             _ => Kind::Video,
         }
     }

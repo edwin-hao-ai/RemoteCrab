@@ -737,6 +737,21 @@ public enum IBLocale {
         public static let retry = IBL("Retry")
     }
 
+    /// Why a command the user tapped on the phone did not visibly happen.
+    /// Each cause gets its own sentence: they used to be indistinguishable
+    /// from the phone, which is the whole reason `commandResult` exists.
+    public enum Command {
+        /// The receiver never answered, so it is too old to know the request
+        /// id. Wording matters — it is a capability gap, not a failure.
+        public static let unconfirmed = IBL("Couldn't confirm with your Mac — its app may be out of date.")
+        public static let noPermission = IBL("Your Mac needs Accessibility permission to control apps.")
+        public static let noWindow = IBL("That window isn't open on your Mac anymore.")
+        public static let refused = IBL("Your Mac refused that request.")
+        public static func appNotRunning(_ name: String) -> String {
+            String(format: IBL("“%@” is no longer running."), name)
+        }
+    }
+
     /// Accessibility (VoiceOver) labels and hints. These are heard, not
     /// seen, so they live apart from the visible-copy enums — every
     /// `.accessibilityLabel` / `.accessibilityHint` in both apps must

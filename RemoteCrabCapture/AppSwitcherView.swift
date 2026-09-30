@@ -99,7 +99,7 @@ struct AppSwitcherView: View {
             presenting: forceQuitTarget
         ) { window in
             Button(IBLocale.Switcher.forceQuit, role: .destructive) {
-                engine.quitMacApp(id: window.appId, force: true)
+                engine.quitMacApp(id: window.appId, force: true, appName: window.appName)
             }
             Button(IBLocale.Connection.cancel, role: .cancel) {}
         } message: { _ in
@@ -210,7 +210,8 @@ struct AppSwitcherView: View {
     private func card(_ window: IBWindowInfo) -> some View {
         Button {
             engine.activateMacApp(id: window.appId,
-                                  windowTitle: window.title.isEmpty ? nil : window.title)
+                                  windowTitle: window.title.isEmpty ? nil : window.title,
+                                  appName: window.appName)
             dismiss()
         } label: {
             cardBody(window)
@@ -225,7 +226,7 @@ struct AppSwitcherView: View {
             }
             Divider()
             Button {
-                engine.quitMacApp(id: window.appId, force: false)
+                engine.quitMacApp(id: window.appId, force: false, appName: window.appName)
             } label: {
                 Label(IBLocale.Switcher.quit, systemImage: "power")
             }

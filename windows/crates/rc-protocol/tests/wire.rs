@@ -240,15 +240,16 @@ fn screen_mirror_kinds_are_recognised_not_video() {
 
 #[test]
 fn installed_apps_and_notification_kinds_are_recognised_not_video() {
-    // Same trap the mirror kinds were added for: 0x20–0x22 all carry JSON,
+    // Same trap the mirror kinds were added for: 0x20–0x23 all carry JSON,
     // so a byte the enum does not know decodes as `Video` and the payload is
-    // handed to the H.264 decoder. 0x22 (`notification`, Mac → iPhone) is
-    // never sent by the Windows receiver, but the kind must still decode
-    // correctly rather than land in the video path.
+    // handed to the H.264 decoder. 0x22 (`notification`) and 0x23
+    // (`commandResult`) are never sent by the Windows receiver, but the kinds
+    // must still decode correctly rather than land in the video path.
     assert_eq!(Kind::from_u8_or_video(0x20), Kind::InstalledAppsRequest);
     assert_eq!(Kind::from_u8_or_video(0x21), Kind::InstalledApps);
     assert_eq!(Kind::from_u8_or_video(0x22), Kind::Notification);
-    for byte in [0x20u8, 0x21, 0x22] {
+    assert_eq!(Kind::from_u8_or_video(0x23), Kind::CommandResult);
+    for byte in [0x20u8, 0x21, 0x22, 0x23] {
         assert_ne!(Kind::from_u8_or_video(byte), Kind::Video, "byte {byte:#x}");
     }
 }

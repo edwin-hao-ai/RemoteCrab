@@ -426,9 +426,18 @@ public struct IBInstalledAppsRequest: Codable, Sendable, Equatable {
 public struct IBActivateApp: Codable, Sendable, Equatable {
     public let id: String
     public let windowTitle: String?
-    public init(id: String, windowTitle: String? = nil) {
+    /// Correlates the `commandResult` this request should produce.
+    ///
+    /// Optional in both directions on purpose. A phone that predates
+    /// `commandResult` omits it, and a receiver then stays silent — the
+    /// phone reads that silence as "too old to confirm" rather than as a
+    /// failure. A request without an id is still honoured exactly as
+    /// before, so nothing regresses for either peer.
+    public let requestId: String?
+    public init(id: String, windowTitle: String? = nil, requestId: String? = nil) {
         self.id = id
         self.windowTitle = windowTitle
+        self.requestId = requestId
     }
 }
 
@@ -436,12 +445,44 @@ public struct IBActivateApp: Codable, Sendable, Equatable {
 /// `NSRunningApplication.forceTerminate()` (SIGKILL-equivalent), which
 /// cannot prompt and will lose unsaved work; the graceful path asks the
 /// app to quit like ⌘Q does.
+/// Receiver → iPhone: what actually happened to a command (kind 0x23).
+///
+/// This exists so a tap that did nothing says *why*. Before it, `activateApp`
+/// and friends were fire-and-forget: a missing Accessibility grant, a quit
+/// app and a vanished window all looked identical from the phone — silence.
+/// Naming the reason is the whole value; the phone deliberately does **not**
+/// retry, because none of these three is fixed by trying again.
+public struct IBCommandResult: Codable, Sendable, Equatable {
+    public enum Status: String, Codable, Sendable {
+        case ok
+        /// The target app is no longer running.
+        case appNotRunning
+        /// The Accessibility permission the receiver needs is missing.
+        case noPermission
+        /// The app is running but that window does not exist.
+        case noWindow
+        case failed
+    }
+    public let requestId: String
+    public let status: Status
+    /// Free-form, already-localised on the receiver side where possible.
+    public let detail: String?
+    public init(requestId: String, status: Status, detail: String? = nil) {
+        self.requestId = requestId
+        self.status = status
+        self.detail = detail
+    }
+}
+
 public struct IBQuitApp: Codable, Sendable, Equatable {
     public let id: String
     public let force: Bool
-    public init(id: String, force: Bool = false) {
+    /// See `IBActivateApp.requestId`.
+    public let requestId: String?
+    public init(id: String, force: Bool = false, requestId: String? = nil) {
         self.id = id
         self.force = force
+        self.requestId = requestId
     }
 }
 
@@ -597,9 +638,12 @@ public struct IBSystemCommand: Codable, Sendable, Equatable {
     }
     public let command: Command
     public let argument: String?
-    public init(command: Command, argument: String? = nil) {
+    /// See `IBActivateApp.requestId`.
+    public let requestId: String?
+    public init(command: Command, argument: String? = nil, requestId: String? = nil) {
         self.command = command
         self.argument = argument
+        self.requestId = requestId
     }
 }
 

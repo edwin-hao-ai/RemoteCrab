@@ -60,6 +60,12 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    /// Commands waiting for the receiver's `commandResult`.
+    private var commandLedger = IBCommandLedger()
+    private var commandExpiryTimer: Timer?
+    /// app name per request, so a failure can say which app was meant.
+    private var commandAppNames: [String: String] = [:]
+
     /// `true` only when a frame would actually leave the device. Commands
     /// the user is watching (switch / quit / launch) check this so a dead
     /// link says so instead of silently eating the tap.
@@ -587,7 +593,7 @@ final class CaptureEngine: ObservableObject {
                 $0.name.lowercased().contains(target) || $0.id.lowercased().contains(target)
             }) {
                 Self.log.info("voice command → activate \(app.name, privacy: .public)")
-                activateMacApp(id: app.id)
+                activateMacApp(id: app.id, appName: app.name)
                 return true
             }
         }
@@ -674,7 +680,7 @@ final class CaptureEngine: ObservableObject {
         }
         let hasWindow = !(windowTitle ?? "").isEmpty
         Forensic.log("[notify] tap: activating '\(app.name)' window=\(hasWindow ? "yes" : "no")")
-        activateMacApp(id: app.id, windowTitle: windowTitle)
+        activateMacApp(id: app.id, windowTitle: windowTitle, appName: app.name)
     }
 
     /// Screenshot/E2E hook: fill the in-app inbox from a JSON array of
@@ -1905,17 +1911,68 @@ final class CaptureEngine: ObservableObject {
             reportNoLink()
             return
         }
-        sendSystemCommand(IBSystemCommand(command: .launchApp, argument: app.id))
+        let requestId = openCommand(appName: app.name)
+        sendSystemCommand(IBSystemCommand(command: .launchApp, argument: app.id,
+                                         requestId: requestId))
     }
 
     /// Bring a Mac app to the front, and optionally raise one specific
     /// window of it (matches the picked window card).
-    func activateMacApp(id: String, windowTitle: String? = nil) {
+    func activateMacApp(id: String, windowTitle: String? = nil, appName: String? = nil) {
         guard canReachMac else {
             reportNoLink()
             return
         }
-        broadcaster?.send(IBActivateApp(id: id, windowTitle: windowTitle))
+        let requestId = openCommand(appName: appName ?? id)
+        broadcaster?.send(IBActivateApp(id: id, windowTitle: windowTitle,
+                                        requestId: requestId))
+    }
+
+    /// Register a command and return the id the receiver will echo back.
+    private func openCommand(appName: String) -> String {
+        let requestId = UUID().uuidString
+        commandLedger.open(requestId, now: Date())
+        commandAppNames[requestId] = appName
+        startCommandExpiry()
+        return requestId
+    }
+
+    private func startCommandExpiry() {
+        guard commandExpiryTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.expireCommands() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        commandExpiryTimer = timer
+    }
+
+    private func expireCommands() {
+        for outcome in commandLedger.expire(Date()) {
+            Forensic.log("[cmd] unconfirmed \(outcome.requestId.prefix(8))")
+            if let message = outcome.message() { showHint(message) }
+        }
+        if commandLedger.pendingCount == 0 { stopCommandExpiry() }
+    }
+
+    private func stopCommandExpiry() {
+        commandExpiryTimer?.invalidate()
+        commandExpiryTimer = nil
+    }
+
+    private func resolveCommand(_ result: IBCommandResult) {
+        // `resolve` returns nil for an id we never opened (late or duplicate),
+        // which must be dropped silently.
+        guard commandLedger.resolve(result.requestId) != nil else { return }
+        let appName = commandAppNames.removeValue(forKey: result.requestId) ?? ""
+        if commandLedger.pendingCount == 0 { stopCommandExpiry() }
+        // Success needs no message: the screen visibly changed, and a toast
+        // on top of that is noise.
+        guard result.status != .ok else { return }
+        Forensic.log("[cmd] \(result.requestId.prefix(8)) → \(result.status.rawValue)")
+        let outcome = IBCommandOutcome(requestId: result.requestId,
+                                       state: .failed(status: result.status),
+                                       appName: appName)
+        if let message = outcome.message() { showHint(message) }
     }
 
     /// The single place a dropped link becomes visible to the user. Every
@@ -1929,12 +1986,13 @@ final class CaptureEngine: ObservableObject {
 
     /// Quit a Mac app. Graceful by default (the app may show a save sheet
     /// on the Mac); `force` terminates immediately and can lose work.
-    func quitMacApp(id: String, force: Bool) {
+    func quitMacApp(id: String, force: Bool, appName: String? = nil) {
         guard canReachMac else {
             reportNoLink()
             return
         }
-        broadcaster?.send(IBQuitApp(id: id, force: force))
+        let requestId = openCommand(appName: appName ?? id)
+        broadcaster?.send(IBQuitApp(id: id, force: force, requestId: requestId))
         // Optimistic: drop the app's cards from the open window picker
         // immediately. The Mac republishes the list right after the quit
         // and reconciles — if a graceful quit is blocked by an invisible
@@ -2196,6 +2254,12 @@ final class CaptureEngine: ObservableObject {
             break
         }
         stopOwnerWatchdog()
+        // Every pending command is moot once the link is gone, and
+        // `reportNoLink()` already says so. Letting them expire would
+        // contradict that with N "your Mac app is too old" hints.
+        commandLedger.clear()
+        commandAppNames.removeAll()
+        stopCommandExpiry()
         broadcaster = nil
         audioEncoder?.stop()
         connection = nil
@@ -2326,6 +2390,10 @@ final class CaptureEngine: ObservableObject {
             case .cameraCommand:
                 if let command = try? IBWire.decodeCameraCommand(frame) {
                     switchCamera(to: command.position)
+                }
+            case .commandResult:
+                if let result = try? IBWire.decodeCommandResult(frame) {
+                    resolveCommand(result)
                 }
             case .ping:
                 // Either the echo of our own probe (a measurement) or the

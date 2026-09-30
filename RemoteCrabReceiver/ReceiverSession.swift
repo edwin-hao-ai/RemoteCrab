@@ -457,34 +457,55 @@ final class ReceiverSession: ObservableObject {
         return NSRunningApplication.runningApplications(withBundleIdentifier: id).first
     }
 
-    private func activateApp(id: String, windowTitle: String?) {
+    private func activateApp(id: String, windowTitle: String?) -> IBCommandResult.Status {
         guard let app = resolveApp(id: id) else {
             Self.log.info("activateApp: not running (\(id, privacy: .public))")
-            return
+            return .appNotRunning
         }
         let pid = app.processIdentifier
-        app.activate(options: [.activateAllWindows])
+        // `activate` returns a Bool that is routinely false — a missing
+        // Accessibility grant looks exactly like success otherwise, and the
+        // phone is left staring at a screen that did not change.
+        let raised = app.activate(options: [.activateAllWindows])
         if let windowTitle, !windowTitle.isEmpty {
-            raiseWindow(pid: pid, title: windowTitle)
+            return raiseWindow(pid: pid, title: windowTitle) ? .ok : .noWindow
         }
-        Self.log.info("activated app \(app.localizedName ?? id, privacy: .public) window=\(windowTitle ?? "-", privacy: .public)")
+        Self.log.info("activated app \(app.localizedName ?? id, privacy: .public) window=\(windowTitle ?? "-", privacy: .public) raised=\(raised, privacy: .public)")
+        return raised ? .ok : .noPermission
+    }
+
+    /// Answer a request that carried a `requestId`.
+    ///
+    /// A `nil` id means the phone predates `commandResult`: honour the
+    /// command, say nothing. Silence is the correct reply to a peer that
+    /// cannot read the answer, and the phone interprets it as "your Mac app
+    /// is too old to confirm" rather than as a failure.
+    private func reply(_ requestId: String?, _ status: IBCommandResult.Status) {
+        guard let requestId, let broadcaster else { return }
+        broadcaster.send(IBCommandResult(requestId: requestId, status: status))
+    }
+
+    private func activateAppAndRepublish(id: String, windowTitle: String?) -> IBCommandResult.Status {
+        let status = activateApp(id: id, windowTitle: windowTitle)
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             self?.publishMacApps()
         }
+        return status
     }
 
     /// Bring one window of `pid` to the front — un-minimizing it first —
     /// via Accessibility, matched by title. Plain app activation can't
     /// surface a specific (possibly minimized/behind) window, which read
     /// as "the picker can't switch me there".
-    private func raiseWindow(pid: pid_t, title: String) {
+    /// Returns whether the window was found and raised.
+    private func raiseWindow(pid: pid_t, title: String) -> Bool {
         let axApp = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value) == .success,
               let windows = value as? [AXUIElement] else {
             Self.log.info("raiseWindow: no AX windows for pid \(pid, privacy: .public)")
-            return
+            return false
         }
         for window in windows {
             var titleRef: CFTypeRef?
@@ -495,19 +516,24 @@ final class ReceiverSession: ObservableObject {
             AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
             AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             Self.log.info("raised window \(title, privacy: .public)")
-            return
+            return true
         }
         Self.log.info("raiseWindow: no AX title match for \(title, privacy: .public)")
+        return false
     }
 
     /// Quit the identified app. Graceful by default — the app may raise a
     /// save sheet on the Mac (invisible from the iPhone) — or immediate
     /// when `force` is set, which can lose unsaved work.
-    private func quitApp(id: String, force: Bool) {
+    private func quitApp(id: String, force: Bool) -> IBCommandResult.Status {
         guard let app = resolveApp(id: id) else {
             Self.log.info("quitApp: not running (\(id, privacy: .public))")
-            return
+            return .appNotRunning
         }
+        // `terminate`/`forceTerminate` answer whether the request was
+        // ACCEPTED, not whether the app has exited — a graceful quit blocked
+        // by an invisible save sheet is accepted, then silently reappears.
+        // Still worth reporting: "we asked" is true, "it happened" is not.
         let requested = force ? app.forceTerminate() : app.terminate()
         Self.log.info("quitApp \(app.localizedName ?? id, privacy: .public) force=\(force, privacy: .public) accepted=\(requested, privacy: .public)")
         Task { [weak self] in
@@ -517,6 +543,7 @@ final class ReceiverSession: ObservableObject {
             // the card disappears from the still-open sheet.
             self?.publishMacWindows()
         }
+        return requested ? .ok : .failed
     }
 
     // MARK: - Recording
@@ -1570,15 +1597,19 @@ final class ReceiverSession: ObservableObject {
                 publishMacApps(includeIcons: true)
             case .activateApp:
                 if let request = try? IBWire.decodeActivateApp(frame) {
-                    activateApp(id: request.id, windowTitle: request.windowTitle)
+                    let status = activateAppAndRepublish(id: request.id,
+                                                         windowTitle: request.windowTitle)
+                    reply(request.requestId, status)
                 }
             case .quitApp:
                 if let request = try? IBWire.decodeQuitApp(frame) {
-                    quitApp(id: request.id, force: request.force)
+                    let status = quitApp(id: request.id, force: request.force)
+                    reply(request.requestId, status)
                 }
             case .systemCommand:
                 if let command = try? IBWire.decodeSystemCommand(frame) {
                     SystemCommandHandler.handle(command)
+                    reply(command.requestId, .ok)
                     // "Show Desktop" from the switcher: also point the live
                     // mirror at the whole display, so the phone actually sees
                     // the desktop instead of staying on the old window.

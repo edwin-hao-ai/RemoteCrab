@@ -53,6 +53,7 @@ public enum IBWire {
         case installedAppsRequest = 0x20  // JSON IBInstalledAppsRequest (iPhone → receiver)
         case installedApps  = 0x21    // JSON IBInstalledApps (receiver → iPhone)
         case notification   = 0x22    // JSON IBNotification (Mac → iPhone)
+        case commandResult  = 0x23    // JSON IBCommandResult (receiver → iPhone)
     }
 
     // MARK: - Encoding
@@ -146,6 +147,11 @@ public enum IBWire {
     public static func encode(installedAppsRequest: IBInstalledAppsRequest) throws -> Data {
         let json = try JSONEncoder().encode(installedAppsRequest)
         return encodeFrame(kind: .installedAppsRequest, payload: json)
+    }
+
+    /// Encode a command outcome (receiver → iPhone).
+    public static func encode(commandResult: IBCommandResult) throws -> Data {
+        encodeFrame(kind: .commandResult, payload: try JSONEncoder().encode(commandResult))
     }
 
     /// Encode an activate-app request (iPhone → Mac).
@@ -373,6 +379,11 @@ public enum IBWire {
     /// Decode an `.installedAppsRequest` frame's payload.
     public static func decodeInstalledAppsRequest(_ frame: Frame) throws -> IBInstalledAppsRequest {
         try JSONDecoder().decode(IBInstalledAppsRequest.self, from: frame.payload)
+    }
+
+    /// Decode a `.commandResult` frame's payload.
+    public static func decodeCommandResult(_ frame: Frame) throws -> IBCommandResult {
+        try JSONDecoder().decode(IBCommandResult.self, from: frame.payload)
     }
 
     /// Decode an `.activateApp` frame's payload.

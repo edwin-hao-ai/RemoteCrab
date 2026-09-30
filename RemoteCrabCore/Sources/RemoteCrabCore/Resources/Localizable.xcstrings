@@ -9331,6 +9331,91 @@
           }
         }
       }
+    },
+    "Couldn't confirm with your Mac — its app may be out of date.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't confirm with your Mac — its app may be out of date."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法与电脑确认结果 — 电脑端 App 可能版本过旧。"
+          }
+        }
+      }
+    },
+    "Your Mac needs Accessibility permission to control apps.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac needs Accessibility permission to control apps."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑需要「辅助功能」权限才能控制应用。"
+          }
+        }
+      }
+    },
+    "That window isn't open on your Mac anymore.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That window isn't open on your Mac anymore."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "那个窗口在电脑上已经不存在了。"
+          }
+        }
+      }
+    },
+    "Your Mac refused that request.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac refused that request."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "电脑拒绝了该请求。"
+          }
+        }
+      }
+    },
+    "“%@” is no longer running.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is no longer running."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”已经不在运行了。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
