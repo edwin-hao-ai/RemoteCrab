@@ -140,6 +140,40 @@ nil → `decide` 里那条「其他人一律回 busy」的分支（`MacPairingSt
 `supervisor.rs:52` 丢弃错误，无日志、无重试。`ServiceDaemon::new()` 失败一次，
 该进程生命周期内 mDNS 彻底死掉且一声不吭。
 
+### R10 · 掉线之后永不重连（复检时发现）🔴
+
+`start_connection` 把 `target` **move 进了 spawn 的任务**，而 supervisor 自己的
+`target` 变量**只有 `FallbackTick` 那条分支会赋值**。所以
+`Action::Reconnect` 的 `if let Some(t) = target.clone()` 永远是 `None` —— 什么都不做。
+
+后果：手动连接或 mDNS 发现的手机，**任何一次链路抖动（WiFi 切一下、iPhone 锁屏、
+笔记本换 AP）都会永久断掉**，而 R2 的门槛又恰好挡住了兜底救援。表现是「连上过一次，
+然后就再也连不上了」。
+
+修法：把赋值放进 `start_connection` 本身，让「忘记记录自己在连谁」从结构上不可能再犯。
+测试：`link_loss_reconnects_on_its_own`（握手后立刻挂断，断言 30 秒内至少两次连接）。
+
+### R11 · 整个托盘菜单点不动（复检时发现，最严重）🔴
+
+`750790a`（2026-09-29 22:25「feat(windows): bring the tray menu up to the Mac
+popover's standard」）把手写的 `append_item(menu, flags, Ids::CAMERA, ...)` 换成了共享
+模型 `append_item(menu, flags, row.id as usize, ...)`。
+
+- 菜单行携带的 id 来自 `tray_menu::ids` = **100/101/102…**
+- 点击分发仍然匹配局部 `struct Ids` = **1/2/3…**
+
+两套编号**零重叠** ⇒ `match id { … _ => None }` 每次都落空 ⇒ **托盘能弹出、渲染完全
+正常，但点任何一项都没有任何反应**。
+
+这解释了「在 Windows 上测试特别痛苦」：主交互界面当时是死的。它能编译、模型测试
+（只检查 `menu_rows()` 的布局）全绿 —— 又一次「测试只覆盖了模型、没覆盖接线」。
+
+修法 + 两道防线：
+1. 删掉第二套表，id 统一为 `usize`；
+2. `tray_menu::known_ids()` + `all_rows_have_a_known_id()`：每个可点行的 id 必须在
+   点击处理器的已知集合里；
+3. `tray.rs` 的 `debug_assert!`：开发版遇到未知 id 直接报错，而不是静默丢弃。
+
 ### 未确认的假设（不算根因，需实测）
 
 **Windows 防火墙无规则。** `grep -rni "firewall|advfirewall|New-NetFirewallRule"
