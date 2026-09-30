@@ -841,6 +841,7 @@ cross-references rather than the file order.
 | 91 | A stalled build is usually the network, and my diagnostics w | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 92 | Parallel sessions will commit my working tree, and my own co | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 93 | Splitting a 212 KB AGENTS.md nearly destroyed 26 lessons | [`protocol`](docs/lessons/protocol.md) |
+| 94 | A timer cannot decide whether a remote list is empty — plus the 14.6 MB icon frame behind it, and why JPEG was wrong (no alpha) | [`connection`](docs/lessons/connection.md) |
 
 
 Headless e2e launch envs for the iOS app (via

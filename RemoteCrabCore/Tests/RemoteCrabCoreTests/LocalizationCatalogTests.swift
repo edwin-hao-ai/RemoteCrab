@@ -88,4 +88,24 @@ final class LocalizationCatalogTests: XCTestCase {
         }
         XCTAssertTrue(missing.isEmpty, "context labels with no zh-Hans translation: \(missing)")
     }
+
+    /// The launcher's waiting / no-answer states. They exist because the
+    /// sheet used to say "No apps listed yet" while the Mac was still
+    /// building the list, so a Chinese user would have read a *lie* in their
+    /// own language — the new sentences must ship translated.
+    func testLauncherWaitStatesAreBilingual() throws {
+        let keys = [
+            "Asking your computer for its apps…",
+            "Your computer didn’t answer",
+            "Check that RemoteCrab Receiver is running and up to date, then try again.",
+            "Reconnect, then try again.",
+        ]
+        let strings = try catalog()
+        for key in keys {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
+            let locs = try XCTUnwrap(entry["localizations"] as? [String: Any], "no localizations: \(key)")
+            XCTAssertNotNil(locs["en"], "missing en: \(key)")
+            XCTAssertNotNil(locs["zh-Hans"], "missing zh-Hans: \(key)")
+        }
+    }
 }

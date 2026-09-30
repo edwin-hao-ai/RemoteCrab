@@ -7,7 +7,9 @@
 你在**一台 Windows 电脑**上，前一个 session 在 Mac 上把 Windows 接收端做到了
 「Mac 上能做的全部做完」的位置。剩下的**必须在这台机器上做**。
 
-代码基线：`d5b6ea3`。仓库在 `windows/` 子目录里，是一个独立的 Rust workspace。
+代码基线：`2bc41b5`。仓库在 `windows/` 子目录里，是一个独立的 Rust workspace。
+
+本 session 的完整收尾记录：**[`docs/WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)**。
 
 ## 先读这三份，按顺序
 

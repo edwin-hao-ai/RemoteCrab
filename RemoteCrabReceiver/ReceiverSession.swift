@@ -67,6 +67,17 @@ final class ReceiverSession: ObservableObject {
     /// likely open, instead of capturing every window on every change.
     private var lastWindowListRequestAt: Date?
 
+    /// A launch and the activation that follows it are one change, not two,
+    /// and each window rebuild costs a JPEG per window. This collapses the
+    /// pair and waits for the app to actually reach the front — otherwise
+    /// the card is built from a process that has no window yet, which is
+    /// exactly the "I opened it and it isn't there" complaint.
+    private var windowChangeCoalescer = IBChangeCoalescer()
+    private var windowChangeTimer: Timer?
+    /// Whether the pending refresh belongs to a launch, i.e. may still be
+    /// pushed back by that launch's `didActivateApplication`.
+    private var windowChangeExpectsActivation = false
+
     /// When the last ping echo came back — the ping loop treats 8 s of
     /// silence as a dead link (see `startPingLoop`).
     private var lastPongAt: Date?
@@ -267,11 +278,26 @@ final class ReceiverSession: ObservableObject {
                      NSWorkspace.didTerminateApplicationNotification] {
             workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
-                    self?.publishMacApps()
-                    // An app that quits (on its own or from the picker)
-                    // must vanish from an OPEN window picker.
-                    if name == NSWorkspace.didTerminateApplicationNotification {
-                        self?.publishMacWindowsIfRecentlyRequested()
+                    guard let self else { return }
+                    self.publishMacApps()
+                    // The picker renders `macWindows`, not `macApps` — so an
+                    // app that starts (the launcher sheet, the shortcut bar,
+                    // Show Desktop) has to be republished as a *window* or it
+                    // cannot become a card in the sheet the user is looking
+                    // at, and one that quits must disappear from it.
+                    switch name {
+                    case NSWorkspace.didLaunchApplicationNotification:
+                        // The window arrives with the activation that follows,
+                        // so wait for the pair rather than for the process.
+                        self.scheduleWindowRefresh(expectsActivation: true)
+                    case NSWorkspace.didTerminateApplicationNotification:
+                        self.scheduleWindowRefresh(expectsActivation: false)
+                    default:
+                        // `didActivate` is only interesting as the second half
+                        // of a launch. Alone — every app switch, every dialog,
+                        // every sheet — a rebuild costs a JPEG per window and
+                        // changes nothing the picker shows.
+                        self.windowRefreshPushesForActivation()
                     }
                 }
             }
@@ -345,11 +371,64 @@ final class ReceiverSession: ObservableObject {
 
     /// Refresh the window picker only if the iPhone asked for it recently
     /// (i.e. the picker is probably open). Used for background events like
-    /// an app quitting on its own.
+    /// an app quitting or starting on its own.
     private func publishMacWindowsIfRecentlyRequested() {
         guard let at = lastWindowListRequestAt,
-              Date().timeIntervalSince(at) < 30 else { return }
+              Date().timeIntervalSince(at) < windowPickerFreshness else { return }
         publishMacWindows()
+    }
+
+    /// How long after the iPhone asked for the window list a workspace
+    /// change still counts as "the picker may be open".
+    ///
+    /// Was 30 s, which is shorter than the flow it has to survive: open the
+    /// picker, browse the launcher grid, pick an app. The launch then landed
+    /// outside the window and the app the user just opened still didn't
+    /// appear. Long enough to cover a deliberate browse, still bounded so
+    /// a closed picker costs nothing.
+    private let windowPickerFreshness: TimeInterval = 120
+
+    /// Queue a window-list rebuild once the current burst of workspace
+    /// notifications goes quiet. `expectsActivation` marks it as a launch,
+    /// which the matching `didActivate` is allowed to push back — see
+    /// `windowRefreshPushesForActivation`.
+    private func scheduleWindowRefresh(expectsActivation: Bool) {
+        guard sessionGranted else { return }
+        windowChangeExpectsActivation = expectsActivation
+        windowChangeCoalescer.signal(now: Date())
+        guard windowChangeTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.fireWindowRefreshIfDue() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        windowChangeTimer = timer
+    }
+
+    /// The activation half of a launch. It only means something while a
+    /// launch is pending; every other activation is a window the picker
+    /// already shows.
+    private func windowRefreshPushesForActivation() {
+        guard windowChangeCoalescer.isPending, windowChangeExpectsActivation else { return }
+        windowChangeCoalescer.signal(now: Date())
+    }
+
+    private func fireWindowRefreshIfDue() {
+        // A session that ended mid-wait leaves nothing to refresh. Drop the
+        // timer with it instead of idling at 5 Hz for the rest of the run.
+        guard sessionGranted else {
+            stopWindowRefresh()
+            return
+        }
+        guard windowChangeCoalescer.isDue(now: Date()) else { return }
+        stopWindowRefresh()
+        publishMacWindowsIfRecentlyRequested()
+    }
+
+    private func stopWindowRefresh() {
+        windowChangeCoalescer.cancel()
+        windowChangeExpectsActivation = false
+        windowChangeTimer?.invalidate()
+        windowChangeTimer = nil
     }
 
     /// Send every launch-able application for the iPhone's launcher sheet
@@ -358,13 +437,17 @@ final class ReceiverSession: ObservableObject {
     func publishInstalledApps() {
         guard sessionGranted, let connection, connection.state == .ready else { return }
         Task { [weak self] in
+            let started = Date()
             let apps = await InstalledAppsCatalog.all()
             guard let self, self.sessionGranted,
                   let connection = self.connection, connection.state == .ready else { return }
             Self.log.info("published \(apps.count, privacy: .public) installed apps")
-            if let data = try? IBWire.encode(installedApps: IBInstalledApps(apps: apps)) {
-                connection.send(content: data, completion: .contentProcessed { _ in })
-            }
+            guard let data = try? IBWire.encode(installedApps: IBInstalledApps(apps: apps)) else { return }
+            // The frame size is the whole point of the JPEG switch, so it is
+            // logged next to the count: 113 apps was 14.25 MB as 192px
+            // lossless PNG and is 1.06 MB as 192px JPEG.
+            Self.log.info("installedApps frame: \(data.count / 1024, privacy: .public)KB in \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public)ms")
+            connection.send(content: data, completion: .contentProcessed { _ in })
         }
     }
 
@@ -462,11 +545,20 @@ final class ReceiverSession: ObservableObject {
             Self.log.info("activateApp: not running (\(id, privacy: .public))")
             return .appNotRunning
         }
-        let pid = app.processIdentifier
+let pid = app.processIdentifier
         // `activate` returns a Bool that is routinely false — a missing
-        // Accessibility grant looks exactly like success otherwise, and the
-        // phone is left staring at a screen that did not change.
-        let raised = app.activate(options: [.activateAllWindows])
+        // Accessibility grant looks exactly like success otherwise, and
+        // the phone is left staring at a screen that did not change.
+        //
+        // Deliberately **no `.activateAllWindows`**. It was added on
+        // 2026-09-20 to make a *tapped window card* come forward, but it is
+        // all-or-nothing: it un-piles **every** window the app owns. Tapping
+        // an app in the launcher then switched apps *and* re-surfaced every
+        // window that app happened to have buried, which is a switch plus a
+        // workspace tidy-up nobody asked for. Plain activation is what
+        // "switch to this app" means on macOS; the one window the user
+        // actually tapped is raised explicitly below.
+        let raised = app.activate(options: [])
         if let windowTitle, !windowTitle.isEmpty {
             return raiseWindow(pid: pid, title: windowTitle) ? .ok : .noWindow
         }

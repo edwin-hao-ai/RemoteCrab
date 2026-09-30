@@ -433,8 +433,17 @@ public struct IBAppListRequest: Codable, Sendable, Equatable {
 public struct IBInstalledApp: Codable, Sendable, Equatable, Identifiable {
     public let id: String
     public let name: String
-    /// 96 px PNG of the app's icon, so the launcher can render a
-    /// Dock-style grid of real icons. Nil when the receiver has none.
+    /// The app's icon, so the launcher can render a Dock-style grid of real
+    /// icons. Nil when the receiver has none.
+    ///
+    /// **PNG, and it has to stay PNG.** The obvious optimisation — JPEG, 12×
+    /// smaller — was tried and reverted: JPEG has no alpha channel, and a
+    /// macOS app icon is a *squircle* with transparent corners, so the
+    /// encoder fills them with opaque white and the phone renders a white
+    /// square behind every tile. The size was won back on the other axis
+    /// instead (see `InstalledAppsCatalog`): draw into an explicit 128 px
+    /// bitmap rather than `NSImage.lockFocus`, which was inflating the
+    /// backing store to 192 px *and* costing ~94 KB per icon.
     public let iconPNG: Data?
 
     public init(id: String, name: String, iconPNG: Data? = nil) {

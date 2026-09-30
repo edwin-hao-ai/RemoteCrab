@@ -1,7 +1,8 @@
 # Windows 接收端：待办清单与验证手册
 
-> 最后更新：2026-09-30 晚。代码基线：`f7d4b2e` / `4554353` / `9199592`
-> （Windows 测试 362，Core 367）。Mac 接收端 ↔ iPhone 真机 E2E 26/26 绿。
+> 最后更新：2026-09-30 晚。代码基线 `2bc41b5`（Windows 测试 362，Core 367，
+> Mac↔iPhone 真机 E2E 26/26 绿）。收尾记录见
+> [`WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)。
 >
 > 这份文档是**交接给能在 Windows 上操作的人**的。每一条都写清楚：做什么、为什么、
 > 怎么验证、以及**怎么才算做完了**。没有真机的部分我不会替它勾。

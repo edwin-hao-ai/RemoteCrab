@@ -9416,6 +9416,74 @@
           }
         }
       }
+    },
+    "Asking your computer for its apps…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asking your computer for its apps…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在向你的电脑获取应用…"
+          }
+        }
+      }
+    },
+    "Your computer didn’t answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your computer didn’t answer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的电脑没有回应"
+          }
+        }
+      }
+    },
+    "Check that RemoteCrab Receiver is running and up to date, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that RemoteCrab Receiver is running and up to date, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认 RemoteCrab Receiver 正在运行且为最新版本，然后重试。"
+          }
+        }
+      }
+    },
+    "Reconnect, then try again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect, then try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新连接后再试。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

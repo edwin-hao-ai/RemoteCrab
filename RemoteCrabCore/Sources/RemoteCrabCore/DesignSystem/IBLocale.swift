@@ -37,6 +37,15 @@ public enum IBLocale {
         public static let searchPlaceholder = IBL("Search apps")
         public static let empty = IBL("No apps listed yet")
         public static let hint = IBL("Apps reported by the connected computer")
+        /// Shown while the receiver enumerates and rasterises its app list
+        /// — a cold Mac needs seconds, and "no apps yet" during that window
+        /// is the one thing this surface must never say.
+        public static let loading = IBL("Asking your computer for its apps…")
+        /// The request went out and nothing came back — a dead link or a
+        /// receiver that predates the frame, not an empty list.
+        public static let noAnswer = IBL("Your computer didn’t answer")
+        public static let noAnswerHint = IBL("Check that RemoteCrab Receiver is running and up to date, then try again.")
+        public static let offlineHint = IBL("Reconnect, then try again.")
     }
 
     /// App-window mirror surface (full-screen chrome + coach mark).

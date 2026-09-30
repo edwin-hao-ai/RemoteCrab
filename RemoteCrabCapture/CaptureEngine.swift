@@ -1900,9 +1900,70 @@ final class CaptureEngine: ObservableObject {
     /// (bundle id on the Mac, `.lnk` path on Windows).
     @Published private(set) var installedApps: [IBInstalledApp] = []
 
+    /// Whether the launcher is still waiting for that list. `awaiting` is the
+    /// only phase that may show a spinner; `answered` is the only one that
+    /// may show an empty list, and `unanswered` is what the sheet has to say
+    /// when no receiver answered at all.
+    @Published private(set) var installedAppsPhase: IBListRequestGate.Phase = .idle
+    private var installedAppsGate = IBListRequestGate()
+    private var installedAppsExpiryTimer: Timer?
+    /// When the current request went out, so the reply can report how long
+    /// the receiver actually took. A device log that says "asked" without a
+    /// matching "answered … after Nms" cannot tell a working fix from a
+    /// hopeful one.
+    private var installedAppsAskedAt: Date?
+
     /// Ask the receiver for its installed apps (launcher sheet).
+    ///
+    /// With no link there is nobody to answer, so the gate is left `idle`
+    /// rather than started — the sheet reads the link itself and says
+    /// "not connected", instead of waiting out a deadline to arrive at the
+    /// same conclusion through the wrong sentence.
     func requestInstalledApps() {
+        guard canReachMac else {
+            Forensic.log("[launcher] installed apps requested with no link")
+            return
+        }
+        installedAppsGate.begin(now: Date())
+        installedAppsPhase = installedAppsGate.current
+        installedAppsAskedAt = Date()
+        Forensic.log("[launcher] installed apps requested")
         broadcaster?.send(IBInstalledAppsRequest())
+        startInstalledAppsExpiry()
+    }
+
+    /// The receiver's answer arrived — the only event that may end a wait.
+    private func resolveInstalledApps(_ list: [IBInstalledApp],
+                                      bytes: Int = 0, askedAt: Date? = nil) {
+        installedApps = list
+        installedAppsGate.answer()
+        installedAppsPhase = installedAppsGate.current
+        stopInstalledAppsExpiry()
+        let took = askedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? 0
+        let kb = bytes / 1024
+        Forensic.log("[launcher] answered: \(list.count) apps, \(kb)KB, after \(took)ms")
+    }
+
+    private func startInstalledAppsExpiry() {
+        guard installedAppsExpiryTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.expireInstalledApps() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        installedAppsExpiryTimer = timer
+    }
+
+    private func expireInstalledApps() {
+        if installedAppsGate.expire(now: Date()) {
+            Forensic.log("[launcher] no installed-app reply within \(Int(installedAppsGate.timeout))s")
+        }
+        installedAppsPhase = installedAppsGate.current
+        if installedAppsGate.isSettled { stopInstalledAppsExpiry() }
+    }
+
+    private func stopInstalledAppsExpiry() {
+        installedAppsExpiryTimer?.invalidate()
+        installedAppsExpiryTimer = nil
     }
 
     /// Launch an installed app on the receiver via `systemCommand(.launchApp)`.
@@ -2260,6 +2321,11 @@ final class CaptureEngine: ObservableObject {
         commandLedger.clear()
         commandAppNames.removeAll()
         stopCommandExpiry()
+        // Nothing will answer a list request made to the Mac that just left.
+        installedAppsGate.reset()
+        installedAppsPhase = installedAppsGate.current
+        installedAppsAskedAt = nil
+        stopInstalledAppsExpiry()
         broadcaster = nil
         audioEncoder?.stop()
         connection = nil
@@ -2436,7 +2502,9 @@ final class CaptureEngine: ObservableObject {
                 }
             case .installedApps:
                 if let list = try? IBWire.decodeInstalledApps(frame) {
-                    installedApps = list.apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                    resolveInstalledApps(
+                        list.apps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending },
+                        bytes: frame.payload.count, askedAt: installedAppsAskedAt)
                 }
             case .screenSPS:
                 screenDecoder.feed(IBNalFrame(kind: .sps, data: frame.payload, timestampMicros: 0))

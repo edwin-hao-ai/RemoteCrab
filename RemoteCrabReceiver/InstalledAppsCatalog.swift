@@ -48,23 +48,50 @@ enum InstalledAppsCatalog {
     /// (`NSCache` is internally thread-safe; the compiler just can't see it.)
     nonisolated(unsafe) private static let iconCache = NSCache<NSString, NSData>()
 
-    /// The app's icon as a 96 px PNG for the iPhone's launcher grid.
+    /// The app's icon for the iPhone's launcher grid, as a **128 px PNG**.
+    ///
+    /// Two defects lived here and both are load-bearing:
+    ///
+    /// 1. `NSImage.lockFocus` sizes the backing store to the *current
+    ///    backing scale*, so a "96 pt" box silently became **192×192** and
+    ///    cost ~94 KB per icon. A real `/Applications` (113 apps) made the
+    ///    `installedApps` frame a single **14.25 MB** message.
+    /// 2. The obvious fix — JPEG, 12× smaller — was tried and reverted:
+    ///    JPEG has **no alpha channel**, and a macOS icon is a squircle
+    ///    with transparent corners, so the encoder fills them with opaque
+    ///    white and the phone draws a white square behind every tile. Size
+    ///    has to be won on the pixel axis, not the format axis.
+    ///
+    /// 128 px is not arbitrary: the launcher tile is 64 pt and an iPhone 14
+    /// is @2x, so 128 px is pixel-exact for the device this shipped on.
+    /// Drawn into an explicit rep so the Mac's own display scale can never
+    /// change the payload again.
     private static func iconPNG(for appURL: URL) -> Data? {
         let key = appURL.path as NSString
         if let cached = iconCache.object(forKey: key) { return cached as Data }
 
         let icon = NSWorkspace.shared.icon(forFile: appURL.path)
-        let side: CGFloat = 96
-        let target = NSImage(size: NSSize(width: side, height: side))
-        target.lockFocus()
-        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
-        target.unlockFocus()
-        guard let tiff = target.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let px = Self.iconPixels
+        guard let rep = NSBitmapImageRep(
+                    bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                    isPlanar: false, colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0, bitsPerPixel: 0),
+              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = ctx
+        icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px),
+                  from: .zero, operation: .sourceOver, fraction: 1)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
         iconCache.setObject(png as NSData, forKey: key)
         return png
     }
+
+    /// Fixed on purpose: a 64 pt launcher tile at 2× (an iPhone 14) is
+    /// 128 px, and a value derived from the Mac's own screen would make the
+    /// payload size depend on which display the receiver happens to sit on.
+    private static let iconPixels = 128
 
     /// `.app` bundles directly in `root`, plus one level inside a child
     /// `Utilities` folder — the shape `/Applications` actually uses.

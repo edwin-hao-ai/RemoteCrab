@@ -438,7 +438,115 @@ driven off the listener failing instead.
       refresh on its own thread — the select loop stays free, and a slow
       launch is not published as an empty result.
 
-    348 Core tests (22 new), both app targets, Windows suite. **Not yet
-    verified on hardware**: the two visible behaviours — the spinner while
-    the list is built, and the launched app's card appearing in the open
-    picker — both need a phone and a Mac in the same session.
+### The 14.6 MB frame behind it, and why JPEG was the wrong answer
+
+The round trip was not slow because of the timer. It was slow because the
+`installedApps` frame was **14.25 MB**: `InstalledAppsCatalog` drew each
+icon through `NSImage.lockFocus` into a "96 pt" box, `lockFocus` sizes the
+backing store to the *current backing scale* (so 96 pt became **192×192**),
+and a 192×192 **lossless** PNG of a macOS icon is ~94 KB. 113 apps = 10.7 MB
+of PNG = 14.25 MB of base64, one message.
+
+The obvious fix is JPEG: measured 7 KB per icon, 12× smaller, same pixels.
+**It was implemented, shipped to a real iPhone, and reverted.** JPEG has no
+alpha channel, a macOS icon is a *squircle with transparent corners*, and the
+encoder fills those corners with opaque white — the phone drew a **white
+square behind every single tile**. Verified on the device, not reasoned
+about. Two more dead ends measured while looking for the right answer:
+`kCGImageDestinationLossyCompressionQuality` (PNG palette quantisation) is
+**silently ignored** by ImageIO's PNG encoder — three settings produced byte-
+identical output; and the "94 KB per icon" figure is an artefact of the
+`lockFocus` path, not of PNG — drawn into an explicit rep the same 192 px
+icon is 31 KB.
+
+The size was won on the **pixel axis** instead, which is where the defect
+actually was:
+
+| shape | frame | per icon | corners |
+|---|---|---|---|
+| `lockFocus` 96 pt → PNG (old) | 14.25 MB | 94 KB | ok |
+| explicit rep 192 px → PNG | 3.5 MB | 31 KB | ok |
+| **explicit rep 128 px → PNG** | **2.40 MB** | **15 KB** | **ok** |
+| explicit rep 192 px → JPEG | 1.06 MB | 6 KB | **white squares** |
+
+128 px is not a guess: the launcher tile is 64 pt and an iPhone 14 is @2x, so
+it is pixel-exact for the device it shipped on. **Re-measuring the old code
+on an idle machine also corrected a number reported earlier as 6.7–16 s: it
+is 5.5–7.1 s. The 16 s was a measurement made while a build was running.**
+
+### What only the device could find
+
+Two of these are invisible to code review and to every unit test:
+
+- **The sheet is reachable before the Mac is.** It can be opened from the
+  switcher the instant the app launches, while the handshake is still
+  running, and `.task` fires once — so the sheet sat on "not connected" for
+  the whole handshake (8 s on a real session) and needed a manual refresh
+  for a link that had already come up. Fixed by re-requesting on
+  `connectionState → .connected`. Nothing about the state machine was wrong;
+  what was missing was the *second* trigger.
+- **`launchApp` succeeding logs nothing.** `SystemCommandHandler` only logs
+  the failure branch, so a successful launch is invisible on the Mac side —
+  which is exactly the event bug 2 depends on. Worth a log line next time.
+
+### Do not run the receiver from a scratch path (see also lesson 80)
+
+Testing from `/tmp` looked harmless and was not. Two separate things broke:
+
+1. `ensureRegistered()` sees "the host app moved" whenever the binary is not
+   at the path recorded for the system extension, so **every run from
+   `/tmp` submits a deactivation request for the user's approved virtual
+   camera** (and every run from `/Applications` afterwards sees the
+   `/tmp` path in the record and re-registers). This is lesson 80's trap in a
+   new shape: the *test* was what moved the app, and the app's own
+   self-repair logic is what armed the damage.
+2. The Screen Recording TCC grant is keyed to the signing identity, so the
+   scratch build reports "not granted" while the installed one is still
+   authorised — which looks exactly like a permissions bug in the product.
+
+And: **two receivers running at once fight over the same phone.** An earlier
+session had been restarted from `/Applications` and was not visible in
+`pgrep -f RemoteCrabReceiver` (the binary is `RemoteCrab`). Count the
+processes, do not pattern-match the name.
+
+### Finally: installing the receiver the right way
+
+Replacing the build under `/Applications` does **not** need a provisioning
+profile dance, because `release-mac.sh` already encodes the whole recipe:
+archive with automatic signing, replace `Contents/embedded.provisionprofile`
+with the Developer ID profile that carries the System Extension Install
+entitlement, then re-sign the nested system extension, Sparkle and its XPC
+services, then the app — `codesign --force --options runtime --timestamp`,
+no `--deep`. Do that and all three things that `/tmp` had broken come back:
+
+```
+accessibility trusted: true
+extension registration is up to date        ← no re-registration, approval kept
+published 6 windows (1 with previews, canCapture=true)   ← Screen Recording kept
+```
+
+Same binary identity ⇒ every TCC grant survives. The scratch build was
+never a signing problem to be worked around; it was a different app as far
+as the system is concerned.
+
+### Device results (iPhone 14 / iOS 26, Mac build 11)
+
+```
+15:42:18 [launcher] requested with no link
+15:42:18 [launcher] requested                     ← the connectionState retry
+15:42:19 [launcher] answered: 113 apps, 2458KB, after 1246ms
+23:57:25 published 6 windows (1 with previews, canCapture=true)
+23:57:51 window list: 7 windows from 25 SC windows
+23:57:51 published 7 windows                      ← Safari launched; nobody asked
+```
+
+The last pair is bug 2: the old code republished the window list **only** on
+termination, so a launch produced no such line at all. The 0.9 s is the
+settle delay plus the poll interval, and it is a *push* — the phone made no
+request. An earlier attempt at the same test, with the picker closed for 11
+minutes, produced **no** refresh, which is the `windowPickerFreshness` gate
+working: the same mechanism neither fires when nobody is looking nor stays
+silent when they are.
+
+    351 Core tests, both app targets, Windows suite. Everything above is
+    device-verified on one phone and one Mac.
