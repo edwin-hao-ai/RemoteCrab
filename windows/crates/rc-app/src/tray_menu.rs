@@ -271,27 +271,51 @@ pub fn is_on(id: usize, state: &MenuState) -> bool {
 /// The icon that precedes a row's label, matching the Mac popover's habit of
 /// an SF Symbol on every row. Kept as text glyphs so no image assets are
 /// needed; the font falls back gracefully if one is missing.
-fn icon_for(id: usize) -> &'static str {
-    match id {
-        ids::CAMERA => "◉",
-        ids::MICROPHONE => "◍",
-        ids::TRACKPAD => "☰",
-        ids::KEYBOARD => "⌨",
-        ids::RECORD => "●",
-        ids::CLIPBOARD => "⎘",
-        ids::SHOW_FILE => "▤",
-        ids::PREVIEW => "▣",
-        ids::RECONNECT => "↻",
-        ids::DISCONNECT => "⏻",
-        // A question mark, because the row's job is to answer one.
-        ids::DIAGNOSIS => "?",
-        ids::AUTOSTART => "⚙",
-        ids::QUIT => "⏹",
-        _ => "",
-    }
+/// Which cell of `assets/menu-icons.png` a row's icon lives in.
+///
+/// The order **must** match `ROWS` in
+/// `scripts/generate-windows-menu-icons.py`, which is the file that actually
+/// draws them. They cannot be derived from each other — one is Python, one is
+/// Rust — so [`ICON_CELLS_FOR_THE_SHEET`] pins the count and
+/// `all_rows_have_an_icon` pins the coverage, and a reorder that forgets to
+/// regenerate the sheet fails the test rather than shipping a menu where
+/// "Quit" shows a folder.
+pub fn icon_cell(id: usize) -> Option<usize> {
+    Some(match id {
+        ids::CAMERA => 0,
+        ids::MICROPHONE => 1,
+        ids::TRACKPAD => 2,
+        ids::KEYBOARD => 3,
+        ids::RECORD => 4,
+        ids::CLIPBOARD => 6,
+        ids::SHOW_FILE => 7,
+        ids::PREVIEW => 8,
+        ids::DIAGNOSIS => 9,
+        ids::RECONNECT => 10,
+        ids::DISCONNECT => 11,
+        ids::AUTOSTART => 12,
+        ids::QUIT => 13,
+        _ => return None,
+    })
 }
 
+/// The "stop recording" glyph is a different cell from "start recording", so
+/// one id maps to one of two depending on state.
+pub fn record_icon_cell(recording: bool) -> usize {
+    if recording { 5 } else { 4 }
+}
+
+/// How many cells `scripts/generate-windows-menu-icons.py` writes.
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 14;
+
 /// Render a row's text the way it should appear in the popup.
+///
+/// No icon prefix: the icon is a real bitmap attached with
+/// `SetMenuItemBitmaps`. This used to prepend an arbitrary Unicode glyph
+/// (`◉`, `☰`, `⌨`…), which is not a set — those come from whatever font the
+/// system happens to resolve each one through, so they render inconsistently
+/// and fall back to tofu on a stripped install. A drawn sheet is one family by
+/// construction and it always exists.
 pub fn decorate(row: &MenuRow) -> String {
     match row.kind {
         Row::Separator => String::new(),
@@ -299,14 +323,7 @@ pub fn decorate(row: &MenuRow) -> String {
         // that cannot be styled.
         Row::Section => format!("— {} —", row.text),
         Row::Info => row.text.clone(),
-        Row::Item => {
-            let icon = icon_for(row.id);
-            if icon.is_empty() {
-                row.text.clone()
-            } else {
-                format!("{icon}  {}", row.text)
-            }
-        }
+        Row::Item => row.text.clone(),
     }
 }
 
@@ -346,7 +363,62 @@ mod tests {
     fn every_action_has_an_icon_and_an_id() {
         for row in menu_rows(&state()).iter().filter(|r| r.kind == Row::Item) {
             assert_ne!(row.id, 0, "actionable row without an id: {:?}", row.text);
-            assert!(!icon_for(row.id).is_empty(), "no icon for {:?}", row.text);
+            assert!(
+                icon_cell(row.id).is_some(),
+                "no icon cell for {:?} (id {})",
+                row.text,
+                row.id
+            );
+        }
+    }
+
+    /// A cell index outside the generated sheet is an invisible-at-best icon
+    /// (it would read as another row's glyph) and a blank cell is worse. The
+    /// count is the one thing tying this file to the Python generator, so it is
+    /// pinned here rather than assumed.
+    #[test]
+    fn no_icon_cell_points_outside_the_sheet() {
+        for id in 0..=200 {
+            if let Some(cell) = icon_cell(id) {
+                assert!(
+                    cell < ICON_CELLS_FOR_THE_SHEET,
+                    "id {id} maps to cell {cell}, but the sheet has \
+                     {ICON_CELLS_FOR_THE_SHEET} cells — regenerate it with \
+                     scripts/generate-windows-menu-icons.py"
+                );
+            }
+        }
+        assert_eq!(record_icon_cell(false), 4);
+        assert_eq!(record_icon_cell(true), 5);
+    }
+
+    /// The recording row is the one row whose icon changes with state. If the
+    /// two cells ever collide, "stop recording" would look like "start".
+    #[test]
+    fn the_two_record_glyphs_are_different_glyphs() {
+        assert_ne!(record_icon_cell(true), record_icon_cell(false));
+    }
+
+    /// No label may carry a hand-picked icon character any more. This is the
+    /// "casual icons" the sheet replaced, and putting one back would be a
+    /// regression: a stray glyph from whatever font resolves it is not part of
+    /// a set.
+    #[test]
+    fn no_label_carries_a_stray_glyph() {
+        for row in menu_rows(&state()) {
+            if !matches!(row.kind, Row::Item | Row::Section | Row::Info) {
+                continue;
+            }
+            for (i, ch) in row.text.chars().enumerate() {
+                let looks_like_a_glyph = matches!(ch,
+                    '\u{25A0}'..='\u{25FF}' | '\u{2600}'..='\u{27BF}' |
+                    '\u{2300}'..='\u{23FF}' | '\u{2B00}'..='\u{2BFF}');
+                assert!(
+                    !looks_like_a_glyph,
+                    "row {:?} carries a bare symbol {ch:?} at {i}: {:?}",
+                    row.text, row.text
+                );
+            }
         }
     }
 
@@ -358,14 +430,15 @@ mod tests {
             match row.kind {
                 Row::Section | Row::Info => {
                     assert_eq!(row.id, 0, "clickable non-action: {:?}", row.text);
-                    let decorated = decorate(&row);
-                    for toggle in [ids::CAMERA, ids::MICROPHONE, ids::QUIT] {
-                        let icon = icon_for(toggle);
-                        assert!(
-                            !decorated.contains(icon),
-                            "informative row carries the {toggle} icon: {decorated}"
-                        );
-                    }
+                    // Informative rows carry no bitmap at all: id 0 has no
+                    // cell in `icon_cell`, which is how the tray knows to skip
+                    // `SetMenuItemBitmaps` for them.
+                    assert_eq!(
+                        icon_cell(row.id),
+                        None,
+                        "informative row must not claim an icon cell: {:?}",
+                        row.text
+                    );
                 }
                 _ => {}
             }
