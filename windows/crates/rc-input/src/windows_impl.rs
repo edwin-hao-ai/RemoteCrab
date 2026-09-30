@@ -16,7 +16,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
-use crate::injector::{swipe_shortcut, InputTranslator, MouseAction, ScreenSize, SwipeShortcut, WheelAccumulator};
+use crate::injector::{
+    swipe_shortcut, InputTranslator, MouseAction, ScreenSize, SwipeShortcut, WheelAccumulator,
+};
 
 /// How long a scroll has to be quiet before it counts as finished. The Mac
 /// uses the same 0.18 s (`ReceiverSession`/`CGEventInjector`).
@@ -128,7 +130,11 @@ impl WindowsInjector {
 
     pub fn inject_key(&self, event: &KeyEvent) {
         match self.translator.key(event) {
-            Injected::Key { vk, down, modifiers } => {
+            Injected::Key {
+                vk,
+                down,
+                modifiers,
+            } => {
                 // Hold the modifiers, tap the key, release the modifiers.
                 let mods = keymap::modifier_vks(modifiers);
                 let is_modifier_key = mods.contains(&vk);
@@ -152,7 +158,12 @@ impl WindowsInjector {
     /// Inject one mirror `ScreenInput` at the window frame `origin`/`size`
     /// (virtual-desktop pixels). Modifiers are held around the mouse actions
     /// so shift-click / ⌘-click etc. reach the target window.
-    pub fn inject_screen_input(&mut self, input: &ScreenInput, origin: (f64, f64), size: (f64, f64)) {
+    pub fn inject_screen_input(
+        &mut self,
+        input: &ScreenInput,
+        origin: (f64, f64),
+        size: (f64, f64),
+    ) {
         let actions = crate::injector::screen_actions(input, origin, size);
         let mods = keymap::modifier_vks(input.modifiers);
         for m in &mods {
@@ -265,8 +276,10 @@ fn send_mouse(flags: MOUSE_EVENT_FLAGS, x: i32, y: i32, data: i32) {
     let (dx, dy) = if has_move {
         flags |= MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
         let screen = virtual_screen_size();
-        (normalize_axis(x, screen.origin_x as i32, screen.width as i32),
-         normalize_axis(y, screen.origin_y as i32, screen.height as i32))
+        (
+            normalize_axis(x, screen.origin_x as i32, screen.width as i32),
+            normalize_axis(y, screen.origin_y as i32, screen.height as i32),
+        )
     } else {
         (0, 0)
     };
@@ -315,7 +328,11 @@ fn send_chord(vks: &[u16]) {
 }
 
 fn send_vk(vk: u16, down: bool) {
-    let flags: KEYBD_EVENT_FLAGS = if down { KEYBD_EVENT_FLAGS(0) } else { KEYEVENTF_KEYUP };
+    let flags: KEYBD_EVENT_FLAGS = if down {
+        KEYBD_EVENT_FLAGS(0)
+    } else {
+        KEYEVENTF_KEYUP
+    };
     let input = INPUT {
         r#type: INPUT_KEYBOARD,
         Anonymous: INPUT_0 {

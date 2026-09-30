@@ -23,9 +23,7 @@ pub fn is_chinese() -> bool {
         {
             // LANGID: low 10 bits are the primary language id; 0x04 = zh.
             // (Non-Windows dev builds just use English.)
-            unsafe {
-                (windows::Win32::Globalization::GetUserDefaultUILanguage() & 0x3FF) == 0x04
-            }
+            unsafe { (windows::Win32::Globalization::GetUserDefaultUILanguage() & 0x3FF) == 0x04 }
         }
         #[cfg(not(windows))]
         {
@@ -37,7 +35,11 @@ pub fn is_chinese() -> bool {
 /// Pick the Chinese or English string for the current UI language.
 #[inline]
 pub fn t<'a>(zh: &'a str, en: &'a str) -> &'a str {
-    if is_chinese() { zh } else { en }
+    if is_chinese() {
+        zh
+    } else {
+        en
+    }
 }
 
 #[cfg(test)]

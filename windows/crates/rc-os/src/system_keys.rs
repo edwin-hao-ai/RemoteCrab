@@ -1,14 +1,17 @@
 //! Execute `IBSystemCommand` on Windows (volume / media keys / launch / URL).
 
 use rc_protocol::{SystemCommand, SystemCommandKind};
+use windows::core::BOOL;
+use windows::Win32::Foundation::{HWND, LPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
     VIRTUAL_KEY,
 };
-use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, MB_ICONINFORMATION, MB_OK, SW_SHOWNORMAL,
-};
 use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowThreadProcessId, IsIconic, IsWindowVisible, MessageBoxW, ShowWindow,
+    MB_ICONINFORMATION, MB_OK, SW_MINIMIZE, SW_SHOWNORMAL,
+};
 
 // Windows virtual-key codes for the media/system keys.
 const VK_VOLUME_MUTE: u16 = 0xAD;
@@ -31,38 +34,51 @@ pub fn handle(command: &SystemCommand) -> bool {
         SystemCommandKind::MediaPlayPause => tap(VK_MEDIA_PLAY_PAUSE),
         SystemCommandKind::MediaNext => tap(VK_MEDIA_NEXT_TRACK),
         SystemCommandKind::MediaPrevious => tap(VK_MEDIA_PREV_TRACK),
-        SystemCommandKind::LaunchApp => command
-            .argument
-            .as_deref()
-            .map(open_path)
-            .unwrap_or(false),
-        SystemCommandKind::OpenUrl => command
-            .argument
-            .as_deref()
-            .map(open_path)
-            .unwrap_or(false),
-        // Win+D toggles "Show Desktop" — minimize/restore all windows.
-        SystemCommandKind::ShowDesktop => tap_win_d(),
+        SystemCommandKind::LaunchApp => command.argument.as_deref().map(open_path).unwrap_or(false),
+        SystemCommandKind::OpenUrl => command.argument.as_deref().map(open_path).unwrap_or(false),
+        // See `show_desktop`: a real minimise, not the Win+D *toggle*.
+        SystemCommandKind::ShowDesktop => show_desktop(),
     }
 }
 
-/// Hold Win, tap D, release both (the "Show Desktop" toggle).
+/// Reveal the desktop by minimising every top-level window — the same
+/// one-way effect the Mac gets from `NSRunningApplication.hide()`, and the
+/// same as Win+D.
 ///
-/// Order matters: Win must still be down when D is released, then Win up —
-/// the reverse (releasing Win first) leaves a bare D keystroke behind and
-/// can make the chord fail.
-fn tap_win_d() -> bool {
-    let inputs = [
-        key_input(VK_LWIN, true),
-        key_input(VK_D, true),
-        key_input(VK_D, false),
-        key_input(VK_LWIN, false),
-    ];
-    unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) == inputs.len() as u32 }
+/// It used to *send* Win+D, which is a **toggle**: the first press shows the
+/// desktop, the second brings everything back. Two consequences, both bad. A
+/// user tapping "Desktop" in the switcher twice (because nothing visibly
+/// happened the first time) got their whole workspace restored, which reads as
+/// the app misbehaving. And with the app-window mirror running, the second
+/// press left the mirror pointed at a window the user had just hidden, so the
+/// picture on the phone froze on something that was no longer on screen.
+///
+/// Minimising directly is idempotent: pressing it ten times is the same as
+/// pressing it once, which is what a button should be.
+fn show_desktop() -> bool {
+    let own = std::process::id();
+    let mut minimized_any = false;
+    unsafe extern "system" fn minimize_one(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let (own, done) = &mut *(lparam.0 as *mut (u32, bool));
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        // Skip ourselves — a hidden RemoteCrab cannot be brought back from the
+        // tray — and anything already minimised, so a second press is a no-op.
+        if pid != 0 && pid != *own && IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+            *done = true;
+        }
+        BOOL(1)
+    }
+    let mut data = (own, &mut minimized_any as *mut bool);
+    unsafe {
+        let _ = EnumWindows(
+            Some(minimize_one),
+            LPARAM(std::ptr::addr_of_mut!(data) as isize),
+        );
+    }
+    minimized_any
 }
-
-const VK_LWIN: u16 = 0x5B;
-const VK_D: u16 = 'D' as u16;
 
 fn key_input(vk: u16, down: bool) -> INPUT {
     INPUT {
@@ -71,7 +87,11 @@ fn key_input(vk: u16, down: bool) -> INPUT {
             ki: KEYBDINPUT {
                 wVk: VIRTUAL_KEY(vk),
                 wScan: 0,
-                dwFlags: if down { KEYBD_EVENT_FLAGS(0) } else { KEYEVENTF_KEYUP },
+                dwFlags: if down {
+                    KEYBD_EVENT_FLAGS(0)
+                } else {
+                    KEYEVENTF_KEYUP
+                },
                 time: 0,
                 dwExtraInfo: 0,
             },
@@ -80,7 +100,12 @@ fn key_input(vk: u16, down: bool) -> INPUT {
 }
 
 fn tap(vk: u16) -> bool {
-    unsafe { SendInput(&[key_input(vk, true), key_input(vk, false)], std::mem::size_of::<INPUT>() as i32) == 2 }
+    unsafe {
+        SendInput(
+            &[key_input(vk, true), key_input(vk, false)],
+            std::mem::size_of::<INPUT>() as i32,
+        ) == 2
+    }
 }
 
 /// Launch an app (by name/path) or open a URL via the shell.

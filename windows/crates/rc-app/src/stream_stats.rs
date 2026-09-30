@@ -14,7 +14,7 @@
 //! for a week looked fine until something showed the cursor trail and the last
 //! key that arrived.
 
-use rc_protocol::{KeyEvent, KeyAction, TouchEvent, TouchPhase};
+use rc_protocol::{KeyAction, KeyEvent, TouchEvent, TouchPhase};
 
 /// Everything the readout shows. Kept as plain data so the wording and the
 /// formatting are testable without a window.
@@ -44,6 +44,8 @@ pub struct StreamStats {
     /// When a frame last arrived, so "the camera is off" can be told apart
     /// from "the camera is on and simply idle".
     pub last_frame: Option<std::time::Instant>,
+    /// Commands the phone asked for that this machine cannot do.
+    pub unsupported_commands: Vec<String>,
 }
 
 /// How many samples the sparkline keeps. Thirty is what the Mac's
@@ -213,8 +215,15 @@ mod tests {
         for ms in 0..(HISTORY as i64 + 10) {
             s.record_latency(ms);
         }
-        assert_eq!(s.latency_history.len(), HISTORY, "the sparkline must not grow forever");
-        assert_eq!(s.latency_history[0], 10, "oldest samples fall off the front");
+        assert_eq!(
+            s.latency_history.len(),
+            HISTORY,
+            "the sparkline must not grow forever"
+        );
+        assert_eq!(
+            s.latency_history[0], 10,
+            "oldest samples fall off the front"
+        );
         // 40 samples pushed, 30 kept: the oldest kept is the 11th pushed.
         assert_eq!(
             s.latency_history[HISTORY - 1],
@@ -230,7 +239,11 @@ mod tests {
         s.record_key(&key(KeyAction::Down, 0x41, Some("a")));
         assert_eq!(s.last_key.as_deref(), Some("a"));
         s.record_key(&key(KeyAction::Down, 0x08, Some("\u{8}")));
-        assert_eq!(s.last_key.as_deref(), Some("\u{2318}C"), "a non-printable key needs a name");
+        assert_eq!(
+            s.last_key.as_deref(),
+            Some("\u{2318}C"),
+            "a non-printable key needs a name"
+        );
         s.record_key(&key(KeyAction::Down, 0x0D, None));
         assert_eq!(s.last_key.as_deref(), Some("Return"));
     }
@@ -264,7 +277,11 @@ mod tests {
         s.record_touch(&t(TouchPhase::Down));
         assert_eq!(s.cursor, None, "a touch-down says nothing about the cursor");
         s.record_touch(&t(TouchPhase::Move));
-        assert_eq!(s.cursor, Some((0, 0)), "raw normalized values; the app scales them");
+        assert_eq!(
+            s.cursor,
+            Some((0, 0)),
+            "raw normalized values; the app scales them"
+        );
         s.record_touch(&t(TouchPhase::Click));
         assert_eq!(s.cursor, Some((0, 0)), "a click must not move the pad");
     }
@@ -275,7 +292,11 @@ mod tests {
         s.record_audio(0.4);
         assert_eq!(s.mic_level, Some(0.4));
         s.record_audio(9.0);
-        assert_eq!(s.mic_level, Some(1.0), "a hot mic must not draw a broken meter");
+        assert_eq!(
+            s.mic_level,
+            Some(1.0),
+            "a hot mic must not draw a broken meter"
+        );
         s.record_audio(-3.0);
         assert_eq!(s.mic_level, Some(0.0));
     }
@@ -330,6 +351,15 @@ pub fn detail_rows(s: &StreamStats) -> Vec<(String, String)> {
     }
     if let Some(level) = s.mic_level {
         rows.push((t("麦克风", "Microphone"), level_meter(level)));
+    }
+    // A capability gap the user can actually see. A brightness button that
+    // silently does nothing is reported as a broken product, not as an
+    // unsupported platform.
+    if !s.unsupported_commands.is_empty() {
+        rows.push((
+            t("此电脑不支持", "Not available here"),
+            s.unsupported_commands.join(&t("、", ", ")),
+        ));
     }
     rows
 }
@@ -452,5 +482,82 @@ mod readout_tests {
         assert_eq!(format_bitrate(2_400_000), "2.4 Mbps");
         assert_eq!(format_bitrate(850_000), "850 kbps");
         assert_eq!(format_bitrate(400), "400 bps");
+    }
+}
+
+/// A name for a system command, for a message the user has to read.
+///
+/// The `{:?}` of the protocol enum is not that: it is English, it is an
+/// implementation detail, and a Chinese user hitting "not supported" learned
+/// nothing from `BrightnessUp`. The name is the same one the iPhone's context
+/// sheet shows, so the two ends of the product use the same words.
+pub fn system_command_name(c: rc_protocol::SystemCommandKind) -> String {
+    use rc_protocol::SystemCommandKind as K;
+    match c {
+        K::VolumeUp => t("调高音量", "Volume up"),
+        K::VolumeDown => t("调低音量", "Volume down"),
+        K::VolumeMute => t("静音", "Mute"),
+        K::BrightnessUp => t("调亮屏幕", "Brightness up"),
+        K::BrightnessDown => t("调暗屏幕", "Brightness down"),
+        K::MediaPlayPause => t("播放/暂停", "Play/pause"),
+        K::MediaNext => t("下一首", "Next track"),
+        K::MediaPrevious => t("上一首", "Previous track"),
+        K::LaunchApp => t("打开应用", "Open app"),
+        K::OpenUrl => t("打开链接", "Open link"),
+        K::ShowDesktop => t("显示桌面", "Show desktop"),
+    }
+}
+
+#[cfg(test)]
+mod command_name_tests {
+    use super::system_command_name;
+    use rc_protocol::SystemCommandKind as K;
+
+    /// Every variant needs a name, and a name that is *different from every
+    /// other one*.
+    ///
+    /// Two variants sharing a label is how a user ends up unable to tell which
+    /// button failed, and this function is only ever reached in the failure
+    /// path — so a duplicate is the one mistake that cannot be caught by
+    /// using the product.
+    #[test]
+    fn every_system_command_has_its_own_name() {
+        let all = [
+            K::VolumeUp,
+            K::VolumeDown,
+            K::VolumeMute,
+            K::BrightnessUp,
+            K::BrightnessDown,
+            K::MediaPlayPause,
+            K::MediaNext,
+            K::MediaPrevious,
+            K::LaunchApp,
+            K::OpenUrl,
+            K::ShowDesktop,
+        ];
+        let mut seen: Vec<String> = Vec::new();
+        for c in all {
+            let name = system_command_name(c);
+            assert!(!name.trim().is_empty(), "{c:?} has no name");
+            assert!(
+                !seen.contains(&name),
+                "{c:?} and an earlier command are both called {name:?}"
+            );
+            seen.push(name);
+        }
+    }
+
+    /// A raw enum name leaking into user-facing text is the thing this exists
+    /// to prevent: the old message printed `{:?}` of the enum.
+    #[test]
+    fn no_name_is_just_the_enum_variant() {
+        for c in [K::VolumeUp, K::BrightnessUp, K::ShowDesktop] {
+            let name = system_command_name(c);
+            assert!(!name.contains("::"), "{c:?} leaked a path: {name}");
+            assert!(
+                !name.chars().all(|ch| ch.is_ascii_uppercase() || ch == '_'),
+                "{c:?} leaked Debug output: {name}"
+            );
+        }
     }
 }

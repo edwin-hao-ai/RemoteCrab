@@ -298,6 +298,12 @@ pub fn detail_rows(state: &MenuState) -> Vec<MenuRow> {
 ///
 /// Keep this list and the `match` in `tray.rs` in step — [`all_rows_have_a_known_id`]
 /// is the test that notices when they drift.
+/// Every id a `WM_COMMAND` can deliver.
+///
+/// `DETAILS` is deliberately **not** here: it is a submenu *parent*, and
+/// Win32 expands a submenu on its own without ever sending its id. Listing it
+/// would invite someone to write a handler for a message that cannot arrive.
+/// The one state-dependent id, `RECORD`, *is* here, because it is a real row.
 pub fn known_ids() -> &'static [usize] {
     &[
         ids::CAMERA,
@@ -347,16 +353,18 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::MICROPHONE => 1,
         ids::TRACKPAD => 2,
         ids::KEYBOARD => 3,
-        ids::RECORD => 4,
+        ids::SWITCH_CAMERA => 4,
         ids::CLIPBOARD => 6,
         ids::SHOW_FILE => 7,
         ids::PREVIEW => 8,
-        ids::SWITCH_CAMERA => 9,
-        ids::DIAGNOSIS => 10,
-        ids::RECONNECT => 11,
-        ids::DISCONNECT => 12,
-        ids::AUTOSTART => 13,
-        ids::QUIT => 14,
+        ids::DIAGNOSIS => 9,
+        ids::RECONNECT => 10,
+        ids::DISCONNECT => 11,
+        ids::AUTOSTART => 12,
+        ids::QUIT => 13,
+        // `RECORD` is deliberately absent: it is the one row whose glyph
+        // depends on state, so it goes through [`record_icon_cell`] and not
+        // through here. Letting both decide it is how they drift apart.
         _ => return None,
     })
 }
@@ -364,7 +372,25 @@ pub fn icon_cell(id: usize) -> Option<usize> {
 /// The "stop recording" glyph is a different cell from "start recording", so
 /// one id maps to one of two depending on state.
 pub fn record_icon_cell(recording: bool) -> usize {
-    if recording { 14 } else { 5 }
+    if recording {
+        14
+    } else {
+        5
+    }
+}
+
+/// The cell a row draws, with its state.
+///
+/// This exists so that "which glyph does the Record row get" has **one**
+/// answer. `icon_cell` cannot answer it (the glyph depends on whether we are
+/// recording), so the tray used to answer the question itself — and the tests
+/// answered it a third way, which is how the sheet and the bitmap disagreed
+/// without anything failing. The tray now asks here, and so does every test.
+pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
+    if id == ids::RECORD {
+        return Some(record_icon_cell(recording));
+    }
+    icon_cell(id)
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
@@ -426,7 +452,7 @@ mod tests {
         for row in menu_rows(&state()).iter().filter(|r| r.kind == Row::Item) {
             assert_ne!(row.id, 0, "actionable row without an id: {:?}", row.text);
             assert!(
-                icon_cell(row.id).is_some(),
+                row_icon_cell(row.id, false).is_some(),
                 "no icon cell for {:?} (id {})",
                 row.text,
                 row.id
@@ -496,7 +522,7 @@ mod tests {
                     // cell in `icon_cell`, which is how the tray knows to skip
                     // `SetMenuItemBitmaps` for them.
                     assert_eq!(
-                        icon_cell(row.id),
+                        row_icon_cell(row.id, false),
                         None,
                         "informative row must not claim an icon cell: {:?}",
                         row.text
@@ -662,5 +688,171 @@ mod tests {
             .position(|r| r.kind == Row::Info && r.text.starts_with("RemoteCrab v"))
             .unwrap();
         assert!(quit < footer, "quit must come before the footer");
+    }
+}
+
+#[cfg(test)]
+mod sheet_order_tests {
+    use super::{icon_cell, ids, record_icon_cell, row_icon_cell, ICON_CELLS_FOR_THE_SHEET};
+
+    /// The sheet's order, spelled out here so a wrong glyph is a failed test
+    /// rather than a screenshot the user has to notice.
+    ///
+    /// This mapping was wrong once already: the generator gained a cell in the
+    /// middle and the Rust map did not, so from one row down **every** icon
+    /// was shifted by one — the camera row wore the switch-camera glyph, the
+    /// Quit row wore the stop square — and nothing failed. The old tests
+    /// checked only that a cell was *in range*, which a shifted cell satisfies.
+    /// A state with a readout in it, so the `连接详情` submenu row exists.
+    ///
+    /// `MenuState` has no `Default`, and the submenu row is only pushed when
+    /// there is something to show — so a test built on an all-false state
+    /// silently never walks the `Sub` path. That is exactly how the submenu
+    /// row's missing icon stayed invisible: no test ever built a state that
+    /// had details in it.
+    fn state_with_details() -> super::MenuState {
+        super::MenuState {
+            camera: false,
+            microphone: false,
+            trackpad: false,
+            keyboard: false,
+            recording: false,
+            has_last_file: false,
+            preview_on: false,
+            autostart: false,
+            diagnosis: String::new(),
+            details: vec![("延迟".to_string(), "5 ms".to_string())],
+        }
+    }
+
+    #[test]
+    fn the_submenu_row_is_reachable_and_carries_no_icon_on_purpose() {
+        let rows = super::menu_rows(&state_with_details());
+        let sub = rows
+            .iter()
+            .find(|r| r.id == ids::DETAILS)
+            .expect("a state with details must offer the details submenu");
+        assert_eq!(sub.kind, super::Row::Sub);
+        // A second level of menu with a column of 16x16 glyphs in it is noise,
+        // so the submenu parent draws nothing. What matters is that asking
+        // does not panic and does not hand back a cell it does not own.
+        assert_eq!(row_icon_cell(ids::DETAILS, false), None);
+        assert!(
+            !super::known_ids().contains(&ids::DETAILS),
+            "a submenu parent can never deliver WM_COMMAND"
+        );
+    }
+
+    #[test]
+    fn every_row_draws_the_glyph_its_name_promises() {
+        // (menu id, the cell the generator's ROWS list puts that glyph in)
+        let expected = [
+            (ids::CAMERA, 0),
+            (ids::MICROPHONE, 1),
+            (ids::TRACKPAD, 2),
+            (ids::KEYBOARD, 3),
+            (ids::SWITCH_CAMERA, 4),
+            (ids::CLIPBOARD, 6),
+            (ids::SHOW_FILE, 7),
+            (ids::PREVIEW, 8),
+            (ids::DIAGNOSIS, 9),
+            (ids::RECONNECT, 10),
+            (ids::DISCONNECT, 11),
+            (ids::AUTOSTART, 12),
+            (ids::QUIT, 13),
+        ];
+        for (id, cell) in expected {
+            assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
+        }
+        // The two state-dependent cells, which the generator calls "record" and
+        // "stop" — they are the only two nothing points at unconditionally.
+        assert_eq!(row_icon_cell(ids::RECORD, false), Some(5));
+        assert_eq!(row_icon_cell(ids::RECORD, true), Some(14));
+    }
+
+    /// The generator is the thing that actually paints the sheet, so its
+    /// `ROWS` order is the definition. Checked here, from the file, so the two
+    /// cannot drift without a red test.
+    #[test]
+    fn the_generator_and_the_rust_map_agree_cell_for_cell() {
+        let gen = include_str!("../../../../scripts/generate-windows-menu-icons.py");
+        let rows_block = gen
+            .split_once("ROWS = [")
+            .expect("generator has no ROWS list")
+            .1
+            .split_once("\n]")
+            .expect("ROWS list is unterminated")
+            .0;
+        let mut cell = 0usize;
+        for line in rows_block.lines() {
+            let Some(name) = line.split('"').nth(1) else {
+                continue;
+            };
+            let id = match name {
+                "camera" => ids::CAMERA,
+                "microphone" => ids::MICROPHONE,
+                "trackpad" => ids::TRACKPAD,
+                "keyboard" => ids::KEYBOARD,
+                "switch_camera" => ids::SWITCH_CAMERA,
+                "record" => ids::RECORD,
+                "clipboard" => ids::CLIPBOARD,
+                "folder" => ids::SHOW_FILE,
+                "preview" => ids::PREVIEW,
+                "diagnosis" => ids::DIAGNOSIS,
+                "reconnect" => ids::RECONNECT,
+                "disconnect" => ids::DISCONNECT,
+                "autostart" => ids::AUTOSTART,
+                "quit" => ids::QUIT,
+                "stop" => ids::RECORD,
+                other => panic!("the generator draws {other:?}, which no menu row claims"),
+            };
+            assert_eq!(
+                row_icon_cell(id, name == "stop"),
+                Some(cell),
+                "generator cell {cell} is {name:?}, but the tray draws something else there",
+            );
+            cell += 1;
+        }
+        assert_eq!(cell, ICON_CELLS_FOR_THE_SHEET, "the sheet changed size");
+    }
+
+    /// Each cell is used once. Two rows sharing a glyph is not a crash, but it
+    /// is how two different actions end up indistinguishable in a menu of
+    /// same-sized monochrome squares.
+    #[test]
+    fn no_two_rows_share_a_glyph() {
+        let rows = super::menu_rows(&state_with_details());
+        let mut seen = std::collections::BTreeMap::new();
+        let items: Vec<_> = rows
+            .iter()
+            .filter(|r| r.kind == super::Row::Item)
+            .collect();
+        for r in &items {
+            let cell = row_icon_cell(r.id, false).expect("row without an icon");
+            if let Some(prev) = seen.insert(cell, r.text.clone()) {
+                panic!("cell {cell} is drawn by both {prev:?} and {:?}", r.text);
+            }
+        }
+        assert_eq!(seen.len(), items.len());
+    }
+
+    #[test]
+    fn record_is_the_only_state_dependent_glyph() {
+        let rows = super::menu_rows(&super::MenuState::default());
+        for id in rows
+            .iter()
+            .filter(|r| matches!(r.kind, super::Row::Item | super::Row::Sub))
+            .map(|r| r.id)
+        {
+            if id == ids::RECORD {
+                continue;
+            }
+            assert_eq!(
+                row_icon_cell(id, false),
+                row_icon_cell(id, true),
+                "id {id} changed glyph when the recording state flipped",
+            );
+        }
+        assert_ne!(record_icon_cell(false), record_icon_cell(true));
     }
 }

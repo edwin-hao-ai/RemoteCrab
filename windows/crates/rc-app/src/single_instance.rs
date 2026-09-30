@@ -115,7 +115,13 @@ mod tests {
 
     #[test]
     fn the_rule_reads_the_platform_answer_correctly() {
-        assert!(is_primary(false), "nobody held it, so this process is first");
-        assert!(!is_primary(true), "somebody held it, so this process is not");
+        assert!(
+            is_primary(false),
+            "nobody held it, so this process is first"
+        );
+        assert!(
+            !is_primary(true),
+            "somebody held it, so this process is not"
+        );
     }
 }

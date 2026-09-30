@@ -24,15 +24,15 @@ use console::{spawn_console_reader, ActiveRecording};
 mod args;
 mod console;
 mod diagnostics;
-mod single_instance;
-mod stream_stats;
 mod doctor;
 mod help;
 mod i18n;
 mod mirror;
 mod scan;
 mod selftest;
+mod single_instance;
 mod status;
+mod stream_stats;
 mod tray;
 mod tray_menu;
 #[cfg(windows)]
@@ -108,6 +108,13 @@ impl PreviewWindow {
 async fn main() -> ExitCode {
     let args = parse_args();
 
+    // `--version` first, and it works with no other argument and no window:
+    // a user reporting a bug has to be able to say which build they are on
+    // without starting a receiver, and before anything can fail.
+    if args.version {
+        println!("remotecrab {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     if args.selftest {
         return selftest::selftest().await;
     }
@@ -161,6 +168,10 @@ async fn main() -> ExitCode {
     // The live readout behind the tray's "connection details" submenu. See
     // `stream_stats` for why it is a submenu and not a window.
     let mut stats = stream_stats::StreamStats::default();
+    // Commands the phone asked for that this platform cannot do, surfaced in
+    // the readout rather than only in the console. A capability gap the user
+    // cannot see is one they will report as a broken button.
+
     // Set while the iPhone is showing a list it asked for. Automatic
     // republishes of the *window* list are gated on it, because that frame
     // carries a JPEG per window and is far too expensive to send unasked —
@@ -233,7 +244,13 @@ async fn main() -> ExitCode {
     #[allow(unused_variables, unused_mut)]
     let mut vcam: Option<()> = {
         if args.vcam {
-            eprintln!("--vcam is Windows-only");
+            eprintln!(
+                "{}",
+                i18n::t(
+                    "--vcam 只在 Windows 上可用。",
+                    "--vcam is only available on Windows.",
+                )
+            );
         }
         None
     };
@@ -252,7 +269,13 @@ async fn main() -> ExitCode {
     let mut audio = rc_audio::AudioPlayer::new();
     audio.set_muted(!args.unmute);
     if !args.unmute {
-        println!("  (audio is muted by default to avoid feedback — --unmute to hear it)");
+        println!(
+            "  {}",
+            i18n::t(
+                "（默认静音以避免回声——加 --unmute 才能听见）",
+                "(muted by default to avoid feedback — pass --unmute to hear it)",
+            )
+        );
     }
 
     // Receives files from the iPhone into ~/Downloads/RemoteCrab.
@@ -391,9 +414,14 @@ async fn main() -> ExitCode {
                             m.fps,
                             m.bitrate_bps / 1000
                         );
-                        if args.record && recording.is_none() {
-                            recording = console::start_recording(m.width, m.height, m.fps);
-                        }
+                        // `--record` no longer *arms* recording on the first
+                        // metadata frame. It used to, so a user who passed the
+                        // flag to "make recording available" got a recorder
+                        // they never asked for, writing a file to disk. The
+                        // flag now only announces readiness, exactly as the
+                        // Mac's ⌘R is an explicit action, and the tray row or
+                        // the `record` console command is what actually
+                        // starts it.
                         metadata = Some(m);
                     }
                     Event::Video(nal) => {
@@ -544,9 +572,29 @@ async fn main() -> ExitCode {
                         }
                     }
                     Event::SystemCommand(cmd) => {
+                        // A command we cannot do has to say so in words the
+                        // user reads, and say what *is* possible.
+                        //
+                        // The `{:?}` of the protocol enum used to be printed
+                        // here: English, an implementation detail, and — for a
+                        // Chinese user hitting a brightness button — not an
+                        // explanation of anything.
                         #[cfg(windows)]
-                        if !rc_os::system_keys::handle(&cmd) {
-                            println!("  system command not supported on Windows: {:?}", cmd.command);
+                        let handled = rc_os::system_keys::handle(&cmd);
+                        #[cfg(not(windows))]
+                        let handled = false;
+                        if !handled {
+                            let name = stream_stats::system_command_name(cmd.command);
+                            println!(
+                                "  {}",
+                                i18n::t(
+                                    "这个命令这台电脑做不到：{}。音量、媒体播放键、以及「显示桌面」都可以用。",
+                                    "This computer cannot do: {}. Volume, the media keys and Show desktop all work.",
+                                )
+                                .replace("{}", &name)
+                            );
+                            stats.unsupported_commands.push(name);
+                            tray.set_details(stream_stats::detail_rows(&stats));
                         }
                         #[cfg(not(windows))]
                         let _ = &cmd;

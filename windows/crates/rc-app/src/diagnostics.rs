@@ -62,7 +62,9 @@ pub fn log_line(line: &str) {
 /// Half of the previous file, kept — a crash loop should not lose the *most
 /// recent* few lines to the rotation, which is the part that explains it.
 fn rotate_if_needed(path: &std::path::Path) {
-    let Ok(meta) = std::fs::metadata(path) else { return };
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
     if meta.len() <= MAX_LOG_BYTES {
         return;
     }
@@ -119,10 +121,7 @@ mod tests {
     fn the_log_path_is_not_relative() {
         let p = log_path();
         assert!(p.is_absolute(), "log path must be absolute, got {p:?}");
-        assert!(
-            p.ends_with("RemoteCrab.log"),
-            "unexpected log name: {p:?}"
-        );
+        assert!(p.ends_with("RemoteCrab.log"), "unexpected log name: {p:?}");
     }
 
     /// Rotation must keep the *tail*. A crash loop that overwrites the recent
@@ -143,7 +142,10 @@ mod tests {
             after.contains("NEEDLE"),
             "rotation dropped the newest bytes — that is the part that explains the crash"
         );
-        assert!(after.len() as u64 <= MAX_LOG_BYTES, "rotation did not shrink it");
+        assert!(
+            after.len() as u64 <= MAX_LOG_BYTES,
+            "rotation did not shrink it"
+        );
         let _ = std::fs::remove_file(&path);
     }
 

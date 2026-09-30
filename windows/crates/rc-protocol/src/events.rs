@@ -493,21 +493,49 @@ impl TextCommand {
     }
 }
 
-/// Approximates Swift's `String.capitalized` (first letter of each word
-/// uppercased, the rest lowercased). Swift also breaks on punctuation;
-/// this splits on whitespace, which covers the selection-rewrite cases.
+/// `'` and the typographic `’`, which Foundation treats as word-internal when
+/// they follow a letter.
+fn is_apostrophe(ch: char) -> bool {
+    ch == '\'' || ch == '\u{2019}'
+}
+
+/// Swift's `String.capitalized`, which is what the Mac's
+/// `TextTransform.capitalize` calls.
+///
+/// **The rule is "capitalize after anything that is not a letter", not
+/// "after whitespace".** The first version of this split on whitespace only,
+/// so the same selection came out differently depending on which machine
+/// applied it: `hello-world` → `Hello-World` on macOS, `Hello-world` on
+/// Windows. A user who capitalises a heading on one machine and re-applies it
+/// after switching to the other was getting silently different text, and
+/// nothing said so.
+///
+/// `Foundation` treats a word boundary as any non-alphanumeric, and leaves
+/// both the boundary and the following character's other case alone. Digits
+/// count as *continuing* a word, so `3d` is `3d` and not `3D` — which is what
+/// the Mac does and therefore what this must do.
 fn capitalize_words(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at_word_start = true;
     for ch in text.chars() {
-        if ch.is_whitespace() {
-            at_word_start = true;
-            out.push(ch);
-        } else if at_word_start {
-            out.extend(ch.to_uppercase());
+        if ch.is_alphabetic() {
+            if at_word_start {
+                out.extend(ch.to_uppercase());
+            } else {
+                out.extend(ch.to_lowercase());
+            }
             at_word_start = false;
         } else {
-            out.extend(ch.to_lowercase());
+            // Whether an apostrophe is word-internal depends on the character
+            // *before* it, so this has to be read before the push below.
+            let after_letter = out.chars().last().is_some_and(char::is_alphabetic);
+            out.push(ch);
+            // A digit continues the current word; so does an apostrophe that
+            // follows a letter, because Foundation does not break a
+            // contraction: "it's" capitalises to "It's", not "It'S". A
+            // *leading* apostrophe does start a word, so `'quoted'` becomes
+            // `'Quoted'`.
+            at_word_start = !ch.is_numeric() && !(is_apostrophe(ch) && after_letter);
         }
     }
     out
@@ -711,3 +739,58 @@ pub struct InstalledApps {
 /// iPhone → receiver: ask for the installed-app list (kind `0x20`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct InstalledAppsRequest {}
+
+#[cfg(test)]
+mod capitalize_tests {
+    use super::capitalize_words;
+
+    /// These are the cases where the two receivers used to disagree, and a
+    /// selection rewritten on the Mac and re-applied on Windows came out
+    /// different for no visible reason.
+    #[test]
+    fn punctuation_starts_a_new_word_like_foundation_does() {
+        assert_eq!(capitalize_words("hello-world"), "Hello-World");
+        assert_eq!(capitalize_words("hello world"), "Hello World");
+        assert_eq!(capitalize_words("a.b.c"), "A.B.C");
+        assert_eq!(
+            capitalize_words("it's here"),
+            "It's Here",
+            "a contraction is one word"
+        );
+        assert_eq!(
+            capitalize_words("\u{2019}quoted"),
+            "\u{2019}Quoted",
+            "a leading apostrophe starts one"
+        );
+    }
+
+    /// A digit continues the word, so `3d` stays `3d` — which is what the Mac
+    /// does, and therefore what this must do.
+    #[test]
+    fn digits_continue_the_word() {
+        assert_eq!(capitalize_words("3d model"), "3d Model");
+        assert_eq!(capitalize_words("v2 release"), "V2 Release");
+    }
+
+    #[test]
+    fn case_within_a_word_is_normalised() {
+        assert_eq!(capitalize_words("hELLO wORLD"), "Hello World");
+    }
+
+    #[test]
+    fn an_empty_selection_stays_empty() {
+        assert_eq!(capitalize_words(""), "");
+        assert_eq!(
+            capitalize_words("   "),
+            "   ",
+            "whitespace is preserved verbatim"
+        );
+    }
+
+    /// Non-ASCII letters count as letters, so a Chinese-adjacent or accented
+    /// word does not get a capital applied to its first *punctuation*.
+    #[test]
+    fn non_ascii_letters_are_alphabetic() {
+        assert_eq!(capitalize_words("élan-vital"), "Élan-Vital");
+    }
+}

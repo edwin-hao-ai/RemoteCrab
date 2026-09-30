@@ -66,8 +66,11 @@ pub fn build_window_list() -> WindowList {
 
     // Apps that own no visible window still need a row, or they cannot be
     // brought back from the phone.
-    let listed: std::collections::HashSet<u32> =
-        ctx.windows.iter().filter_map(|w| w.app_id.strip_prefix("pid:")?.parse().ok()).collect();
+    let listed: std::collections::HashSet<u32> = ctx
+        .windows
+        .iter()
+        .filter_map(|w| w.app_id.strip_prefix("pid:")?.parse().ok())
+        .collect();
     for (pid, name) in visible_processes() {
         if pid == own_pid || listed.contains(&pid) {
             continue;

@@ -66,4 +66,3 @@ pub async fn run_scan(subnet: Option<&str>) -> ExitCode {
         ExitCode::SUCCESS
     }
 }
-

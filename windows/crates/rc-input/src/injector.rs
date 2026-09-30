@@ -22,18 +22,45 @@ pub enum ScrollPhase {
 /// nothing for three keys.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MouseAction {
-    Move { x: i32, y: i32 },
-    LeftDown { x: i32, y: i32 },
-    LeftUp { x: i32, y: i32 },
-    RightDown { x: i32, y: i32 },
-    RightUp { x: i32, y: i32 },
-    MiddleDown { x: i32, y: i32 },
-    MiddleUp { x: i32, y: i32 },
+    Move {
+        x: i32,
+        y: i32,
+    },
+    LeftDown {
+        x: i32,
+        y: i32,
+    },
+    LeftUp {
+        x: i32,
+        y: i32,
+    },
+    RightDown {
+        x: i32,
+        y: i32,
+    },
+    RightUp {
+        x: i32,
+        y: i32,
+    },
+    MiddleDown {
+        x: i32,
+        y: i32,
+    },
+    MiddleUp {
+        x: i32,
+        y: i32,
+    },
     /// Vertical + horizontal wheel deltas in Windows units (120 = one notch).
-    Wheel { dx: f64, dy: f64 },
+    Wheel {
+        dx: f64,
+        dy: f64,
+    },
     /// A wheel event with Ctrl held — the Windows equivalent of a pinch-zoom
     /// (`Ctrl+wheel` zooms in most apps; a bare wheel would just scroll).
-    CtrlWheel { dx: f64, dy: f64 },
+    CtrlWheel {
+        dx: f64,
+        dy: f64,
+    },
     ScrollPhase(ScrollPhase),
     /// Press or release the virtual keys for a modifier bitmask.
     ///
@@ -42,7 +69,10 @@ pub enum MouseAction {
     /// translator emits the transitions and the platform layer holds the keys
     /// down — which is what makes ⇧-click extend a selection and ⌥-drag
     /// move a window, instead of both silently doing the plain thing.
-    ModifierKeys { vks: Vec<u16>, pressed: bool },
+    ModifierKeys {
+        vks: Vec<u16>,
+        pressed: bool,
+    },
 }
 
 /// A three/four-finger swipe maps to a Windows task/desktop shortcut (the
@@ -65,7 +95,11 @@ pub fn swipe_shortcut(dx: f32, dy: f32) -> Option<SwipeShortcut> {
         return None;
     }
     if dx.abs() > dy.abs() {
-        Some(if dx < 0.0 { SwipeShortcut::DesktopLeft } else { SwipeShortcut::DesktopRight })
+        Some(if dx < 0.0 {
+            SwipeShortcut::DesktopLeft
+        } else {
+            SwipeShortcut::DesktopRight
+        })
     } else {
         Some(SwipeShortcut::TaskView)
     }
@@ -130,7 +164,10 @@ impl InputTranslator {
     /// `screenHeight` for cursor movement.
     pub fn touch(&mut self, event: &TouchEvent, screen: ScreenSize) -> Vec<MouseAction> {
         let mut actions = Vec::new();
-        let cursor = (self.last_cursor.0.round() as i32, self.last_cursor.1.round() as i32);
+        let cursor = (
+            self.last_cursor.0.round() as i32,
+            self.last_cursor.1.round() as i32,
+        );
 
         // Hold the trackpad's modifiers for the whole gesture, releasing them
         // when the user lets go.
@@ -141,16 +178,28 @@ impl InputTranslator {
         // bits would emit "press Ctrl, release Ctrl" and drop the modifier.
         let want = keymap::modifier_vks(event.modifiers);
         for vk in want.iter().filter(|v| !self.held_vks.contains(v)) {
-            actions.push(MouseAction::ModifierKeys { vks: vec![*vk], pressed: true });
+            actions.push(MouseAction::ModifierKeys {
+                vks: vec![*vk],
+                pressed: true,
+            });
         }
         for vk in self.held_vks.iter().filter(|v| !want.contains(v)) {
-            actions.push(MouseAction::ModifierKeys { vks: vec![*vk], pressed: false });
+            actions.push(MouseAction::ModifierKeys {
+                vks: vec![*vk],
+                pressed: false,
+            });
         }
         self.held_vks = want;
 
         match event.phase {
-            TouchPhase::Down => actions.push(MouseAction::LeftDown { x: cursor.0, y: cursor.1 }),
-            TouchPhase::Up => actions.push(MouseAction::LeftUp { x: cursor.0, y: cursor.1 }),
+            TouchPhase::Down => actions.push(MouseAction::LeftDown {
+                x: cursor.0,
+                y: cursor.1,
+            }),
+            TouchPhase::Up => actions.push(MouseAction::LeftUp {
+                x: cursor.0,
+                y: cursor.1,
+            }),
             TouchPhase::Move => {
                 // Both axes scale by the screen HEIGHT (the iOS side
                 // normalizes both by the same reference — see CGEventInjector).
@@ -168,25 +217,50 @@ impl InputTranslator {
                 }
             }
             TouchPhase::DragStart => {
-                actions.push(MouseAction::LeftDown { x: cursor.0, y: cursor.1 });
+                actions.push(MouseAction::LeftDown {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
                 self.is_dragging = true;
             }
-            TouchPhase::RightDown => {
-                actions.push(MouseAction::RightDown { x: cursor.0, y: cursor.1 })
-            }
-            TouchPhase::RightUp => actions.push(MouseAction::RightUp { x: cursor.0, y: cursor.1 }),
+            TouchPhase::RightDown => actions.push(MouseAction::RightDown {
+                x: cursor.0,
+                y: cursor.1,
+            }),
+            TouchPhase::RightUp => actions.push(MouseAction::RightUp {
+                x: cursor.0,
+                y: cursor.1,
+            }),
             TouchPhase::Click => {
-                actions.push(MouseAction::LeftDown { x: cursor.0, y: cursor.1 });
-                actions.push(MouseAction::LeftUp { x: cursor.0, y: cursor.1 });
+                actions.push(MouseAction::LeftDown {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
+                actions.push(MouseAction::LeftUp {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
             }
             TouchPhase::ThreeFingerTap => {
                 // Middle click.
-                actions.push(MouseAction::MiddleDown { x: cursor.0, y: cursor.1 });
-                actions.push(MouseAction::MiddleUp { x: cursor.0, y: cursor.1 });
+                actions.push(MouseAction::MiddleDown {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
+                actions.push(MouseAction::MiddleUp {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
             }
             TouchPhase::ForceClick => {
-                actions.push(MouseAction::RightDown { x: cursor.0, y: cursor.1 });
-                actions.push(MouseAction::RightUp { x: cursor.0, y: cursor.1 });
+                actions.push(MouseAction::RightDown {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
+                actions.push(MouseAction::RightUp {
+                    x: cursor.0,
+                    y: cursor.1,
+                });
             }
             TouchPhase::Scroll => {
                 let gain = screen.height * 1.2;
@@ -375,7 +449,10 @@ mod tests {
         let second = t.touch(&ev, screen());
         assert!(second.contains(&MouseAction::ScrollPhase(ScrollPhase::MomentumContinue)));
         let end = t.finish_scroll();
-        assert_eq!(end, vec![MouseAction::ScrollPhase(ScrollPhase::MomentumEnd)]);
+        assert_eq!(
+            end,
+            vec![MouseAction::ScrollPhase(ScrollPhase::MomentumEnd)]
+        );
     }
 
     #[test]
@@ -507,7 +584,11 @@ mod screen_tests {
 
     #[test]
     fn click_maps_to_absolute_move_down_up() {
-        let actions = screen_actions(&input(ScreenInputAction::Click, 0.5, 0.5), (100.0, 50.0), (200.0, 100.0));
+        let actions = screen_actions(
+            &input(ScreenInputAction::Click, 0.5, 0.5),
+            (100.0, 50.0),
+            (200.0, 100.0),
+        );
         assert_eq!(
             actions,
             vec![
@@ -520,15 +601,39 @@ mod screen_tests {
 
     #[test]
     fn drag_sequence_holds_and_releases() {
-        let start = screen_actions(&input(ScreenInputAction::DragStart, 0.0, 0.0), (10.0, 20.0), (100.0, 50.0));
-        assert_eq!(start, vec![MouseAction::Move { x: 10, y: 20 }, MouseAction::LeftDown { x: 10, y: 20 }]);
-        let end = screen_actions(&input(ScreenInputAction::DragEnd, 1.0, 1.0), (10.0, 20.0), (100.0, 50.0));
-        assert_eq!(end, vec![MouseAction::Move { x: 110, y: 70 }, MouseAction::LeftUp { x: 110, y: 70 }]);
+        let start = screen_actions(
+            &input(ScreenInputAction::DragStart, 0.0, 0.0),
+            (10.0, 20.0),
+            (100.0, 50.0),
+        );
+        assert_eq!(
+            start,
+            vec![
+                MouseAction::Move { x: 10, y: 20 },
+                MouseAction::LeftDown { x: 10, y: 20 }
+            ]
+        );
+        let end = screen_actions(
+            &input(ScreenInputAction::DragEnd, 1.0, 1.0),
+            (10.0, 20.0),
+            (100.0, 50.0),
+        );
+        assert_eq!(
+            end,
+            vec![
+                MouseAction::Move { x: 110, y: 70 },
+                MouseAction::LeftUp { x: 110, y: 70 }
+            ]
+        );
     }
 
     #[test]
     fn clamp_keeps_clicks_inside_the_window() {
-        let actions = screen_actions(&input(ScreenInputAction::Click, 2.0, -1.0), (0.0, 0.0), (100.0, 100.0));
+        let actions = screen_actions(
+            &input(ScreenInputAction::Click, 2.0, -1.0),
+            (0.0, 0.0),
+            (100.0, 100.0),
+        );
         assert_eq!(actions[0], MouseAction::Move { x: 100, y: 0 });
     }
 
@@ -537,9 +642,19 @@ mod screen_tests {
         let mut d = input(ScreenInputAction::Click, 0.5, 0.5);
         d.click_count = 2;
         let actions = screen_actions(&d, (0.0, 0.0), (200.0, 200.0));
-        let downs = actions.iter().filter(|a| matches!(a, MouseAction::LeftDown { .. })).count();
-        let ups = actions.iter().filter(|a| matches!(a, MouseAction::LeftUp { .. })).count();
-        assert_eq!((downs, ups), (2, 2), "double click = two down/up pairs; got {actions:?}");
+        let downs = actions
+            .iter()
+            .filter(|a| matches!(a, MouseAction::LeftDown { .. }))
+            .count();
+        let ups = actions
+            .iter()
+            .filter(|a| matches!(a, MouseAction::LeftUp { .. }))
+            .count();
+        assert_eq!(
+            (downs, ups),
+            (2, 2),
+            "double click = two down/up pairs; got {actions:?}"
+        );
     }
 
     #[test]
@@ -590,7 +705,10 @@ mod modifier_tests {
         let screen = ScreenSize::new(1000.0, 1000.0);
         let actions = t.touch(&touch(TouchPhase::Click, Modifier::SHIFT), screen);
         assert_eq!(vks_for(&actions, true), vec![vk::SHIFT]);
-        assert!(vks_for(&actions, false).is_empty(), "still held after the tap");
+        assert!(
+            vks_for(&actions, false).is_empty(),
+            "still held after the tap"
+        );
         // …and released when the user lets go.
         let up = t.touch(&touch(TouchPhase::Up, Modifier::NONE), screen);
         assert_eq!(vks_for(&up, false), vec![vk::SHIFT]);
@@ -633,7 +751,10 @@ mod modifier_tests {
         let mut t = InputTranslator::new();
         let screen = ScreenSize::new(1000.0, 1000.0);
         let actions = t.touch(
-            &touch(TouchPhase::Click, Modifier::SHIFT | Modifier::CONTROL | Modifier::OPTION),
+            &touch(
+                TouchPhase::Click,
+                Modifier::SHIFT | Modifier::CONTROL | Modifier::OPTION,
+            ),
             screen,
         );
         let mut held = vks_for(&actions, true);
@@ -641,7 +762,10 @@ mod modifier_tests {
         // VK_SHIFT 0x10, VK_CONTROL 0x11, VK_MENU 0x12.
         let mut want = vec![vk::SHIFT, vk::CONTROL, vk::MENU];
         want.sort_unstable();
-        assert_eq!(held, want, "every held modifier must reach the platform layer");
+        assert_eq!(
+            held, want,
+            "every held modifier must reach the platform layer"
+        );
     }
 
     #[test]
@@ -652,7 +776,9 @@ mod modifier_tests {
         assert!(vks_for(&actions, true).is_empty());
         assert!(vks_for(&actions, false).is_empty());
         assert!(
-            actions.iter().all(|a| !matches!(a, MouseAction::ModifierKeys { .. })),
+            actions
+                .iter()
+                .all(|a| !matches!(a, MouseAction::ModifierKeys { .. })),
             "a plain tap must not inject any key: {actions:?}"
         );
     }

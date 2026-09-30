@@ -257,3 +257,115 @@ Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫�
 诊断点清单：
 `[net] mDNS browse could not start` / `mDNS still unavailable` / `mDNS browse running again`
 / `mDNS browse channel closed` / `not persisting <addr>` / `ignoring the stored address`
+
+---
+
+## 2026-09-30 审计记录（macOS 上做的静态 + 交叉审计）
+
+在把这批改动交给 Windows 真机之前，先在 Mac 上审了一遍。**发现了一个真实的
+图标错位 bug**，以及一批只有真机才能验的东西。留给真机验证的清单见
+`docs/WINDOWS_VERIFY_2026-09-30.md`。
+
+### 1. 已修：托盘图标从某一行起整体错位一格（用户可见）
+
+图标集 `assets/menu-icons.png` 由 `scripts/generate-windows-menu-icons.py` 生成，
+Rust 侧由 `tray_menu::icon_cell` 决定「第几格」。两边各改各的，结果**从
+`switch_camera` 往下每一行都画错了图**：
+
+| 行 | 生成器画的 | 屏幕上曾显示的 |
+|---|---|---|
+| 切换摄像头 | switch_camera | RECORD（录制圆点） |
+| 诊断 | diagnosis | 切换摄像头 |
+| 诊断 | diagnosis | 重连箭头 |
+| 退出 | quit | stop（方块） |
+
+第 5 格（`record`）**没有任何一行指向它**。
+
+**为什么测试没抓到**：当时的三条测试只检查「格子号在范围内」「菜单行的 id
+可分发」，而**错位一格的格子号同样在范围内**。缺的是「格子 ↔ 含义」的对应关系。
+
+修法与防复发：
+
+- `tray_menu::icon_cell` 按生成器的 `ROWS` 顺序重建。
+- 新增 `tray_menu::row_icon_cell(id, recording)` 作为**唯一**的「这一行画哪一格」
+  入口。托盘、测试都问它；此前「Record 行用哪个图标」有**三个**答案
+  （`icon_cell`、`record_icon_cell`、托盘自己的分支），这正是漂移的来源。
+  `RECORD` 已从 `icon_cell` 移除——它是唯一状态相关的行。
+- 新增 `sheet_order_tests` 四条测试，其中
+  `the_generator_and_the_rust_map_agree_cell_for_cell` 用 `include_str!` **直接读
+  生成器脚本**，逐格比对。以后改生成器不改 Rust（或反之）会直接红。
+  已验证：故意把 `DIAGNOSIS` 改成 10，三条测试同时变红。
+
+### 2. 审计本身抓到的一个测试盲区
+
+`MenuState` 没有 `Default`，而「连接详情」这行 `Sub` **只在 `details` 非空时
+才出现**。此前所有图标测试都用全 false 的状态，于是**从来没走到过 `Sub`
+分支**——这正是子菜单父行没有图标却没人发现的原因。现在测试用带 `details`
+的状态构造，并加了一条 `the_submenu_row_is_reachable_and_carries_no_icon_on_purpose`。
+
+`known_ids()` **有意不含 `DETAILS`**：它是子菜单父项，Win32 自己展开子菜单，
+永远不会发它的 `WM_COMMAND`。已在代码注释和测试里写明，免得以后有人
+「补全」它然后写一个永远走不到的处理分支。
+
+### 3. 本次一并改掉的用户可见问题
+
+- `ShowDesktop` 之前是 `Win↓ D↓ D↑ Win↑` 的**开关**：状态不同结果不同，
+  非英语区 `Win+D` 还可能弹「开始」菜单。改为 `EnumWindows` 最小化全部可见
+  窗口（跳过自己），**幂等**，且不依赖键盘布局。
+  交叉编译抓到了三个真问题：`BOOL` 的导入路径（`windows::core::BOOL`，不是
+  `Win32::Foundation`）、回调需要 `extern "system"`、以及最初的
+  `addr_of_mut!` 把 `&mut u32` 当成 `(u32, bool)` 用——**这三个 macOS 上全都
+  编译不到**，只有交叉检查能看见。
+- 系统命令不支持时的提示从 `{:?}` 打印内部枚举（「English + 调试输出」）
+  改成用户能读懂的句子，并列出**这台机器能做什么**；`连接详情` 里新增一行
+  「此电脑不支持：调亮屏幕、调暗屏幕」，因为**一个静默无效的按钮会被当成
+  产品坏了**。新增 `stream_stats::system_command_name` + 两条测试
+  （名字唯一、不能退化成枚举名）。
+- `--record` 之前会在收到第一帧 metadata 时**自动开录**，用户拿它「让录制可用」
+  却得到一个自己没要求的录制。Mac 的 ⌘R 是显式动作，这里改成只预热。
+- 新增 `--version`（无需其它参数、不开窗口即可打印——报 bug 时要说得出版本）。
+- 补齐两处漏网的英文提示（默认静音说明、`--vcam` 仅限 Windows）。
+
+### 4. 与并行会话的 capability 改动的兼容性（已核对）
+
+`RemoteCrabCore` 的 `IBClientHello` 新增了可选的 `capabilities`
+（commit `964ab94`，非本会话）。核对结果：
+
+- `rc-protocol` 全仓**没有** `deny_unknown_fields`，serde 默认忽略未知 JSON
+  键 → Windows 收到带 `capabilities` 的 `clientHello` 正常解码。
+- Windows **不**声明 `commandResult`，`rc-net` 也不发 `0x23` → 手机按设计
+  提示「电脑端 App 可能是旧版本」，不会误报失败。
+- `rc-protocol` 已认识 `Kind::CommandResult = 0x23`（能收，只是不会发）。
+
+**一处有意的不对称**：Windows 的 `rc-net/src/ping.rs` **已经**能把自己的
+ping 回显和手机发来的探测区分开，但**没有**声明 `latencyProbe` 能力，所以手机
+不会向 Windows 发探测。Windows 托盘里的延迟是本机测得的另一方向 RTT——真实、
+但不是「手机自己的往返」。本次**不改 wire**，仅记录；若之后要补，声明能力是
+纯附加的（老手机忽略），但必须两端同时发。
+
+### 5. 静态审计结果（可复现）
+
+```
+cargo build  --workspace --all-targets                                    0 问题
+cargo check  --workspace --all-targets --target x86_64-pc-windows-gnu    0 问题
+cargo clippy --workspace --all-targets -- -D warnings                    0 错误
+cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu \
+              -- -D warnings                                             0 错误
+cargo test   --workspace                                                 275 通过 / 31 个二进制
+./scripts/test.sh                                                        Core 325 + 两 app 构建
+unimplemented! / todo! / FIXME / dbg!                                     无
+```
+
+`rustfmt` 有一个**仓库既有**的债务：约 40 个文件（含 `rc-render`、`rc-testkit`、
+`rc-vcam-source/*`、`rc-record`、`rc-audio/tone_data.rs`、`rc-protocol/tests/*`）
+从未被格式化过，CI 那一步是 `continue-on-error: true` 所以一直没暴露。
+本次**只格式化了本会话实际改过的文件**——全量 `cargo fmt --all` 会产生约
+38 个文件的无关抖动。要不要一次清干净，请单独决定。
+
+### 6. 仍然只有真机能验的（不要当成已验证）
+
+- 托盘图标**实际**画对了没有——上面修的是「哪一格」的映射，`CreateIconIndirect`
+  / `SetMenuItemBitmaps` 在 16×16 单色下的实际观感只有真机能确认。请对照
+  `assets/menu-icons.png` 逐行看一眼。
+- 「显示桌面」最小化后，第二次点是否真幂等。
+- 子菜单在 Windows 菜单里的实际展开与 DPI 表现。

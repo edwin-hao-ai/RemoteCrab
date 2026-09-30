@@ -50,11 +50,18 @@ pub fn start_recording(width: i64, height: i64, fps: i64) -> Option<ActiveRecord
     ) {
         Ok(rec) => rec,
         Err(e) => {
-            println!("  {} {e}", i18n::t("录制启动失败：", "recording failed to start:"));
+            println!(
+                "  {} {e}",
+                i18n::t("录制启动失败：", "recording failed to start:")
+            );
             return None;
         }
     };
-    println!("  ● {} → {}", i18n::t("录制中", "recording"), rec.mp4_path().display());
+    println!(
+        "  ● {} → {}",
+        i18n::t("录制中", "recording"),
+        rec.mp4_path().display()
+    );
     Some(ActiveRecording {
         recorder: rec,
         opus: rc_audio::OpusDecoder::new().ok(),
@@ -64,13 +71,20 @@ pub fn stop_recording(rec: ActiveRecording) {
     let mp4 = rec.recorder.mp4_path().to_path_buf();
     let (video_ok, _audio_ok) = rec.recorder.finish();
     if video_ok {
-        println!("  ■ {} {}", i18n::t("录制已保存：", "recording saved:"), mp4.display());
+        println!(
+            "  ■ {} {}",
+            i18n::t("录制已保存：", "recording saved:"),
+            mp4.display()
+        );
         #[cfg(windows)]
         rc_os::files::reveal(&mp4);
     } else {
         println!(
             "  {} {}",
-            i18n::t("录制结束，但没有视频帧：", "recording stopped with no video frames:"),
+            i18n::t(
+                "录制结束，但没有视频帧：",
+                "recording stopped with no video frames:"
+            ),
             mp4.display()
         );
     }
@@ -113,12 +127,18 @@ pub fn send_clipboard_to_iphone(session: &Session) {
                 Err(_) => println!("  {}", i18n::t("剪贴板发送失败", "clipboard send failed")),
             }
         }
-        _ => println!("  {}", i18n::t("剪贴板为空或不是文本", "clipboard is empty or not text")),
+        _ => println!(
+            "  {}",
+            i18n::t("剪贴板为空或不是文本", "clipboard is empty or not text")
+        ),
     }
     #[cfg(not(windows))]
     {
         let _ = session;
-        println!("  {}", i18n::t("剪贴板功能仅限 Windows", "clipboard send is Windows-only"));
+        println!(
+            "  {}",
+            i18n::t("剪贴板功能仅限 Windows", "clipboard send is Windows-only")
+        );
     }
 }
 /// Apply one console command: toggle (or explicitly set) an iPhone feature,
@@ -150,7 +170,11 @@ pub fn handle_console_command(
         let on = want.unwrap_or(!cur);
         session.set_feature(which, on);
         let name = i18n::t(zh, en);
-        let state = if on { i18n::t("开", "on") } else { i18n::t("关", "off") };
+        let state = if on {
+            i18n::t("开", "on")
+        } else {
+            i18n::t("关", "off")
+        };
         println!("  → {name} {state}");
     };
     let get = |pick: fn(&rc_protocol::FeatureStateSnapshot) -> bool| -> bool {
@@ -197,12 +221,26 @@ pub fn handle_console_command(
             {
                 let want = want.unwrap_or(!rc_os::autostart::is_enabled());
                 let ok = rc_os::autostart::set_enabled(want);
-                let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
-                let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
-                println!("  → {} {state} ({result})", i18n::t("开机自启动", "autostart"));
+                let state = if want {
+                    i18n::t("开", "on")
+                } else {
+                    i18n::t("关", "off")
+                };
+                let result = if ok {
+                    i18n::t("成功", "ok")
+                } else {
+                    i18n::t("失败", "failed")
+                };
+                println!(
+                    "  → {} {state} ({result})",
+                    i18n::t("开机自启动", "autostart")
+                );
             }
             #[cfg(not(windows))]
-            println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
+            println!(
+                "  {}",
+                i18n::t("开机自启动仅限 Windows", "autostart is Windows-only")
+            );
         }
         "record" => {
             if let Some(rec) = recording.take() {
@@ -212,7 +250,10 @@ pub fn handle_console_command(
                     Some(m) => *recording = start_recording(m.width, m.height, m.fps),
                     None => println!(
                         "  {}",
-                        i18n::t("还没连上手机，没什么可录的", "not connected yet — nothing to record")
+                        i18n::t(
+                            "还没连上手机，没什么可录的",
+                            "not connected yet — nothing to record"
+                        )
                     ),
                 }
             }
@@ -243,4 +284,3 @@ pub fn handle_console_command(
         ),
     }
 }
-

@@ -76,15 +76,14 @@ mod win32 {
         Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, MF_GRAYED,
-        MF_POPUP, MF_STRING,
+        AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
         DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
-        LoadImageW, MessageBoxW, MF_BYCOMMAND, PostMessageW, PostQuitMessage, RegisterClassW,
-        SetMenuItemBitmaps,
-        SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, GWLP_USERDATA,
-        HICON, HMENU, ICONINFO, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED,
-        MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, MSG, TPM_BOTTOMALIGN, TPM_RETURNCMD,
-        TPM_RIGHTBUTTON, WM_APP, WM_DESTROY, WNDCLASSW, WS_OVERLAPPED,
+        LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+        SetForegroundWindow, SetMenuItemBitmaps, SetWindowLongPtrW, TrackPopupMenu,
+        TranslateMessage, GWLP_USERDATA, HICON, HMENU, ICONINFO, IDI_APPLICATION, IMAGE_ICON,
+        LR_DEFAULTSIZE, LR_SHARED, MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, MF_BYCOMMAND,
+        MF_GRAYED, MF_POPUP, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        WM_APP, WM_DESTROY, WNDCLASSW, WS_OVERLAPPED,
     };
 
     use super::TrayCommand;
@@ -408,7 +407,6 @@ mod win32 {
             return;
         };
 
-
         // Draw the shared menu model. One description of the menu (see
         // `menu_rows`) means the Windows popup and the Mac popover are
         // reviewed against the same list, and the layout is unit-tested.
@@ -440,17 +438,24 @@ mod win32 {
         // knows about one — and the submenu rows are then dropped from the flat
         // pass so they are not *also* drawn at the top level.
         for row in model.iter().filter(|r| r.kind == super::Row::Sub) {
-            let Ok(inner) = CreatePopupMenu() else { continue };
+            let Ok(inner) = CreatePopupMenu() else {
+                continue;
+            };
             for detail in super::detail_rows(&state) {
                 append_item(inner, MF_STRING | MF_GRAYED, 0, &detail.text);
             }
-            let title: Vec<u16> =
-                super::decorate(row).encode_utf16().chain(std::iter::once(0)).collect();
+            let title: Vec<u16> = super::decorate(row)
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
             unsafe {
                 let _ = AppendMenuW(menu, MF_POPUP, inner.0 as usize, PCWSTR(title.as_ptr()));
             }
         }
-        let model: Vec<_> = model.into_iter().filter(|r| r.kind != super::Row::Sub).collect();
+        let model: Vec<_> = model
+            .into_iter()
+            .filter(|r| r.kind != super::Row::Sub)
+            .collect();
 
         // The icon sheet, cut into one bitmap per row. Loaded per popup
         // because a Win32 menu is rebuilt every time it opens; the alternative
@@ -460,12 +465,7 @@ mod win32 {
             let flags = super::flags_for(row, &state);
             append_item(menu, flags, row.id, &super::decorate(row));
             if let Some(icons) = icons.as_ref() {
-                let cell = if row.id == crate::tray_menu::ids::RECORD {
-                    // The one row whose glyph depends on state.
-                    Some(crate::tray_menu::record_icon_cell(recording))
-                } else {
-                    crate::tray_menu::icon_cell(row.id)
-                };
+                let cell = crate::tray_menu::row_icon_cell(row.id, recording);
                 if let Some(bmp) = cell.and_then(|c| unsafe { icons.bitmap(c) }) {
                     unsafe {
                         // MF_BYCOMMAND: the id is the command id, not a
@@ -652,10 +652,7 @@ mod win32 {
                 // 1bpp: one bit per pixel, 4 bytes per row, padded to 4 bytes.
                 // Set means "ink", which is the bit the mask is read from.
                 let stride = Self::CELL.div_ceil(32) * 4;
-                let dst = std::slice::from_raw_parts_mut(
-                    bits as *mut u8,
-                    stride * Self::CELL,
-                );
+                let dst = std::slice::from_raw_parts_mut(bits as *mut u8, stride * Self::CELL);
                 for y in 0..Self::CELL {
                     for x in 0..Self::CELL {
                         let px = (y * Self::CELL + x) * 4;

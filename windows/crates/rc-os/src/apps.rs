@@ -61,9 +61,7 @@ pub fn icon_png(pid: u32) -> Option<Vec<u8>> {
 fn render_icon_png_cached(path: &str, size: i32) -> Option<Vec<u8>> {
     static CACHE: std::sync::LazyLock<
         std::sync::Mutex<std::collections::HashMap<String, Option<Vec<u8>>>>,
-    > = std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(std::collections::HashMap::new())
-    });
+    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
     let mut cache = CACHE.lock().ok()?;
     if let Some(cached) = cache.get(path) {
         return cached.clone();
@@ -201,10 +199,7 @@ fn post_close_to_main_window(pid: u32) -> bool {
             BOOL(1)
         }
         let mut data = (pid, false);
-        let _ = EnumWindows(
-            Some(cb),
-            LPARAM(std::ptr::addr_of_mut!(data) as isize),
-        );
+        let _ = EnumWindows(Some(cb), LPARAM(std::ptr::addr_of_mut!(data) as isize));
         data.1
     }
     unsafe { inner(pid) }
@@ -298,7 +293,12 @@ pub(crate) fn process_image_path(pid: u32) -> Option<String> {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; MAX_PATH as usize];
         let mut size = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut size);
+        let ok = QueryFullProcessImageNameW(
+            handle,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut size,
+        );
         let _ = CloseHandle(handle);
         if ok.is_err() {
             return None;
@@ -323,7 +323,7 @@ fn render_icon_png(image_path: &str, size: i32) -> Option<Vec<u8>> {
         SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HGDIOBJ,
     };
     use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
-    use windows::Win32::UI::Shell::{SHGetFileInfoW, SHGFI_ICON, SHGFI_LARGEICON, SHFILEINFOW};
+    use windows::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
     use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, DI_NORMAL};
 
     let wide: Vec<u16> = std::ffi::OsStr::new(image_path)
@@ -406,11 +406,13 @@ pub fn build_installed_apps() -> rc_protocol::InstalledApps {
     let mut roots: Vec<PathBuf> = Vec::new();
     for env in ["PROGRAMDATA", "APPDATA"] {
         if let Some(base) = std::env::var_os(env) {
-            roots.push(PathBuf::from(base)
-                .join("Microsoft")
-                .join("Windows")
-                .join("Start Menu")
-                .join("Programs"));
+            roots.push(
+                PathBuf::from(base)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs"),
+            );
         }
     }
 
@@ -448,7 +450,12 @@ fn collect_lnk(dir: &Path, depth: u8) -> Vec<PathBuf> {
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
         if is_dir {
             dirs.push(path);
-        } else if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("lnk")).unwrap_or(false) {
+        } else if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("lnk"))
+            .unwrap_or(false)
+        {
             out.push(path);
         }
     }

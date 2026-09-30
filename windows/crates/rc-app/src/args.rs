@@ -6,7 +6,6 @@
 
 use crate::help::print_help;
 
-
 #[derive(Debug, Default)]
 pub struct Args {
     pub connect: Option<String>,
@@ -22,6 +21,7 @@ pub struct Args {
     pub scan: bool,
     pub unmute: bool,
     pub record: bool,
+    pub version: bool,
     pub no_tray: bool,
     /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
     pub doctor: bool,
@@ -66,6 +66,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--vcam" => args.vcam = true,
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
+            "--version" | "-V" => args.version = true,
             "--no-tray" => args.no_tray = true,
             // `--doctor [ip[:port]]`: the operand is optional and
             // position-sensitive, so it is consumed here rather than left to
@@ -103,7 +104,7 @@ mod arg_tests {
 
     #[test]
     fn flags_map_one_to_one() {
-        let a = args(&["--vcam", "--no-input", "--no-tray", "--record"]);
+        let a = args(&["--vcam", "--no-input", "--no-tray", "--record", "--version"]);
         assert!(a.vcam && a.no_input && a.no_tray && a.record);
         assert!(!a.doctor && !a.scan && !a.selftest);
     }
@@ -116,7 +117,10 @@ mod arg_tests {
 
     #[test]
     fn connect_takes_the_next_argument() {
-        assert_eq!(args(&["--connect", "10.0.0.2:1234"]).connect.as_deref(), Some("10.0.0.2:1234"));
+        assert_eq!(
+            args(&["--connect", "10.0.0.2:1234"]).connect.as_deref(),
+            Some("10.0.0.2:1234")
+        );
         // A trailing flag with no value must not panic or invent a target.
         assert_eq!(args(&["--connect"]).connect, None);
     }
@@ -124,7 +128,11 @@ mod arg_tests {
     #[test]
     fn doctor_operand_is_optional() {
         assert!(args(&["--doctor"]).doctor);
-        assert_eq!(args(&["--doctor"]).connect, None, "bare --doctor browses mDNS");
+        assert_eq!(
+            args(&["--doctor"]).connect,
+            None,
+            "bare --doctor browses mDNS"
+        );
 
         let with_ip = args(&["--doctor", "192.168.31.5"]);
         assert!(with_ip.doctor);
