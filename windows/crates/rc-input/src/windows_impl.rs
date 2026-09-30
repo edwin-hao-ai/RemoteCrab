@@ -157,6 +157,15 @@ impl WindowsInjector {
                 }
                 send_vk(VK_CONTROL, false);
             }
+            MouseAction::ModifierKeys { vks, pressed } => {
+                // `SendInput` has no per-event flag byte, so a held modifier
+                // is a real key-down that has to be released later. The
+                // translator emits both transitions, diffed against the keys
+                // it already holds, so the key state matches the trackpad's.
+                for vk in vks {
+                    send_vk(vk, pressed);
+                }
+            }
             MouseAction::ScrollPhase(_) => {
                 // Windows has no scroll-phase events; the wheel deltas alone
                 // drive native smooth scrolling. Intentionally a no-op.

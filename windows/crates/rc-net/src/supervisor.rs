@@ -21,6 +21,7 @@ use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, watch};
 
 use super::dispatch::{dispatch_frame, next_frame};
+use super::ping::PingProbe;
 use super::token::TokenStore;
 use super::{emit, set_health, set_state, Health};
 use super::{
@@ -90,6 +91,15 @@ pub(crate) async fn supervisor(
     // by hand if they want to, without the product ever offering them an
     // address box.
     let mut last_endpoint: Option<String> = None;
+    // The target that just failed, and how many times in a row it has.
+    //
+    // A single failure must NOT clear the target: `Action::Reconnect` re-dials
+    // from it, so clearing on the first failure silently disables reconnection
+    // and only the fallback can rescue the session. What has to end the retries
+    // is the *second* consecutive failure of the same address — at that point
+    // the address is not going to work, and the fallbacks must be allowed to
+    // rotate to a different one.
+    let mut failed_target: Option<Target> = None;
     if let Some(h) = tokens.last_phone_host() {
         let port = tokens.last_phone_port().unwrap_or(config.default_port);
         last_endpoint = Some(format!("{h}:{port}"));
@@ -282,12 +292,26 @@ pub(crate) async fn supervisor(
                 active = None;
                 match kind {
                     ConnEndKind::Lost | ConnEndKind::HandshakeTimeout => {
-                        // Whatever we were dialing did not work. Forget it so
-                        // the fallbacks below get a turn — the next tick will
-                        // try the other known addresses instead of hammering
-                        // one dead one every three seconds. This is the exit
-                        // from the "re-dial a dead address forever" deadlock.
-                        target = None;
+                        // First failure of this address: keep it, so the
+                        // reconnect loop re-dials it. Most drops are a WiFi
+                        // blip and the same address is correct.
+                        //
+                        // Second consecutive failure: the address is not going
+                        // to work, so release it and let the fallbacks rotate
+                        // to a different candidate. Without this the receiver
+                        // hammers one dead address every 3 s forever — the exit
+                        // from that deadlock.
+                        // Compare the *address*, not the struct: a
+                        // re-resolved mDNS record for the same phone is the
+                        // same thing to re-dial, and comparing the whole target
+                        // would call it a different address and rotate away
+                        // from a phone that is merely being re-announced.
+                        if failed_target.as_ref().and_then(Target::host_port)
+                            == target.as_ref().and_then(Target::host_port)
+                        {
+                            target = None;
+                        }
+                        failed_target = target.clone().or(failed_target);
                         if !suppress_auto {
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }
@@ -380,7 +404,14 @@ pub(crate) async fn supervisor(
                     let port = tokens.last_phone_port().unwrap_or(config.default_port);
                     let mut candidates: Vec<String> = Vec::new();
                     if let Some(h) = tokens.last_phone_host() {
-                        candidates.push(h);
+                        if rc_discovery::is_usable_dial_address(&h) {
+                            candidates.push(h);
+                        } else {
+                            // Written before the check existed. Drop it from
+                            // the running too, so one bad file heals instead of
+                            // being re-dialed until the user clears it by hand.
+                            eprintln!("[net] ignoring the stored address {h} — not a LAN address");
+                        }
                     }
                     candidates.push(rc_discovery::HOTSPOT_GATEWAY.to_string());
 
@@ -767,6 +798,11 @@ pub(crate) async fn run_connection(
 
     let mut last_pong = tokio::time::Instant::now();
     let mut last_latency: i64 = 0;
+    // Our own outstanding latency probe, so an inbound ping can be told apart
+    // from the phone's. Both ends originate probes now, and `now - sent` across
+    // two machines' clocks is the offset between them, not a round trip — see
+    // the `ping` module.
+    let mut probe = PingProbe::new();
 
     loop {
         tokio::select! {
@@ -777,12 +813,40 @@ pub(crate) async fn run_connection(
                         for f in parser.append(&buf[..n]) {
                             if f.kind == Kind::Ping {
                                 let sent = rc_protocol::decode_ping(&f);
-                                let now_micros = now_micros();
-                                let rtt = (now_micros.saturating_sub(sent) / 1000) as i64;
-                                last_latency = rtt;
+                                // ANY ping proves the link is alive, so the
+                                // pong watchdog is satisfied either way.
                                 last_pong = tokio::time::Instant::now();
-                                emit(events_tx, Event::Latency(rtt));
-                                set_state(state_tx, events_tx, State::Streaming { name: name.clone(), latency_ms: rtt });
+                                if !probe.is_own_echo(sent) {
+                                    // The phone originated this one, so the
+                                    // phone is the one waiting to measure.
+                                    // Echoing it is what lets its latency
+                                    // readout exist at all.
+                                    //
+                                    // It must NOT fall through to the maths
+                                    // below: `now - sent` is the CLOCK OFFSET
+                                    // between the two machines, which can be
+                                    // hours, and that is what the status line
+                                    // used to show. The iOS app started sending
+                                    // probes of its own, so before this existed
+                                    // every phone-initiated probe was reported
+                                    // as a multi-hour "latency".
+                                    if write_half.write_all(&encode_ping(sent)).await.is_err() {
+                                        return ConnEndKind::Lost;
+                                    }
+                                } else if let Some(rtt) =
+                                    probe.round_trip_ms(sent, now_micros())
+                                {
+                                    last_latency = rtt;
+                                    emit(events_tx, Event::Latency(rtt));
+                                    set_state(
+                                        state_tx,
+                                        events_tx,
+                                        State::Streaming {
+                                            name: name.clone(),
+                                            latency_ms: rtt,
+                                        },
+                                    );
+                                }
                             } else {
                                 dispatch_frame(&f, events_tx);
                             }
@@ -804,7 +868,7 @@ pub(crate) async fn run_connection(
                 if last_pong.elapsed() > PONG_TIMEOUT {
                     return ConnEndKind::Lost;
                 }
-                let frame = encode_ping(now_micros());
+                let frame = encode_ping(probe.make_probe(now_micros()));
                 if write_half.write_all(&frame).await.is_err() {
                     return ConnEndKind::Lost;
                 }

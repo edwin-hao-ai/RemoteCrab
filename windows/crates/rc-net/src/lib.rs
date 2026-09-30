@@ -10,6 +10,7 @@
 //! [`Command`]s. The app layer decides what to do with them.
 
 pub mod dispatch;
+pub mod ping;
 pub mod route;
 mod supervisor;
 pub mod token;

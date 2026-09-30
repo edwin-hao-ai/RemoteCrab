@@ -368,6 +368,15 @@ async fn link_loss_reconnects_on_its_own() {
     // this file shares a machine with every other test binary when the whole
     // workspace runs in parallel. A tight budget here reads as a product
     // regression when it is only the test runner being slow.
+    //
+    // **The 30 s budget is also load-bearing in the other direction.** The
+    // fake phone lives on loopback, and loopback is deliberately NOT persisted
+    // as a phone address (`rc_discovery::is_usable_dial_address`). So the
+    // direct-IP fallback has no candidate here and the *only* thing that can
+    // produce a second connection is the reconnect path re-dialing the target
+    // it already had. That is exactly what we want to test — an earlier
+    // version cleared the target on the first failure, which silently disabled
+    // reconnection, and this test kept passing because the fallback rescued it.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     while connects.load(Ordering::SeqCst) < 2 {
         assert!(

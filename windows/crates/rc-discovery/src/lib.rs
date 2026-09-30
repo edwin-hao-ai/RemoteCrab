@@ -145,6 +145,61 @@ pub fn local_ipv4_addresses() -> Vec<String> {
 /// - `192.168.31` — an explicit /24 prefix, used to look for a phone parked on
 ///   a guest/IoT subnet that the router routes but isolates from the main LAN.
 ///
+/// True when `addr` could plausibly be the phone on this network.
+///
+/// A guard for the direct-IP path, so it is deliberately strict. The failure
+/// it prevents is self-reinforcing: an endpoint that is persisted on every
+/// successful handshake and re-dialled on every fallback tick. If whatever
+/// answered was a loopback listener — a booted simulator, a stray dev server —
+/// then every "success" re-persisted it, and the receiver dialed the ghost
+/// forever in a perfectly plausible-looking 12-20 s cadence that reads as
+/// ordinary backoff. The Mac hit exactly this (AGENTS.md lesson 83).
+///
+/// Rejected, with reasons:
+/// - empty / not a dotted quad → cannot be dialed
+/// - `127.0.0.0/8` — loopback (the simulator case)
+/// - `169.254.0.0/16` — link-local / self-assigned, i.e. an unreachable adapter
+/// - `0.0.0.0` and the broadcast address
+/// - a `%en0`-style scope suffix — not dialable, and a shape the OS endpoint
+///   printer sometimes produces
+///
+/// Used at **both** the write site and the read site: refusing only to dial a
+/// poisoned entry leaves it in the file, and refusing only to write it leaves
+/// an already-poisoned file in place. Both are needed to heal.
+pub fn is_usable_dial_address(addr: &str) -> bool {
+    let raw = addr.trim();
+    if raw.is_empty() || raw.contains('%') {
+        return false;
+    }
+    let parts: Vec<&str> = raw.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+    let mut octets = [0u16; 4];
+    for (i, part) in parts.iter().enumerate() {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        match part.parse::<u16>() {
+            Ok(v) if v <= 255 => octets[i] = v,
+            _ => return false,
+        }
+    }
+    if octets[0] == 127 {
+        return false; // loopback
+    }
+    if octets[0] == 169 && octets[1] == 254 {
+        return false; // link-local
+    }
+    if octets.iter().all(|&o| o == 0) {
+        return false; // 0.0.0.0
+    }
+    if octets.iter().all(|&o| o == 255) {
+        return false; // broadcast
+    }
+    true
+}
+
 /// Only `/24` is swept: it covers virtually every home/office LAN and keeps
 /// the scan bounded (254 probes).
 pub fn subnet_hosts(target: &str) -> Vec<String> {
@@ -312,4 +367,37 @@ mod tests {
         let found = scan_subnet_for_port("127.0.0.1", port, Duration::from_millis(200), 64).await;
         assert!(found.contains(&"127.0.0.2".to_string()), "found = {found:?}");
     }
+    #[test]
+    fn only_a_plausible_lan_address_is_worth_persisting() {
+        for good in ["192.168.31.159", "10.0.0.7", "172.20.10.1"] {
+            assert!(is_usable_dial_address(good), "{good} is a normal LAN address");
+        }
+        // The ghost-dial loop: anything that answers on loopback gets
+        // re-persisted on every connect and re-dialed forever.
+        for bad in [
+            "127.0.0.1",
+            "127.1.2.3",
+            "169.254.228.39",
+            "0.0.0.0",
+            "255.255.255.255",
+            "192.168.1.5%en0", // scoped, and not dialable
+            "",
+            "   ",
+            "not-an-ip",
+            "192.168.1",
+            "192.168.1.5.6",
+            "192.168.1.256",
+            "192.168.1.0x5",
+        ] {
+            assert!(!is_usable_dial_address(bad), "{bad:?} must be refused");
+        }
+    }
+
+    /// Healing, not merely refusing: a store written before this check existed
+    /// can already hold a ghost, so the read site has to refuse it too.
+    #[test]
+    fn a_ghost_written_by_an_older_build_is_refused_on_the_way_out() {
+        assert!(!is_usable_dial_address("127.0.0.1"));
+    }
+
 }

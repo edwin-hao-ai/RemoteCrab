@@ -16,7 +16,11 @@ pub enum ScrollPhase {
 }
 
 /// A single mouse action to perform.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// `Clone` but not `Copy`: [`MouseAction::ModifierKeys`] owns the virtual-key
+/// list, and the alternative — a fixed-size array plus a length — would buy
+/// nothing for three keys.
+#[derive(Debug, Clone, PartialEq)]
 pub enum MouseAction {
     Move { x: i32, y: i32 },
     LeftDown { x: i32, y: i32 },
@@ -31,6 +35,14 @@ pub enum MouseAction {
     /// (`Ctrl+wheel` zooms in most apps; a bare wheel would just scroll).
     CtrlWheel { dx: f64, dy: f64 },
     ScrollPhase(ScrollPhase),
+    /// Press or release the virtual keys for a modifier bitmask.
+    ///
+    /// The Mac attaches the modifier mask to each event as `CGEvent.flags`,
+    /// so nothing needs holding. `SendInput` has no equivalent, so the
+    /// translator emits the transitions and the platform layer holds the keys
+    /// down — which is what makes ⇧-click extend a selection and ⌥-drag
+    /// move a window, instead of both silently doing the plain thing.
+    ModifierKeys { vks: Vec<u16>, pressed: bool },
 }
 
 /// A three/four-finger swipe maps to a Windows task/desktop shortcut (the
@@ -90,6 +102,8 @@ pub struct InputTranslator {
     is_dragging: bool,
     scroll_active: bool,
     momentum_active: bool,
+    /// The virtual keys currently held down on behalf of the trackpad.
+    held_vks: Vec<u16>,
 }
 
 impl Default for InputTranslator {
@@ -105,6 +119,7 @@ impl InputTranslator {
             is_dragging: false,
             scroll_active: false,
             momentum_active: false,
+            held_vks: Vec::new(),
         }
     }
 
@@ -116,6 +131,22 @@ impl InputTranslator {
     pub fn touch(&mut self, event: &TouchEvent, screen: ScreenSize) -> Vec<MouseAction> {
         let mut actions = Vec::new();
         let cursor = (self.last_cursor.0.round() as i32, self.last_cursor.1.round() as i32);
+
+        // Hold the trackpad's modifiers for the whole gesture, releasing them
+        // when the user lets go.
+        //
+        // The diff is taken on the *mapped* virtual keys, not on the raw bits,
+        // because ⌘ and ⌃ both collapse to Ctrl: a user who slides from ⌘ to ⌃
+        // mid-drag changes the bits without changing the key, and diffing the
+        // bits would emit "press Ctrl, release Ctrl" and drop the modifier.
+        let want = keymap::modifier_vks(event.modifiers);
+        for vk in want.iter().filter(|v| !self.held_vks.contains(v)) {
+            actions.push(MouseAction::ModifierKeys { vks: vec![*vk], pressed: true });
+        }
+        for vk in self.held_vks.iter().filter(|v| !want.contains(v)) {
+            actions.push(MouseAction::ModifierKeys { vks: vec![*vk], pressed: false });
+        }
+        self.held_vks = want;
 
         match event.phase {
             TouchPhase::Down => actions.push(MouseAction::LeftDown { x: cursor.0, y: cursor.1 }),
@@ -313,7 +344,7 @@ mod tests {
         // dy = 0.1 → -(0.1) * 1000 * 1.2 = -120 (one notch).
         let actions = t.touch(&touch(TouchPhase::Scroll, 0.0, 0.1), screen());
         assert_eq!(actions.len(), 2);
-        match actions[0] {
+        match &actions[0] {
             MouseAction::Wheel { dx, dy } => {
                 assert!(dx.abs() < 0.01);
                 assert!((dy + 120.0).abs() < 0.01, "dy = {dy}");
@@ -353,10 +384,10 @@ mod tests {
         let actions = t.touch(&touch(TouchPhase::Pinch, 0.1, 0.0), screen());
         // dy = -(0.1) * 1200 = -120 (allow f32 rounding).
         assert_eq!(actions.len(), 1);
-        match actions[0] {
+        match &actions[0] {
             MouseAction::CtrlWheel { dx, dy } => {
-                assert_eq!(dx, 0.0);
-                assert!((dy + 120.0).abs() < 0.01, "dy = {dy}");
+                assert_eq!(*dx, 0.0);
+                assert!((*dy + 120.0).abs() < 0.01, "dy = {dy}");
             }
             other => panic!("expected Wheel, got {other:?}"),
         }
@@ -518,5 +549,111 @@ mod screen_tests {
         sc.dy = 0.0625;
         let actions = screen_actions(&sc, (0.0, 0.0), (100.0, 100.0));
         assert_eq!(actions, vec![MouseAction::Wheel { dx: 0.0, dy: 75.0 }]);
+    }
+}
+
+#[cfg(test)]
+mod modifier_tests {
+    use super::*;
+    use crate::keymap::vk;
+
+    fn touch(phase: TouchPhase, modifiers: u8) -> TouchEvent {
+        TouchEvent {
+            phase,
+            x: 0.5,
+            y: 0.5,
+            dx: 0.0,
+            dy: 0.0,
+            modifiers,
+            momentum: None,
+            timestamp_micros: 0,
+        }
+    }
+
+    fn vks_for(actions: &[MouseAction], pressed: bool) -> Vec<u16> {
+        actions
+            .iter()
+            .filter_map(|a| match a {
+                MouseAction::ModifierKeys { vks, pressed: p } if *p == pressed => Some(vks.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
+    /// ⇧-click is how a trackpad user extends a selection, and on Windows it
+    /// used to perform a plain click: `TouchEvent.modifiers` was read nowhere
+    /// in this crate, so the bitmask the phone sends was simply dropped.
+    #[test]
+    fn shift_click_holds_shift() {
+        let mut t = InputTranslator::new();
+        let screen = ScreenSize::new(1000.0, 1000.0);
+        let actions = t.touch(&touch(TouchPhase::Click, Modifier::SHIFT), screen);
+        assert_eq!(vks_for(&actions, true), vec![vk::SHIFT]);
+        assert!(vks_for(&actions, false).is_empty(), "still held after the tap");
+        // …and released when the user lets go.
+        let up = t.touch(&touch(TouchPhase::Up, Modifier::NONE), screen);
+        assert_eq!(vks_for(&up, false), vec![vk::SHIFT]);
+    }
+
+    /// ⌥-drag is how a Mac user moves a window. On Windows it used to be a
+    /// plain drag, which drags a *selection* instead.
+    #[test]
+    fn option_drag_holds_alt_for_the_whole_drag() {
+        let mut t = InputTranslator::new();
+        let screen = ScreenSize::new(1000.0, 1000.0);
+        let start = t.touch(&touch(TouchPhase::DragStart, Modifier::OPTION), screen);
+        assert_eq!(vks_for(&start, true), vec![vk::MENU]);
+        let mid = t.touch(&touch(TouchPhase::Move, Modifier::OPTION), screen);
+        assert!(
+            vks_for(&mid, true).is_empty() && vks_for(&mid, false).is_empty(),
+            "a held modifier must not be re-sent every move: {mid:?}"
+        );
+        let end = t.touch(&touch(TouchPhase::Up, Modifier::NONE), screen);
+        assert_eq!(vks_for(&end, false), vec![vk::MENU]);
+    }
+
+    /// ⌘ and ⌃ both collapse to Ctrl, so a user sliding from one to the other
+    /// mid-gesture changes the bits without changing the key. Diffing the raw
+    /// bits would emit "press Ctrl, release Ctrl" and drop the modifier.
+    #[test]
+    fn sliding_from_command_to_control_keeps_the_modifier_held() {
+        let mut t = InputTranslator::new();
+        let screen = ScreenSize::new(1000.0, 1000.0);
+        t.touch(&touch(TouchPhase::DragStart, Modifier::COMMAND), screen);
+        let swapped = t.touch(&touch(TouchPhase::Move, Modifier::CONTROL), screen);
+        assert!(
+            vks_for(&swapped, false).is_empty(),
+            "Ctrl must stay held across a ⌘→⌃ slide: {swapped:?}"
+        );
+    }
+
+    #[test]
+    fn a_chord_holds_every_modifier() {
+        let mut t = InputTranslator::new();
+        let screen = ScreenSize::new(1000.0, 1000.0);
+        let actions = t.touch(
+            &touch(TouchPhase::Click, Modifier::SHIFT | Modifier::CONTROL | Modifier::OPTION),
+            screen,
+        );
+        let mut held = vks_for(&actions, true);
+        held.sort_unstable();
+        // VK_SHIFT 0x10, VK_CONTROL 0x11, VK_MENU 0x12.
+        let mut want = vec![vk::SHIFT, vk::CONTROL, vk::MENU];
+        want.sort_unstable();
+        assert_eq!(held, want, "every held modifier must reach the platform layer");
+    }
+
+    #[test]
+    fn no_modifier_means_no_key_traffic_at_all() {
+        let mut t = InputTranslator::new();
+        let screen = ScreenSize::new(1000.0, 1000.0);
+        let actions = t.touch(&touch(TouchPhase::Click, Modifier::NONE), screen);
+        assert!(vks_for(&actions, true).is_empty());
+        assert!(vks_for(&actions, false).is_empty());
+        assert!(
+            actions.iter().all(|a| !matches!(a, MouseAction::ModifierKeys { .. })),
+            "a plain tap must not inject any key: {actions:?}"
+        );
     }
 }
