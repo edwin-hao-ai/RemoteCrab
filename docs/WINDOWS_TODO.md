@@ -8,6 +8,49 @@
 
 ---
 
+## 0'. ⭐ 不想等 iPhone？用假手机（推荐先跑这个）
+
+```sh
+# 终端 1 —— 一个假的 iPhone，端口固定
+cargo run -p rc-phone-sim -- --port 8765
+
+# 终端 2 —— 你真正要发的那个接收端二进制
+remotecrab.exe --connect 127.0.0.1:8765
+```
+
+**为什么重要**：测接收端有个无法消除的硬前提——手机得开着、解锁、在推流、
+还在同一网络。于是测试只在有人记得跑的时候跑，不在 CI 跑。假手机把这个依赖
+从大部分检查上解绑掉了。
+
+**它能证明**：握手、token 交换、metadata、视频解码、ping/RTT、功能开关、
+重连循环，以及**二进制里所有只在有数据流动时才走的代码路径**。
+
+**它不能证明**：真 iOS 编码器、摄像头、真通知、真实 WiFi 发现、真机 UI。
+这些仍然需要设备。
+
+**七个场景**，让故障可以故意复现而不是等：
+
+| `--scenario` | 复现什么 |
+|---|---|
+| `normal`（默认） | 正常路径，含真 H.264 视频 |
+| `pending` | 手机上的批准卡片 |
+| `denied` / `busy` | 被拒绝 / 被别的 Mac 占用 |
+| **`silent`** | **连上后什么都不发**——界面看着一切正常 |
+| `no-token` | 不发 token（下次连接又要批准） |
+| **`drop`** | **连上就断**——重连逻辑 |
+
+`silent` 和 `drop` 最有价值：这两类故障手测最难抓，因为界面完全正常。
+
+其它开关：`--frames N`（收到 N 帧后退出）、`--seconds N`（超时退出）、
+`--help`。假手机会打印它看到的每一帧：clientHello（**含对方有没有带 token**）、
+ping、featureControl、touch、key、notification、commandResult。
+
+> **已知问题（2026-09-30 报告，未定位）**：接收端在 `sessionReply: Accepted`
+> 之后会崩：`fatal runtime error: Rust cannot catch foreign exceptions`。
+> 已用 `git stash` 确认**改动前就存在**，且 **macOS 上也复现**。请优先定位它。
+
+---
+
 ## 0. 三分钟上手（如果你只有十分钟）
 
 ```sh

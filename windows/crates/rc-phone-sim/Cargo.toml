@@ -1,0 +1,15 @@
+[package]
+name = "rc-phone-sim"
+description = "A fake iPhone you can point the real receiver at, for testing without hardware."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "rc-phone-sim"
+path = "src/main.rs"
+
+[dependencies]
+rc-protocol.workspace = true
+rc-testkit = { workspace = true }
+tokio = { workspace = true }

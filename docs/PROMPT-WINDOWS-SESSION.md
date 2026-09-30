@@ -58,6 +58,36 @@ Windows 上打开过**。请优先看：
    `cfg_attr(not(windows), allow(dead_code))` 之后，Windows 目标下才真正开始
    审计死代码。保持这个纪律，否则新写的死代码不会有人告诉你。
 
+## ⭐ 第一件想做的事：不用 iPhone 也能测
+
+仓库里有一个**假 iPhone 进程**：
+
+```sh
+# 终端 1
+cargo run -p rc-phone-sim -- --port 8765
+# 终端 2
+remotecrab.exe --connect 127.0.0.1:8765
+```
+
+七个场景（`normal` / `pending` / `denied` / `busy` / `silent` / `no-token` /
+`drop`）让故障可以故意复现。其中 `silent`（连上后什么都不发）和 `drop`
+（连上就断）手测最难抓——**界面看起来一切正常**。
+
+详见 `docs/WINDOWS_TODO.md` §0'。
+
+## ⚠️ 请优先定位这个 bug
+
+接收端在 `sessionReply: Accepted` 之后立刻崩：
+
+```
+fatal runtime error: Rust cannot catch foreign exceptions, aborting
+```
+
+已用 `git stash` 确认**改动之前就存在**，且**在 macOS 上也复现**（所以可能
+不是 Windows 特有）。与视频无关（`--scenario silent` 一样崩）。根因未定位。
+
+它会在你开始任何真机验证之前就挡住你，所以值得先解决。
+
 ## 验证命令
 
 ```sh
