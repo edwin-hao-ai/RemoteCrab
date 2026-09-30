@@ -66,6 +66,35 @@ macOS will prompt for Accessibility on first launch with a clear
 explanation. You can re-prompt anytime via **System Settings →
 Privacy & Security → Accessibility**.
 
+## What the Windows app does on your PC
+
+The Windows receiver is a separate program from the Mac app and is
+covered by the same promises: **nothing is uploaded, there is no
+analytics, no telemetry and no outbound connection other than to your
+iPhone on your local network.** It needs to touch the following, all
+locally:
+
+| What | Why | Where it goes |
+|---|---|---|
+| Reads and replaces your **clipboard** | Send text from the PC to the iPhone, and the other way | In memory; the OS clipboard is the only copy |
+| Enumerates your **running applications** and their names/icons | The app switcher on the iPhone | In memory, sent to your iPhone only |
+| Enumerates your **open windows** with a **JPEG thumbnail of each** | The window picker and app-window mirror on the iPhone | Thumbnails are generated on demand and sent to your iPhone only |
+| Enumerates your **installed applications** | The "Open app…" launcher | In memory, sent to your iPhone only |
+| **Injects keyboard and mouse input** into whatever window you are pointing at | That is the product | The OS input queue; nothing is recorded |
+| Registers a **virtual camera** device (only if you turn it on with `--vcam`) | Appears as a camera to Zoom/Teams/OBS | A COM registration under `HKLM`, plus a frame ring in `%ProgramData%` |
+| Reads its **own** settings and pairing token | Remember which iPhone is allowed, and reconnect to it | `%APPDATA%\RemoteCrab\tokens.json` |
+
+It writes nothing outside `%APPDATA%\RemoteCrab\`,
+`%ProgramData%\RemoteCrab\` and the registry entries above. The tray
+menu can register it to start at login
+(`HKCU\…\CurrentVersion\Run`); turn that off from the same menu.
+
+**Not collected**: keystroke logs, screen history, window-title history.
+The window list and the input events exist only for the life of the
+process and are never written to disk. The "Why not connected" panel
+prints network diagnostics (your local IP addresses, whether a VPN is
+intercepting traffic) to your own screen and to no one else.
+
 ## Children
 
 RemoteCrab is not directed to children under 13. We do not knowingly

@@ -5,12 +5,18 @@
 > pitfalls we hit, and how to verify**. It complements
 > `docs/WINDOWS_PORT_PLAN.md` (the original port plan); where they disagree,
 > this file is newer.
+>
+> **Start with [`WINDOWS_HANDOFF_2026-09-30.md`](WINDOWS_HANDOFF_2026-09-30.md)**
+> if you are new. That one is the operational view: what is usable today, what
+> blocks a real release (no installer, no signing, no crash visibility), the
+> Mac↔Windows feature gaps, and the four traps that have already cost a day.
+> This file remains the deep reference for *how* each subsystem works.
 
 Last updated: 2026-09-29 (on the Windows box — virtual camera brought up end to
 end).
 **State**: the receiver is feature-complete for the "utility" surface
 (discovery/handshake/video/audio/input/mirror/recording/tray/launcher/
-clipboard **+ virtual camera**) — `windows` **166 tests** (`cargo test
+clipboard **+ virtual camera**) — `windows` **238 tests** (`cargo test
 --workspace` on MSVC) + clippy `-D warnings` clean. **The only remaining
 feature work is the virtual microphone** (§5b), plus the Extended Display
 limit (§4), and both need the user's Windows 11 box. **Next concrete action
@@ -42,7 +48,7 @@ is already green.
 
 ## 0. TL;DR status
 
-**Done and shipped** (`cargo test --workspace` **207** on Windows/MSVC;
+**Done and shipped** (`cargo test --workspace` **238** on Windows/MSVC;
 `clippy -D warnings` clean, now enforced by CI (§5e). The
 `x86_64-pc-windows-gnu` cross-check is the macOS-side equivalent — run it
 there via `cargo check --target x86_64-pc-windows-gnu --workspace`):
@@ -82,7 +88,7 @@ there via `cargo check --target x86_64-pc-windows-gnu --workspace`):
 
 1. **Virtual microphone** (appear as a system input device) — §5b.
 2. **Virtual camera — user-visible confirmation only.** The pipeline is
-   E2E-green (`vcam_probe` PASS, 207 tests, clippy clean, CI-enforced) but
+   E2E-green (`vcam_probe` PASS, 238 tests, clippy clean, CI-enforced) but
    *a person has still not looked at it*: no iPhone has been connected with
    `--vcam` on, and no camera app has shown the moving phone feed. That is the
    last gate, and it is a manual one (§6 step 10).
@@ -433,7 +439,7 @@ cargo run -p rc-app -- --vcam-selftest   # moving test pattern, no phone; stops 
 
 **Verification ladder** (bottom rungs are automatic; only the top needs a human):
 
-1. `cargo test --workspace` → **166** + `cargo clippy --workspace --all-targets -- -D warnings` clean.
+1. `cargo test --workspace` → **238** + `cargo clippy --workspace --all-targets -- -D warnings` clean.
 2. `vcam_probe` (E2E, no phone) — opens the camera **by CLSID like a real
    consumer**, reads 12 samples, asserts the pixels change:
    ```powershell
@@ -510,7 +516,7 @@ a tool that cries wolf gets ignored.
 
 ### 5e. CI (`.github/workflows/windows.yml`)
 
-The repository had **no** GitHub Actions at all, so this workspace's 207
+The repository had **no** GitHub Actions at all, so this workspace's 238
 tests only ran when a human remembered. Two jobs, on `windows/**` changes:
 
 - **test + clippy** — `cargo build --workspace --all-targets` (so a broken

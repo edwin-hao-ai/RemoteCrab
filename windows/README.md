@@ -4,11 +4,20 @@ A Windows receiver for RemoteCrab. It speaks the **same wire protocol** the
 existing iOS app already sends, so **the iPhone and Mac code are untouched** —
 this tree is standalone and adapts to them.
 
-Status: **P2 — video preview, audio, trackpad, keyboard, clipboard (both
+Status: **video preview, audio, trackpad, keyboard, clipboard (both
 directions), file transfer, system keys, the window-based app switcher,
-app-window mirror, recording and live feature control all work.** Not yet
-implemented: virtual camera/microphone, tray UI (see
-`docs/WINDOWS_PORT_PLAN.md`).
+the installed-app launcher, app-window mirror, recording, live feature
+control, the notification-area tray, and the virtual camera (Windows 11
+22H2+) all work.**
+
+Not implemented: the virtual microphone (needs a signed WDK driver — see
+`docs/WINDOWS_HANDOFF_2026-09-30.md` §3D), the notification relay, and
+Extended Display.
+
+**Still a developer build.** There is no installer, no code signing and
+no auto-update, so this is not yet something to hand a customer; the
+shortest path to that is
+[`docs/WINDOWS_HANDOFF_2026-09-30.md`](../docs/WINDOWS_HANDOFF_2026-09-30.md) §3C.
 
 Video is decoded in Rust with bundled **OpenH264**; audio with a pure-Rust
 **Opus** decoder + **cpal/WASAPI** — no system FFmpeg, no CMake, no FFI.
@@ -237,7 +246,7 @@ windows/
 
 ```powershell
 cd E:\RemoteCrab\windows
-cargo test                                  # 153 tests
+cargo test                                  # 238 tests
 cargo clippy --all-targets -- -D warnings   # clean
 ```
 
