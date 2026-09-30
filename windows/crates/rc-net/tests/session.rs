@@ -40,7 +40,9 @@ async fn wait_for_state(
 
 #[tokio::test]
 async fn handshake_accepted_reaches_streaming() {
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
 
     session.connect_manual("127.0.0.1", phone.addr.port());
@@ -51,13 +53,19 @@ async fn handshake_accepted_reaches_streaming() {
         Duration::from_secs(5),
     )
     .await;
-    assert!(state.is_some(), "expected Streaming, got {:?}", session.state().borrow());
+    assert!(
+        state.is_some(),
+        "expected Streaming, got {:?}",
+        session.state().borrow()
+    );
     assert_eq!(state.unwrap().pill_label(), "LIVE");
 }
 
 #[tokio::test]
 async fn client_hello_carries_pc_identity_and_windows_platform() {
-    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
     session.connect_manual("127.0.0.1", phone.addr.port());
 
@@ -74,7 +82,9 @@ async fn client_hello_carries_pc_identity_and_windows_platform() {
 
 #[tokio::test]
 async fn metadata_and_feature_state_are_delivered() {
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
     // Subscribe before connecting and keep draining, so no broadcast frame
     // is missed between the handshake and the assertion loop.
@@ -120,12 +130,17 @@ async fn metadata_and_feature_state_are_delivered() {
         }
     }
     assert!(got_metadata, "metadata not delivered; saw {seen:?}");
-    assert!(got_feature_state, "featureState not delivered; saw {seen:?}");
+    assert!(
+        got_feature_state,
+        "featureState not delivered; saw {seen:?}"
+    );
 }
 
 #[tokio::test]
 async fn ping_produces_a_latency_reading() {
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
     let mut events = session.subscribe();
     session.connect_manual("127.0.0.1", phone.addr.port());
@@ -146,12 +161,18 @@ async fn ping_produces_a_latency_reading() {
 
 #[tokio::test]
 async fn set_feature_sends_feature_control_to_the_phone() {
-    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
     session.connect_manual("127.0.0.1", phone.addr.port());
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("did not reach streaming");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not reach streaming");
 
     session.set_feature(Feature::Camera, false);
 
@@ -251,10 +272,12 @@ async fn handshake_timeout_when_the_phone_never_replies() {
     )
     .await;
 
+    // See the note in `link_loss_reconnects_on_its_own`: this asserts
+    // "eventually leaves the handshake", not "within 12 seconds".
     let recovered = wait_for_state(
         &session,
         |s| matches!(s, State::Connecting { .. } | State::Handshaking { .. }),
-        Duration::from_secs(12),
+        Duration::from_secs(30),
     )
     .await;
     assert!(recovered.is_some(), "session never left the handshake");
@@ -262,12 +285,18 @@ async fn handshake_timeout_when_the_phone_never_replies() {
 
 #[tokio::test]
 async fn disconnect_returns_to_searching() {
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(test_config());
     session.connect_manual("127.0.0.1", phone.addr.port());
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("did not reach streaming");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not reach streaming");
 
     session.disconnect();
     let searching = wait_for_state(
@@ -305,8 +334,14 @@ async fn link_loss_reconnects_on_its_own() {
                 let mut buf = vec![0u8; 4096];
                 let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
                 loop {
-                    let Ok(n) = rd.read(&mut buf).await else { return };
-                    if parser.append(&buf[..n]).iter().any(|f| f.kind == Kind::ClientHello) {
+                    let Ok(n) = rd.read(&mut buf).await else {
+                        return;
+                    };
+                    if parser
+                        .append(&buf[..n])
+                        .iter()
+                        .any(|f| f.kind == Kind::ClientHello)
+                    {
                         break;
                     }
                     if tokio::time::Instant::now() > deadline {
@@ -328,7 +363,12 @@ async fn link_loss_reconnects_on_its_own() {
     let session = Session::spawn(test_config());
     session.connect_manual("127.0.0.1", port);
 
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+    // Generous, because the assertion is "it re-dials", not "it re-dials
+    // within N seconds": the receiver waits RECONNECT_DELAY (3 s) first, and
+    // this file shares a machine with every other test binary when the whole
+    // workspace runs in parallel. A tight budget here reads as a product
+    // regression when it is only the test runner being slow.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     while connects.load(Ordering::SeqCst) < 2 {
         assert!(
             tokio::time::Instant::now() < deadline,
@@ -378,12 +418,18 @@ async fn recv_hello(phone: &mut FakeIphone) -> rc_protocol::ClientHello {
 async fn token_is_persisted_after_accepted() {
     let (config, path) = test_config_with_token_file("persist");
     // Default config answers `accepted` with token "test-token".
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(config);
     session.connect_manual("127.0.0.1", phone.addr.port());
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("did not reach streaming");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not reach streaming");
 
     // The write happens on the supervisor task, just after the handshake.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -405,22 +451,36 @@ async fn token_is_persisted_after_accepted() {
 #[tokio::test]
 async fn second_connection_sends_the_stored_token() {
     let (config, path) = test_config_with_token_file("second");
-    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(config);
 
     // Connection 1: tokenless is CORRECT — the phone has not issued one yet.
     session.connect_manual("127.0.0.1", phone.addr.port());
     let first = recv_hello(&mut phone).await;
-    assert_eq!(first.token, None, "the first connection cannot carry a token");
+    assert_eq!(
+        first.token, None,
+        "the first connection cannot carry a token"
+    );
 
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("first session did not stream");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("first session did not stream");
 
     // Connection 2: it MUST echo the token, or the phone shows the approval
     // card again and the user has to tap Allow every single time.
     session.disconnect();
-    wait_for_state(&session, |s| matches!(s, State::Searching), Duration::from_secs(3)).await;
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Searching),
+        Duration::from_secs(3),
+    )
+    .await;
     session.connect_manual("127.0.0.1", phone.addr.port());
     let second = recv_hello(&mut phone).await;
     let dump = std::fs::read_to_string(&path).unwrap_or_default();
@@ -435,15 +495,21 @@ async fn second_connection_sends_the_stored_token() {
 #[tokio::test]
 async fn token_survives_a_restart() {
     let (config, path) = test_config_with_token_file("restart");
-    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
 
     {
         let session = Session::spawn(config.clone());
         session.connect_manual("127.0.0.1", phone.addr.port());
         let _ = recv_hello(&mut phone).await;
-        wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-            .await
-            .expect("first session did not stream");
+        wait_for_state(
+            &session,
+            |s| matches!(s, State::Streaming { .. }),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("first session did not stream");
         session.disconnect();
     }
     // A brand-new process reading the same file. This is the case that matters
@@ -468,12 +534,18 @@ async fn token_is_rekeyed_to_the_phones_reported_name() {
     // one that works when mDNS is dead) can never be paired silently. The
     // phone tells us its real name in `metadata`; that is the stable key.
     let (config, path) = test_config_with_token_file("rekey");
-    let phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(config);
     session.connect_manual("127.0.0.1", phone.addr.port());
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("did not stream");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not stream");
 
     // The fake phone reports `device_name: "Fake iPhone"`.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -502,17 +574,28 @@ async fn direct_dial_after_an_mdns_session_still_carries_the_token() {
     // TUN scenario — mDNS dies, the sweep dials the IP, and if the token is
     // stranded under the other name the user gets an approval card anyway.
     let (config, path) = test_config_with_token_file("crosskey");
-    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
     let session = Session::spawn(config);
 
     session.connect_manual("127.0.0.1", phone.addr.port());
     let _ = recv_hello(&mut phone).await;
-    wait_for_state(&session, |s| matches!(s, State::Streaming { .. }), Duration::from_secs(5))
-        .await
-        .expect("did not stream");
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not stream");
 
     session.disconnect();
-    wait_for_state(&session, |s| matches!(s, State::Searching), Duration::from_secs(3)).await;
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Searching),
+        Duration::from_secs(3),
+    )
+    .await;
     // Same address, so the IP→name map learned from `metadata` applies.
     session.connect_manual("127.0.0.1", phone.addr.port());
     let second = recv_hello(&mut phone).await;

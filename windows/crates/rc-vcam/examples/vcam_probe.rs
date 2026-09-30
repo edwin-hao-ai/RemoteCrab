@@ -7,7 +7,26 @@
 //! that the pixels actually change between samples.
 //!
 //! Run:  cargo run --release -p rc-vcam --example vcam_probe
+//!
+//! The probe drives Media Foundation, so it is Windows-only. It used to break
+//! `cargo test --workspace` and `cargo clippy --all-targets` on every other
+//! platform before a single test ran — which is precisely the feedback loop
+//! this repo needs on a Mac. A no-op `main` elsewhere keeps those commands
+//! working everywhere; CI (`.github/workflows/windows.yml`) still builds and
+//! runs the real probe on Windows.
 
+#[cfg(not(windows))]
+fn main() {
+    eprintln!("vcam_probe is a Windows-only Media Foundation probe — nothing to do here.");
+}
+
+#[cfg(windows)]
+fn main() {
+    imp::main()
+}
+
+#[cfg(windows)]
+mod imp {
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -15,9 +34,9 @@ use rc_vcam::shm;
 use windows::core::PWSTR;
 use windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFMediaSource, MFCreateAttributes, MFCreateSourceReaderFromMediaSource,
-    MFEnumDeviceSources, MFStartup, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+    MFEnumDeviceSources, MFStartup, MFSTARTUP_FULL, MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
     MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-    MF_MT_FRAME_SIZE, MF_MT_SUBTYPE, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MFSTARTUP_FULL, MF_VERSION,
+    MF_MT_FRAME_SIZE, MF_MT_SUBTYPE, MF_SOURCE_READER_FIRST_VIDEO_STREAM, MF_VERSION,
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_MULTITHREADED};
 
@@ -34,55 +53,59 @@ fn find_remote_crab() -> Option<IMFActivate> {
     // keeps the MF calls (raw out-pointers) in one auditable place.
     unsafe {
         for attempt in 0..30 {
-        let mut attrs = None;
-        if MFCreateAttributes(&mut attrs, 2).is_err() {
-            return None;
-        }
-        let attrs = attrs?;
-        if attrs
-            .SetGUID(
-                &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
-                &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
-            )
-            .is_err()
-        {
-            return None;
-        }
-        let mut devices: *mut Option<IMFActivate> = std::ptr::null_mut();
-        let mut count = 0u32;
-        if MFEnumDeviceSources(&attrs, &mut devices, &mut count).is_err() {
-            return None;
-        }
-        println!("  probe: attempt {attempt}: {count} video-capture device(s)");
-        let mut hit = None;
-        for i in 0..count as usize {
-            // SAFETY: MFEnumDeviceSources allocated `count` entries here.
-            let act = &*devices.add(i);
-            let Some(a) = act else { continue };
-            let mut pw = PWSTR::null();
-            let mut len = 0u32;
-            if a.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut pw, &mut len)
+            let mut attrs = None;
+            if MFCreateAttributes(&mut attrs, 2).is_err() {
+                return None;
+            }
+            let attrs = attrs?;
+            if attrs
+                .SetGUID(
+                    &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE,
+                    &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID,
+                )
                 .is_err()
             {
-                continue;
+                return None;
             }
-            let name = pw.to_string().unwrap_or_default();
-            CoTaskMemFree(Some(pw.0 as *const _));
-            println!("    [{i}] \"{name}\"");
-            if name.contains("RemoteCrab") {
-                hit = Some(a.clone());
+            let mut devices: *mut Option<IMFActivate> = std::ptr::null_mut();
+            let mut count = 0u32;
+            if MFEnumDeviceSources(&attrs, &mut devices, &mut count).is_err() {
+                return None;
             }
-        }
-        if hit.is_some() {
-            return hit;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(300));
+            println!("  probe: attempt {attempt}: {count} video-capture device(s)");
+            let mut hit = None;
+            for i in 0..count as usize {
+                // SAFETY: MFEnumDeviceSources allocated `count` entries here.
+                let act = &*devices.add(i);
+                let Some(a) = act else { continue };
+                let mut pw = PWSTR::null();
+                let mut len = 0u32;
+                if a.GetAllocatedString(
+                    &MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME,
+                    &mut pw,
+                    &mut len,
+                )
+                .is_err()
+                {
+                    continue;
+                }
+                let name = pw.to_string().unwrap_or_default();
+                CoTaskMemFree(Some(pw.0 as *const _));
+                println!("    [{i}] \"{name}\"");
+                if name.contains("RemoteCrab") {
+                    hit = Some(a.clone());
+                }
+            }
+            if hit.is_some() {
+                return hit;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
         }
         None
     }
 }
 
-fn main() {
+pub fn main() {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
@@ -110,7 +133,10 @@ fn main() {
             }
         };
         if !camera.is_started() {
-            eprintln!("RESULT: FAIL — Start() did not succeed ({:?})", camera.outcome());
+            eprintln!(
+                "RESULT: FAIL — Start() did not succeed ({:?})",
+                camera.outcome()
+            );
             std::process::exit(1);
         }
 
@@ -230,4 +256,5 @@ fn main() {
             "RESULT: PASS — RemoteCrab delivered {samples} samples with {changed_total} changing bytes"
         );
     }
+}
 }

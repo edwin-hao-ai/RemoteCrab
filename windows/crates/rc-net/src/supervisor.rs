@@ -21,8 +21,8 @@ use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc, watch};
 
 use super::dispatch::{dispatch_frame, next_frame};
-use super::{emit, set_health, set_state, Health};
 use super::token::TokenStore;
+use super::{emit, set_health, set_state, Health};
 use super::{
     Command, Config, ConnEndKind, ConnMsg, Event, State, Target, BUSY_RETRY_DELAY,
     DIRECT_DIAL_TIMEOUT, DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, PING_INTERVAL,
@@ -260,7 +260,12 @@ pub(crate) async fn supervisor(
                     let _ = conn.outbound_tx.send(frame);
                 }
             }
-            Action::Conn(ConnMsg::Accepted { host, port, token, key }) => {
+            Action::Conn(ConnMsg::Accepted {
+                host,
+                port,
+                token,
+                key,
+            }) => {
                 tokens.remember_endpoint(&host, port);
                 last_endpoint = Some(format!("{host}:{port}"));
                 if let Some(token) = token {
@@ -293,14 +298,9 @@ pub(crate) async fn supervisor(
                         // moment that computer disconnects), and tell the
                         // user exactly who holds it.
                         if !suppress_auto {
-                            reconnect_at =
-                                Some(tokio::time::Instant::now() + BUSY_RETRY_DELAY);
+                            reconnect_at = Some(tokio::time::Instant::now() + BUSY_RETRY_DELAY);
                         }
-                        set_state(
-                            &state_tx,
-                            &events_tx,
-                            State::Busy { owner },
-                        );
+                        set_state(&state_tx, &events_tx, State::Busy { owner });
                     }
                     ConnEndKind::Denied => {
                         suppress_auto = true;
@@ -359,8 +359,7 @@ pub(crate) async fn supervisor(
                 if !discovery_active
                     && next_discovery_retry.is_none_or(|t| t <= tokio::time::Instant::now())
                 {
-                    next_discovery_retry =
-                        Some(tokio::time::Instant::now() + DISCOVERY_RETRY);
+                    next_discovery_retry = Some(tokio::time::Instant::now() + DISCOVERY_RETRY);
                     match rc_discovery::browse(&config.service_type) {
                         Ok(rx) => {
                             eprintln!("[net] mDNS browse running again");
@@ -387,9 +386,7 @@ pub(crate) async fn supervisor(
 
                     let mut hit: Option<String> = None;
                     for host in &candidates {
-                        if rc_discovery::probe_tcp(host, port, Duration::from_millis(2500))
-                            .await
-                        {
+                        if rc_discovery::probe_tcp(host, port, Duration::from_millis(2500)).await {
                             hit = Some(host.clone());
                             break;
                         }
@@ -504,19 +501,24 @@ pub(crate) fn start_connection(
     *current = Some(next.clone());
 
     let name = next.name();
-    set_state(state_tx, events_tx, State::Connecting { name: name.clone() });
+    set_state(
+        state_tx,
+        events_tx,
+        State::Connecting { name: name.clone() },
+    );
 
     let (msg_tx, msg_rx) = mpsc::unbounded_channel::<ConnMsg>();
     *conn_rx = msg_rx;
     *conn_keepalive = Some(msg_tx.clone());
 
     let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    *active = Some(ActiveConn { outbound_tx: out_tx });
+    *active = Some(ActiveConn {
+        outbound_tx: out_tx,
+    });
 
     // Read the token under the *resolved* key: the phone's real name when we
     // have learned it for this address, otherwise the provisional one.
-    let token = tokens
-        .token_for(&tokens.resolve_key(&next.token_key(), next.ip()));
+    let token = tokens.token_for(&tokens.resolve_key(&next.token_key(), next.ip()));
     let pc_id = tokens.pc_id().to_string();
     let pc_name = tokens.pc_name().to_string();
     let token_key = tokens.resolve_key(&next.token_key(), next.ip());
@@ -599,7 +601,11 @@ pub(crate) async fn run_connection(
     let (mut read_half, mut write_half) = stream.into_split();
 
     // --- Handshake: clientHello → sessionReply --------------------------
-    set_state(state_tx, events_tx, State::Handshaking { name: name.clone() });
+    set_state(
+        state_tx,
+        events_tx,
+        State::Handshaking { name: name.clone() },
+    );
 
     let hello = ClientHello {
         name: pc_name,
@@ -629,21 +635,23 @@ pub(crate) async fn run_connection(
     let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         loop {
             match next_frame(&mut read_half, &mut parser, &mut queue, &mut buf).await {
-                Some(f) if f.kind == Kind::SessionReply => {
-                    match decode_session_reply(&f) {
-                        Ok(reply) => break Some(reply),
-                        Err(e) => {
-                            eprintln!(
-                                "[net] sessionReply arrived but would not decode ({e}) — \
+                Some(f) if f.kind == Kind::SessionReply => match decode_session_reply(&f) {
+                    Ok(reply) => break Some(reply),
+                    Err(e) => {
+                        eprintln!(
+                            "[net] sessionReply arrived but would not decode ({e}) — \
                                  this build and the iOS app disagree on the wire format"
-                            );
-                            reply_failed_to_decode = true;
-                            break None;
-                        }
+                        );
+                        reply_failed_to_decode = true;
+                        break None;
                     }
-                }
+                },
                 Some(f) => {
-                    eprintln!("[net] pre-handshake frame: {:?} ({} bytes)", f.kind, f.payload.len());
+                    eprintln!(
+                        "[net] pre-handshake frame: {:?} ({} bytes)",
+                        f.kind,
+                        f.payload.len()
+                    );
                     dispatch_frame(&f, events_tx);
                 }
                 None => break None,
@@ -806,8 +814,6 @@ pub(crate) async fn run_connection(
     }
 }
 
-
-
 pub(crate) fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -910,7 +916,10 @@ mod tests {
     fn being_busy_is_the_only_thing_that_blocks_the_fallback() {
         assert!(!fallback_allowed(true, false, false), "a live connection");
         assert!(!fallback_allowed(false, true, false), "user said stop");
-        assert!(!fallback_allowed(false, false, true), "already dialing something");
+        assert!(
+            !fallback_allowed(false, false, true),
+            "already dialing something"
+        );
     }
 
     #[test]
@@ -956,4 +965,3 @@ mod tests {
         assert_eq!(sweep_targets(&addrs), addrs);
     }
 }
-

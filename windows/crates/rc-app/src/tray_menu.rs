@@ -7,6 +7,11 @@
 //! is data, which is what lets the tests below hold the Windows menu to
 //! the same standard as the Mac menu-bar popover.
 
+//! On non-Windows builds the menu model has no renderer, so the
+//! compiler cannot see its consumers. It is still exercised — the
+//! layout and wording tests run everywhere, and the Win32 renderer on
+//! Windows uses every type.
+#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
 use crate::i18n;
 
 /// What a menu row is, independent of how it gets drawn.
@@ -33,25 +38,26 @@ pub enum Row {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuRow {
     pub kind: Row,
-    pub id: u16,
+    pub id: usize,
     pub text: String,
 }
 
 /// Menu ids, kept out of the Win32 module so the layout can be tested on any
 /// host. The values are private to the tray; the app loop never sees them.
 pub mod ids {
-    pub const CAMERA: u16 = 100;
-    pub const MICROPHONE: u16 = 101;
-    pub const TRACKPAD: u16 = 102;
-    pub const KEYBOARD: u16 = 103;
-    pub const RECORD: u16 = 110;
-    pub const CLIPBOARD: u16 = 111;
-    pub const SHOW_FILE: u16 = 112;
-    pub const PREVIEW: u16 = 113;
-    pub const RECONNECT: u16 = 114;
-    pub const DISCONNECT: u16 = 115;
-    pub const AUTOSTART: u16 = 116;
-    pub const QUIT: u16 = 117;
+    pub const CAMERA: usize = 100;
+    pub const MICROPHONE: usize = 101;
+    pub const TRACKPAD: usize = 102;
+    pub const KEYBOARD: usize = 103;
+    pub const RECORD: usize = 110;
+    pub const CLIPBOARD: usize = 111;
+    pub const SHOW_FILE: usize = 112;
+    pub const PREVIEW: usize = 113;
+    pub const RECONNECT: usize = 114;
+    pub const DISCONNECT: usize = 115;
+    pub const AUTOSTART: usize = 116;
+    pub const QUIT: usize = 117;
+    pub const DIAGNOSIS: usize = 118;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -65,6 +71,11 @@ pub struct MenuState {
     pub has_last_file: bool,
     pub preview_on: bool,
     pub autostart: bool,
+    /// The one-line reason the session is not live, already localized by the
+    /// app. Rendered *into* the Diagnosis row so the menu answers "why not?"
+    /// without the user having to click anything (AGENTS.md rule 1: the line
+    /// that says what is happening must also say what to do).
+    pub diagnosis: String,
 }
 
 /// The menu's shape, in draw order.
@@ -75,7 +86,7 @@ pub struct MenuState {
 pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     use i18n::t;
     let mut rows = Vec::new();
-    let mut push = |kind: Row, id: u16, text: String| rows.push(MenuRow { kind, id, text });
+    let mut push = |kind: Row, id: usize, text: String| rows.push(MenuRow { kind, id, text });
 
     // Group headings use an en dash on each side so they read as headings even
     // in a menu that cannot be styled.
@@ -84,8 +95,16 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
 
     push(Row::Section, 0, t("功能", "Features").to_string());
     push(Row::Item, ids::CAMERA, t("摄像头", "Camera").to_string());
-    push(Row::Item, ids::MICROPHONE, t("麦克风", "Microphone").to_string());
-    push(Row::Item, ids::TRACKPAD, t("触控板", "Trackpad").to_string());
+    push(
+        Row::Item,
+        ids::MICROPHONE,
+        t("麦克风", "Microphone").to_string(),
+    );
+    push(
+        Row::Item,
+        ids::TRACKPAD,
+        t("触控板", "Trackpad").to_string(),
+    );
     push(Row::Item, ids::KEYBOARD, t("键盘", "Keyboard").to_string());
     push(Row::Separator, 0, String::new());
 
@@ -113,8 +132,32 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     push(Row::Separator, 0, String::new());
 
     push(Row::Section, 0, t("连接", "Connection").to_string());
-    push(Row::Item, ids::RECONNECT, t("重新连接", "Reconnect").to_string());
-    push(Row::Item, ids::DISCONNECT, t("断开连接", "Disconnect").to_string());
+    // Position is fixed so the menu never changes height as the state moves
+    // (AGENTS.md lesson 14). The wording does change, because a menu that says
+    // "LOOKING" and nothing else is what made this undiagnosable.
+    push(
+        Row::Item,
+        ids::DIAGNOSIS,
+        if state.diagnosis.is_empty() {
+            t("连接状态…", "Connection status…").to_string()
+        } else {
+            format!(
+                "{}: {}",
+                t("为什么连不上", "Why not connected"),
+                state.diagnosis
+            )
+        },
+    );
+    push(
+        Row::Item,
+        ids::RECONNECT,
+        t("重新连接", "Reconnect").to_string(),
+    );
+    push(
+        Row::Item,
+        ids::DISCONNECT,
+        t("断开连接", "Disconnect").to_string(),
+    );
     push(Row::Separator, 0, String::new());
 
     push(
@@ -123,7 +166,11 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
         t("开机自启动", "Start at login").to_string(),
     );
     push(Row::Separator, 0, String::new());
-    push(Row::Item, ids::QUIT, t("退出 RemoteCrab", "Quit RemoteCrab").to_string());
+    push(
+        Row::Item,
+        ids::QUIT,
+        t("退出 RemoteCrab", "Quit RemoteCrab").to_string(),
+    );
     push(Row::Separator, 0, String::new());
     push(
         Row::Info,
@@ -158,7 +205,10 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
 #[cfg(windows)]
 /// Win32 menu flags for a row. Split out from the drawing code so the
 /// checked/greyed logic is testable off-Windows.
-pub fn flags_for(row: &MenuRow, state: &MenuState) -> windows::Win32::UI::WindowsAndMessaging::MENU_ITEM_FLAGS {
+pub fn flags_for(
+    row: &MenuRow,
+    state: &MenuState,
+) -> windows::Win32::UI::WindowsAndMessaging::MENU_ITEM_FLAGS {
     use windows::Win32::UI::WindowsAndMessaging::{MF_GRAYED, MF_SEPARATOR, MF_STRING};
     match row.kind {
         Row::Separator => MF_SEPARATOR,
@@ -178,8 +228,36 @@ pub fn flags_for(row: &MenuRow, state: &MenuState) -> windows::Win32::UI::Window
     }
 }
 
+/// Every id the click handler in `tray.rs` acts on.
+///
+/// This exists because of a real outage. `tray.rs` used to keep a second,
+/// private id table (1, 2, 3 …) while the rows carried these (100, 101, 102 …),
+/// so every click fell through to `_ => None`: the tray opened, rendered
+/// perfectly, and did nothing at all. Two tables compiled cleanly and the
+/// unit tests (which only ever inspected the model) stayed green.
+///
+/// Keep this list and the `match` in `tray.rs` in step — [`all_rows_have_a_known_id`]
+/// is the test that notices when they drift.
+pub fn known_ids() -> &'static [usize] {
+    &[
+        ids::CAMERA,
+        ids::MICROPHONE,
+        ids::TRACKPAD,
+        ids::KEYBOARD,
+        ids::RECORD,
+        ids::CLIPBOARD,
+        ids::SHOW_FILE,
+        ids::PREVIEW,
+        ids::RECONNECT,
+        ids::DISCONNECT,
+        ids::AUTOSTART,
+        ids::QUIT,
+        ids::DIAGNOSIS,
+    ]
+}
+
 /// Whether a toggle row is currently on.
-pub fn is_on(id: u16, state: &MenuState) -> bool {
+pub fn is_on(id: usize, state: &MenuState) -> bool {
     match id {
         ids::CAMERA => state.camera,
         ids::MICROPHONE => state.microphone,
@@ -193,7 +271,7 @@ pub fn is_on(id: u16, state: &MenuState) -> bool {
 /// The icon that precedes a row's label, matching the Mac popover's habit of
 /// an SF Symbol on every row. Kept as text glyphs so no image assets are
 /// needed; the font falls back gracefully if one is missing.
-fn icon_for(id: u16) -> &'static str {
+fn icon_for(id: usize) -> &'static str {
     match id {
         ids::CAMERA => "◉",
         ids::MICROPHONE => "◍",
@@ -205,6 +283,8 @@ fn icon_for(id: u16) -> &'static str {
         ids::PREVIEW => "▣",
         ids::RECONNECT => "↻",
         ids::DISCONNECT => "⏻",
+        // A question mark, because the row's job is to answer one.
+        ids::DIAGNOSIS => "?",
         ids::AUTOSTART => "⚙",
         ids::QUIT => "⏹",
         _ => "",
@@ -230,7 +310,6 @@ pub fn decorate(row: &MenuRow) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,7 +332,11 @@ mod tests {
             .filter(|r| r.kind == Row::Section)
             .map(|r| r.text.as_str())
             .collect();
-        assert_eq!(sections.len(), 3, "features / actions / connection: {sections:?}");
+        assert_eq!(
+            sections.len(),
+            3,
+            "features / actions / connection: {sections:?}"
+        );
         assert!(rows.iter().filter(|r| r.kind == Row::Separator).count() >= 5);
     }
 
@@ -289,17 +372,108 @@ mod tests {
         }
     }
 
+    /// The regression test for the dead tray: a row whose id the click handler
+    /// does not know is a silent no-op, which is invisible in every other test
+    /// because the menu still looks perfect.
+    #[test]
+    fn all_rows_have_a_known_id() {
+        let known = known_ids();
+        for row in menu_rows(&state()) {
+            if row.kind != Row::Item {
+                continue;
+            }
+            assert!(
+                known.contains(&row.id),
+                "row {:?} carries id {} which no click handler matches — \
+                 add it to known_ids() AND to the match in tray.rs",
+                row.text,
+                row.id
+            );
+        }
+    }
+
+    /// And the two lists must not silently shrink together, or a row could
+    /// exist with no handler again.
+    #[test]
+    fn known_ids_has_no_duplicates() {
+        let known = known_ids();
+        let mut sorted = known.to_vec();
+        sorted.sort_unstable();
+        let before = sorted.len();
+        sorted.dedup();
+        assert_eq!(
+            before,
+            sorted.len(),
+            "duplicate id in known_ids(): {sorted:?}"
+        );
+    }
+
+    #[test]
+    fn the_diagnosis_row_carries_the_reason_without_a_click() {
+        // A menu row that only says "LOOKING" is the whole problem this
+        // session set out to fix: the user cannot tell "not found yet" from
+        // "found it and was refused" from "something is tunnelling my
+        // traffic". The reason belongs on the row.
+        let mut s = state();
+        s.diagnosis = i18n::t(
+            "被 VPN/代理接管（198.18.0.1）",
+            "a VPN/proxy tunnel took the route (198.18.0.1)",
+        )
+        .to_string();
+        let row = menu_rows(&s)
+            .into_iter()
+            .find(|r| r.id == ids::DIAGNOSIS)
+            .expect("a diagnosis row must always exist");
+        assert!(row.text.contains("198.18.0.1"), "{row:?}");
+        assert!(!row.text.contains('\n'), "a menu row cannot wrap: {row:?}");
+
+        // …and the row's position never moves, so the menu cannot jump.
+        let before = menu_rows(&state())
+            .iter()
+            .position(|r| r.id == ids::DIAGNOSIS)
+            .expect("row present even with nothing to say");
+        let after = menu_rows(&s)
+            .iter()
+            .position(|r| r.id == ids::DIAGNOSIS)
+            .expect("row present");
+        assert_eq!(before, after, "the row must not move as the state changes");
+    }
+
+    #[test]
+    fn the_diagnosis_row_stays_put_when_there_is_nothing_to_say() {
+        let rows = menu_rows(&state());
+        let row = rows.iter().find(|r| r.id == ids::DIAGNOSIS).expect("row");
+        assert!(!row.text.trim().is_empty(), "a blank row reads as a bug");
+    }
+
     #[test]
     fn the_wording_follows_the_state_it_describes() {
+        // Compare against the same `t()` the rows are built with rather than
+        // a hardcoded string: a Chinese-only assertion silently passes on a
+        // Chinese dev box and fails on every CI runner (and vice versa), which
+        // is how both languages ended up half-tested.
+        let start = i18n::t("开始录制", "Start Recording").to_string();
+        let stop_recording = i18n::t("停止录制", "Stop Recording").to_string();
+        let show = i18n::t("显示预览窗口", "Show Preview Window").to_string();
+        let hide = i18n::t("隐藏预览窗口", "Hide Preview Window").to_string();
+
         let mut s = state();
         s.recording = true;
-        assert!(labels(&menu_rows(&s)).iter().any(|l| l.contains("停止")));
+        assert!(
+            labels(&menu_rows(&s)).iter().any(|l| *l == stop_recording),
+            "a recording session must offer to stop"
+        );
         s.recording = false;
-        assert!(labels(&menu_rows(&s)).iter().any(|l| l.contains("开始")));
+        assert!(
+            labels(&menu_rows(&s)).iter().any(|l| *l == start),
+            "an idle session must offer to start"
+        );
 
         let mut s = state();
         s.preview_on = true;
-        assert!(labels(&menu_rows(&s)).iter().any(|l| l.contains("隐藏")));
+        assert!(labels(&menu_rows(&s)).iter().any(|l| *l == hide));
+        s.preview_on = false;
+        assert!(labels(&menu_rows(&s)).iter().any(|l| *l == show));
     }
 
     /// A toggle that says "on" but draws unchecked (or vice versa) is the
@@ -348,7 +522,10 @@ mod tests {
     fn quit_is_the_last_thing_before_the_footer() {
         let rows = menu_rows(&state());
         let quit = rows.iter().position(|r| r.id == ids::QUIT).unwrap();
-        let footer = rows.iter().position(|r| r.kind == Row::Info && r.text.starts_with("RemoteCrab v")).unwrap();
+        let footer = rows
+            .iter()
+            .position(|r| r.kind == Row::Info && r.text.starts_with("RemoteCrab v"))
+            .unwrap();
         assert!(quit < footer, "quit must come before the footer");
     }
 }

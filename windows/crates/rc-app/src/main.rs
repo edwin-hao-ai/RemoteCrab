@@ -35,18 +35,6 @@ mod tray_menu;
 #[cfg(windows)]
 mod vcam;
 
-
-
-
-
-
-
-
-
-
-
-
-
 /// Owns the toggleable preview window thread (tray → Show/Hide Preview).
 struct PreviewWindow {
     slot: rc_render::window::FrameSlot,
@@ -56,7 +44,10 @@ struct PreviewWindow {
 }
 
 impl PreviewWindow {
-    fn new(slot: rc_render::window::FrameSlot, status: std::sync::Arc<std::sync::Mutex<String>>) -> Self {
+    fn new(
+        slot: rc_render::window::FrameSlot,
+        status: std::sync::Arc<std::sync::Mutex<String>>,
+    ) -> Self {
         Self {
             slot,
             status,
@@ -133,11 +124,18 @@ async fn main() -> ExitCode {
         return selftest::vcam_selftest().await;
     }
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
-    println!("{}\n", i18n::t("正在当前 WiFi 下寻找 iPhone…", "Looking for your iPhone on this WiFi…"));
+    println!(
+        "{}\n",
+        i18n::t(
+            "正在当前 WiFi 下寻找 iPhone…",
+            "Looking for your iPhone on this WiFi…"
+        )
+    );
 
     let session = Session::spawn(Config::default());
     let mut events = session.subscribe();
     let mut state_rx = session.state();
+    let health = session.health();
 
     if let Some(target) = &args.connect {
         match rc_discovery::parse_host_port(target, rc_net::DEFAULT_PORT) {
@@ -146,7 +144,10 @@ async fn main() -> ExitCode {
                 session.connect_manual(&host, port);
             }
             None => {
-                eprintln!("{}: {target}", i18n::t("--connect 参数无效", "Invalid --connect value"));
+                eprintln!(
+                    "{}: {target}",
+                    i18n::t("--connect 参数无效", "Invalid --connect value")
+                );
                 return ExitCode::from(2);
             }
         }
@@ -259,7 +260,13 @@ async fn main() -> ExitCode {
     tray.set_autostart(rc_os::autostart::is_enabled());
     tray.set_preview(preview_window.is_open());
     let mut tray_alive = true;
-    println!("{}", i18n::t("输入 help 查看可用的实时控制命令。", "Type `help` for live iPhone feature commands."));
+    println!(
+        "{}",
+        i18n::t(
+            "输入 help 查看可用的实时控制命令。",
+            "Type `help` for live iPhone feature commands."
+        )
+    );
 
     loop {
         tokio::select! {
@@ -292,10 +299,42 @@ async fn main() -> ExitCode {
                     last_label = label;
                 }
                 if let State::Error(_) = st {
-                    println!("   (if the iPhone is running RemoteCrab, try: remotecrab --connect <iphone-ip>)");
+                    // Point at the surface that explains itself, not at a
+                    // developer-only flag (AGENTS.md rule 1).
+                    println!("   (open the tray menu and choose \"Why not connected\" — it names the cause and what to do)");
                 }
                 // Keep the tray's status row in sync (single-line pill-style).
                 tray.set_status(&status::tray_status(&st));
+
+                // …and give the "why not connected" row something true to say.
+                //
+                // The route verdict is the one probe worth running here: a
+                // single UDP connect, microseconds, and it is the difference
+                // between "not found yet" and "your VPN is eating the LAN",
+                // which look identical from the outside. Nothing else is
+                // probed — the receiver already knows everything else.
+                {
+                    let h = health.borrow().clone();
+                    let verdict = h
+                        .last_endpoint
+                        .as_deref()
+                        .and_then(|ep| ep.rsplit_once(':'))
+                        .and_then(|(host, port)| {
+                            let ip: std::net::IpAddr = host.parse().ok()?;
+                            let port: u16 = port.parse().ok()?;
+                            Some((std::net::SocketAddr::new(ip, port), h.clone()))
+                        })
+                        .map(|(addr, _)| {
+                            let ours = rc_net::route::local_ipv4();
+                            rc_net::route::classify_route(addr, &ours)
+                        })
+                        .unwrap_or(rc_net::route::RouteVerdict::Unknown);
+                    let zh = crate::i18n::is_chinese();
+                    tray.set_diagnosis(
+                        &doctor::panel_summary(&h, &verdict, zh),
+                        &doctor::panel(&h, &verdict, zh),
+                    );
+                }
             }
             ev = events.recv() => {
                 let Ok(ev) = ev else { continue };
@@ -692,4 +731,3 @@ async fn main() -> ExitCode {
 
     ExitCode::SUCCESS
 }
-

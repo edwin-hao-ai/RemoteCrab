@@ -22,9 +22,19 @@
 //! state — the tray thread itself owns nothing. On non-Windows dev builds
 //! the handle is a no-op stub so the wiring compiles unchanged everywhere.
 
+//! On non-Windows builds the menu model has no renderer, so the
+//! compiler cannot see its consumers. It is still exercised — the
+//! layout and wording tests run everywhere, and the Win32 renderer on
+//! Windows uses every type.
+#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
 use rc_protocol::Feature;
 
-pub use crate::tray_menu::{decorate, flags_for, menu_rows, MenuRow, MenuState, Row};
+#[cfg(windows)]
+pub use crate::tray_menu::flags_for;
+// Used by the Win32 menu builder, and by the menu model's own tests. They are
+// a deliberate part of the crate's testable surface, not leftovers.
+#[allow(unused_imports)]
+pub use crate::tray_menu::{decorate, menu_rows, MenuRow, MenuState, Row};
 
 /// One user action from the tray menu, routed to the app loop.
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -61,40 +71,33 @@ mod win32 {
         Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-        DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, HICON, HMENU, IDI_APPLICATION,
-        IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED,
-        MSG, MENU_ITEM_FLAGS, PostMessageW, PostQuitMessage, RegisterClassW, SetForegroundWindow,
-        SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, WNDCLASSW,
-        CreateIconIndirect, ICONINFO,
-        WS_OVERLAPPED, GWLP_USERDATA, WM_APP, WM_DESTROY,
-        TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, LoadImageW,
+        AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
+        DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
+        LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
+        SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, GWLP_USERDATA,
+        HICON, HMENU, ICONINFO, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTSIZE, LR_SHARED,
+        MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, MSG, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON, WM_APP, WM_DESTROY, WNDCLASSW, WS_OVERLAPPED,
     };
 
-    use rc_protocol::Feature;
     use super::TrayCommand;
+    use rc_protocol::Feature;
 
     /// The tray callback message (app-private, above `WM_APP`).
     const TRAY_CB: u32 = WM_APP + 1;
     /// Close request marshalled to the tray thread.
     const WM_TRAY_CLOSE: u32 = WM_APP + 2;
 
-    /// Menu ids handed to the app loop.
-    struct Ids;
-    impl Ids {
-        const CAMERA: usize = 1;
-        const MICROPHONE: usize = 2;
-        const TRACKPAD: usize = 3;
-        const KEYBOARD: usize = 4;
-        const RECORD: usize = 7;
-        const CLIPBOARD: usize = 8;
-        const SHOW_FILE: usize = 9;
-        const PREVIEW: usize = 14;
-        const RECONNECT: usize = 10;
-        const DISCONNECT: usize = 11;
-        const AUTOSTART: usize = 13;
-        const QUIT: usize = 12;
-    }
+    /// Menu ids, handed to the app loop. One scheme only: the ids the shared
+    /// menu model (`tray_menu::ids`) puts on the rows.
+    ///
+    /// There used to be a second, private table here. When the hand-written
+    /// `append_item` calls were replaced by the shared model, the rows started
+    /// carrying `tray_menu::ids` values (100+) while the click dispatch kept
+    /// matching the old 1..14 table — so **every menu click fell through to
+    /// `_ => None` and the whole tray went inert** while still rendering
+    /// perfectly. Two id schemes is now a compile error by construction.
+    use crate::tray_menu::ids;
 
     /// Everything the menu renders; owned by the app loop, read fresh on open.
     #[derive(Default)]
@@ -108,6 +111,10 @@ mod win32 {
         has_last_file: bool,
         /// The preview window is open.
         preview_on: bool,
+        /// Short reason, already localized — rendered into the menu row.
+        diagnosis_summary: String,
+        /// The full explanation, shown in a dialog when the row is clicked.
+        diagnosis_detail: String,
     }
 
     struct Ctx {
@@ -160,6 +167,15 @@ mod win32 {
             }
         }
 
+        /// Publish the connection diagnosis: a one-line reason for the menu
+        /// row and the full text for the dialog.
+        pub fn set_diagnosis(&self, summary: &str, detail: &str) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.diagnosis_summary = summary.to_string();
+                s.diagnosis_detail = detail.to_string();
+            }
+        }
+
         /// Ask the tray thread to tear its window + icon down and exit.
         pub fn stop(&self) {
             let hwnd = self.hwnd_slot.swap(0, Ordering::SeqCst);
@@ -184,7 +200,12 @@ mod win32 {
 
     /// Spawn the tray thread. Returns the update handle plus the command
     /// channel the app loop selects on.
-    pub fn start(tip: &str) -> (TrayHandle, tokio::sync::mpsc::UnboundedReceiver<TrayCommand>) {
+    pub fn start(
+        tip: &str,
+    ) -> (
+        TrayHandle,
+        tokio::sync::mpsc::UnboundedReceiver<TrayCommand>,
+    ) {
         let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
         let shared = Arc::new(Mutex::new(Shared::default()));
         let hwnd_slot = Arc::new(AtomicIsize::new(0));
@@ -202,7 +223,10 @@ mod win32 {
 
     /// A tray-less handle (`--no-tray`): receiver already at EOF, so the app
     /// loop's tray arm disables itself on its first tick.
-    pub fn disabled() -> (TrayHandle, tokio::sync::mpsc::UnboundedReceiver<TrayCommand>) {
+    pub fn disabled() -> (
+        TrayHandle,
+        tokio::sync::mpsc::UnboundedReceiver<TrayCommand>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         drop(tx);
         (
@@ -348,7 +372,7 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording, autostart, has_last_file, preview_on) = {
+        let (status, features, recording, autostart, has_last_file, preview_on, diagnosis) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
@@ -359,6 +383,7 @@ mod win32 {
                 s.autostart,
                 s.has_last_file,
                 s.preview_on,
+                s.diagnosis_summary.clone(),
             )
         };
 
@@ -378,16 +403,20 @@ mod win32 {
             has_last_file,
             preview_on,
             autostart,
+            diagnosis,
         };
         let mut model = super::menu_rows(&state);
-        model.insert(0, super::MenuRow {
-            kind: super::Row::Info,
-            id: 0,
-            text: status.clone(),
-        });
+        model.insert(
+            0,
+            super::MenuRow {
+                kind: super::Row::Info,
+                id: 0,
+                text: status.clone(),
+            },
+        );
         for row in &model {
             let flags = super::flags_for(row, &state);
-            append_item(menu, flags, row.id as usize, &super::decorate(row));
+            append_item(menu, flags, row.id, &super::decorate(row));
         }
         let mut pt = POINT::default();
         let _ = GetCursorPos(&mut pt);
@@ -407,31 +436,64 @@ mod win32 {
         let _ = PostMessageW(Some(hwnd), 0, WPARAM(0), LPARAM(0));
 
         let id = (chosen.0 & 0xFFFF) as usize;
+        // A row id the handler does not know is a silent no-op, and that is
+        // exactly how this whole tray went dead once already (two id schemes,
+        // both compiling, the model tests still green). In a debug build, make
+        // it a loud failure instead.
+        debug_assert!(
+            id == 0 || crate::tray_menu::known_ids().contains(&id),
+            "tray row id {id} has no click handler — add it to \
+             tray_menu::known_ids() and to the match below"
+        );
         if let Some(cmd) = match id {
-            Ids::CAMERA => Some(TrayCommand::SetFeature(
+            ids::CAMERA => Some(TrayCommand::SetFeature(
                 Feature::Camera,
                 !state_on(&features, |f| f.camera_on),
             )),
-            Ids::MICROPHONE => Some(TrayCommand::SetFeature(
+            ids::MICROPHONE => Some(TrayCommand::SetFeature(
                 Feature::Microphone,
                 !state_on(&features, |f| f.mic_on),
             )),
-            Ids::TRACKPAD => Some(TrayCommand::SetFeature(
+            ids::TRACKPAD => Some(TrayCommand::SetFeature(
                 Feature::Trackpad,
                 !state_on(&features, |f| f.trackpad_on),
             )),
-            Ids::KEYBOARD => Some(TrayCommand::SetFeature(
+            ids::KEYBOARD => Some(TrayCommand::SetFeature(
                 Feature::Keyboard,
                 !state_on(&features, |f| f.keyboard_on),
             )),
-            Ids::RECORD => Some(TrayCommand::ToggleRecord),
-            Ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
-            Ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
-            Ids::PREVIEW => Some(TrayCommand::TogglePreview),
-            Ids::RECONNECT => Some(TrayCommand::Reconnect),
-            Ids::DISCONNECT => Some(TrayCommand::Disconnect),
-            Ids::AUTOSTART => Some(TrayCommand::ToggleAutostart),
-            Ids::QUIT => Some(TrayCommand::Quit),
+            ids::RECORD => Some(TrayCommand::ToggleRecord),
+            ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
+            ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
+            ids::PREVIEW => Some(TrayCommand::TogglePreview),
+            ids::DIAGNOSIS => {
+                // A modal dialog on the tray thread: the app loop must not
+                // block, and the tray thread owns the only HWND we can parent
+                // it to. The text is already assembled and tested elsewhere.
+                let detail = ctx
+                    .shared
+                    .lock()
+                    .map(|s| s.diagnosis_detail.clone())
+                    .unwrap_or_default();
+                let body: Vec<u16> = detail.encode_utf16().chain(std::iter::once(0)).collect();
+                let title: Vec<u16> = "RemoteCrab"
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect();
+                unsafe {
+                    let _ = MessageBoxW(
+                        Some(hwnd),
+                        PCWSTR(body.as_ptr()),
+                        PCWSTR(title.as_ptr()),
+                        MB_OK | MB_ICONINFORMATION,
+                    );
+                }
+                None
+            }
+            ids::RECONNECT => Some(TrayCommand::Reconnect),
+            ids::DISCONNECT => Some(TrayCommand::Disconnect),
+            ids::AUTOSTART => Some(TrayCommand::ToggleAutostart),
+            ids::QUIT => Some(TrayCommand::Quit),
             _ => None,
         } {
             let _ = ctx.cmd_tx.send(cmd);
@@ -446,12 +508,7 @@ mod win32 {
         features.as_ref().map(pick).unwrap_or(false)
     }
 
-    fn append_item(
-        menu: HMENU,
-        flags: MENU_ITEM_FLAGS,
-        id: usize,
-        name: &str,
-    ) {
+    fn append_item(menu: HMENU, flags: MENU_ITEM_FLAGS, id: usize, name: &str) {
         let text: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
         unsafe {
             let _ = AppendMenuW(menu, flags, id, PCWSTR(text.as_ptr()));
@@ -544,7 +601,7 @@ mod win32 {
 }
 
 #[cfg(windows)]
-pub use win32::{start, disabled};
+pub use win32::{disabled, start};
 
 // ---------------------------------------------------------------------------
 // No-op stub for non-Windows dev builds (select-arm wiring compiles the same)
@@ -562,14 +619,21 @@ impl TrayHandle {
     pub fn set_autostart(&self, _on: bool) {}
     pub fn set_has_last_file(&self, _on: bool) {}
     pub fn set_preview(&self, _on: bool) {}
+
+    /// No-op off Windows: there is no tray to explain anything on.
+    pub fn set_diagnosis(&self, _summary: &str, _detail: &str) {}
 }
 
 #[cfg(not(windows))]
-pub fn start(_tip: &str) -> (TrayHandle, tokio::sync::mpsc::UnboundedReceiver<TrayCommand>) {
+pub fn start(
+    _tip: &str,
+) -> (
+    TrayHandle,
+    tokio::sync::mpsc::UnboundedReceiver<TrayCommand>,
+) {
     // A sender-dropped channel: `recv()` yields `None` immediately, so the
     // app loop disables the tray arm on the first tick.
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     drop(tx);
     (TrayHandle, rx)
 }
-

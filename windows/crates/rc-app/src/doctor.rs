@@ -72,7 +72,8 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
             ),
             fix: "关掉 Clash / Mihomo / sing-box 等的 TUN（虚拟网卡）模式，\
                   或在配置里把局域网直连：rules 加 IP-CIDR,192.168.0.0/16,DIRECT,no-resolve，\
-                  tun 加 route-exclude-address: [192.168.0.0/16]".to_string(),
+                  tun 加 route-exclude-address: [192.168.0.0/16]"
+                .to_string(),
         });
         rank += 1;
     }
@@ -83,7 +84,8 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
                 rank,
                 problem: "端口 8765 是通的，但握手没完成".to_string(),
                 fix: "在 iPhone 上打开 RemoteCrab 并点「开始推流」，\
-                      然后在弹出的卡片上允许这台电脑".to_string(),
+                      然后在弹出的卡片上允许这台电脑"
+                    .to_string(),
             });
         }
         Some(false) if evidence.mdns.is_empty() => {
@@ -92,7 +94,8 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
                 problem: "iPhone 所在网段没有任何设备在广播 RemoteCrab".to_string(),
                 fix: "确认 iPhone 与本机连的是同一个 WiFi（不是访客网络——访客网默认与主网隔离）；\
                       在 iPhone 打开 设置 → 隐私与安全性 → 本地网络，允许 RemoteCrab；\
-                      再回到 app 点「开始推流」".to_string(),
+                      再回到 app 点「开始推流」"
+                    .to_string(),
             });
         }
         Some(false) => {
@@ -100,7 +103,8 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
                 rank,
                 problem: "能找到 iPhone，但 8765 端口没开".to_string(),
                 fix: "iPhone 上 RemoteCrab 必须先点「开始推流」才会绑定端口；\
-                      同时确认 设置 → 隐私与安全性 → 本地网络 已允许".to_string(),
+                      同时确认 设置 → 隐私与安全性 → 本地网络 已允许"
+                    .to_string(),
             });
         }
         // An open port with a healthy handshake is the good case: nothing to
@@ -115,7 +119,8 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
             problem: "mDNS 什么都没发现".to_string(),
             fix: "本机没有收到任何 _remotecrab._tcp 广播：\
                   iPhone 可能不在本机所在网段，或代理/防火墙拦了组播。\
-                  可以先用 --connect <iPhone 的 IP> 绕过发现".to_string(),
+                  可以先用 --connect <iPhone 的 IP> 绕过发现"
+                .to_string(),
         });
     }
 
@@ -135,14 +140,12 @@ pub async fn collect(target: Option<&str>) -> Evidence {
         if let Some(addr) = resolve(t) {
             // Route lookup and the connect probe are both cheap and
             // independent, so they can race.
-            let (verdict, open) = tokio::join!(
-                async { route::classify_route(addr, &ours) },
-                async {
+            let (verdict, open) =
+                tokio::join!(async { route::classify_route(addr, &ours) }, async {
                     tokio::task::spawn_blocking(move || tcp_open(addr))
                         .await
                         .unwrap_or(false)
-                }
-            );
+                });
             return Evidence {
                 local_addrs,
                 route: verdict,
@@ -218,7 +221,10 @@ async fn browse_once() -> Vec<String> {
 pub async fn run_doctor(target: Option<&str>) -> std::process::ExitCode {
     println!(
         "RemoteCrab doctor {}\n",
-        crate::i18n::t("— 诊断为什么 iPhone 连不上", "— why the iPhone will not connect")
+        crate::i18n::t(
+            "— 诊断为什么 iPhone 连不上",
+            "— why the iPhone will not connect"
+        )
     );
     let evidence = collect(target).await;
 
@@ -273,6 +279,255 @@ pub async fn run_doctor(target: Option<&str>) -> std::process::ExitCode {
     std::process::ExitCode::from(1)
 }
 
+// ---------------------------------------------------------------------------
+// The "why isn't this connecting?" panel
+// ---------------------------------------------------------------------------
+
+const HEADING: &str = "RemoteCrab 连接状态 / connection";
+const STATUS_LABEL: &str = "当前状态 / right now: ";
+/// The tunnel finding, naming the offending address.
+///
+/// The address is the evidence: "something is tunnelling your traffic" is
+/// arguable, "your traffic leaves as 198.18.0.1" is a fact the user can go and
+/// confirm in their proxy client before changing anything.
+fn tunnel_finding(source: &std::net::Ipv4Addr, zh: bool) -> String {
+    let problem = t(
+        zh,
+        "最可能的原因：到手机的连接被 VPN / 代理的虚拟网卡接管了。",
+        "Most likely cause: a VPN or proxy tunnel is taking over the route to your phone.",
+    );
+    let fix = t(
+        zh,
+        "要做什么：关掉 Clash / Mihomo / sing-box 等的「TUN（虚拟网卡）」模式；\
+         或在它的配置里把局域网设为直连：\n\
+         \x20 rules: IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n\
+         \x20 tun:\n\
+         \x20   route-exclude-address: [192.168.0.0/16]",
+        "What to do: turn off TUN mode in Clash / Mihomo / sing-box, or route the \
+         local network directly:\n\
+         \x20 rules: IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n\
+         \x20 tun:\n\
+         \x20   route-exclude-address: [192.168.0.0/16]",
+    );
+    format!("{problem}\n{source}\n{fix}\n")
+}
+const LAST_RESORT: &str =
+    "还是不行？在 iPhone 上打开 RemoteCrab、点「开始推流」，然后点本菜单里的「重新连接」。\n\
+     Still stuck? Open RemoteCrab on the iPhone, press Start, then hit Reconnect in this menu.";
+
+/// Pick the Chinese or English variant.
+///
+/// The language is a **parameter**, not a lookup into `i18n::is_chinese()`.
+/// That call is a process-wide `OnceLock` seeded from the OS, so a test that
+/// used it would only ever assert whichever language the machine happens to
+/// run — which is why the Chinese wording of the tray and the panel had no
+/// real coverage at all. Passing it in keeps these functions pure and lets
+/// both languages be tested anywhere.
+fn t(zh_first: bool, zh: &str, en: &str) -> String {
+    (if zh_first { zh } else { en }).to_string()
+}
+
+/// The full explanation, for a dialog.
+///
+/// Deliberately **no probing and no input fields**. The user did not open this
+/// to debug a socket; they opened it because something is not working, and the
+/// only useful answer is a reason and a next step. An address box would be
+/// shipping a debug affordance as the product's escape hatch (AGENTS.md rule 1)
+/// — and the one case a developer-only control seems to be needed (a TUN-mode
+/// VPN swallowing the LAN) has a copy-pasteable configuration fix instead,
+/// which is something a user can actually act on.
+///
+/// Pure, so the whole wording is unit-tested and the tray only renders it.
+pub fn panel(h: &rc_net::Health, verdict: &RouteVerdict, zh: bool) -> String {
+    let mut out = String::new();
+    out.push_str(HEADING);
+    out.push_str("\n\n");
+    out.push_str(STATUS_LABEL);
+    out.push_str(&state_line(h, zh));
+    out.push('\n');
+
+    // A hijacked route explains every symptom at once, so it leads.
+    if let RouteVerdict::Tunneled { source } = verdict {
+        out.push_str(&format!("\n{}\n", tunnel_finding(source, zh)));
+    }
+
+    if !matches!(h.state, rc_net::State::Streaming { .. }) {
+        for (problem, fix) in hints(h, zh) {
+            out.push_str(&format!("\n- {problem}\n  {fix}\n"));
+        }
+    }
+
+    out.push_str(&format!("\n{LAST_RESORT}\n"));
+    out
+}
+
+/// The one-line reason, for the menu row itself.
+///
+/// The menu must answer "why not?" without a click — a status line that owes
+/// the user a reason has to carry it (AGENTS.md rule 1) — but a Win32 menu
+/// cannot wrap, so this is deliberately short and [`panel`] holds the detail.
+pub fn panel_summary(h: &rc_net::Health, verdict: &RouteVerdict, zh: bool) -> String {
+    use rc_net::State;
+    if let RouteVerdict::Tunneled { source } = verdict {
+        return t(
+            zh,
+            &format!("被 VPN/代理接管（{source}）"),
+            &format!("a VPN/proxy tunnel took the route ({source})"),
+        );
+    }
+    match &h.state {
+        State::Streaming { .. } => t(zh, "已连接", "connected"),
+        State::Busy { owner } => t(
+            zh,
+            &format!("iPhone 正被「{owner}」使用"),
+            &format!("the iPhone is in use by {owner}"),
+        ),
+        State::AwaitingApproval { .. } => t(
+            zh,
+            "等你在 iPhone 上点「允许」",
+            "waiting for you to tap Allow",
+        ),
+        State::Error(_) => t(zh, "连接失败", "the connection failed"),
+        State::Connecting { .. } | State::Handshaking { .. } => t(zh, "正在连接", "connecting"),
+        State::Searching if !h.discovered.is_empty() => t(
+            zh,
+            "找到了 iPhone，但连不上",
+            "found the iPhone, but cannot connect",
+        ),
+        State::Searching if h.fallback_misses > 0 => t(
+            zh,
+            "没找到 iPhone（已扫过局域网）",
+            "no iPhone found (local network already scanned)",
+        ),
+        State::Searching => t(zh, "没找到 iPhone", "no iPhone found"),
+    }
+}
+
+/// A one-line, human description of the state. Never a raw enum name and never
+/// a raw OS error string (AGENTS.md lesson 13).
+fn state_line(h: &rc_net::Health, zh: bool) -> String {
+    use rc_net::State;
+    match &h.state {
+        State::Streaming { name, latency_ms } if *latency_ms > 0 => {
+            format!("{name} - {latency_ms} ms")
+        }
+        State::Streaming { name, .. } => name.clone(),
+        State::Busy { owner } => t(
+            zh,
+            &format!("iPhone 正被「{owner}」使用"),
+            &format!("The iPhone is in use by {owner}"),
+        ),
+        State::AwaitingApproval { name } => t(
+            zh,
+            &format!("等待你在 iPhone 上允许「{name}」"),
+            &format!("Waiting for you to allow {name} on the iPhone"),
+        ),
+        State::Connecting { name } | State::Handshaking { name } => t(
+            zh,
+            &format!("正在连接 {name}"),
+            &format!("Connecting to {name}"),
+        ),
+        State::Error(e) => t(
+            zh,
+            &format!("连接失败：{e}"),
+            &format!("Connection failed: {e}"),
+        ),
+        State::Searching if h.discovered.is_empty() => {
+            t(zh, "正在寻找 iPhone", "Looking for your iPhone")
+        }
+        State::Searching => t(zh, "已断开", "Disconnected"),
+    }
+}
+
+/// The concrete next steps implied by what we have and have not seen.
+fn hints(h: &rc_net::Health, zh: bool) -> Vec<(String, String)> {
+    use rc_net::State;
+    let mut out = Vec::new();
+
+    match &h.state {
+        State::Busy { owner } => {
+            out.push((
+                t(zh, &format!("iPhone 正被「{owner}」使用，所以这台电脑在等。"),
+                    &format!("Another computer ({owner}) is using the iPhone, so this one is waiting."),
+                ),
+                t(zh, "iPhone 会自动把会话交出来；你也可以在 iPhone 上「选择电脑」立刻切过来。",
+                    "The iPhone hands the session over on its own, or pick this computer there to switch immediately.",
+                ),
+            ));
+            return out;
+        }
+        State::Error(_) | State::AwaitingApproval { .. } => {
+            out.push((
+                t(zh, "iPhone 还没有接受这台电脑。",
+                    "The iPhone has not accepted this computer yet.",
+                ),
+                t(zh, "在 iPhone 上点「允许」。第一次连接、以及 iPhone 重装之后需要点一次。",
+                    "Tap Allow on the iPhone. Needed once per iPhone, and again after the app is reinstalled.",
+                ),
+            ));
+            return out;
+        }
+        _ => {}
+    }
+
+    if !h.discovered.is_empty() {
+        out.push((
+            t(zh, &format!("局域网里找到了 {} 台 iPhone，但没能建立连接。", h.discovered.len()),
+                &format!(
+                    "Found {} iPhone(s) on this network but could not connect.",
+                    h.discovered.len()
+                ),
+            ),
+            t(zh, "在 iPhone 上打开 RemoteCrab 并点「开始推流」—— 端口只有在开始推流之后才会打开。",
+                "Open RemoteCrab on the iPhone and press Start — the port only opens once streaming starts.",
+            ),
+        ));
+    } else {
+        let scan_note = if h.fallback_misses > 0 {
+            t(
+                zh,
+                &format!(
+                    "（已经直接扫过你的局域网 {} 次，也没找到。）",
+                    h.fallback_misses
+                ),
+                &format!(
+                    " (We also scanned your local network {} times, and found nothing.)",
+                    h.fallback_misses
+                ),
+            )
+        } else {
+            String::new()
+        };
+        out.push((
+            format!(
+                "{}{scan_note}",
+                t(zh, "这台电脑没有发现任何 iPhone。", "No iPhone was discovered on this network.")
+            ),
+            t(zh, "确认 iPhone 和这台电脑连的是同一个 WiFi（访客网络通常与主网隔离）；\
+                 并在 iPhone 的「设置 → 隐私与安全性 → 本地网络」里允许 RemoteCrab。",
+                "Check that the iPhone and this computer are on the same WiFi (guest networks are usually \
+                 isolated), and allow RemoteCrab under Settings → Privacy → Local Network on the iPhone.",
+            ),
+        ));
+    }
+
+    if let Some(ep) = &h.last_endpoint {
+        out.push((
+            format!(
+                "{}{ep}",
+                t(zh, "上次成功连接：", "Last successful connection: ")
+            ),
+            t(
+                zh,
+                "iPhone 换地址（换 WiFi）之后会自动用新地址重试。",
+                "If the iPhone's address changed, the new one is retried automatically.",
+            ),
+        ));
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,13 +575,18 @@ mod tests {
     #[test]
     fn a_tunnel_outranks_everything_and_comes_first() {
         let mut e = base();
-        e.route = RouteVerdict::Tunneled { source: "198.18.0.1".parse().unwrap() };
+        e.route = RouteVerdict::Tunneled {
+            source: "198.18.0.1".parse().unwrap(),
+        };
         e.tcp_open = Some(false);
         let findings = rank(&e);
         assert!(findings.len() >= 2, "{findings:?}");
         assert!(findings[0].problem.contains("VPN"), "{:?}", findings[0]);
         assert_eq!(findings[0].rank, 1);
-        assert!(findings[0].fix.contains("DIRECT"), "the fix must be copy-pasteable");
+        assert!(
+            findings[0].fix.contains("DIRECT"),
+            "the fix must be copy-pasteable"
+        );
         // Ranks are dense and ascending.
         for w in findings.windows(2) {
             assert_eq!(w[1].rank, w[0].rank + 1, "{findings:?}");
@@ -371,6 +631,153 @@ mod tests {
         let findings = rank(&base());
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].problem.contains("mDNS"), "{findings:?}");
+    }
+
+    // -----------------------------------------------------------------------
+    // The panel
+    //
+    // These exist because the wording is the product here. A tray row that
+    // says "LOOKING" and nothing else is what turned "it sometimes connects"
+    // into an afternoon of binary search (AGENTS.md rule 1).
+    // -----------------------------------------------------------------------
+
+    fn health(state: rc_net::State) -> rc_net::Health {
+        rc_net::Health {
+            state,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_working_session_says_so_and_offers_nothing_to_fix() {
+        for zh in [true, false] {
+            let h = health(rc_net::State::Streaming {
+                name: "Fake iPhone".into(),
+                latency_ms: 12,
+            });
+            let text = panel(&h, &RouteVerdict::Direct, zh);
+            assert!(text.contains("Fake iPhone"), "zh={zh} {text}");
+            // No troubleshooting for a session that works — telling a happy
+            // user to check their firewall trains them to ignore the panel.
+            assert!(!text.contains("TUN"), "zh={zh} {text}");
+            assert!(!text.contains("Local Network"), "zh={zh} {text}");
+            assert!(!text.contains("本地网络"), "zh={zh} {text}");
+        }
+    }
+
+    /// A menu row cannot wrap, so the summary must be one short line that
+    /// still names the reason.
+    #[test]
+    fn the_summary_always_names_a_reason_and_stays_on_one_line() {
+        for zh in [true, false] {
+            let cases = [
+                health(rc_net::State::Busy {
+                    owner: "MacBook".into(),
+                }),
+                health(rc_net::State::Error("boom".into())),
+                health(rc_net::State::Searching),
+                health(rc_net::State::AwaitingApproval { name: "PC".into() }),
+            ];
+            for h in cases {
+                let s = panel_summary(&h, &RouteVerdict::Direct, zh);
+                assert!(!s.trim().is_empty(), "zh={zh} empty for {h:?}");
+                assert!(!s.contains('\n'), "zh={zh} must be one line: {s:?}");
+            }
+            // Busy must name the holder — that is the whole point of the row.
+            let busy = panel_summary(
+                &health(rc_net::State::Busy {
+                    owner: "MacBook".into(),
+                }),
+                &RouteVerdict::Direct,
+                zh,
+            );
+            assert!(busy.contains("MacBook"), "zh={zh} {busy}");
+        }
+    }
+
+    #[test]
+    fn a_tunnel_outranks_everything_and_is_actionable() {
+        for zh in [true, false] {
+            let h = health(rc_net::State::Searching);
+            let v = RouteVerdict::Tunneled {
+                source: "198.18.0.1".parse().unwrap(),
+            };
+            let text = panel(&h, &v, zh);
+            assert!(
+                text.contains("198.18.0.1"),
+                "zh={zh} names the address: {text}"
+            );
+            assert!(text.contains("TUN"), "zh={zh} names the switch: {text}");
+            // A user has to be able to act on this without a manual.
+            assert!(text.contains("route-exclude-address"), "zh={zh} {text}");
+            assert!(panel_summary(&h, &v, zh).contains("198.18.0.1"), "zh={zh}");
+        }
+    }
+
+    /// The distinction the user actually needs: "the PC cannot see me" is a
+    /// completely different problem from "the PC found me and was refused".
+    #[test]
+    fn found_but_unreachable_differs_from_never_seen() {
+        for zh in [true, false] {
+            let mut seen = health(rc_net::State::Searching);
+            seen.discovered = vec!["Fake iPhone".into()];
+            let found = panel(&seen, &RouteVerdict::Direct, zh);
+            // Phone-side cause: it has to be running and streaming.
+            let phone_side = ["开始推流", "press Start"];
+            assert!(
+                phone_side.iter().any(|k| found.contains(k)),
+                "zh={zh} {found}"
+            );
+            // …and must NOT tell them to go looking at their WiFi.
+            let network_side = ["确认 iPhone", "same WiFi"];
+            assert!(
+                !network_side.iter().any(|k| found.contains(k)),
+                "zh={zh} found-but-closed must not blame the network: {found}"
+            );
+
+            let unseen = panel(&health(rc_net::State::Searching), &RouteVerdict::Direct, zh);
+            let net = ["确认 iPhone", "same WiFi"];
+            assert!(net.iter().any(|k| unseen.contains(k)), "zh={zh} {unseen}");
+            let perm = ["本地网络", "Local Network"];
+            assert!(perm.iter().any(|k| unseen.contains(k)), "zh={zh} {unseen}");
+        }
+    }
+
+    #[test]
+    fn the_panel_reports_that_it_actually_scanned() {
+        for zh in [true, false] {
+            let mut h = health(rc_net::State::Searching);
+            h.fallback_misses = 4;
+            let text = panel(&h, &RouteVerdict::Direct, zh);
+            // The count is what stops the user from assuming nothing was tried.
+            assert!(text.contains('4'), "zh={zh} {text}");
+        }
+    }
+
+    #[test]
+    fn the_panel_always_ends_with_an_action() {
+        for zh in [true, false] {
+            for s in [
+                rc_net::State::Searching,
+                rc_net::State::Error("x".into()),
+                rc_net::State::Busy { owner: "m".into() },
+                rc_net::State::AwaitingApproval { name: "n".into() },
+            ] {
+                let text = panel(&health(s), &RouteVerdict::Direct, zh);
+                let action = ["重新连接", "Reconnect"];
+                assert!(action.iter().any(|k| text.contains(k)), "zh={zh} {text}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_last_working_endpoint_is_reported() {
+        for zh in [true, false] {
+            let mut h = health(rc_net::State::Searching);
+            h.last_endpoint = Some("192.168.1.5:8765".into());
+            let text = panel(&h, &RouteVerdict::Direct, zh);
+            assert!(text.contains("192.168.1.5:8765"), "zh={zh} {text}");
+        }
     }
 
     #[test]

@@ -10,8 +10,8 @@
 //! [`Command`]s. The app layer decides what to do with them.
 
 pub mod dispatch;
-mod supervisor;
 pub mod route;
+mod supervisor;
 pub mod token;
 
 use std::path::PathBuf;
@@ -19,8 +19,8 @@ use std::time::Duration;
 
 use rc_discovery::DiscoveredPhone;
 use rc_protocol::{
-    ActivateApp, Feature, FeatureStateSnapshot, NalFrame, Parser,
-    QuitApp, ScreenControl, ScreenInput, StreamMetadata, TouchEvent,
+    ActivateApp, Feature, FeatureStateSnapshot, NalFrame, Parser, QuitApp, ScreenControl,
+    ScreenInput, StreamMetadata, TouchEvent,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
@@ -52,12 +52,23 @@ pub(crate) const DISCOVERY_RETRY: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
     Searching,
-    Connecting { name: String },
-    Handshaking { name: String },
-    AwaitingApproval { name: String },
+    Connecting {
+        name: String,
+    },
+    Handshaking {
+        name: String,
+    },
+    AwaitingApproval {
+        name: String,
+    },
     /// Another computer owns the iPhone. We keep retrying automatically.
-    Busy { owner: String },
-    Streaming { name: String, latency_ms: i64 },
+    Busy {
+        owner: String,
+    },
+    Streaming {
+        name: String,
+        latency_ms: i64,
+    },
     Error(String),
 }
 
@@ -66,9 +77,9 @@ impl State {
     pub fn pill_label(&self) -> &'static str {
         match self {
             State::Searching => "LOOKING",
-            State::Connecting { .. } | State::Handshaking { .. } | State::AwaitingApproval { .. } => {
-                "CONNECTING"
-            }
+            State::Connecting { .. }
+            | State::Handshaking { .. }
+            | State::AwaitingApproval { .. } => "CONNECTING",
             State::Busy { .. } => "IN USE",
             State::Streaming { .. } => "LIVE",
             State::Error(_) => "OFFLINE",
@@ -289,7 +300,11 @@ pub(crate) enum ConnEndKind {
 #[derive(Debug, Clone)]
 pub(crate) enum Target {
     Phone(DiscoveredPhone),
-    Manual { host: String, port: u16, name: String },
+    Manual {
+        host: String,
+        port: u16,
+        name: String,
+    },
 }
 
 impl Target {
@@ -329,7 +344,11 @@ impl Target {
     }
 }
 
-pub(crate) fn set_state(state_tx: &watch::Sender<State>, events_tx: &broadcast::Sender<Event>, s: State) {
+pub(crate) fn set_state(
+    state_tx: &watch::Sender<State>,
+    events_tx: &broadcast::Sender<Event>,
+    s: State,
+) {
     let _ = state_tx.send(s.clone());
     emit(events_tx, Event::State(s));
 }

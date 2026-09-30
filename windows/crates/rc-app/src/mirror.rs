@@ -5,17 +5,30 @@
 //! The capture/encode loop runs on a dedicated thread because `PrintWindow`
 //! and OpenH264 are blocking and CPU-bound; input (`screenInput`) stays on
 //! the async loop, which reads the target geometry from [`MirrorController`].
+//!
+//! The capture half is `cfg(windows)`. The controller, its geometry maths and
+//! its tests are not, so a `#[cfg]` sprinkled through working Windows code is
+//! not worth it — the module-level allow below keeps the non-Windows build
+//! quiet without hiding anything on the platform that ships.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+#[cfg(windows)]
 use std::time::{Duration, Instant};
 
 use rc_net::Session;
+// Window capture is a Win32 API, so everything the capture loop needs is
+// Windows-only. Gating the imports (rather than the whole module) is what lets
+// the controller, its geometry maths and its tests build and run anywhere.
+#[cfg(windows)]
 use rc_protocol::{
     encode_screen_info, encode_screen_nal, NalFrame, NalKind, ScreenInfo, ScreenStatus,
 };
 
+#[cfg(windows)]
 const FRAME_INTERVAL: Duration = Duration::from_millis(33); // ~30 fps
+#[cfg(windows)]
 const INFO_INTERVAL: Duration = Duration::from_millis(1000);
 const DEFAULT_MAX_PIXEL: u32 = 1920;
 
@@ -38,7 +51,9 @@ struct Shared {
 /// anywhere takes the whole process (notification area and all) with it. Recover
 /// the guard instead of propagating.
 fn lock(shared: &Mutex<Shared>) -> std::sync::MutexGuard<'_, Shared> {
-    shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Owns the mirror capture thread. Cheap to keep for the app's lifetime.
@@ -119,6 +134,7 @@ impl Drop for MirrorController {
 }
 
 /// The capture loop. Holds the encoder + last-sent parameter sets privately.
+#[cfg(windows)]
 fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
     let mut encoder = rc_mirror::ScreenEncoder::new();
     let mut last_sps: Option<Vec<u8>> = None;
@@ -135,6 +151,7 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
             break;
         }
 
+        #[cfg(windows)]
         let target = rc_mirror::resolve_target(desired.as_deref());
         let Some(target) = target else {
             {
@@ -169,6 +186,7 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
             s.geometry = Some((geo.origin_x, geo.origin_y, geo.width, geo.height));
         }
 
+        #[cfg(windows)]
         let captured = rc_mirror::capture_bgra(&target.id, max_pixel);
         let (pixel_w, pixel_h) = match &captured {
             Some((_, w, h)) => (*w as i64, *h as i64),
@@ -206,16 +224,28 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
                             continue;
                         }
                         last_sps = Some(nal.clone());
-                        NalFrame { kind: NalKind::Sps, data: nal, timestamp_micros: 0 }
+                        NalFrame {
+                            kind: NalKind::Sps,
+                            data: nal,
+                            timestamp_micros: 0,
+                        }
                     }
                     8 => {
                         if last_pps.as_ref() == Some(&nal) {
                             continue;
                         }
                         last_pps = Some(nal.clone());
-                        NalFrame { kind: NalKind::Pps, data: nal, timestamp_micros: 0 }
+                        NalFrame {
+                            kind: NalKind::Pps,
+                            data: nal,
+                            timestamp_micros: 0,
+                        }
                     }
-                    1 | 5 => NalFrame { kind: NalKind::Video, data: nal, timestamp_micros: 0 },
+                    1 | 5 => NalFrame {
+                        kind: NalKind::Video,
+                        data: nal,
+                        timestamp_micros: 0,
+                    },
                     _ => continue,
                 };
                 session.send_frame(encode_screen_nal(&nf));
@@ -227,6 +257,17 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
 
     // Dropping the target geometry keeps input mapping from firing after stop.
     lock(&shared).geometry = None;
+}
+
+/// Window capture is a Win32 API, so on other platforms there is nothing to
+/// capture. The thread still has to exist (the controller owns a handle to it)
+/// so it just parks until the controller stops it. This keeps the whole crate
+/// — including every pure helper and test — buildable and testable off Windows.
+#[cfg(not(windows))]
+fn run(_session: Session, _shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 #[cfg(test)]

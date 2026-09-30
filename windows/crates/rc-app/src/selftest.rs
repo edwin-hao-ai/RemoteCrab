@@ -80,7 +80,10 @@ pub async fn preview_selftest() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    println!("  fake iPhone on {} (streaming 90 frames @ ~30 fps)", phone.addr);
+    println!(
+        "  fake iPhone on {} (streaming 90 frames @ ~30 fps)",
+        phone.addr
+    );
 
     let session = Session::spawn(Config {
         token_path: None,
@@ -98,14 +101,18 @@ pub async fn preview_selftest() -> ExitCode {
 
     let frame_slot = rc_render::window::FrameSlot::new();
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let status_text =
-        std::sync::Arc::new(std::sync::Mutex::new("Waiting for video…".to_string()));
+    let status_text = std::sync::Arc::new(std::sync::Mutex::new("Waiting for video…".to_string()));
     let window_handle = {
         let slot = frame_slot.clone();
         let shutdown = shutdown.clone();
         let status = status_text.clone();
         std::thread::spawn(move || {
-            rc_render::window::run_preview_window("RemoteCrab Preview (self-test)", slot, shutdown, status);
+            rc_render::window::run_preview_window(
+                "RemoteCrab Preview (self-test)",
+                slot,
+                shutdown,
+                status,
+            );
         })
     };
 
@@ -151,6 +158,15 @@ pub async fn preview_selftest() -> ExitCode {
         ExitCode::from(1)
     }
 }
+/// The virtual camera is a Windows-only driver, so there is nothing to test
+/// here — but the flag must still behave rather than fail to compile.
+#[cfg(not(windows))]
+pub async fn vcam_selftest() -> ExitCode {
+    eprintln!("virtual-camera self-test: skipped (Windows-only driver)");
+    ExitCode::SUCCESS
+}
+
+#[cfg(windows)]
 pub async fn vcam_selftest() -> ExitCode {
     use rc_vcam::shm;
 
@@ -204,7 +220,10 @@ pub async fn vcam_selftest() -> ExitCode {
         frame_no += 1;
         if frame_no.is_multiple_of(FPS as u64 * 5) && frame_no != reported {
             reported = frame_no;
-            println!("  published {frame_no} frames ({}s)", start.elapsed().as_secs());
+            println!(
+                "  published {frame_no} frames ({}s)",
+                start.elapsed().as_secs()
+            );
         }
         tokio::time::sleep(Duration::from_millis(1000 / FPS as u64)).await;
     }
@@ -245,9 +264,7 @@ pub fn audio_selftest() -> ExitCode {
         return ExitCode::from(1);
     }
     let mean_abs = sum_abs as f64 / total_samples as f64;
-    println!(
-        "  decoded {total_samples} samples (peak {peak}, mean |x| {mean_abs:.0})"
-    );
+    println!("  decoded {total_samples} samples (peak {peak}, mean |x| {mean_abs:.0})");
     if peak < 1000 {
         eprintln!("  FAILED: the tone decoded as silence");
         return ExitCode::from(1);
@@ -285,4 +302,3 @@ pub fn audio_selftest() -> ExitCode {
         ExitCode::from(1)
     }
 }
-
