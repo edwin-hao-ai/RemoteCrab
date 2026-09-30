@@ -2319,7 +2319,7 @@ final class CaptureEngine: ObservableObject {
     private func sendLatencyProbe() {
         guard let broadcaster, broadcaster.isReady else { return }
         let micros = latencyProbe.makeProbe(now: Date())
-        broadcaster.sendPingEcho(IBWire.encodePing(sentMicros: micros))
+        broadcaster.sendLatencyProbe(micros)
     }
 
     /// Raise the poor-link hint on the *transition* only.

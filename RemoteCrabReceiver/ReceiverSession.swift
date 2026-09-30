@@ -1189,7 +1189,14 @@ final class ReceiverSession: ObservableObject {
     private func sendClientHello(on conn: NWConnection) {
         let token = currentTokenKey.flatMap { tokenStore[$0] }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
-        let hello = IBClientHello(name: macName, id: macId, token: token, appVersion: version)
+        // Declare what this receiver can cope with, so the phone knows when
+        // to stay quiet. It MUST list `latencyProbe` here: a phone that sends
+        // probes to a receiver which has not advertised the ability has its
+        // timestamps subtracted from ours and paints the clock offset between
+        // the two machines in the menu bar (see `pingProbe`).
+        let hello = IBClientHello(name: macName, id: macId, token: token,
+                                  appVersion: version,
+                                  capabilities: [.latencyProbe, .commandResult])
         do {
             let data = try IBWire.encode(clientHello: hello)
             Self.log.info("clientHello sent (paired: \(token != nil, privacy: .public))")

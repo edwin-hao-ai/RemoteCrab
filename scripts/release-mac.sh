@@ -47,7 +47,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 "$ROOT/scripts/check-bundle-versions.sh" || {
   echo "❌ aborting before signing anything" >&2
   exit 1
-}TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
+}
+TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
 DEV_ID_APP="Developer ID Application: Beijing VGO Co;Ltd (${TEAM})"
 DEV_ID_INSTALLER="Developer ID Installer: Beijing VGO Co;Ltd (${TEAM})"
 OUT="$ROOT/dist"
