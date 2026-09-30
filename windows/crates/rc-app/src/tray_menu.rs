@@ -76,6 +76,13 @@ pub mod ids {
     /// reachable only once is a wizard that cannot help the user who needs it
     /// a second time.
     pub const SETUP: usize = 123;
+    /// The settings window: the notification denylist, the paired phones, the
+    /// video quality. Present always, for the same reason the wizard row is.
+    pub const SETTINGS: usize = 124;
+    /// The four-quadrant self-check. The Mac has had this since V0.1, and it
+    /// is worth *more* on Windows: input injection leaves no visible trace, so
+    /// without it "did my tap land?" has no answer anywhere.
+    pub const SELF_CHECK: usize = 125;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -391,6 +398,8 @@ pub fn known_ids() -> &'static [usize] {
         ids::INSTALL_VCAM,
         ids::NOTIFY,
         ids::SETUP,
+        ids::SETTINGS,
+        ids::SELF_CHECK,
     ]
 }
 
@@ -441,6 +450,8 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::INSTALL_VCAM => 15,
         ids::NOTIFY => 16,
         ids::SETUP => 17,
+        ids::SETTINGS => 18,
+        ids::SELF_CHECK => 19,
         // `RECORD` is deliberately absent: it is the one row whose glyph
         // depends on state, so it goes through [`record_icon_cell`] and not
         // through here. Letting both decide it is how they drift apart.
@@ -473,7 +484,7 @@ pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 18;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 20;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -846,6 +857,8 @@ mod sheet_order_tests {
             (ids::INSTALL_VCAM, 15),
             (ids::NOTIFY, 16),
             (ids::SETUP, 17),
+            (ids::SETTINGS, 18),
+            (ids::SELF_CHECK, 19),
         ];
         for (id, cell) in expected {
             assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
@@ -893,6 +906,8 @@ mod sheet_order_tests {
                 "install_vcam" => ids::INSTALL_VCAM,
                 "notify" => ids::NOTIFY,
                 "setup" => ids::SETUP,
+                "settings" => ids::SETTINGS,
+                "self_check" => ids::SELF_CHECK,
                 other => panic!("the generator draws {other:?}, which no menu row claims"),
             };
             assert_eq!(

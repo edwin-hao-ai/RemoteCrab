@@ -582,6 +582,18 @@ mod win32 {
                 crate::open_wizard();
                 None
             }
+            // The settings window. The one place the notification denylist can
+            // be edited, which is what makes the relay a control rather than a
+            // claim.
+            // The four-quadrant self-check.
+            ids::SELF_CHECK => {
+                crate::open_self_check();
+                None
+            }
+            ids::SETTINGS => {
+                crate::open_settings();
+                None
+            }
             ids::NOTIFY => {
                 let now_on = !crate::notify_relay::is_enabled();
                 crate::notify_relay::set_enabled(now_on);

@@ -96,6 +96,38 @@ impl TokenStore {
         self.save();
     }
 
+    /// The paired phones, in a stable order.
+    ///
+    /// A map has no order of its own, and a list that reshuffles between two
+    /// openings of the same settings window reads as the app having lost
+    /// something. Sorted by name, case-insensitively, because that is the order
+    /// a person would keep them in.
+    pub fn paired_phones(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.data.tokens.keys().cloned().collect();
+        names.sort_by_key(|n| n.to_lowercase());
+        names
+    }
+
+    /// Drop an address→name mapping along with its token.
+    ///
+    /// Called with the token, because a stale `phones_by_ip` entry is how a
+    /// *re-paired* phone inherits the old one's identity: the map says
+    /// "192.168.1.5 is Dana's iPhone" after the pairing was forgotten, so the
+    /// next handshake rekeys the new token onto the old name.
+    pub fn forget_addresses_for(&mut self, phone_name: &str) {
+        let stale: Vec<String> = self
+            .data
+            .phones_by_ip
+            .iter()
+            .filter(|(_, n)| n.eq_ignore_ascii_case(phone_name))
+            .map(|(ip, _)| ip.clone())
+            .collect();
+        for ip in stale {
+            self.data.phones_by_ip.remove(&ip);
+        }
+        self.save();
+    }
+
     pub fn last_phone_host(&self) -> Option<String> {
         self.data.last_phone_host.clone()
     }
@@ -274,5 +306,49 @@ mod tests {
         assert!(store.name_for_ip("192.168.1.5").is_none());
 
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(test)]
+mod listing_tests {
+    use super::TokenStore;
+
+    /// The order has to be stable, or a settings window reorders itself between
+    /// two openings and the user concludes something was lost.
+    #[test]
+    fn paired_phones_are_listed_in_a_stable_order() {
+        let mut s = TokenStore::load(None);
+        s.set_token("Zoe's iPhone", "t1");
+        s.set_token("ana's iPad", "t2");
+        s.set_token("Ben's phone", "t3");
+        assert_eq!(
+            s.paired_phones(),
+            vec!["ana's iPad", "Ben's phone", "Zoe's iPhone"]
+        );
+        // Repeated calls agree with each other.
+        assert_eq!(s.paired_phones(), s.paired_phones());
+    }
+
+    /// Forgetting a phone has to take its address mapping with it. A stale
+    /// mapping is how a re-paired phone inherits the old one's identity: the
+    /// map still says "192.168.1.5 is Dana's iPhone" after the pairing was
+    /// dropped, so the next handshake rekeys the new token onto the old name.
+    #[test]
+    fn forgetting_a_phone_also_drops_its_addresses() {
+        let mut s = TokenStore::load(None);
+        s.set_token("Dana's iPhone", "t1");
+        s.set_phone_name_for_ip("192.168.1.5", "Dana's iPhone");
+        s.set_phone_name_for_ip("192.168.1.9", "Ben's phone");
+        s.set_token("Ben's phone", "t2");
+
+        s.forget("Dana's iPhone");
+        s.forget_addresses_for("Dana's iPhone");
+
+        assert_eq!(s.name_for_ip("192.168.1.5"), None);
+        assert_eq!(
+            s.name_for_ip("192.168.1.9"),
+            Some("Ben's phone"),
+            "another phone's address must survive"
+        );
     }
 }

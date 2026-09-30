@@ -265,6 +265,15 @@ pub(crate) async fn supervisor(
                     }
                 }
             }
+            Action::Cmd(Command::ForgetPhone(name)) => {
+                // Both halves, in one place and one save. Forgetting only the
+                // token would leave the address→name mapping behind, and that is
+                // how a *re-paired* phone inherits the old phone's identity: the
+                // map still says "192.168.1.5 is Dana's iPhone", so the next
+                // handshake rekeys the new token onto the old name.
+                tokens.forget(&name);
+                tokens.forget_addresses_for(&name);
+            }
             Action::Cmd(Command::SendFrame(frame)) => {
                 if let Some(conn) = &active {
                     let _ = conn.outbound_tx.send(frame);

@@ -33,8 +33,11 @@ pub struct StreamStats {
     /// The last key the phone sent, as a short printable description.
     pub last_key: Option<String>,
     /// The last cursor position the trackpad asked for, in virtual-screen
-    /// pixels. The point of the "trackpad pad" quadrant.
+    /// pixels. The point of the "trackpad" quadrant.
     pub cursor: Option<(i32, i32)>,
+    /// A short description of the last gesture, e.g. "swipe up at 120,340".
+    /// The cursor alone cannot tell a scroll from a drag.
+    pub last_touch: Option<String>,
     /// 0.0–1.0, from the phone's audio packets.
     pub mic_level: Option<f32>,
     /// A short note when something is not arriving, e.g. "camera is off".
@@ -46,6 +49,12 @@ pub struct StreamStats {
     pub last_frame: Option<std::time::Instant>,
     /// Commands the phone asked for that this machine cannot do.
     pub unsupported_commands: Vec<String>,
+    /// When the last keypress arrived. A key that landed two minutes ago is not
+    /// evidence that keys are landing now, and the self-check panel has to be
+    /// able to say so.
+    pub last_key_at: Option<std::time::Instant>,
+    /// When the last trackpad gesture arrived, for the same reason.
+    pub last_touch_at: Option<std::time::Instant>,
 }
 
 /// How many samples the sparkline keeps. Thirty is what the Mac's
@@ -100,6 +109,7 @@ impl StreamStats {
             return;
         }
         self.last_key = Some(describe_key(key));
+        self.last_key_at = Some(std::time::Instant::now());
     }
 
     pub fn record_touch(&mut self, touch: &TouchEvent) {
@@ -114,6 +124,11 @@ impl StreamStats {
         // only keep the raw values and let the caller scale — otherwise this
         // type would need to know the screen size.
         self.cursor = Some((touch.x as i32, touch.y as i32));
+        // A description, not just a position: a cursor sitting at 120,340 says
+        // nothing about *which kind* of gesture arrived, and the self-check
+        // panel's whole job is telling a user whether their gesture landed.
+        self.last_touch = Some(describe_touch(touch));
+        self.last_touch_at = Some(std::time::Instant::now());
     }
 
     pub fn record_audio(&mut self, level: f32) {
@@ -559,5 +574,142 @@ mod command_name_tests {
                 "{c:?} leaked Debug output: {name}"
             );
         }
+    }
+}
+
+/// A one-line description of a gesture, for a panel a user reads at a glance.
+///
+/// The phase matters more than the coordinates: "swipe" vs "drag" vs "tap" is
+/// the difference between "it worked" and "it did the wrong thing", and a bare
+/// position cannot tell them apart.
+fn describe_touch(t: &TouchEvent) -> String {
+    let what = match t.phase {
+        TouchPhase::Down => "left down",
+        TouchPhase::Up => "left up",
+        TouchPhase::RightDown => "right down",
+        TouchPhase::RightUp => "right up",
+        TouchPhase::Move => "move",
+        TouchPhase::Scroll => "scroll",
+        TouchPhase::Click => "click",
+        TouchPhase::DragStart => "drag start",
+        TouchPhase::Pinch => "pinch",
+        TouchPhase::ThreeFingerSwipe => "3-finger swipe",
+        TouchPhase::ThreeFingerTap => "3-finger tap",
+        TouchPhase::ForceClick => "force click",
+    };
+    let at = (t.x as i32, t.y as i32);
+    // Buttons and modifier keys change what a gesture *means*, so a gesture
+    // that was cancelled by a modifier is not the same evidence as a clean one.
+    let mods = t.modifiers;
+    let mut s = format!("{what} at {at:?}");
+    if mods != 0 {
+        let mut names = Vec::new();
+        if mods & 1 != 0 {
+            names.push("shift");
+        }
+        if mods & 2 != 0 {
+            names.push("ctrl");
+        }
+        if mods & 4 != 0 {
+            names.push("alt");
+        }
+        if mods & 8 != 0 {
+            names.push("cmd");
+        }
+        s.push_str(&format!(" +{}", names.join("+")));
+    }
+    s
+}
+
+#[cfg(test)]
+mod describe_tests {
+    use super::describe_touch;
+    use rc_protocol::{TouchEvent, TouchPhase};
+
+    fn ev(phase: TouchPhase, modifiers: u8) -> TouchEvent {
+        TouchEvent {
+            phase,
+            x: 0.5,
+            y: 0.25,
+            modifiers,
+            dx: 0.0,
+            dy: 0.0,
+            momentum: None,
+            timestamp_micros: 0,
+        }
+    }
+
+    /// The phase has to be in the text, and named as the *mouse button* it
+    /// maps to rather than as the finger that produced it. A description that
+    /// only carries coordinates cannot tell a user whether their right-click
+    /// arrived, and "left"/"right" is what they will see happen on screen.
+    #[test]
+    fn the_gesture_kind_is_named() {
+        for (phase, needle) in [
+            (TouchPhase::Down, "left down"),
+            (TouchPhase::Up, "left up"),
+            (TouchPhase::RightDown, "right down"),
+            (TouchPhase::RightUp, "right up"),
+            (TouchPhase::Move, "move"),
+            (TouchPhase::Scroll, "scroll"),
+            (TouchPhase::Click, "click"),
+            (TouchPhase::DragStart, "drag start"),
+            (TouchPhase::Pinch, "pinch"),
+            (TouchPhase::ThreeFingerSwipe, "3-finger"),
+            (TouchPhase::ForceClick, "force"),
+        ] {
+            let d = describe_touch(&ev(phase, 0));
+            assert!(d.contains(needle), "{phase:?} -> {d}");
+        }
+    }
+
+    /// Every phase the protocol can send has to be nameable. A new phase added
+    /// to the protocol must not compile past a match that silently falls through
+    /// to something misleading.
+    #[test]
+    fn every_phase_produces_a_distinct_label() {
+        let all = [
+            TouchPhase::Down,
+            TouchPhase::Move,
+            TouchPhase::Up,
+            TouchPhase::RightDown,
+            TouchPhase::RightUp,
+            TouchPhase::Scroll,
+            TouchPhase::Click,
+            TouchPhase::DragStart,
+            TouchPhase::Pinch,
+            TouchPhase::ThreeFingerSwipe,
+            TouchPhase::ThreeFingerTap,
+            TouchPhase::ForceClick,
+        ];
+        let mut seen: Vec<String> = Vec::new();
+        for p in all {
+            let label = describe_touch(&ev(p, 0));
+            let word = label.split(" at ").next().unwrap_or("").to_string();
+            assert!(!word.is_empty(), "{p:?}");
+            assert!(
+                !seen.contains(&word),
+                "{p:?} and another phase share {word:?}"
+            );
+            seen.push(word);
+        }
+    }
+
+    /// A modifier changes what a gesture means, so it belongs in the evidence.
+    /// This is also the regression the trackpad bitmask bug would have shown.
+    #[test]
+    fn a_modified_gesture_says_which_modifier() {
+        let d = describe_touch(&ev(TouchPhase::DragStart, 1 | 8));
+        assert!(d.contains("shift"), "{d}");
+        assert!(d.contains("cmd"), "{d}");
+        assert!(!d.contains("ctrl"), "{d}");
+    }
+
+    /// A clean gesture must not grow a modifier tail, or every row in the panel
+    /// ends with a stray "+".
+    #[test]
+    fn an_unmodified_gesture_has_no_modifier_tail() {
+        let d = describe_touch(&ev(TouchPhase::Move, 0));
+        assert!(!d.contains('+'), "{d}");
     }
 }

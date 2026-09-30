@@ -12,6 +12,8 @@
 pub mod dispatch;
 pub mod firstrun;
 pub mod notify;
+pub mod selfcheck;
+pub mod settings;
 pub mod update_gate;
 pub mod ping;
 pub mod route;
@@ -187,6 +189,20 @@ pub struct Session {
 impl Session {
     /// Start the session (spawns the supervisor task). Must be called from
     /// within a Tokio runtime.
+    /// Forget a paired phone. Routed through the supervisor so the store has
+    /// exactly one writer.
+    pub fn forget_phone(&self, name: &str) {
+        let _ = self.cmd_tx.send(Command::ForgetPhone(name.to_string()));
+    }
+
+    /// The paired phones, for a settings window. Read from the store file
+    /// rather than the live instance: a read that is a moment stale is fine,
+    /// and asking the session to answer it would need a round trip for a list
+    /// the user is only looking at.
+    pub fn paired_phones() -> Vec<String> {
+        token::TokenStore::load(token::default_token_path()).paired_phones()
+    }
+
     pub fn spawn(config: Config) -> Session {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (events_tx, _) = broadcast::channel(1024);
@@ -270,6 +286,13 @@ pub(crate) enum Command {
     SetFeature { feature: Feature, enabled: bool },
     SwitchCamera,
     SendFrame(Vec<u8>),
+    /// Drop a paired phone's token **and** its address→name mapping.
+    ///
+    /// A command rather than a direct file write from the settings window,
+    /// because the supervisor owns the store: a second writer's `forget` would
+    /// be silently overwritten by the supervisor's next save, and the user
+    /// would watch the phone reappear in the list.
+    ForgetPhone(String),
 }
 
 #[derive(Debug)]

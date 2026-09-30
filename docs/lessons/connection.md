@@ -382,3 +382,63 @@ launch. `PermissionFlow.probeLocalNetwork` already answers granted/denied, but
 a second probe after the prompt has been answered has a 2.5 s `inconclusive`
 window and no guarantee, so the honest symptom (`networkUnavailable`) is
 driven off the listener failing instead.
+
+---
+
+94. **A timer cannot decide whether a remote list is empty (2026-09-30).**
+    "打开 App…" flashed *No apps listed yet* on every first open, then popped
+    the real grid in underneath. The sheet had a `Task.sleep(500ms)` and a
+    `loaded` flag standing in for the receiver's answer — and the measured
+    cold cost of producing that answer is **2356 ms** (113 apps, one
+    rasterised icon each, `/Applications` walk on the dev Mac; a warm
+    `NSCache` is 1 ms, which is why it only ever happened once per launch).
+    **Only the arrival of `installedApps` (0x21) may end a wait.** The
+    round trip belongs to the *other* machine, so any timeout on our side is
+    a guess that becomes a lie to the user.
+    - The timeout did not even buy what it claimed. Its stated purpose was
+      "so an empty result shows the empty state instead of an endless
+      spinner" — but it merged three genuinely different states: still
+      working, *genuinely* zero apps, and nobody answering (the receiver
+      sends 0x21 only in answer to 0x20, so silence is a dead link or a
+      receiver too old to know the frame). One `Bool` cannot carry three
+      sentences, and it was carrying the wrong one. `IBListRequestGate` is
+      now four phases, and a late answer is still accepted so a slow
+      receiver heals instead of demanding a retry.
+    - **A deadline is still needed** — without one, a disconnected Mac
+      spins forever. But it must be long enough to clear the *measured*
+      round trip (8 s, with a test asserting it exceeds the measured 2.4 s
+      so nobody tunes it down for a "snappier" feel), and it must not touch
+      an already-answered gate.
+    - Same class, opposite direction: a **list you already have must stay on
+      screen** while a refresh is in flight. Swapping 113 usable tiles for a
+      spinner to prove we are working is a downgrade.
+
+    The same report contained a second bug with the same root cause — no
+    refresh mechanism, because the list the picker renders and the event
+    that changes it were never connected:
+    - The switcher renders `macWindows`, but the Mac's workspace observer
+      only republished the window list on `didTerminateApplication`. A
+      launch sent `appList`, **a frame the picker does not render**, so an
+      app opened from the launcher could not become a card until the sheet
+      was reopened. **Check what the view actually binds before adding a
+      refresh — the event was firing, into a field nobody looked at.**
+    - `didLaunchApplication` alone is not enough: it fires when the process
+      appears, usually *before* it has a window, so the rebuild lists an app
+      with no card — the original complaint, just later. The usable signal
+      is the launch **plus** the activation that follows, so
+      `IBChangeCoalescer` (pure, tested) collapses the pair into one rebuild
+      once the burst goes quiet. `didActivate` on its own fires on every app
+      switch and every dialog, which is why it only counts while a launch is
+      pending.
+    - The 30 s "picker is probably open" gate was **shorter than the flow it
+      had to survive** (open the picker, browse the launcher, pick an app),
+      so the refresh was dropped exactly when it was needed. Now 120 s.
+    - Windows had the identical shape (window list republished on quit only)
+      and no launch observer at all, so it got a **condition-polled**
+      refresh on its own thread — the select loop stays free, and a slow
+      launch is not published as an empty result.
+
+    348 Core tests (22 new), both app targets, Windows suite. **Not yet
+    verified on hardware**: the two visible behaviours — the spinner while
+    the list is built, and the launched app's card appearing in the open
+    picker — both need a phone and a Mac in the same session.

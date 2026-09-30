@@ -15,7 +15,11 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
+#[cfg(windows)]
+use rc_net::settings::NameList;
 use rc_net::{Config, Event, Session, State};
+#[cfg(windows)]
+use rc_protocol::SystemCommandKind;
 use rc_protocol::{
     encode_app_list, encode_file_ack, encode_installed_apps, encode_notification,
     encode_window_list,
@@ -28,6 +32,10 @@ mod args;
 mod console;
 mod diagnostics;
 mod notify_relay;
+#[cfg(windows)]
+mod selfcheck_win;
+#[cfg(windows)]
+mod settings_win;
 mod wizard;
 #[cfg(windows)]
 mod wizard_win;
@@ -197,6 +205,8 @@ async fn main() -> ExitCode {
     );
 
     let session = Session::spawn(Config::default());
+    #[cfg(windows)]
+    let _ = SESSION.set(session.clone());
     let mut events = session.subscribe();
     let mut state_rx = session.state();
     // The live readout behind the tray's "connection details" submenu. See
@@ -387,536 +397,555 @@ async fn main() -> ExitCode {
 
     loop {
         tokio::select! {
-            changed = state_rx.changed() => {
-                if changed.is_err() {
-                    break;
-                }
-                let st = state_rx.borrow().clone();
-
-                // Collapse the busy→connecting→busy churn into silence.
-                match &st {
-                    State::Busy { owner } => {
-                        if stuck_owner.as_deref() == Some(owner.as_str()) {
-                            continue;
+                    changed = state_rx.changed() => {
+                        if changed.is_err() {
+                            break;
                         }
-                        stuck_owner = Some(owner.clone());
-                    }
-                    State::Streaming { .. } => stuck_owner = None,
-                    _ => {
-                        // Intermediate states during a busy retry are hidden.
-                        if stuck_owner.is_some() {
-                            continue;
-                        }
-                    }
-                }
+                        let st = state_rx.borrow().clone();
 
-                let label = status::state_line(&st);
-                if label != last_label {
-                    println!("{label}");
-                    last_label = label;
-                }
-                if let State::Error(_) = st {
-                    // Point at the surface that explains itself, not at a
-                    // developer-only flag (AGENTS.md rule 1).
-                    println!(
-                        "   {}",
-                        crate::i18n::t(
-                            "（点托盘菜单里的「为什么连不上」—— 它会写明原因和该做什么）",
-                            "(choose \"Why not connected\" in the tray menu — it names the cause and what to do)"
-                        )
-                    );
-                }
-                // Keep the tray's status row in sync (single-line pill-style).
-                tray.set_status(&status::tray_status(&st));
-
-                // …and give the "why not connected" row something true to say.
-                //
-                // The route verdict is the one probe worth running here: a
-                // single UDP connect, microseconds, and it is the difference
-                // between "not found yet" and "your VPN is eating the LAN",
-                // which look identical from the outside. Nothing else is
-                // probed — the receiver already knows everything else.
-                {
-                    let h = health.borrow().clone();
-                    let verdict = doctor::route_verdict(&h);
-                    let zh = crate::i18n::is_chinese();
-                    tray.set_diagnosis(
-                        &doctor::panel_summary(&h, &verdict, zh),
-                        &doctor::panel(&h, &verdict, zh),
-                    );
-                }
-            }
-            ev = events.recv() => {
-                let Ok(ev) = ev else { continue };
-                match ev {
-                    Event::Discovered(phones) => {
-                        if args.list_only || last_label.is_empty() {
-                            if phones.is_empty() {
-                                println!("  {}", i18n::t("还没发现 iPhone…", "no iPhones found yet…"));
-                            } else {
-                                for p in &phones {
-                                    let addr = p.host.as_deref().unwrap_or("(resolving)");
-                                    println!(
-                                        "  {} {}  @ {}:{}",
-                                        i18n::t("已发现：", "found:"),
-                                        p.name,
-                                        addr,
-                                        p.port
-                                    );
+                        // Collapse the busy→connecting→busy churn into silence.
+                        match &st {
+                            State::Busy { owner } => {
+                                if stuck_owner.as_deref() == Some(owner.as_str()) {
+                                    continue;
+                                }
+                                stuck_owner = Some(owner.clone());
+                            }
+                            State::Streaming { .. } => stuck_owner = None,
+                            _ => {
+                                // Intermediate states during a busy retry are hidden.
+                                if stuck_owner.is_some() {
+                                    continue;
                                 }
                             }
                         }
-                    }
-                    Event::Metadata(m) => {
-                        stats.record_metadata(&m);
-                        println!(
-                            "  → streaming: {} {}x{} @ {}fps ({} kbps)",
-                            m.resolution_label(),
-                            m.width,
-                            m.height,
-                            m.fps,
-                            m.bitrate_bps / 1000
-                        );
-                        // `--record` no longer *arms* recording on the first
-                        // metadata frame. It used to, so a user who passed the
-                        // flag to "make recording available" got a recorder
-                        // they never asked for, writing a file to disk. The
-                        // flag now only announces readiness, exactly as the
-                        // Mac's ⌘R is an explicit action, and the tray row or
-                        // the `record` console command is what actually
-                        // starts it.
-                        metadata = Some(m);
-                    }
-                    Event::Video(nal) => {
-                        video_frames += 1;
-                        // A decoded frame is the only proof the camera is
-                        // actually on, as opposed to merely enabled.
-                        stats.record_video(0, 0);
-                        if let Some(rec) = recording.as_mut() {
-                            match nal.kind {
-                                rc_protocol::NalKind::Sps => rec.recorder.set_sps(&nal.data),
-                                rc_protocol::NalKind::Pps => rec.recorder.set_pps(&nal.data),
-                                rc_protocol::NalKind::Video => rec.recorder.add_video(&nal.data),
-                            }
+
+                        let label = status::state_line(&st);
+                        if label != last_label {
+                            println!("{label}");
+                            last_label = label;
                         }
-                        if let Some(p) = preview.as_mut() {
-                            if p.push(&nal) {
-                                if let Some(frame) = p.latest() {
-                                    frame_slot.set(frame.clone());
-                                    #[cfg(windows)]
-                                    if let Some(vc) = vcam.as_mut() {
-                                        let fps = metadata
-                                            .as_ref()
-                                            .map(|m| m.fps.max(1) as u32)
-                                            .unwrap_or(30);
-                                        vc.publish(frame, fps);
-                                        if vc.frames_written().is_multiple_of(150) {
+                        if let State::Error(_) = st {
+                            // Point at the surface that explains itself, not at a
+                            // developer-only flag (AGENTS.md rule 1).
+                            println!(
+                                "   {}",
+                                crate::i18n::t(
+                                    "（点托盘菜单里的「为什么连不上」—— 它会写明原因和该做什么）",
+                                    "(choose \"Why not connected\" in the tray menu — it names the cause and what to do)"
+                                )
+                            );
+                        }
+                        // Keep the tray's status row in sync (single-line pill-style).
+                        tray.set_status(&status::tray_status(&st));
+
+                        // …and give the "why not connected" row something true to say.
+                        //
+                        // The route verdict is the one probe worth running here: a
+                        // single UDP connect, microseconds, and it is the difference
+                        // between "not found yet" and "your VPN is eating the LAN",
+                        // which look identical from the outside. Nothing else is
+                        // probed — the receiver already knows everything else.
+                        {
+                            let h = health.borrow().clone();
+                            let verdict = doctor::route_verdict(&h);
+                            let zh = crate::i18n::is_chinese();
+                            tray.set_diagnosis(
+                                &doctor::panel_summary(&h, &verdict, zh),
+                                &doctor::panel(&h, &verdict, zh),
+                            );
+                        }
+                    }
+                    ev = events.recv() => {
+                        let Ok(ev) = ev else { continue };
+                        match ev {
+                            Event::Discovered(phones) => {
+                                if args.list_only || last_label.is_empty() {
+                                    if phones.is_empty() {
+                                        println!("  {}", i18n::t("还没发现 iPhone…", "no iPhones found yet…"));
+                                    } else {
+                                        for p in &phones {
+                                            let addr = p.host.as_deref().unwrap_or("(resolving)");
                                             println!(
-                                                "  vcam: {} frames published ({}x{})",
-                                                vc.frames_written(),
-                                                frame.width,
-                                                frame.height
+                                                "  {} {}  @ {}:{}",
+                                                i18n::t("已发现：", "found:"),
+                                                p.name,
+                                                addr,
+                                                p.port
                                             );
                                         }
                                     }
                                 }
-                            } else if video_frames.is_multiple_of(600) {
-                                if let Ok(mut s) = status_text.lock() {
-                                    *s = format!("Receiving video… ({video_frames} NALs)");
+                            }
+                            Event::Metadata(m) => {
+                                stats.record_metadata(&m);
+                                println!(
+                                    "  → streaming: {} {}x{} @ {}fps ({} kbps)",
+                                    m.resolution_label(),
+                                    m.width,
+                                    m.height,
+                                    m.fps,
+                                    m.bitrate_bps / 1000
+                                );
+                                // `--record` no longer *arms* recording on the first
+                                // metadata frame. It used to, so a user who passed the
+                                // flag to "make recording available" got a recorder
+                                // they never asked for, writing a file to disk. The
+                                // flag now only announces readiness, exactly as the
+                                // Mac's ⌘R is an explicit action, and the tray row or
+                                // the `record` console command is what actually
+                                // starts it.
+                                metadata = Some(m);
+                            }
+                            Event::Video(nal) => {
+                                video_frames += 1;
+                                // A decoded frame is the only proof the camera is
+                                // actually on, as opposed to merely enabled.
+                                stats.record_video(0, 0);
+                                if let Some(rec) = recording.as_mut() {
+                                    match nal.kind {
+                                        rc_protocol::NalKind::Sps => rec.recorder.set_sps(&nal.data),
+                                        rc_protocol::NalKind::Pps => rec.recorder.set_pps(&nal.data),
+                                        rc_protocol::NalKind::Video => rec.recorder.add_video(&nal.data),
+                                    }
+                                }
+                                if let Some(p) = preview.as_mut() {
+                                    if p.push(&nal) {
+                                        if let Some(frame) = p.latest() {
+                                            frame_slot.set(frame.clone());
+                                            #[cfg(windows)]
+                                            if let Some(vc) = vcam.as_mut() {
+                                                let fps = metadata
+                                                    .as_ref()
+                                                    .map(|m| m.fps.max(1) as u32)
+                                                    .unwrap_or(30);
+                                                vc.publish(frame, fps);
+                                                if vc.frames_written().is_multiple_of(150) {
+                                                    println!(
+                                                        "  vcam: {} frames published ({}x{})",
+                                                        vc.frames_written(),
+                                                        frame.width,
+                                                        frame.height
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    } else if video_frames.is_multiple_of(600) {
+                                        if let Ok(mut s) = status_text.lock() {
+                                            *s = format!("Receiving video… ({video_frames} NALs)");
+                                        }
+                                    }
+                                    if p.frames_decoded().is_multiple_of(150) {
+                                        let (w, h) = p.dimensions();
+                                        println!(
+                                            "  video: {} frames decoded ({}x{})",
+                                            p.frames_decoded(),
+                                            w,
+                                            h
+                                        );
+                                    }
+                                } else if video_frames.is_multiple_of(150) {
+                                    println!("  video: {video_frames} NALs received");
                                 }
                             }
-                            if p.frames_decoded().is_multiple_of(150) {
-                                let (w, h) = p.dimensions();
-                                println!(
-                                    "  video: {} frames decoded ({}x{})",
-                                    p.frames_decoded(),
-                                    w,
-                                    h
-                                );
+                            Event::Touch(t) => {
+                                // Recorded before injection so the readout shows where
+                                // the phone *asked* the cursor to go, which is the only
+                                // way to tell a dropped modifier from a stuck one.
+                                stats.record_touch(&t);
+                                #[cfg(windows)]
+                        publish_stats(&stats);
+                                #[cfg(windows)]
+                                if let Some(inj) = injector.as_mut() {
+                                    inj.inject_touch(&t);
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &t;
                             }
-                        } else if video_frames.is_multiple_of(150) {
-                            println!("  video: {video_frames} NALs received");
-                        }
-                    }
-                    Event::Touch(t) => {
-                        // Recorded before injection so the readout shows where
-                        // the phone *asked* the cursor to go, which is the only
-                        // way to tell a dropped modifier from a stuck one.
-                        stats.record_touch(&t);
-                        #[cfg(windows)]
-                        if let Some(inj) = injector.as_mut() {
-                            inj.inject_touch(&t);
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &t;
-                    }
-                    Event::Key(k) => {
-                        stats.record_key(&k);
-                        #[cfg(windows)]
-                        if let Some(inj) = injector.as_ref() {
-                            inj.inject_key(&k);
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &k;
-                    }
-                    Event::Audio(packet) => {
-                        audio.consume(&packet);
-                        if let Some(rec) = recording.as_mut() {
-                            let pcm = console::decode_for_record(&mut rec.opus, &packet);
-                            if !pcm.is_empty() {
-                                let rate = if packet.sample_rate > 0 {
-                                    packet.sample_rate as u32
-                                } else {
-                                    48000
-                                };
-                                let channels = if packet.channels > 0 {
-                                    packet.channels as u16
-                                } else {
-                                    1
-                                };
-                                rec.recorder.add_audio(&pcm, rate, channels);
+                            Event::Key(k) => {
+                                stats.record_key(&k);
+                                #[cfg(windows)]
+                        publish_stats(&stats);
+                                #[cfg(windows)]
+                                if let Some(inj) = injector.as_ref() {
+                                    inj.inject_key(&k);
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &k;
                             }
-                        }
-                        // `AudioPlayer` already measures the decoded level
-                        // (it has the samples; we only ever see the Opus
-                        // packet), and its own doc comment says it exists "for
-                        // the connection-test UI" — which nothing was reading
-                        // until now.
-                        stats.record_audio(audio.level());
-                        tray.set_details(stream_stats::detail_rows(&stats));
-                    }
-                    Event::Latency(ms) => {
-                        stats.record_latency(ms);
-                        // Refresh the readout's contents; the tray re-renders
-                        // the submenu on each popup, so this is the only write.
-                        tray.set_details(stream_stats::detail_rows(&stats));
-                        // Keep the console readable: report a lag spike only
-                        // when it is both large AND rare (a rolling gate), not
-                        // on every ping.
-                        if ms >= 500 && last_spike_report.elapsed() > Duration::from_secs(5) {
-                            last_spike_report = std::time::Instant::now();
-                            println!("  latency spike: {ms} ms");
-                        }
-                    }
-                    // --- P2: clipboard / files / system commands / app list ---
-                    Event::Clipboard(c) => {
-                        #[cfg(windows)]
-                        {
-                            if rc_os::clipboard::set_text(&c.text) {
-                                println!("  clipboard: received {} chars from iPhone", c.text.chars().count());
+                            Event::Audio(packet) => {
+                                audio.consume(&packet);
+                                if let Some(rec) = recording.as_mut() {
+                                    let pcm = console::decode_for_record(&mut rec.opus, &packet);
+                                    if !pcm.is_empty() {
+                                        let rate = if packet.sample_rate > 0 {
+                                            packet.sample_rate as u32
+                                        } else {
+                                            48000
+                                        };
+                                        let channels = if packet.channels > 0 {
+                                            packet.channels as u16
+                                        } else {
+                                            1
+                                        };
+                                        rec.recorder.add_audio(&pcm, rate, channels);
+                                    }
+                                }
+                                // `AudioPlayer` already measures the decoded level
+                                // (it has the samples; we only ever see the Opus
+                                // packet), and its own doc comment says it exists "for
+                                // the connection-test UI" — which nothing was reading
+                                // until now.
+                                stats.record_audio(audio.level());
+                                tray.set_details(stream_stats::detail_rows(&stats));
                             }
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &c;
-                    }
-                    Event::FileOffer(offer) => {
-                        let ack = file_rx.begin(offer.clone());
-                        session.send_frame(encode_file_ack(&ack).unwrap_or_default());
-                        println!("  file: receiving {} ({} bytes)…", offer.name, offer.size);
-                    }
-                    Event::FileChunk(data) => {
-                        if let Some(ack) = file_rx.append(&data) {
-                            // Only ack progress periodically to avoid flooding.
-                            if ack.received_bytes % (256 * 1024) < data.len() as i64 {
+                            Event::Latency(ms) => {
+                                stats.record_latency(ms);
+                                // Refresh the readout's contents; the tray re-renders
+                                // the submenu on each popup, so this is the only write.
+                                tray.set_details(stream_stats::detail_rows(&stats));
+                                // Keep the console readable: report a lag spike only
+                                // when it is both large AND rare (a rolling gate), not
+                                // on every ping.
+                                if ms >= 500 && last_spike_report.elapsed() > Duration::from_secs(5) {
+                                    last_spike_report = std::time::Instant::now();
+                                    println!("  latency spike: {ms} ms");
+                                }
+                            }
+                            // --- P2: clipboard / files / system commands / app list ---
+                            Event::Clipboard(c) => {
+                                #[cfg(windows)]
+                                {
+                                    if rc_os::clipboard::set_text(&c.text) {
+                                        println!("  clipboard: received {} chars from iPhone", c.text.chars().count());
+                                    }
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &c;
+                            }
+                            Event::FileOffer(offer) => {
+                                let ack = file_rx.begin(offer.clone());
                                 session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                println!("  file: receiving {} ({} bytes)…", offer.name, offer.size);
                             }
-                        }
-                    }
-                    Event::FileComplete(done) => {
-                        if let Some((ack, path)) = file_rx.complete(&done.id) {
-                            session.send_frame(encode_file_ack(&ack).unwrap_or_default());
-                            println!("  file: saved to {}", path.display());
-                            #[cfg(windows)]
-                            {
-                                rc_os::files::reveal(&path);
-                                last_received_file = Some(path);
+                            Event::FileChunk(data) => {
+                                if let Some(ack) = file_rx.append(&data) {
+                                    // Only ack progress periodically to avoid flooding.
+                                    if ack.received_bytes % (256 * 1024) < data.len() as i64 {
+                                        session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                    }
+                                }
                             }
-                            tray.set_has_last_file(true);
-                        }
-                    }
-                    // A relayed desktop notification, admitted by
-                    // `rc_net::notify` (off unless enabled, denylisted apps
-                    // dropped, unnamed senders dropped).
-                    Event::Notification(n) => {
-                        if !notify_relay::is_enabled() {
-                            // The user turned it off while a banner was in
-                            // flight. Dropping it is the whole point of the
-                            // switch being immediate.
-                            continue;
-                        }
-                        match encode_notification(&n) {
-                            Ok(frame) => {
-                                session.send_frame(frame);
-                                let (app, _why) = (n.app.clone(), ());
-                                println!(
-                                    "  notify: {} → {}",
-                                    i18n::t("已转发通知", "relayed a notification"),
-                                    app
-                                );
+                            Event::FileComplete(done) => {
+                                if let Some((ack, path)) = file_rx.complete(&done.id) {
+                                    session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                    println!("  file: saved to {}", path.display());
+                                    #[cfg(windows)]
+                                    {
+                                        rc_os::files::reveal(&path);
+                                        last_received_file = Some(path);
+                                    }
+                                    tray.set_has_last_file(true);
+                                }
                             }
-                            Err(e) => eprintln!("  notify: encode failed: {e}"),
-                        }
-                    }
-                    Event::SystemCommand(cmd) => {
-                        // A command we cannot do has to say so in words the
-                        // user reads, and say what *is* possible.
-                        //
-                        // The `{:?}` of the protocol enum used to be printed
-                        // here: English, an implementation detail, and — for a
-                        // Chinese user hitting a brightness button — not an
-                        // explanation of anything.
-                        #[cfg(windows)]
-                        let handled = rc_os::system_keys::handle(&cmd);
-                        #[cfg(not(windows))]
-                        let handled = false;
-                        if !handled {
-                            let name = stream_stats::system_command_name(cmd.command);
-                            println!(
-                                "  {}",
-                                i18n::t(
-                                    "这个命令这台电脑做不到：{}。音量、媒体播放键、以及「显示桌面」都可以用。",
-                                    "This computer cannot do: {}. Volume, the media keys and Show desktop all work.",
-                                )
-                                .replace("{}", &name)
-                            );
-                            stats.unsupported_commands.push(name);
-                            tray.set_details(stream_stats::detail_rows(&stats));
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &cmd;
-                    }
-                    Event::TextCommand(cmd) => {
-                        #[cfg(windows)]
-                        match rc_os::selection::rewrite_selection(cmd.command) {
-                            Some((before, after)) => println!(
-                                "  text command {:?}: {} chars rewritten",
-                                cmd.command,
-                                before.chars().count().max(after.chars().count())
-                            ),
-                            None => println!("  text command: nothing selected"),
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &cmd;
-                    }
-                    Event::AppListRequested => {
-                        // The iPhone explicitly asked — include the 48 px
-                        // icon PNGs (the launcher/window cards' fallback).
-                        #[cfg(windows)]
-                        let list = rc_os::apps::build_app_list(true);
-                        #[cfg(not(windows))]
-                        let list = rc_protocol::AppList { apps: vec![] };
-                        session.send_frame(encode_app_list(&list).unwrap_or_default());
-                    }
-                    Event::WindowListRequested => {
-                        window_list_wanted.store(true, std::sync::atomic::Ordering::Relaxed);
-                        #[cfg(windows)]
-                        let list = rc_os::windows::build_window_list();
-                        #[cfg(not(windows))]
-                        let list = rc_protocol::WindowList { windows: vec![], can_capture: false };
-                        session.send_frame(encode_window_list(&list).unwrap_or_default());
-                    }
-                    Event::InstalledAppsRequested => {
-                        #[cfg(windows)]
-                        let list = rc_os::apps::build_installed_apps();
-                        #[cfg(not(windows))]
-                        let list = rc_protocol::InstalledApps { apps: vec![] };
-                        session.send_frame(encode_installed_apps(&list).unwrap_or_default());
-                    }
-                    Event::ActivateApp(a) => {
-                        #[cfg(windows)]
+                            // A relayed desktop notification, admitted by
+                            // `rc_net::notify` (off unless enabled, denylisted apps
+                            // dropped, unnamed senders dropped).
+                            Event::Notification(n) => {
+                                if !notify_relay::is_enabled() {
+                                    // The user turned it off while a banner was in
+                                    // flight. Dropping it is the whole point of the
+                                    // switch being immediate.
+                                    continue;
+                                }
+                                match encode_notification(&n) {
+                                    Ok(frame) => {
+                                        session.send_frame(frame);
+                                        let (app, _why) = (n.app.clone(), ());
+                                        println!(
+                                            "  notify: {} → {}",
+                                            i18n::t("已转发通知", "relayed a notification"),
+                                            app
+                                        );
+                                    }
+                                    Err(e) => eprintln!("  notify: encode failed: {e}"),
+                                }
+                            }
+        Event::SystemCommand(cmd) => {
+                                // A command we cannot do has to say so in words the
+                                // user reads, and say what *is* possible.
+                                //
+                                // The `{:?}` of the protocol enum used to be printed
+                                // here: English, an implementation detail, and — for
+                                // a Chinese user hitting a brightness button — not an
+                                // explanation of anything.
+                                #[cfg(windows)]
+                                let handled = rc_os::system_keys::handle(&cmd);
+                                #[cfg(not(windows))]
+                                let handled = false;
+                                // A freshly launched app has to become a card in the
+                                // phone's still-open window picker, which renders
+                                // the *window* list — `appList` alone left the app
+                                // invisible there. It is not in the list the instant
+                                // the launch is accepted, so poll for the window
+                                // instead of sleeping a guessed interval (the Mac
+                                // gets the same effect from its launch + activation
+                                // observers).
+#[cfg(windows)]
+                        if handled
+                            && cmd.command == SystemCommandKind::LaunchApp
+                            && window_list_wanted.load(std::sync::atomic::Ordering::Relaxed)
                         {
-                            if args.no_input {
-                                println!("  app switch ignored (--no-input)");
-                            } else if rc_os::apps::activate_id_with_title(&a.id, a.window_title.as_deref()) {
-                                println!("  activated app {}", a.id);
-                                // Republish without icons: the phone reuses its
-                                // cached ones. The Mac does the same from its
-                                // activation observer, and without it the
-                                // switcher's "active" marker sticks on the app
-                                // the user just left.
-                                let list = rc_os::apps::build_app_list(false);
+                            spawn_window_refresh(&session);
+                        }
+                                if !handled {
+                                    let name = stream_stats::system_command_name(cmd.command);
+                                    println!(
+                                        "  {}",
+                                        i18n::t(
+                                            "这个命令这台电脑做不到：{}。音量、媒体播放键、以及「显示桌面」都可以用。",
+                                            "This computer cannot do: {}. Volume, the media keys and Show desktop all work.",
+                                        )
+                                        .replace("{}", &name)
+                                    );
+                                    stats.unsupported_commands.push(name);
+                                    tray.set_details(stream_stats::detail_rows(&stats));
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &cmd;
+                            }
+                            Event::TextCommand(cmd) => {
+                                #[cfg(windows)]
+                                match rc_os::selection::rewrite_selection(cmd.command) {
+                                    Some((before, after)) => println!(
+                                        "  text command {:?}: {} chars rewritten",
+                                        cmd.command,
+                                        before.chars().count().max(after.chars().count())
+                                    ),
+                                    None => println!("  text command: nothing selected"),
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &cmd;
+                            }
+                            Event::AppListRequested => {
+                                // The iPhone explicitly asked — include the 48 px
+                                // icon PNGs (the launcher/window cards' fallback).
+                                #[cfg(windows)]
+                                let list = rc_os::apps::build_app_list(true);
+                                #[cfg(not(windows))]
+                                let list = rc_protocol::AppList { apps: vec![] };
                                 session.send_frame(encode_app_list(&list).unwrap_or_default());
-                            } else {
-                                println!("  app switch failed: {}", a.id);
                             }
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &a;
-                    }
-                    Event::QuitApp(q) => {
-                        #[cfg(windows)]
-                        {
-                            if args.no_input {
-                                println!("  app quit ignored (--no-input)");
-                            } else if rc_os::apps::quit_id(&q.id, q.force) {
-                                println!("  quit app {}", q.id);
-                                // A quitting app must leave the phone's
-                                // window picker, or it stays tappable until the
-                                // user reopens the sheet. The Mac republishes
-                                // from its termination observer for the same
-                                // reason (`WindowCapture` lesson 38).
-                                let list = rc_os::apps::build_app_list(false);
-                                session.send_frame(encode_app_list(&list).unwrap_or_default());
-                                if window_list_wanted.load(std::sync::atomic::Ordering::Relaxed) {
-                                    let windows = rc_os::windows::build_window_list();
-                                    session
-                                        .send_frame(encode_window_list(&windows).unwrap_or_default());
-                                }
-                            } else {
-                                println!("  app quit failed: {}", q.id);
+                            Event::WindowListRequested => {
+                                window_list_wanted.store(true, std::sync::atomic::Ordering::Relaxed);
+                                #[cfg(windows)]
+                                let list = rc_os::windows::build_window_list();
+                                #[cfg(not(windows))]
+                                let list = rc_protocol::WindowList { windows: vec![], can_capture: false };
+                                session.send_frame(encode_window_list(&list).unwrap_or_default());
                             }
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &q;
-                    }
-                    Event::FeatureState(s) => {
-                        // "Camera: off" next to a live picture is exactly the
-                        // kind of lie this product must not tell, so the note
-                        // comes from the phone's own state and `record_video`
-                        // clears it the moment a frame proves otherwise.
-                        if !s.camera_on {
-                            stats.set_camera_note(Some(i18n::t("已关闭", "off")));
-                        }
-                        tray.set_features(Some(s.clone()));
-                        tray.set_details(stream_stats::detail_rows(&stats));
-                        last_features = Some(s);
-                    }
-                    Event::ScreenControl(control) => {
-                        #[cfg(windows)]
-                        {
-                            use rc_protocol::ScreenControlCommand;
-                            match control.command {
-                                ScreenControlCommand::Start => {
-                                    mirror.start(control.max_pixel.map(|p| p.max(0) as u32));
-                                    println!("  mirror: started");
-                                }
-                                ScreenControlCommand::Stop => {
-                                    mirror.stop();
-                                    println!("  mirror: stopped");
-                                }
-                                ScreenControlCommand::Select => {
-                                    mirror.select(control.window_id.clone());
-                                    println!("  mirror: pinned to {:?}", control.window_id);
-                                }
-                                ScreenControlCommand::Follow => mirror.select(None),
-                                ScreenControlCommand::Extend => {
-                                    // The Windows receiver has no virtual-display
-                                    // driver yet, so "Extended Display" is honest
-                                    // about being unavailable.
-                                    println!("  mirror: extended display is not supported on Windows yet");
-                                }
+                            Event::InstalledAppsRequested => {
+                                #[cfg(windows)]
+                                let list = rc_os::apps::build_installed_apps();
+                                #[cfg(not(windows))]
+                                let list = rc_protocol::InstalledApps { apps: vec![] };
+                                session.send_frame(encode_installed_apps(&list).unwrap_or_default());
                             }
+                            Event::ActivateApp(a) => {
+                                #[cfg(windows)]
+                                {
+                                    if args.no_input {
+                                        println!("  app switch ignored (--no-input)");
+                                    } else if rc_os::apps::activate_id_with_title(&a.id, a.window_title.as_deref()) {
+                                        println!("  activated app {}", a.id);
+                                        // Republish without icons: the phone reuses its
+                                        // cached ones. The Mac does the same from its
+                                        // activation observer, and without it the
+                                        // switcher's "active" marker sticks on the app
+                                        // the user just left.
+                                        let list = rc_os::apps::build_app_list(false);
+                                        session.send_frame(encode_app_list(&list).unwrap_or_default());
+                                    } else {
+                                        println!("  app switch failed: {}", a.id);
+                                    }
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &a;
+                            }
+                            Event::QuitApp(q) => {
+                                #[cfg(windows)]
+                                {
+                                    if args.no_input {
+                                        println!("  app quit ignored (--no-input)");
+                                    } else if rc_os::apps::quit_id(&q.id, q.force) {
+                                        println!("  quit app {}", q.id);
+                                        // A quitting app must leave the phone's
+                                        // window picker, or it stays tappable until the
+                                        // user reopens the sheet. The Mac republishes
+                                        // from its termination observer for the same
+                                        // reason (`WindowCapture` lesson 38).
+                                        let list = rc_os::apps::build_app_list(false);
+                                        session.send_frame(encode_app_list(&list).unwrap_or_default());
+                                        if window_list_wanted.load(std::sync::atomic::Ordering::Relaxed) {
+                                            let windows = rc_os::windows::build_window_list();
+                                            session
+                                                .send_frame(encode_window_list(&windows).unwrap_or_default());
+                                        }
+                                    } else {
+                                        println!("  app quit failed: {}", q.id);
+                                    }
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &q;
+                            }
+                            Event::FeatureState(s) => {
+                                // "Camera: off" next to a live picture is exactly the
+                                // kind of lie this product must not tell, so the note
+                                // comes from the phone's own state and `record_video`
+                                // clears it the moment a frame proves otherwise.
+                                if !s.camera_on {
+                                    stats.set_camera_note(Some(i18n::t("已关闭", "off")));
+                                }
+                                tray.set_features(Some(s.clone()));
+                                tray.set_details(stream_stats::detail_rows(&stats));
+                                last_features = Some(s);
+                            }
+                            Event::ScreenControl(control) => {
+                                #[cfg(windows)]
+                                {
+                                    use rc_protocol::ScreenControlCommand;
+                                    match control.command {
+                                        ScreenControlCommand::Start => {
+                                            mirror.start(control.max_pixel.map(|p| p.max(0) as u32));
+                                            println!("  mirror: started");
+                                        }
+                                        ScreenControlCommand::Stop => {
+                                            mirror.stop();
+                                            println!("  mirror: stopped");
+                                        }
+                                        ScreenControlCommand::Select => {
+                                            mirror.select(control.window_id.clone());
+                                            println!("  mirror: pinned to {:?}", control.window_id);
+                                        }
+                                        ScreenControlCommand::Follow => mirror.select(None),
+                                        ScreenControlCommand::Extend => {
+                                            // The Windows receiver has no virtual-display
+                                            // driver yet, so "Extended Display" is honest
+                                            // about being unavailable.
+                                            println!("  mirror: extended display is not supported on Windows yet");
+                                        }
+                                    }
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &control;
+                            }
+                            Event::ScreenInput(input) => {
+                                #[cfg(windows)]
+                                if let (Some(inj), Some((ox, oy, w, h))) =
+                                    (injector.as_mut(), mirror.geometry())
+                                {
+                                    inj.inject_screen_input(&input, (ox, oy), (w, h));
+                                }
+                                #[cfg(not(windows))]
+                                let _ = &input;
+                            }
+                            Event::State(_) => {}
+                            _ => {}
                         }
-                        #[cfg(not(windows))]
-                        let _ = &control;
                     }
-                    Event::ScreenInput(input) => {
-                        #[cfg(windows)]
-                        if let (Some(inj), Some((ox, oy, w, h))) =
-                            (injector.as_mut(), mirror.geometry())
-                        {
-                            inj.inject_screen_input(&input, (ox, oy), (w, h));
-                        }
-                        #[cfg(not(windows))]
-                        let _ = &input;
-                    }
-                    Event::State(_) => {}
-                    _ => {}
-                }
-            }
-            _ = tokio::signal::ctrl_c() => {
-                println!("\nShutting down…");
-                break;
-            }
-            line = console_rx.recv(), if console_alive => {
-                match line {
-                    Some(l) => {
-                        console::handle_console_command(
-                            &l,
-                            &session,
-                            &mut last_features,
-                            &mut quit_requested,
-                            &mut recording,
-                            metadata.as_ref(),
-                        );
-                        tray.set_recording(recording.is_some());
-                        if quit_requested {
-                            println!("\nShutting down…");
-                            break;
-                        }
-                    }
-                    // The reader thread hit EOF (stdin was a pipe) — stop
-                    // polling a closed channel or `select!` would spin.
-                    None => console_alive = false,
-                }
-            }
-            cmd = tray_rx.recv(), if tray_alive => {
-                match cmd {
-                    Some(tray::TrayCommand::SetFeature(feature, on)) => {
-                        session.set_feature(feature, on);
-                    }
-                    Some(tray::TrayCommand::ToggleRecord) => {
-                        if let Some(rec) = recording.take() {
-                            console::stop_recording(rec);
-                        } else if let Some(m) = metadata.as_ref() {
-                            recording = console::start_recording(m.width, m.height, m.fps);
-                        }
-                        tray.set_recording(recording.is_some());
-                    }
-                    Some(tray::TrayCommand::SwitchCamera) => {
-                        session.switch_camera();
-                        println!("  → {}", crate::i18n::t("正在切换摄像头", "switching camera"));
-                    }
-                    Some(tray::TrayCommand::SendClipboard) => console::send_clipboard_to_iphone(&session),
-                    Some(tray::TrayCommand::ShowLastFile) => {
-                        #[cfg(windows)]
-                        match last_received_file.as_ref() {
-                            Some(path) => rc_os::files::reveal(path),
-                            None => println!(
-                                "  {}",
-                                i18n::t("还没有收到过文件", "no file received yet")
-                            ),
-                        }
-                        #[cfg(not(windows))]
-                        println!(
-                            "  {}",
-                            i18n::t("显示最后接收的文件仅限 Windows", "show-last-file is Windows-only")
-                        );
-                    }
-                    Some(tray::TrayCommand::TogglePreview) => {
-                        let on = preview_window.toggle();
-                        tray.set_preview(on);
-                        let state = if on {
-                            i18n::t("已显示", "shown")
-                        } else {
-                            i18n::t("已隐藏", "hidden")
-                        };
-                        println!("  {} {state}", i18n::t("预览窗口", "preview window"));
-                    }
-                    Some(tray::TrayCommand::Reconnect) => session.retry_now(),
-                    Some(tray::TrayCommand::Disconnect) => session.disconnect(),
-                    Some(tray::TrayCommand::ToggleAutostart) => {
-                        #[cfg(windows)]
-                        {
-                            let want = !rc_os::autostart::is_enabled();
-                            let ok = rc_os::autostart::set_enabled(want);
-                            tray.set_autostart(rc_os::autostart::is_enabled());
-                            let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
-                            let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
-                            println!("  {} {state} ({result})", i18n::t("开机自启动", "autostart"));
-                        }
-                        #[cfg(not(windows))]
-                        println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
-                    }
-                    Some(tray::TrayCommand::Quit) => {
+                    _ = tokio::signal::ctrl_c() => {
                         println!("\nShutting down…");
                         break;
                     }
-                    // The tray thread ended (or `--no-tray` stub) — disable.
-                    None => tray_alive = false,
+                    line = console_rx.recv(), if console_alive => {
+                        match line {
+                            Some(l) => {
+                                console::handle_console_command(
+                                    &l,
+                                    &session,
+                                    &mut last_features,
+                                    &mut quit_requested,
+                                    &mut recording,
+                                    metadata.as_ref(),
+                                );
+                                tray.set_recording(recording.is_some());
+                                if quit_requested {
+                                    println!("\nShutting down…");
+                                    break;
+                                }
+                            }
+                            // The reader thread hit EOF (stdin was a pipe) — stop
+                            // polling a closed channel or `select!` would spin.
+                            None => console_alive = false,
+                        }
+                    }
+                    cmd = tray_rx.recv(), if tray_alive => {
+                        match cmd {
+                            Some(tray::TrayCommand::SetFeature(feature, on)) => {
+                                session.set_feature(feature, on);
+                            }
+                            Some(tray::TrayCommand::ToggleRecord) => {
+                                if let Some(rec) = recording.take() {
+                                    console::stop_recording(rec);
+                                } else if let Some(m) = metadata.as_ref() {
+                                    recording = console::start_recording(m.width, m.height, m.fps);
+                                }
+                                tray.set_recording(recording.is_some());
+                            }
+                            Some(tray::TrayCommand::SwitchCamera) => {
+                                session.switch_camera();
+                                println!("  → {}", crate::i18n::t("正在切换摄像头", "switching camera"));
+                            }
+                            Some(tray::TrayCommand::SendClipboard) => console::send_clipboard_to_iphone(&session),
+                            Some(tray::TrayCommand::ShowLastFile) => {
+                                #[cfg(windows)]
+                                match last_received_file.as_ref() {
+                                    Some(path) => rc_os::files::reveal(path),
+                                    None => println!(
+                                        "  {}",
+                                        i18n::t("还没有收到过文件", "no file received yet")
+                                    ),
+                                }
+                                #[cfg(not(windows))]
+                                println!(
+                                    "  {}",
+                                    i18n::t("显示最后接收的文件仅限 Windows", "show-last-file is Windows-only")
+                                );
+                            }
+                            Some(tray::TrayCommand::TogglePreview) => {
+                                let on = preview_window.toggle();
+                                tray.set_preview(on);
+                                let state = if on {
+                                    i18n::t("已显示", "shown")
+                                } else {
+                                    i18n::t("已隐藏", "hidden")
+                                };
+                                println!("  {} {state}", i18n::t("预览窗口", "preview window"));
+                            }
+                            Some(tray::TrayCommand::Reconnect) => session.retry_now(),
+                            Some(tray::TrayCommand::Disconnect) => session.disconnect(),
+                            Some(tray::TrayCommand::ToggleAutostart) => {
+                                #[cfg(windows)]
+                                {
+                                    let want = !rc_os::autostart::is_enabled();
+                                    let ok = rc_os::autostart::set_enabled(want);
+                                    tray.set_autostart(rc_os::autostart::is_enabled());
+                                    let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
+                                    let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
+                                    println!("  {} {state} ({result})", i18n::t("开机自启动", "autostart"));
+                                }
+                                #[cfg(not(windows))]
+                                println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
+                            }
+                            Some(tray::TrayCommand::Quit) => {
+                                println!("\nShutting down…");
+                                break;
+                            }
+                            // The tray thread ended (or `--no-tray` stub) — disable.
+                            None => tray_alive = false,
+                        }
+                    }
                 }
-            }
-        }
     }
 
     // Close the preview window and let its thread finish.
@@ -936,6 +965,42 @@ async fn main() -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+/// Republish the window list once a just-launched app's window exists.
+///
+/// Polls for the change rather than sleeping a guessed interval: a cold app
+/// can take seconds to open its first window, and a fixed sleep either
+/// publishes too early (the card is still missing, which is the complaint
+/// this fixes) or wastes time on a fast launch. Off the select loop, so a
+/// slow launch can't stall reconnect or input — the same reason the
+/// notification relay pushes from its own thread.
+#[cfg(windows)]
+fn spawn_window_refresh(session: &rc_net::Session) {
+    let session = session.clone();
+    std::thread::spawn(move || {
+        const POLL: Duration = Duration::from_millis(250);
+        const DEADLINE: Duration = Duration::from_secs(6);
+        let mut waited = Duration::ZERO;
+        let mut sent = 0usize;
+        while waited < DEADLINE {
+            std::thread::sleep(POLL);
+            waited += POLL;
+            let list = rc_os::windows::build_window_list();
+            if list.windows.len() != sent {
+                sent = list.windows.len();
+                session.send_frame(encode_window_list(&list).unwrap_or_default());
+                println!("  window list refreshed after launch ({sent} windows)");
+                return;
+            }
+        }
+        // Nothing changed inside the deadline — publish once anyway so the
+        // picker at least drops the app that is gone.
+        let list = rc_os::windows::build_window_list();
+        if list.windows.len() != sent {
+            session.send_frame(encode_window_list(&list).unwrap_or_default());
+        }
+    });
 }
 
 /// The state the wizard reports on, read fresh each time.
@@ -973,6 +1038,109 @@ fn maybe_show_wizard() {
 
 #[cfg(not(windows))]
 fn maybe_show_wizard() {}
+
+/// Open the settings window.
+#[cfg(windows)]
+fn open_settings() {
+    settings_win::show(settings_win::Actions {
+        // The denylist, round-tripped through the pure `NameList` so the
+        // validation rules are the tested ones rather than whatever the window
+        // happens to check.
+        deny: Box::new(|raw| {
+            let mut list = NameList::new(notify_relay::denylist());
+            list.add(raw).map_err(|e| e.message())?;
+            notify_relay::set_denylist(list.items().to_vec());
+            Ok(())
+        }),
+        undeny: Box::new(|name| {
+            let mut list = NameList::new(notify_relay::denylist());
+            list.remove(name);
+            notify_relay::set_denylist(list.items().to_vec());
+        }),
+        denylist: Box::new(notify_relay::denylist),
+        // Routed through the session, which owns the store. A direct file write
+        // from here would be a second writer, and the supervisor's next save
+        // would silently undo the user's action.
+        forget: Box::new(session_forget_phone),
+        phones: Box::new(rc_net::Session::paired_phones),
+        relay: Box::new(notify_relay::is_enabled),
+        set_relay: Box::new(notify_relay::set_enabled),
+        camera: Box::new(vcam::is_registered),
+        quality: Box::new(notify_relay::quality),
+        set_quality: Box::new(notify_relay::set_quality),
+        autostart: Box::new(rc_os::autostart::is_enabled),
+        set_autostart: Box::new(|on| {
+            rc_os::autostart::set_enabled(on);
+        }),
+    });
+}
+
+/// Mirror the stats into the copy the self-check panel reads.
+///
+/// Called on the events that change them, rather than on a timer, so the panel
+/// updates the moment a key arrives instead of up to 200 ms later — which for a
+/// panel whose entire purpose is "did that just work?" is the difference between
+/// a readout and a guess.
+#[cfg(windows)]
+fn publish_stats(s: &stream_stats::StreamStats) {
+    if let Ok(mut g) = stats().lock() {
+        *g = s.clone();
+    }
+}
+
+/// Open the four-quadrant self-check, fed from the live stats.
+#[cfg(windows)]
+fn open_self_check() {
+    selfcheck_win::show(Box::new(|| {
+        use rc_net::selfcheck::Evidence;
+        // A snapshot, read under the same lock the tray uses, so the panel
+        // shows what the rest of the UI is showing rather than a second,
+        // slightly different truth.
+        let stats = stats().lock().map(|g| g.clone()).unwrap_or_default();
+        let now = std::time::Instant::now();
+        let since = |t: Option<std::time::Instant>| t.map(|t| now.saturating_duration_since(t));
+        Evidence {
+            fps: stats.fps.map(|f| f as i64),
+            width: stats.resolution.map(|r| r.0 as i64).unwrap_or(0),
+            height: stats.resolution.map(|r| r.1 as i64).unwrap_or(0),
+            since_frame: since(stats.last_frame),
+            last_key: stats.last_key.clone(),
+            since_key: since(stats.last_key_at),
+            last_touch: stats.last_touch.clone(),
+            since_touch: since(stats.last_touch_at),
+            mic_level: stats.mic_level.map(|l| (l * 100.0) as i64),
+            session_live: stats.device_name.is_some(),
+        }
+    }));
+}
+
+#[cfg(windows)]
+static STATS: std::sync::OnceLock<std::sync::Mutex<stream_stats::StreamStats>> =
+    std::sync::OnceLock::new();
+
+/// The live stats, shared with the self-check panel.
+///
+/// Behind a `Mutex` because the main loop writes it and the panel's timer reads
+/// it, and behind `OnceLock` because `Mutex::new` needs a const value and
+/// `Default::default()` is not one.
+#[cfg(windows)]
+fn stats() -> &'static std::sync::Mutex<stream_stats::StreamStats> {
+    STATS.get_or_init(|| std::sync::Mutex::new(stream_stats::StreamStats::default()))
+}
+
+/// Ask the session to forget a paired phone.
+///
+/// A command rather than a file write: the supervisor owns the token store, and
+/// two writers to one file means a forget that the next save undoes.
+#[cfg(windows)]
+fn session_forget_phone(name: &str) {
+    if let Some(s) = SESSION.get() {
+        s.forget_phone(name);
+    }
+}
+
+#[cfg(windows)]
+static SESSION: std::sync::OnceLock<rc_net::Session> = std::sync::OnceLock::new();
 
 /// Open the wizard now, from the tray or from first run.
 #[cfg(windows)]
