@@ -438,4 +438,5 @@ tracer：            %LOCALAPPDATA%\RemoteCrab\RemoteCrab.log（崩溃时）
 | `windows/tools/RemoteCrab.wxs` | WiX 安装清单（含安装目录硬编码的理由） |
 | `scripts/check-windows-deps.sh` | 运行时 DLL 依赖检查（发布前的判据） |
 | `scripts/release-windows.sh` | 构建 / 依赖 / 签名 / 打包 / 验证 |
-| `docs/lessons/windows.md` | Windows 特有的坑 |
+| `docs/lessons/windows.md` | Windows 特有的坑（**第 95–104 条是上一个 session 踩的**） |
+| `docs/PROMPT-WINDOWS-SESSION.md` | 在 Windows 上开新 session 时用的 prompt |
