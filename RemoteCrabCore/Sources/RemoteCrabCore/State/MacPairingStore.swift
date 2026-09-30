@@ -16,6 +16,38 @@ public struct PairedMac: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// How the last attempt from a computer we have seen turned out.
+///
+/// This is the whole point of `SeenComputer`: a computer that *found* us but
+/// was turned away is a completely different problem from one that never
+/// found us, and from the outside they look identical — both are just "not
+/// connected". The phone already sees the difference (the `clientHello`
+/// arrives before any decision is made), so it is worth recording.
+///
+/// Optional so that a `seenComputers` blob written by an older build decodes
+/// without losing the history: Swift's synthesized `Decodable` reads an
+/// optional property as `nil` when the key is absent.
+public enum AttemptOutcome: Codable, Sendable, Equatable {
+    /// It is the one streaming right now.
+    case streaming
+    /// Knocked, and is waiting for the user to tap Allow.
+    case waitingApproval
+    /// Knocked, and was told someone else already owns the iPhone.
+    case refusedBusy(owner: String)
+    /// Knocked, and the user said no.
+    case denied
+
+    /// A short, user-facing label. No raw enum names, no error codes.
+    public var summary: String {
+        switch self {
+        case .streaming: return IBLocale.Pairing.Attempt.streaming
+        case .waitingApproval: return IBLocale.Pairing.Attempt.waitingApproval
+        case .refusedBusy: return IBLocale.Pairing.Attempt.refusedBusyShort
+        case .denied: return IBLocale.Pairing.Attempt.denied
+        }
+    }
+}
+
 /// A computer this iPhone has *seen* connect, whether or not it was ever
 /// approved. Powers the "Choose a Computer" picker so a brand-new machine
 /// (e.g. a Windows PC that has never paired) is still selectable — the
@@ -27,12 +59,16 @@ public struct SeenComputer: Codable, Sendable, Equatable, Identifiable {
     /// older senders that omit the field.
     public var platform: String
     public var lastSeen: Date
+    /// What its most recent attempt produced, or `nil` for a computer that
+    /// has been seen but has not knocked since this field existed.
+    public var lastOutcome: AttemptOutcome?
 
     public init(id: String, name: String, platform: String, lastSeen: Date = Date()) {
         self.id = id
         self.name = name
         self.platform = platform
         self.lastSeen = lastSeen
+        self.lastOutcome = nil
     }
 
     /// A display-ready label that says which OS it is, so a user with both
@@ -77,6 +113,11 @@ public enum PairingPolicy {
         // A preference is outstanding and this isn't the chosen Mac —
         // hold the door (even for a paired Mac with a valid token) so
         // the preferred Mac can take over on its next connect.
+        //
+        // The preferred record may be synthetic (a computer that has knocked
+        // but has never been approved), which is precisely the case this
+        // branch exists for: without it, "switch to my Windows PC" stores an
+        // id that resolves to nothing and the switch silently reverts.
         if let preferred, preferred.id != hello.id {
             return .busy(ownerName: preferred.name)
         }
@@ -102,6 +143,19 @@ public final class MacPairingStore {
     private let key: String
     private let preferredIdKey: String
     private let preferredAtKey: String
+    /// The name of the preferred computer, kept so a preference can be armed
+    /// for a computer that is not paired *yet*.
+    ///
+    /// This is the fix for a door that did not open. `preferred` used to be
+    /// `paired.first { $0.id == id }`, so picking a brand-new machine (which is
+    /// the whole reason the picker's list is `seen`, not `paired`) stored an
+    /// id that resolved to `nil` — and a `nil` preferred means
+    /// `PairingPolicy.decide`'s "hold the door" branch never ran, so the other
+    /// computer took the session back three seconds later and the user's
+    /// switch silently reverted. Storing the name lets us synthesise the
+    /// record. An empty token is correct here: the computer has to be approved
+    /// once, which routes it through `pending` exactly as it should.
+    private let preferredNameKey: String
     private let seenKey: String
 
     /// Every computer that has ever connected (paired or not), newest
@@ -120,6 +174,7 @@ public final class MacPairingStore {
         self.key = key
         self.preferredIdKey = key + ".preferredId"
         self.preferredAtKey = key + ".preferredAt"
+        self.preferredNameKey = key + ".preferredName"
         self.seenKey = key + ".seenComputers"
         self.paired = Self.load(from: defaults, key: key)
         self.seen = Self.loadSeen(from: defaults, key: key + ".seenComputers")
@@ -170,20 +225,45 @@ public final class MacPairingStore {
         return id
     }
 
-    /// The preferred Mac's record (so the policy can name it in `busy`).
+    /// The preferred computer's record, so the policy can name it in `busy`.
+    ///
+    /// Falls back to a synthetic record built from `preferredName` when the
+    /// computer is not in the allow-list yet. Backward compatible: a blob
+    /// written before `preferredName` existed always named a *paired* Mac, so
+    /// the first lookup still resolves it.
     public var preferred: PairedMac? {
         guard let id = preferredId else { return nil }
-        return paired.first(where: { $0.id == id })
+        if let paired = paired.first(where: { $0.id == id }) { return paired }
+        guard let name = defaults.string(forKey: preferredNameKey), !name.isEmpty else {
+            return nil
+        }
+        // Never paired, so it has no token yet — which is exactly why it will
+        // be answered `pending` and the user gets one approval card. That is
+        // the correct first-contact behaviour, not a bug.
+        return PairedMac(id: id, name: name, pairedAt: .distantPast, token: "")
     }
 
-    public func setPreferred(id: String, at: Date = Date()) {
+    public func setPreferred(id: String, name: String? = nil, at: Date = Date()) {
         defaults.set(id, forKey: preferredIdKey)
         defaults.set(at, forKey: preferredAtKey)
+        if let name { defaults.set(name, forKey: preferredNameKey) }
     }
 
     public func clearPreferred() {
         defaults.removeObject(forKey: preferredIdKey)
         defaults.removeObject(forKey: preferredAtKey)
+        defaults.removeObject(forKey: preferredNameKey)
+    }
+
+    /// Record what a computer's latest attempt produced, so the picker can say
+    /// "found you, was turned away" instead of leaving the user to guess.
+    @discardableResult
+    public func noteOutcome(_ outcome: AttemptOutcome, for id: String) -> SeenComputer? {
+        guard let idx = seen.firstIndex(where: { $0.id == id }) else { return nil }
+        seen[idx].lastOutcome = outcome
+        seen[idx].lastSeen = Date()
+        saveSeen()
+        return seen[idx]
     }
 
     /// Approve a Mac. Re-pairing an existing id keeps its token and

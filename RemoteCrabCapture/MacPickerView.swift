@@ -97,6 +97,17 @@ struct MacPickerView: View {
     /// Every computer seen on the network. Paired ones show a shield;
     /// brand-new ones are still tappable so first contact works even while
     /// another machine holds the session.
+    ///
+    /// Each row carries **what that computer's last attempt actually
+    /// produced**, because the three cases look identical from the outside and
+    /// need completely different things from the user:
+    ///
+    /// - "Found you, but <X> is using the iPhone" → a *switching* problem, and
+    ///   the fix is right here: tap this row.
+    /// - "Waiting for your approval" → the phone is holding a card they have
+    ///   not answered yet.
+    /// - "Hasn't connected yet" → the computer cannot even *see* this iPhone,
+    ///   which is a network problem and tapping this row will not help.
     private var seenSection: some View {
         Section {
             if engine.seenComputers.isEmpty {
@@ -112,34 +123,27 @@ struct MacPickerView: View {
                     Button {
                         engine.setPreferredComputer(id: computer.id)
                     } label: {
-                        HStack {
-                            computerIcon(for: computer.name, platform: computer.platform)
-                            if !isPaired {
-                                Text(IBLocale.Pairing.notPairedBadge)
-                                    .font(IBFont.caption)
-                                    .foregroundStyle(Color.accentColor)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background {
-                                        Capsule().fill(Color.accentColor.opacity(0.15))
-                                    }
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                computerIcon(for: computer.name, platform: computer.platform)
+                                if !isPaired {
+                                    Text(IBLocale.Pairing.notPairedBadge)
+                                        .font(IBFont.caption)
+                                        .foregroundStyle(Color.accentColor)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background {
+                                            Capsule().fill(Color.accentColor.opacity(0.15))
+                                        }
+                                }
+                                Spacer(minLength: 8)
+                                trailingBadge(for: computer, isConnected: isConnected)
                             }
-                            Spacer()
-                            if isConnected {
-                                Text(IBLocale.Pairing.connectedNow)
-                                    .font(IBFont.caption)
-                                    .foregroundStyle(.green)
-                            } else if engine.preferredMac?.id == computer.id {
-                                Text(IBLocale.Pairing.waitingBadge)
-                                    .font(IBFont.caption)
-                                    .foregroundStyle(Color.accentColor)
-                            } else {
-                                Image(systemName: "chevron.right")
-                                    .font(IBFont.caption)
-                                    .foregroundStyle(.tertiary)
-                            }
+                            statusLine(for: computer)
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(isConnected)
                 }
             }
@@ -148,6 +152,68 @@ struct MacPickerView: View {
         } footer: {
             Text(IBLocale.Pairing.pickerFooter)
         }
+    }
+
+    /// The right-hand status pill. `streaming` is the only one that gets a
+    /// colour; the rest are words, because a red badge on a machine that is
+    /// merely waiting would cry wolf.
+    @ViewBuilder
+    private func trailingBadge(for computer: SeenComputer, isConnected: Bool) -> some View {
+        if isConnected {
+            Text(IBLocale.Pairing.connectedNow)
+                .font(IBFont.caption)
+                .foregroundStyle(.green)
+        } else if engine.preferredMac?.id == computer.id {
+            Text(IBLocale.Pairing.waitingBadge)
+                .font(IBFont.caption)
+                .foregroundStyle(Color.accentColor)
+        } else {
+            Image(systemName: "chevron.right")
+                .font(IBFont.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    /// The second line: what happened, and — for the case where tapping will
+    /// not help — why.
+    @ViewBuilder
+    private func statusLine(for computer: SeenComputer) -> some View {
+        switch computer.lastOutcome {
+        case .streaming:
+            EmptyView()
+        case .waitingApproval:
+            statusText(
+                IBLocale.Pairing.Attempt.waitingApproval,
+                stamp: computer.lastSeen,
+                tint: Color.accentColor
+            )
+        case .refusedBusy(let owner):
+            statusText(
+                IBLocale.Pairing.Attempt.refusedBusy(owner: owner),
+                stamp: computer.lastSeen,
+                tint: .orange
+            )
+        case .denied:
+            statusText(
+                IBLocale.Pairing.Attempt.denied,
+                stamp: computer.lastSeen,
+                tint: .secondary
+            )
+        case nil:
+            // Silence here is the diagnosis: this machine has never reached
+            // this iPhone, so the problem is the network, not the pairing.
+            Text(IBLocale.Pairing.Attempt.neverReached)
+                .font(IBFont.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func statusText(_ text: String, stamp: Date, tint: Color) -> some View {
+        // `style: .relative` localises the "3 min ago" for free, in both
+        // languages, and stays correct as time passes.
+        (Text(text) + Text(verbatim: " · ") + Text(stamp, style: .relative))
+            .font(IBFont.caption)
+            .foregroundStyle(tint)
     }
 
     /// A platform-appropriate glyph + name, so a user with both a Mac and a

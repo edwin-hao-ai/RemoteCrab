@@ -218,11 +218,99 @@ final class PairingTests: XCTestCase {
         XCTAssertNil(store.preferredId)
     }
 
-    func testPreferredForUnpairedIdResolvesToNil() {
+    /// The switch was silently reverting because of this. Picking a computer
+    /// that has knocked but never been approved stored an id that resolved to
+    /// `nil`, so `decide`'s hold-the-door branch never ran and the *other*
+    /// computer took the session straight back.
+    func testPreferredForAnUnpairedComputerStillHoldsTheDoor() {
         let store = freshStore()
-        store.setPreferred(id: "mac-9")
-        XCTAssertEqual(store.preferredId, "mac-9")
-        XCTAssertNil(store.preferred)
+        store.pair(IBClientHello(name: "Mac A", id: "mac-1"))
+        store.setPreferred(id: "win-1", name: "DESKTOP")
+
+        let preferred = store.preferred
+        XCTAssertEqual(preferred?.id, "win-1")
+        XCTAssertEqual(preferred?.name, "DESKTOP")
+        // Never approved, so no token — which is why it is answered `pending`
+        // and the user gets one approval card. Correct first-contact behaviour.
+        XCTAssertEqual(preferred?.token, "")
+
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac A", id: "mac-1", token: "tok-a"),
+            paired: store.paired,
+            owner: nil,
+            preferred: preferred
+        )
+        XCTAssertEqual(decision, .busy(ownerName: "DESKTOP"),
+                       "the paired Mac must wait its turn, which is the whole point of choosing")
+    }
+
+    /// Backward compatibility: a preference written by an older build has an id
+    /// but no name. It always named a *paired* Mac, so the first lookup still
+    /// resolves it; only the never-paired case degrades to nil.
+    func testAPreferenceWithNoStoredNameStillResolves() {
+        let store = freshStore()
+        store.pair(IBClientHello(name: "Mac A", id: "mac-1"))
+        store.setPreferred(id: "mac-1")
+        XCTAssertEqual(store.preferred?.name, "Mac A")
+
+        let orphan = freshStore()
+        orphan.setPreferred(id: "never-seen", at: Date())
+        XCTAssertNil(orphan.preferred, "no name and not paired: nothing to hold the door with")
+    }
+
+    // MARK: - What each computer's last attempt did
+
+    func testAnAttemptOutcomeIsRecordedAgainstTheRightComputer() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "Mac A", id: "mac-1", platform: "macos"))
+        store.noteSeen(IBClientHello(name: "PC", id: "win-1", platform: "windows"))
+
+        store.noteOutcome(.refusedBusy(owner: "Mac A"), for: "win-1")
+
+        XCTAssertEqual(store.seen.first { $0.id == "win-1" }?.lastOutcome, .refusedBusy(owner: "Mac A"))
+        XCTAssertNil(store.seen.first { $0.id == "mac-1" }?.lastOutcome,
+                     "one computer's outcome must not land on another")
+    }
+
+    func testAnOutcomeForAnUnknownComputerIsIgnored() {
+        let store = freshStore()
+        XCTAssertNil(store.noteOutcome(.streaming, for: "never-knocked"))
+    }
+
+    /// A `seenComputers` blob written before this field existed must still
+    /// decode — the loader swallows errors and returns `[]`, so a
+    /// non-optional field here would wipe every user's history with no error
+    /// anywhere (AGENTS.md rule 2).
+    func testSeenComputersWrittenByAnOlderBuildStillDecode() throws {
+        let legacy = """
+        [{"id":"mac-1","name":"Mac A","platform":"macos","lastSeen":700000000}]
+        """
+        let decoded = try JSONDecoder().decode([SeenComputer].self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded[0].id, "mac-1")
+        XCTAssertEqual(decoded[0].name, "Mac A")
+        XCTAssertNil(decoded[0].lastOutcome, "absent means unknown, not a crash")
+    }
+
+    func testOutcomesRoundTripThroughJSON() throws {
+        let all: [AttemptOutcome] = [
+            .streaming, .waitingApproval, .refusedBusy(owner: "Mac A"), .denied,
+        ]
+        for outcome in all {
+            var seen = SeenComputer(id: "x", name: "X", platform: "windows")
+            seen.lastOutcome = outcome
+            let back = try JSONDecoder().decode(
+                SeenComputer.self, from: JSONEncoder().encode(seen)
+            )
+            XCTAssertEqual(back.lastOutcome, outcome)
+        }
+    }
+
+    func testEveryOutcomeHasUserFacingWording() {
+        for outcome in [AttemptOutcome.streaming, .waitingApproval, .denied] {
+            XCTAssertFalse(outcome.summary.isEmpty, "\(outcome) has no label")
+        }
+        XCTAssertFalse(AttemptOutcome.refusedBusy(owner: "Mac A").summary.isEmpty)
     }
 
     // MARK: - Platform handshake (Windows vs macOS)
