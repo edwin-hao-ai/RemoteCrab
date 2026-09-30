@@ -80,3 +80,135 @@ so a cross-reference from another lesson still resolves.
     the blueprint below) and the self-drawn tray panel (§5f of
     `docs/WINDOWS_HANDOFF.md`); `cargo test --workspace` 207 +
     host/windows clippy clean, now enforced by CI.
+
+95. **`windows` 依赖不 target 化，会让整个 macOS 测试套件编译失败**
+    （2026-09-30）。`rc-os` 的 `windows` 依赖写成了普通依赖。`windows`
+    crate **无条件**依赖 `windows-future`，而后者用了 `windows-core` 的
+    私有 marshalling 内部符号（`imp::IMarshal`、`imp::marshaler`），
+    **在非 Windows 上根本编译不过**。之前一直没暴露，是因为没有任何 crate
+    启用 WinRT 特性去激活 `windows-future/src/bindings.rs` 那条编译路径；
+    一加通知中继（`UI_Notifications_Management` + `Foundation`）就炸了
+    整个 macOS 构建。
+
+    **而且把 WinRT 特性挪到 `[target.'cfg(windows)'.dependencies]` 也不够**：
+    Cargo 会跨 workspace 统一 feature，`cargo check -p rc-os` 在 macOS 上
+    依然会编译 `windows-future`。**唯一可靠的做法是把 WinRT 代码独立成
+    crate**（`rc-notify` 就是为此存在），模块上的 `#[cfg(windows)]` 无效。
+
+96. **`winres` 静默产出无图标二进制（两个独立的原因）**
+    （2026-09-30）。给 exe 嵌图标和版本资源时，连续踩了两层：
+    (a) `winres` 默认找**无前缀**的 `windres`/`ar`，而 Rust triple
+    （`x86_64-pc-windows-gnu`）**不是** MinGW 前缀（`x86_64-w64-mingw32`）——
+    照着 triple 拼出 `x86_64-pc-windows-gnu-windres` 这种不存在的名字。
+    (b) 更隐蔽的：`winres` 最后把 `resource.o` 打包成 `libresource.a`，
+    而**静态库的成员只有在解决未定义符号时才会被链接器拉入**。
+    `resource.o` 不定义任何符号，它只贡献 section——于是链接**成功、
+    静默、什么都没进去**。必须用 `cargo:rustc-link-arg` 直接把 `.o`
+    传给链接器。
+
+    **两条都没有任何警告。** 唯一可靠的验证是**去看产物**：
+    `objdump -h remotecrab.exe | grep rsrc`。顺带一个通则：
+    `signtool` 在证书**过期**时也退出 0 但什么都没签，所以
+    `sign_one` 里签完必须 `signtool verify` 复查。
+
+97. **「帧认得但没有 dispatch 分支」= 按钮点了什么都不发生**
+    （2026-09-30）。`Kind::CommandResult = 0x23` 在 `wire.rs` 里有、
+    能识别，但 `rc-net/src/dispatch.rs` 没有对应分支，Mac 发来的命令结果
+    被静默丢弃。用户在手机上点「打开应用」，什么都不会发生，且**任何地方
+    都没有解释**——看起来像产品坏了，而不是少了个回复。
+
+    **通用形态**：给某个 kind 写了枚举值和 codec，就**不等于**处理了它。
+    审计时要查的是「每个 kind 有没有 dispatch 分支」，而不是「枚举里有没有
+    这个 kind」。0x22 也一样：`rc-protocol` 里当时**连结构体都没有**，
+    所谓「帧认得，直接丢弃」其实是整条链没写。
+
+98. **托盘图标的格子顺序是承重的，而旧测试恰好测不到**
+    （2026-09-30）。图标集由 `scripts/generate-windows-menu-icons.py`
+    生成，格子号由 Rust 的 `tray_menu::icon_cell` 决定。生成器中间插入一格
+    而 Rust 没跟上，结果**从第 4 格起每一行的图标都是错的**（摄像头行画着
+    切换图标的图标，退出行画着停止的方块），第 5 格没有任何一行指向。
+
+    **为什么测试没抓到**：原有三条测试只检查「格子号在范围内」，
+    而**错位一格的格子号同样在范围内**。缺的是「格子 ↔ 含义」的对应关系。
+    修法是新增 `the_generator_and_the_rust_map_agree_cell_for_cell`，
+    用 `include_str!` **直接读生成器脚本**逐格比对。已验证：把某个格子改
+    错，三条测试同时变红。
+
+    **附带一个盲区**：`MenuState` 没有 `Default`，而「连接详情」子菜单那行
+    `Sub` 只在 `details` 非空时才出现——所以所有图标测试用全 false 的状态，
+    **从来没走到过 `Sub` 分支**。测试用了比被测代码更窄的输入。
+
+99. **UI 的「文件级」对齐不够，要查「动作级」**（2026-09-30）。
+    逐个文件对照 Mac 和 Windows 只能发现「缺一个窗口」，发现不了
+    「窗口在但控件是死的」。这次动作级审计抓到两个：
+
+    (a) 向导的动作按钮用 `take()` 把闭包**取走**了，所以**只能点一次**。
+    失败场景极其具体：用户取消 UAC 后，**向导自己的文案叫他再点一次**，
+    而再点什么都不会发生。**测试套件里没有第二个 UAC 弹窗**，所以任何
+    单测都抓不到。修法：读出引用、在锁外调用，并加一条「点三次」��测试
+    （已验证恢复 `take` 后变红）。
+    (b) 设置窗口的摄像头行**只有文字没有按钮**——分发分支写了
+    `with(|a| (a.camera)()).unwrap_or(false);` **读了值就丢掉**，而且
+    没有任何控件用那个 ID，当初用 `let _ = ID_CAMERA;` 把警告压下去了。
+    一个写着「未注册」却不给任何办法修复的行，正是 AGENTS.md 规则 1
+    禁止的「状态行不说怎么办」。
+
+100. **`#[cfg(windows)]` 里的测试等于不存在**（2026-09-30）。这是本项目
+    第四次栽在同一处：加了 `#\[cfg(windows)\]` 的持久化往返测试，而
+    `%APPDATA%` 在 Mac 上不存在，那个测试**在能跑测试的机器上一个都跑不到**；
+    它「通过」是因为读回了默认值——**一个不可能失败的测试比没有测试更糟**。
+    同一次审计还发现一个测试**在源码树里真的创建了目录**：
+    `crates/rc-app/C:\Users\Default\AppData\Roaming`，因为回退路径是
+    真实 Windows 路径。
+
+    **纪律**：逻辑测试必须任何平台可跑，平台特有的部分靠**注入路径**
+    而不是靠 `cfg`。`#[cfg(windows)]` 只应该出现在「真的调 Win32 API」
+    的那一层。
+
+101. **笼统的 `allow(dead_code)` 会掩盖真正死掉的代码**
+    （2026-09-30）。`notify_relay.rs` 一度有 **14 处**
+    `#[allow(dead_code)]`——我一直在压警告而不是接线。全部改成
+    `#[cfg_attr(not(windows), allow(dead_code))]` 之后，**Windows 目标下
+    死代码检查真的在跑，结果是零**——这才是一个有证据的断言，而不是一句
+    压制。改的时候要先确认那些函数确实有 Windows 侧的调用者。
+
+102. **「函数已存在」不等于「行为正确」——要查回调是否被消耗**
+    （2026-09-30，与 95/100 同源）。一个状态机里
+    `run_action()` 用 `action.take()` 取走闭包，编译通过、单测通过、
+    函数**看起来**是对的。同类的还有 `Mutex<TokenStore>` 方案：
+    持 guard 跨 `await` 会让 future **非 `Send`**，编译期就失败——
+    那个失败反而是好的，它指向了正确的形状：**supervisor 必须是唯一写者**，
+    设置窗口发 `Session::forget_phone` **命令**。
+
+103. **E2E 连续三次「全红」全是我的环境问题，不是产品**（2026-09-30）。
+    (a) 我手动启动了 Mac 接收端 → 脚本的「带环境变量启动」是空操作 →
+    断言读空日志，**而 iPhone 正在 happy 地推 600 帧**（日志里能看到
+    `sendSessionReply accepted`）。
+    (b) 上一次跑剩的**旧接收端进程**才是真正连上的那个 → 日志里的 PID
+    和我启动的对不上，这是唯一的线索。
+    (c) iOS bundle id 我记错了：`com.ibridge.iBridgeCapture`——iOS 那个
+    保留 `ibridge`（AGENTS.md 命名约定里明写），不是 `com.remotecrab.*`，
+    也不是别的。
+
+    **通则**：`e2e-device.sh` **假设 Mac 接收端没在跑**。跑之前先
+    `pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"`，并且**相信 iPhone
+    侧日志比断言更有信息量**——iPhone 说连上了而 Mac 侧计数为 0，说明是
+    接收端的问题；反之说明是断言的日志源错了。
+
+104. **协议的两半各自往返，测不出漂移**（2026-09-30）。Swift 测试用
+    Swift 往返 `IBNotification`，Rust 测试用 Rust 往返 `Notification`，
+    **两边都完美往返，产品却可能已经坏了**——一边改了字段名、忘了
+    `#[serde(rename_all = "camelCase"]`、或者 status 拼写不同。
+
+    修法是**把一边的真实字节交给另一边解**：fixture 由
+    `cargo run -p rc-protocol --example contract_gen`（真正的 Rust 编码器）
+    产出，不是手写。8 条测试覆盖 0x22/0x23，含
+    「`windowTitle` 必须是驼峰（写成 `window_title` 会静默解成 nil，
+    点通知跳转无声失效）」和「kind 号对着 `wire.rs` 本身断言，
+    而不是把常量抄一遍」。
+
+    写的时候踩了一个 Swift 坑：**`#"..."#` 原始字符串遇到第一个 `"#` 就结束**，
+    而 JSON 密到足以包含它——`"#42"` 直接把字符串截断，编译器在**三行之后**
+    报语法错误。**第一条错误才是要看的那条。**
+    另一点：`#filePath` 在**编译后的测试 bundle** 里指向 `.build` 内部，
+    往上走永远到不了 checkout，所以跨 crate 找源码要从工作目录往上找。

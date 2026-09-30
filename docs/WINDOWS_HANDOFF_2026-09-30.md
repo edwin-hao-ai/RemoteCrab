@@ -513,3 +513,85 @@ Mac 有 `SetupAssistantView`（欢迎 → 辅助功能 → 虚拟摄像头 → �
 - **通知中继**：Windows 通知权限是否授予、`AppInfo` 能否取到显示名（隐私过滤依赖它）、
   `GetTextElements` 在真实 banner 上能否拿到 title/body（模板不同 key 不同）。
 - **完整性级别读取**：普通启动应读出 `medium`。若读出 `low` 说明 SID 解析有 bug。
+
+---
+
+## 2026-09-30 晚：功能对齐完成 + 审计 + 真机 E2E
+
+主清单已移交给 **[`WINDOWS_TODO.md`](WINDOWS_TODO.md)**（按「能做什么 / 为什么 /
+怎么算做完」组织）。本文补充**进度记录**和**这个会话里新学到的坑**。
+
+### 已完成（Mac 上可验证的全部）
+
+按 Mac 的界面文件逐个核对后补齐的窗口与功能（此前完全缺失）：
+
+| Mac | Windows | 说明 |
+|---|---|---|
+| `SetupAssistantView` | `wizard_win.rs` | 5 页真窗口。必做步骤会禁用「下一步」 |
+| `PreferencesView` | `settings_win.rs` | 通知拒绝列表**编辑器**、配对手机管理、画质 |
+| `TestWindowView` | `selfcheck_win.rs` | 四象限，200 ms 刷新 |
+| `CameraExtensionCard` | 托盘安装行 + 设置里的按钮 | 走同一条 `install_with_elevation()` |
+| 通知中继 0x22 | `rc-notify` crate | **整个链此前是空的**，`rc-protocol` 连结构体都没有 |
+| 自动更新门控 | `rc_net::update_gate` | 比 Mac 多一个条件：输入后 3 秒内不更新 |
+| 配对手机 forget | `Session::forget_phone` 命令 | 顺带清 IP→名字映射，否则重配对的手机继承旧身份 |
+
+其他：`--version`、`--record` 不再自动开录、PE version resource + 20 格图标、
+自提权安装摄像头、完整卸载（含带 NULL DACL 的 ring 文件）、开机自启**过期绿勾**修复
+（现在解析 Run 值并检查文件是否真在）、`libstdc++-6.dll` 依赖检查脚本、
+`release-windows.sh`（build/deps/sign/package/verify）+ WiX 清单。
+
+### 审计抓到的、否则不会发现的
+
+- **`0x23` 能识别但没有 dispatch 分支** → 手机上「打开应用」点了什么都不发生。
+- **14 处笼统 `allow(dead_code)`** → 改成 `cfg_attr(not(windows), ...)` 后，
+  Windows 目标下死代码检查真的在跑，结果是**零**。
+- **两条测试永远跑不到**（`#[cfg(windows)]` + `%APPDATA%` 在 Mac 上不存在），
+  而且「通过」是因为读回默认值。已改为注入路径。
+- **向导动作按钮只能点一次**（`take()` 取走闭包）——用户取消 UAC 后按自己看到的
+  文案再点，什么都不会发生。
+- **设置窗口摄像头行是死的**（读了值就丢弃，且没有控件用那个 ID）。
+- `999 999 999` 会被当成合法分辨率。
+
+### 真机 E2E：26 / 26 绿
+
+iPhone 14 / iOS 26.6.2，**Mac 接收端 ↔ iPhone 整条链**。含通知中继和
+点通知切换 Mac 应用。日志 `/tmp/remotecrab-e2e.log`。
+
+> 这**不能**说明 Windows 接收端的任何运行时行为——它跑不了在这台机器上。
+> 完整清单见 `WINDOWS_TODO.md` §3。
+
+**跑之前**：`pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"`。
+脚本假设 Mac 接收端**没在跑**；如果你手动开着一个，它带环境变量的启动就是
+空操作，断言会读一个空日志，而 iPhone 其实在正常推流。
+
+### 跨实现协议契约测试
+
+之前**所有**测试都只测协议的一半。已补：fixture 由
+`cargo run -p rc-protocol --example contract_gen`（真正的 Rust 编码器）产出，
+交给 Swift 解。8 条覆盖 0x22/0x23。改任何一侧的协议形状都要重跑。
+
+### 状态
+
+```
+Windows 测试  362        Core 测试 367（359 + 8 契约）
+macOS build   0 error / 0 warning
+win-gnu check 0 error / 0 warning
+clippy -D warnings  两平台均 0
+Windows 目标下死代码   0
+```
+
+### 经验档案
+
+本次的 10 条在 [`docs/lessons/windows.md`](lessons/windows.md) 第 95–104 条。
+最该先读的三条：
+
+- **95** — `windows` 依赖不 target 化会让整个 macOS 测试套件编译失败；
+  而且挪到 target 段**也不够**，必须独立成 crate。
+- **100** — `#[cfg(windows)]` 里的测试等于不存在（本项目第四次栽同一处）。
+- **98** — 托盘图标的格子顺序是承重的，而只检查「在范围内」的测试测不到。
+
+### 明天第一件事
+
+**启动代码签名证书采购。** 周期最长（CA/Browser Forum 2023 的 HSM 规则下，
+便宜的 OV 证书已经没有了，要确认包含 Code Signing EKU）。这件事拖得越久，
+后面所有发布相关的工作都压在它后面。

@@ -1,6 +1,7 @@
 # Windows 接收端：待办清单与验证手册
 
-> 最后更新：2026-09-30。代码基线：`4ad4803` / `1aa1ac9` / `5027eee` / `9b2bd36` / `6707b29`（Windows 测试 362，Core 352）。
+> 最后更新：2026-09-30 晚。代码基线：`f7d4b2e` / `4554353` / `9199592`
+> （Windows 测试 362，Core 367）。Mac 接收端 ↔ iPhone 真机 E2E 26/26 绿。
 >
 > 这份文档是**交接给能在 Windows 上操作的人**的。每一条都写清楚：做什么、为什么、
 > 怎么验证、以及**怎么才算做完了**。没有真机的部分我不会替它勾。
@@ -38,12 +39,31 @@ cargo test --workspace
 | clippy（Mac） | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | clippy（Windows） | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` | 0 |
 | Windows 测试 | `cargo test --workspace` | **362 通过 / 31 个二进制** |
-| Swift 侧 | `./scripts/test.sh` | Core **352** + iOS app + Mac app 全通过 |
+| Swift 侧 | `./scripts/test.sh` | Core **367**（含 8 条跨实现契约）+ iOS app + Mac app 全通过 |
 | 死代码 | Windows 目标下 `never used` | **0**（`notify_relay` 里 14 处 `allow(dead_code)` 已全部改成精确的 `cfg_attr`，Windows 侧现在真的会审计） |
 
 > **`#[cfg(windows)]` 里也有测试，但一个都没有。** 这是本项目的核心验证方式：
 > 所有 `Win32` 代码只在 Windows 目标下编译，macOS 上编译不到，所以「macOS 测试全绿」
 > **不能**证明 Windows 能跑。交叉编译是唯一的静态保证，而它连运行时行为都证明不了。
+
+### 1.1b 已经在真机上验过的（Mac ↔ iPhone）
+
+`./scripts/e2e-device.sh` 在 iPhone 14 / iOS 26.6.2 上 **26 / 26 全绿**，
+含通知中继与点通知切换应用。
+
+**跑之前必须**：
+
+```sh
+pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"   # 脚本假设接收端没在跑
+./scripts/e2e-device.sh
+```
+
+如果你已经手动开着一个接收端，脚本带环境变量的启动就是**空操作**，断言会去读
+一个空日志——而 iPhone 其实在正常推流。这会表现成「23 条全红」但 iPhone 侧
+日志写着 `sendSessionReply accepted`。**相信 iPhone 的日志，它比断言更有信息量。**
+
+> 这条验证的是 **Mac 接收端 ↔ iPhone**。它对 Windows 接收端**零信息量**——
+> 后者在 macOS 上连运行都做不到。
 
 ### 1.2 与 Mac 的功能对等（逐文件核对过，不是凭记忆）
 
