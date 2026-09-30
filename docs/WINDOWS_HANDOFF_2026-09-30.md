@@ -362,6 +362,37 @@ unimplemented! / todo! / FIXME / dbg!                                     无
 本次**只格式化了本会话实际改过的文件**——全量 `cargo fmt --all` 会产生约
 38 个文件的无关抖动。要不要一次清干净，请单独决定。
 
+### 5b. 之后补齐的发布项（本轮，已实现并交叉编译验证）
+
+| 项 | 状态 |
+|---|---|
+| `rc-testkit` 移出 release | ✅ 改为 `optional` + `selftest` feature（默认关）。`rc-net` 里的那份也从正式依赖改成 dev-dependency。**实测只省 80 KB**（5.30 → 5.22 MB）——因为 `rc-render` 本来就链 openh264 解码，所以交接文档那句「连着一个 H.264 编码器」的成本是夸大的。真正的理由是**一个远程操控整机的产品里不该躺着一个可启动的假发送端**。自检在 dev build 里照常可用；release build 里运行会**明确说明**为什么没有，而不是静默无反应 |
+| PE version resource + 图标 | ✅ `build.rs` + `winres`，版本号取自 `CARGO_PKG_VERSION`（唯一真源）。新增 `scripts/generate-windows-icon.py` 从同一个 `app-icon-liquid.svg` 生成 7 尺寸 `.ico`。**已验证 exe 里有 `.rsrc` 段（86 KB）和 `FileVersion` / `ProductVersion` / `Beijing VGO` 字符串** |
+| `rust-toolchain.toml` | ✅ 钉住 `stable` + 显式列出两个 Windows target |
+| 版本号 | ✅ `0.1.0` → `1.0.0`，与 iOS/Mac 产品版本一致，并进了 PE 资源 |
+| **自提权安装虚拟摄像头** | ✅ 这是最要紧的一条：之前唯一的恢复办法是「自己编 `rc-vcam.exe` 以管理员运行」——**装好机器的用户没有这条路**。现在 `install_source()` 改成返回**类型化**的 `VcamError`（`is_fixable_by_elevating()` 明确哪些能靠提权解决），托盘在摄像头未注册时显示「安装虚拟摄像头（需要允许管理员提示）」，点一下 → `ShellExecuteW("runas", …)` → UAC → 提权副本注册完退出。**取消也算正常结局**，文案会说明这一行还在。用户取消不是错误；提示弹不出来（组策略）才报错，并给出管理员该跑的那一条命令 |
+| 卸载 | ✅ `rc-os::uninstall`（纯逻辑，任何平台可测）+ `--uninstall-vcam` 提权作业。清 `HKCU\…\Run` / `%APPDATA%\RemoteCrab` / `HKLM\…\CLSID` / `%ProgramData%\RemoteCrab\vcam-ring.bin`。**ring 文件带 NULL DACL，普通用户删不掉**——这正是之前一个都不清的后果。全部幂等，跑两次不算失败 |
+| CRT / 运行库依赖 | ⚠️ **交接文档写错了 DLL 名字**，实测见下 |
+
+**CRT 这条要更正。** 文档里说「没配 `crt-static` 的话几乎肯定会 import `vcruntime140.dll`」——
+那是 **MSVC** 的 CRT，而 `x86_64-pc-windows-gnu` 构建根本不涉及它。实测这个 GNU 构建的 30 个
+DLL 依赖里，真正的问题是：
+
+```
+libstdc++-6.dll     ← MinGW 的 C++ 运行时，由 OpenH264 的 C++ 代码拉进来
+                       任何纯净 Windows 都没有。必须随 exe 一起分发。
+api-ms-win-crt-*    ← 11 个。Windows 10+ 通过 API-set 转发到 ucrtbase.dll，自带，不是问题。
+```
+
+所以「干净机器上起不来」是真的，但原因是 `libstdc++-6.dll` 而不是 `vcruntime140.dll`。
+已把这判断变成脚本而不是人脑：`scripts/check-windows-deps.sh` 读 objdump 的导入表，
+逐个判断「Windows 自带 / 已随 exe 分发 / 缺失」，缺了就退出码 1 并给出两条出路。
+当前实测输出：`MISSING libstdc++-6.dll`。
+
+**正解是改用 MSVC 目标**（`rustup target add x86_64-pc-windows-msvc`，在 Windows 上构建）——
+既没有 MinGW 运行时，也是所有 Windows 工具期待的 ABI。这台 Mac 上做不到
+（`openh264-sys2` 对该 triple 需要 MSVC 或可用的 GNU C++ 工具链），所以留在 Windows 那一步做。
+
 ### 6. 仍然只有真机能验的（不要当成已验证）
 
 - 托盘图标**实际**画对了没有——上面修的是「哪一格」的映射，`CreateIconIndirect`
@@ -369,3 +400,11 @@ unimplemented! / todo! / FIXME / dbg!                                     无
   `assets/menu-icons.png` 逐行看一眼。
 - 「显示桌面」最小化后，第二次点是否真幂等。
 - 子菜单在 Windows 菜单里的实际展开与 DPI 表现。
+- **托盘新行的图标**：`install_vcam` 是第 16 格，脚本保证它非空且与 `camera` / `switch_camera`
+  可区分，但 16px 单色下的实际观感只有真机能确认。
+- **UAC 流程**：点「安装虚拟摄像头」是否弹窗、取消是否如文案所说、组策略拦截时的报错。
+  `elevate.rs` 的 `quote_arg` 有测试（`C:\Program Files\` 这种带空格带尾反斜杠的路径），
+  但 `ShellExecuteW` 本身在 macOS 上跑不到。
+- **`--uninstall-vcam` 是否真能删掉带 NULL DACL 的 ring 文件**——这是唯一能证明那段代码
+  不是纸上谈兵的地方。
+- **`libstdc++-6.dll` 是否随包分发**（`scripts/check-windows-deps.sh` 是判据）。

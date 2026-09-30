@@ -15,7 +15,7 @@ use std::process::ExitCode;
 
 /// `install` / `uninstall`, split out so the non-Windows build still compiles.
 #[cfg(windows)]
-fn register(uninstall: bool) -> Result<(), String> {
+fn register(uninstall: bool) -> Result<(), rc_vcam::VcamError> {
     if uninstall {
         rc_vcam::uninstall_source()
     } else {

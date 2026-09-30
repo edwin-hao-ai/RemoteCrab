@@ -14,4 +14,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+# A fake iPhone on localhost, for the end-to-end tests in `tests/`. Dev-only:
+# as a normal dependency it would link a second copy of the sender — and its
+# H.264 encoder — into every binary that links `rc-net`.
 rc-testkit.workspace = true

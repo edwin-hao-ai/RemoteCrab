@@ -16,6 +16,7 @@ use windows::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, REG_VALUE_TYPE,
 };
 
+use crate::error::VcamError;
 use crate::to_wide;
 
 /// The CLSID of the COM media source (`rc-vcam-source`). Fixed so repeated
@@ -62,13 +63,12 @@ pub fn source_dll_path() -> Result<std::path::PathBuf, String> {
 /// Server / Frame Server Monitor services (which activate the source) run as
 /// `LocalService` / `LocalSystem` and cannot see `HKCU`. This requires an
 /// elevated process.
-pub fn install_source() -> Result<(), String> {
-    let dll = source_dll_path()?;
+pub fn install_source() -> Result<(), VcamError> {
+    // Resolving our own path cannot need elevation; if it fails there is no
+    // user action that helps, so it stays a plain message.
+    let dll = source_dll_path().map_err(VcamError::Other)?;
     if !dll.exists() {
-        return Err(format!(
-            "source DLL not found at {} — build it first (cargo build -p rc-vcam-source)",
-            dll.display()
-        ));
+        return Err(VcamError::SourceMissing(dll.display().to_string()));
     }
     // Already registered to this exact DLL (e.g. by an earlier elevated run)?
     // Then this is a no-op we can do without admin rights.
@@ -96,12 +96,9 @@ pub fn install_source() -> Result<(), String> {
     };
     if rc.is_err() {
         if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
-            return Err(
-                "access denied writing HKLM — run once as administrator to register the camera"
-                    .to_string(),
-            );
+            return Err(VcamError::NeedsElevation("registering the camera"));
         }
-        return Err(format!("RegCreateKeyExW(CLSID) failed: {rc:?}"));
+        return Err(VcamError::Other(format!("RegCreateKeyExW(CLSID) failed: {rc:?}")));
     }
 
     // Default value = friendly name.
@@ -128,7 +125,7 @@ pub fn install_source() -> Result<(), String> {
         unsafe {
             let _ = RegCloseKey(hkey);
         }
-        return Err(format!("RegCreateKeyExW(InprocServer32) failed: {rc:?}"));
+        return Err(VcamError::Other(format!("RegCreateKeyExW(InprocServer32) failed: {rc:?}")));
     }
     set_string(inproc, "", &dll.to_string_lossy())?;
     // COM may call from any apartment; our source is free-threaded-safe
@@ -144,12 +141,15 @@ pub fn install_source() -> Result<(), String> {
 
 /// Remove the machine-wide COM registration (needs the same elevation as
 /// [`install_source`]).
-pub fn uninstall_source() -> Result<(), String> {
+pub fn uninstall_source() -> Result<(), VcamError> {
     let subkey = format!("Software\\Classes\\CLSID\\{}", clsid_string());
     let w = to_wide(&subkey);
     let rc = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, PCWSTR(w.as_ptr())) };
     if rc.is_err() {
-        return Err(format!("RegDeleteTreeW failed: {rc:?}"));
+        if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
+            return Err(VcamError::NeedsElevation("removing the camera"));
+        }
+        return Err(VcamError::Other(format!("RegDeleteTreeW failed: {rc:?}")));
     }
     Ok(())
 }
@@ -199,7 +199,7 @@ fn registered_dll() -> Option<String> {
     Some(String::from_utf16_lossy(&buf[..n.min(buf.len())]))
 }
 
-fn set_string(key: HKEY, name: &str, value: &str) -> Result<(), String> {
+fn set_string(key: HKEY, name: &str, value: &str) -> Result<(), VcamError> {
     let name_w = to_wide(name);
     let value_w = to_wide(value);
     let bytes = unsafe {
@@ -222,7 +222,10 @@ fn set_string(key: HKEY, name: &str, value: &str) -> Result<(), String> {
         )
     };
     if rc.is_err() {
-        return Err(format!("RegSetValueExW({name}) failed: {rc:?}"));
+        if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
+            return Err(VcamError::NeedsElevation("registering the camera"));
+        }
+        return Err(VcamError::Other(format!("RegSetValueExW({name}) failed: {rc:?}")));
     }
     Ok(())
 }

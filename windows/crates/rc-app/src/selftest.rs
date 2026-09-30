@@ -3,10 +3,17 @@
 //! regression is not hiding inside a build that still compiles.
 
 use std::process::ExitCode;
-use std::time::Duration;
 
+// Used by the two sender-backed self-tests, and by the vcam one — which is
+// built everywhere, but is the Windows-only half on Windows.
+#[cfg(any(feature = "selftest", windows))]
+use std::time::Duration;
+// Only the two sender-backed self-tests need the session types, and those are
+// the two compiled out of a release build.
+#[cfg(feature = "selftest")]
 use rc_net::{Config, Event, Session, State};
 
+#[cfg(feature = "selftest")]
 /// `--selftest`: spin up a fake iPhone on localhost and drive the full
 /// receive pipeline. No phone, no Mac, no admin rights required.
 pub async fn selftest() -> ExitCode {
@@ -60,6 +67,7 @@ pub async fn selftest() -> ExitCode {
         ExitCode::from(1)
     }
 }
+#[cfg(feature = "selftest")]
 /// `--preview-selftest`: a fake iPhone **streams real H.264**, the decoder
 /// decodes it, and the preview window shows it. Proves "video on screen"
 /// end-to-end without a phone or a network.
@@ -301,4 +309,21 @@ pub fn audio_selftest() -> ExitCode {
         eprintln!("\nAUDIO SELF-TEST FAILED (level {level:.3})");
         ExitCode::from(1)
     }
+}
+
+/// What to say when someone asks for a self-test this build does not have.
+///
+/// The alternative — a flag that silently does nothing — is the worst of the
+/// three options: it looks like a broken product. So the message says what
+/// happened, and what to do about it, in the user's language.
+#[cfg(not(feature = "selftest"))]
+pub fn not_built_in() -> String {
+    crate::i18n::t(
+        "这个版本没有内置自检（发布版不带假 iPhone）。\
+         开发版直接可用；要在这里运行，请用 --features selftest 重新编译。",
+        "This build has no self-test — a release build does not ship the fake \
+         iPhone. A dev build has it; to run it here, rebuild with \
+         --features selftest.",
+    )
+    .to_string()
 }

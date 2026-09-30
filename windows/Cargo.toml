@@ -23,7 +23,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 
@@ -36,6 +36,10 @@ rc-render = { path = "crates/rc-render" }
 rc-os = { path = "crates/rc-os" }
 rc-audio = { path = "crates/rc-audio" }
 rc-testkit = { path = "crates/rc-testkit" }
+# Embeds the .ico and the version resource into the .exe. A build-
+# time dependency because it runs on the *host* while the resource
+# it produces is for the target.
+winres = "0.1"
 rc-record = { path = "crates/rc-record" }
 rc-mirror = { path = "crates/rc-mirror" }
 rc-vcam = { path = "crates/rc-vcam" }

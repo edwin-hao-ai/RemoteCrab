@@ -31,8 +31,14 @@ pub fn run_spike(_name: &str, _seconds: u64) -> Result<(), String> {
     Err("rc-vcam is Windows-only".to_string())
 }
 
+// The error type is deliberately **not** Windows-only: it is pure data, and
+// the UI logic that branches on `is_fixable_by_elevating` is worth testing on
+// any host. Only the calls that touch the registry are gated.
+mod error;
 #[cfg(windows)]
 mod win;
+
+pub use error::VcamError;
 
 #[cfg(windows)]
 pub use win::{

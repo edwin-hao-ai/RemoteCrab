@@ -22,6 +22,11 @@ pub struct Args {
     pub unmute: bool,
     pub record: bool,
     pub version: bool,
+    /// One-shot, elevated: register the virtual camera's COM source, exit.
+    /// Started by `ShellExecuteW("runas", …)` — not something a user types.
+    pub install_vcam: bool,
+    /// One-shot, elevated: undo the machine-wide bits, exit.
+    pub uninstall_vcam: bool,
     pub no_tray: bool,
     /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
     pub doctor: bool,
@@ -67,6 +72,8 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--version" | "-V" => args.version = true,
+            "--install-vcam" => args.install_vcam = true,
+            "--uninstall-vcam" => args.uninstall_vcam = true,
             "--no-tray" => args.no_tray = true,
             // `--doctor [ip[:port]]`: the operand is optional and
             // position-sensitive, so it is consumed here rather than left to

@@ -61,13 +61,13 @@ const USAGE: &[(&str, &str, &str)] = &[
 const SELF_CHECKS: &[(&str, &str, &str)] = &[
     (
         "--selftest",
-        "本地假 iPhone 自检整条链路",
-        "Run a fake iPhone locally and verify the pipeline",
+        "本地假 iPhone 自检整条链路（需 --features selftest 构建）",
+        "Run a fake iPhone locally and verify the pipeline (built with --features selftest)",
     ),
     (
         "--preview-selftest",
-        "把假 H.264 喂进预览窗口验证解码",
-        "Stream fake H.264 into the preview window and verify decode",
+        "把假 H.264 喂进预览窗口验证解码（需 --features selftest 构建）",
+        "Stream fake H.264 into the preview window and verify decode (needs --features selftest)",
     ),
     (
         "--audio-selftest",
@@ -168,8 +168,8 @@ pub fn print_help() {
     println!(
         "{}",
         i18n::t(
-            "自检（不需要手机，用来确认这台电脑装好了）：",
-            "Self-checks (no phone needed — use these to confirm this PC is set up):"
+            "自检（不需要手机，用来确认这台电脑装好了；发布版不含假 iPhone，需要 --features selftest）：",
+            "Self-checks (no phone needed — use these to confirm this PC is set up; a release build omits the fake iPhone, so build with --features selftest):"
         )
     );
     let wide = SELF_CHECKS

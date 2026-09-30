@@ -65,6 +65,9 @@ pub mod ids {
     pub const DIAGNOSIS: usize = 118;
     pub const SWITCH_CAMERA: usize = 119;
     pub const DETAILS: usize = 120;
+    /// Only present when the virtual camera is not registered. The row *is* the
+    /// instruction: its absence is what says "nothing to do".
+    pub const INSTALL_VCAM: usize = 121;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -91,7 +94,23 @@ pub struct MenuState {
     /// Empty rows are dropped, so a field that has not arrived yet simply does
     /// not appear rather than showing a zero that reads like a measurement.
     pub details: Vec<(String, String)>,
+    /// Whether the virtual camera's COM source is registered. `false` is the
+    /// only state in which the user has something to do about it, so it is the
+    /// only state that shows the install row.
+    pub vcam_installed: bool,
 }
+
+/// The install row's label, as a pair rather than a resolved string.
+///
+/// A test that asserts on the *rendered* label can only assert on one
+/// language — whichever `t()` picks for the machine running it — so such a
+/// test silently stops checking anything on the other locale. Naming both
+/// lets a test state the rule ("both languages must name the consequence")
+/// without depending on the environment.
+pub const INSTALL_VCAM_LABEL: (&str, &str) = (
+    "安装虚拟摄像头（需要允许管理员提示）",
+    "Install virtual camera (allow the admin prompt)",
+);
 
 /// The menu's shape, in draw order.
 ///
@@ -121,6 +140,20 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
 
     push(Row::Section, 0, t("功能", "Features").to_string());
     push(Row::Item, ids::CAMERA, t("摄像头", "Camera").to_string());
+    // A missing virtual camera with no way to install it was the one gap that
+    // made the feature unusable on a fresh machine: registering it needs
+    // administrator rights, and the only instruction a user could be given was
+    // "run the other binary as admin" — not something a person who installed a
+    // program can act on. This row exists only while it is missing, and
+    // clicking it is the whole fix, so it sits directly under the camera it is
+    // about rather than in a diagnostics corner.
+    if !state.vcam_installed {
+        push(
+            Row::Item,
+            ids::INSTALL_VCAM,
+            t(INSTALL_VCAM_LABEL.0, INSTALL_VCAM_LABEL.1).to_string(),
+        );
+    }
     push(
         Row::Item,
         ids::MICROPHONE,
@@ -320,6 +353,7 @@ pub fn known_ids() -> &'static [usize] {
         ids::SWITCH_CAMERA,
         ids::QUIT,
         ids::DIAGNOSIS,
+        ids::INSTALL_VCAM,
     ]
 }
 
@@ -362,6 +396,7 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::DISCONNECT => 11,
         ids::AUTOSTART => 12,
         ids::QUIT => 13,
+        ids::INSTALL_VCAM => 15,
         // `RECORD` is deliberately absent: it is the one row whose glyph
         // depends on state, so it goes through [`record_icon_cell`] and not
         // through here. Letting both decide it is how they drift apart.
@@ -394,7 +429,7 @@ pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 15;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 16;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -420,6 +455,8 @@ mod tests {
     use super::*;
 
     fn state() -> MenuState {
+        // Installed, so the tests below that count rows are counting the normal
+        // menu. The missing-camera case has its own test.
         MenuState::default()
     }
 
@@ -705,11 +742,11 @@ mod sheet_order_tests {
     /// checked only that a cell was *in range*, which a shifted cell satisfies.
     /// A state with a readout in it, so the `连接详情` submenu row exists.
     ///
-    /// `MenuState` has no `Default`, and the submenu row is only pushed when
-    /// there is something to show — so a test built on an all-false state
+    /// The submenu row is only pushed when there is something to show, and
+    /// `MenuState::default()` has no details — so a test built on the default
     /// silently never walks the `Sub` path. That is exactly how the submenu
-    /// row's missing icon stayed invisible: no test ever built a state that
-    /// had details in it.
+    /// row's missing icon stayed invisible: no test ever built a state with
+    /// details in it.
     fn state_with_details() -> super::MenuState {
         super::MenuState {
             camera: false,
@@ -722,6 +759,7 @@ mod sheet_order_tests {
             autostart: false,
             diagnosis: String::new(),
             details: vec![("延迟".to_string(), "5 ms".to_string())],
+            vcam_installed: true,
         }
     }
 
@@ -760,6 +798,7 @@ mod sheet_order_tests {
             (ids::DISCONNECT, 11),
             (ids::AUTOSTART, 12),
             (ids::QUIT, 13),
+            (ids::INSTALL_VCAM, 15),
         ];
         for (id, cell) in expected {
             assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
@@ -804,6 +843,7 @@ mod sheet_order_tests {
                 "autostart" => ids::AUTOSTART,
                 "quit" => ids::QUIT,
                 "stop" => ids::RECORD,
+                "install_vcam" => ids::INSTALL_VCAM,
                 other => panic!("the generator draws {other:?}, which no menu row claims"),
             };
             assert_eq!(
@@ -823,10 +863,7 @@ mod sheet_order_tests {
     fn no_two_rows_share_a_glyph() {
         let rows = super::menu_rows(&state_with_details());
         let mut seen = std::collections::BTreeMap::new();
-        let items: Vec<_> = rows
-            .iter()
-            .filter(|r| r.kind == super::Row::Item)
-            .collect();
+        let items: Vec<_> = rows.iter().filter(|r| r.kind == super::Row::Item).collect();
         for r in &items {
             let cell = row_icon_cell(r.id, false).expect("row without an icon");
             if let Some(prev) = seen.insert(cell, r.text.clone()) {
@@ -854,5 +891,80 @@ mod sheet_order_tests {
             );
         }
         assert_ne!(record_icon_cell(false), record_icon_cell(true));
+    }
+}
+
+#[cfg(test)]
+mod vcam_row_tests {
+    use super::{ids, menu_rows, MenuState, Row};
+
+    fn state_with(vcam_installed: bool) -> MenuState {
+        MenuState {
+            vcam_installed,
+            ..MenuState::default()
+        }
+    }
+
+    /// The row is the entire recovery path for a feature whose setup needs
+    /// administrator rights, so it has to be there exactly when it is needed.
+    #[test]
+    fn the_install_row_appears_only_when_the_camera_is_missing() {
+        let missing = menu_rows(&state_with(false));
+        let row = missing
+            .iter()
+            .find(|r| r.id == ids::INSTALL_VCAM)
+            .expect("a missing virtual camera must offer a way to install it");
+        assert_eq!(row.kind, Row::Item, "it has to be clickable");
+        // The label has to name the consequence, or the user is being asked to
+        // approve a UAC prompt with no idea what it is for.
+        // Checked against *both* languages, not the rendered one: a rule that
+        // only holds in the test machine's locale is a rule that is untested in
+        // the other one.
+        for (lang, text) in [
+            ("zh", super::INSTALL_VCAM_LABEL.0),
+            ("en", super::INSTALL_VCAM_LABEL.1),
+        ] {
+            assert!(
+                text.contains(if lang == "zh" {
+                    "虚拟摄像头"
+                } else {
+                    "virtual camera"
+                }),
+                "{lang}: {text:?}"
+            );
+            assert!(
+                text.contains(if lang == "zh" { "管理员" } else { "admin" }),
+                "{lang}: {text:?}"
+            );
+        }
+
+        // …and gone once there is nothing to do. A row that stays after the
+        // camera is installed is a click that does nothing, which is worse
+        // than no row: it teaches users that this menu is decorative.
+        let installed = menu_rows(&state_with(true));
+        assert!(
+            !installed.iter().any(|r| r.id == ids::INSTALL_VCAM),
+            "the install row must disappear once the camera is registered"
+        );
+    }
+
+    /// It belongs with the features it is about, not in a diagnostics corner
+    /// the user has no reason to open.
+    #[test]
+    fn the_install_row_sits_with_the_camera_toggle() {
+        let rows = menu_rows(&state_with(false));
+        let pos = |id: usize| {
+            rows.iter()
+                .position(|r| r.id == id)
+                .unwrap_or_else(|| panic!("row {id} missing"))
+        };
+        assert!(
+            pos(ids::INSTALL_VCAM) > pos(ids::CAMERA),
+            "the install row should come after the camera it installs"
+        );
+        assert!(
+            pos(ids::INSTALL_VCAM) < pos(ids::MICROPHONE),
+            "and before the rows it has nothing to do with"
+        );
     }
 }

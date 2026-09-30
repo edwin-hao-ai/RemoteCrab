@@ -421,6 +421,13 @@ mod win32 {
             autostart,
             diagnosis,
             details,
+            // Read from the machine, not cached: the whole point of the row is
+            // that it disappears the moment a UAC prompt has been accepted, and
+            // a cached "no" would keep offering an action that no longer does
+            // anything.
+            vcam_installed: cfg!(windows)
+                .then(crate::vcam::is_registered)
+                .unwrap_or(true),
         };
         let mut model = super::menu_rows(&state);
         // The status line goes first, above the readouts submenu.
@@ -534,6 +541,40 @@ mod win32 {
             ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
             ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
             ids::PREVIEW => Some(TrayCommand::TogglePreview),
+            // Registering the camera needs administrator rights, so the whole
+            // action is one Windows UAC prompt. Declining is a normal outcome,
+            // so it gets a sentence that says the row is still there — not an
+            // error.
+            #[cfg(windows)]
+            ids::INSTALL_VCAM => {
+                let outcome = crate::vcam::install_with_elevation();
+                let msg = match outcome {
+                    crate::elevate::Elevation::PromptAccepted => crate::i18n::t(
+                        "已允许管理员提示 — 正在确认注册结果…",
+                        "Administrator prompt accepted — confirming the registration…",
+                    ),
+                    crate::elevate::Elevation::Declined => crate::i18n::t(
+                        "你取消了管理员提示，所以虚拟摄像头还没有安装。需要时再点这里。",
+                        "You declined the administrator prompt, so the virtual camera is not \
+                         installed. This row will be here when you want it.",
+                    ),
+                    crate::elevate::Elevation::Unavailable => crate::i18n::t(
+                        "这台电脑不允许弹出管理员提示（可能是组策略）。请让管理员运行一次 \
+                         remotecrab.exe --install-vcam。",
+                        "This PC will not show an administrator prompt (a group policy may block \
+                         it). Ask an administrator to run remotecrab.exe --install-vcam once.",
+                    ),
+                };
+                // No toast, no status overwrite: the row vanishing from the
+                // next popup *is* the confirmation, because `is_registered` is
+                // re-read every time the menu is built. Overwriting the
+                // connection status with a camera message would be a lie about
+                // the thing the user is actually looking at.
+                println!("  {}", msg);
+                None
+            }
+            #[cfg(not(windows))]
+            ids::INSTALL_VCAM => None,
             ids::DIAGNOSIS => {
                 // A modal dialog on the tray thread: the app loop must not
                 // block, and the tray thread owns the only HWND we can parent

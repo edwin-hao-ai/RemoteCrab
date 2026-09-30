@@ -1,0 +1,20 @@
+# The toolchain RemoteCrab for Windows is built and checked with.
+#
+# Why pin it: this workspace builds C code (OpenH264, via `cc`) and a Windows
+# resource (via `windres`, driven by `build.rs`). Both are sensitive to the
+# compiler and binutils in ways Rust's own compatibility promise does not
+# cover — a different LLVM can change OpenH264's output, and a different
+# binutils can change what lands in the .rsrc section. A release that built
+# on one machine and not another is exactly the failure a release must not
+# have.
+#
+# `stable` rather than a dated version on purpose: a dated pin ages into a
+# security problem nobody upgrades past, and the Windows toolchain (MSVC build
+# tools, MinGW-w64, the WebView-free pure-Rust stack) is what actually has to
+# keep working. Pin `components` and `targets` explicitly so a new toolchain
+# cannot quietly stop shipping the Windows target.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"]
+profile = "default"

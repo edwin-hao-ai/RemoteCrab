@@ -9,6 +9,12 @@ license.workspace = true
 name = "remotecrab"
 path = "src/main.rs"
 
+[features]
+default = []
+# Builds the offline self-tests (`--selftest`, `--preview-selftest`) into the
+# binary. Off by default so a shipped build contains no fake sender.
+selftest = ["dep:rc-testkit"]
+
 [dependencies]
 rc-protocol.workspace = true
 rc-discovery.workspace = true
@@ -20,8 +26,12 @@ rc-os.workspace = true
 rc-record.workspace = true
 rc-mirror.workspace = true
 png.workspace = true
-# Used by `--selftest` (a fake iPhone on localhost), so it's a real dep.
-rc-testkit.workspace = true
+# A fake iPhone on localhost, for `--selftest` / `--preview-selftest`.
+# Optional and OFF by default: a release build must not ship a second copy
+# of the sender that a stray flag or a curious user can start. The
+# self-tests still work in a dev build, and a release build can be asked
+# for them with `--features selftest`.
+rc-testkit = { workspace = true, optional = true }
 serde_json.workspace = true
 tokio.workspace = true
 
@@ -39,3 +49,9 @@ windows = { version = "0.62", features = [
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
 ] }
+
+[build-dependencies]
+# Host-side: `build.rs` runs on the machine doing the compiling, and it is the
+# target that has to *receive* the resource. Gating it on `cfg(windows)` here
+# would silently drop the icon on every cross-build from a Mac.
+winres.workspace = true

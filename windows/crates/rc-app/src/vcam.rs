@@ -16,6 +16,79 @@ pub struct Vcam {
     frames: u64,
 }
 
+/// The one-shot jobs an elevated copy exists to do.
+///
+/// Run before the single-instance guard, so the process that is fixing or
+/// removing the installation is never the one refused for being a second copy
+/// of itself.
+#[cfg(windows)]
+pub fn run_elevated_job(install: bool) -> std::process::ExitCode {
+    if install {
+        return match rc_vcam::install_source() {
+            Ok(()) => {
+                println!("  vcam: {}", crate::i18n::t("已注册", "registered"));
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("  vcam: {e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    uninstall_elevated()
+}
+
+/// Remove everything, machine-wide bits included.
+///
+/// Split in two on purpose: the per-user half needs no rights and is done by
+/// whoever ran the command, the machine half needs an administrator. Both
+/// halves are idempotent, so running this twice is not an error.
+#[cfg(windows)]
+pub fn uninstall_elevated() -> std::process::ExitCode {
+    let mut removed = rc_os::uninstall::remove_user_state();
+
+    // Machine-wide: the COM registration and the NULL-DACL ring file. Both need
+    // this process to be elevated, which is why this function is only ever
+    // reached from the `runas` copy.
+    removed.clsid = rc_vcam::uninstall_source().is_ok();
+    removed.ring = rc_os::uninstall::remove_machine_files();
+
+    if removed.is_complete() {
+        println!("  {}", crate::i18n::t("已清理干净。", "Removed cleanly."));
+        return std::process::ExitCode::SUCCESS;
+    }
+    eprintln!(
+        "  {}",
+        crate::i18n::t(
+            "部分清理失败（COM 注册或 ring 文件）。请以管理员身份再运行一次。",
+            "Some parts could not be removed (the COM registration or the ring file). \
+             Run it once more as administrator.",
+        )
+    );
+    std::process::ExitCode::FAILURE
+}
+
+/// Ask Windows to register the camera, elevating if that is what it takes.
+///
+/// The user's whole recovery is one UAC prompt. Nothing else is asked of them:
+/// no terminal, no second binary, no registry instructions.
+#[cfg(windows)]
+pub fn install_with_elevation() -> crate::elevate::Elevation {
+    // Already done? Then do not raise a prompt for nothing — the registration
+    // is a machine-wide no-op after the first success, and a pointless UAC
+    // prompt on every launch is how a product teaches users to click "Yes".
+    if rc_vcam::install_source().is_ok() {
+        return crate::elevate::Elevation::PromptAccepted;
+    }
+    crate::elevate::run_elevated("--install-vcam")
+}
+
+/// Is the camera registered? Drives whether the tray offers to install it.
+#[cfg(windows)]
+pub fn is_registered() -> bool {
+    rc_vcam::install_source().is_ok()
+}
+
 impl Vcam {
     /// Register the source DLL and start the session camera named `name`.
     ///
@@ -23,10 +96,24 @@ impl Vcam {
     /// check fails — the receiver keeps running without a virtual camera.
     pub fn start(name: &str) -> Option<Vcam> {
         if let Err(e) = rc_vcam::install_source() {
-            eprintln!(
-                "  vcam: {} — {e}",
-                crate::i18n::t("COM 注册失败", "COM registration failed")
-            );
+            // The message must name the next action, not just the failure:
+            // this line is the only place a user learns the camera is missing
+            // before they go looking for it in the Camera app.
+            if e.is_fixable_by_elevating() {
+                eprintln!(
+                    "  vcam: {} {}",
+                    crate::i18n::t(
+                        "未注册 — 在托盘菜单里点「安装虚拟摄像头」并允许管理员提示即可。",
+                        "not registered — pick \"Install virtual camera\" in the tray menu and allow the administrator prompt."
+                    ),
+                    e
+                );
+            } else {
+                eprintln!(
+                    "  vcam: {} — {e}",
+                    crate::i18n::t("COM 注册失败", "COM registration failed")
+                );
+            }
             return None;
         }
         match rc_vcam::start_camera(name) {

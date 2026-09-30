@@ -25,6 +25,8 @@ mod args;
 mod console;
 mod diagnostics;
 mod doctor;
+#[cfg(windows)]
+mod elevate;
 mod help;
 mod i18n;
 mod mirror;
@@ -115,11 +117,30 @@ async fn main() -> ExitCode {
         println!("remotecrab {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
+    // A release build does not carry the fake sender, so these two cannot
+    // work. Saying so beats a flag that quietly does nothing.
+    #[cfg(feature = "selftest")]
     if args.selftest {
         return selftest::selftest().await;
     }
+    #[cfg(feature = "selftest")]
     if args.preview_selftest {
         return selftest::preview_selftest().await;
+    }
+    #[cfg(not(feature = "selftest"))]
+    if args.selftest || args.preview_selftest {
+        eprintln!("{}", selftest::not_built_in());
+        return ExitCode::FAILURE;
+    }
+    // The two one-shot elevated jobs. They are started by the app re-launching
+    // itself with the `runas` verb, do exactly one thing, and exit — which is
+    // why they run *before* the single-instance check. A UAC-elevated copy
+    // shares the mutex name with the tray instance, and refusing to start
+    // because "another copy is already running" is the one thing that must
+    // never happen to the process that is trying to fix the installation.
+    #[cfg(windows)]
+    if args.install_vcam || args.uninstall_vcam {
+        return vcam::run_elevated_job(args.install_vcam);
     }
     if args.scan {
         return scan::run_scan(args.subnet.as_deref()).await;

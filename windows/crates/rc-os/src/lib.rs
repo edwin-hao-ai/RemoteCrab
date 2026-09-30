@@ -19,6 +19,7 @@ pub mod apps;
 pub mod windows;
 #[cfg(windows)]
 pub mod autostart;
+pub mod uninstall;
 #[cfg(windows)]
 pub mod selection;
 

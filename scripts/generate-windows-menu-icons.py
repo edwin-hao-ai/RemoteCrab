@@ -63,6 +63,7 @@ ROWS = [
     "autostart",     # 12
     "quit",          # 13
     "stop",          # 14 (recording == True)
+    "install_vcam",  # 15
 ]
 
 
@@ -236,6 +237,22 @@ def draw_quit(d, o):
     line(d, o + 7, o + 1, o + 7, o + 6)
 
 
+def draw_install_vcam(d, o):
+    # A camera with a plus: "get the camera you do not have yet".
+    #
+    # It has to be distinguishable from `camera` (same outline, 15 rows apart)
+    # and from `switch_camera` (camera + arrow, one row away). The plus sits in
+    # the empty top-right corner the camera body leaves, so the body pixels are
+    # identical to `camera` and only the corner differs — the smallest possible
+    # difference that still reads at 16px.
+    box(d, o + 1, o + 5, o + 12, o + 12, r=2)
+    d.rectangle([o + 4, o + 3, o + 7, o + 5], fill=255)
+    d.rectangle([o + 5, o + 7, o + 8, o + 10], fill=255)
+    # The plus, in the corner the body does not reach.
+    line(d, o + 11, o + 1, o + 11, o + 5)
+    line(d, o + 9, o + 3, o + 13, o + 3)
+
+
 DRAW = {
     "camera": draw_camera,
     "switch_camera": draw_switch_camera,
@@ -252,6 +269,7 @@ DRAW = {
     "disconnect": draw_disconnect,
     "autostart": draw_autostart,
     "quit": draw_quit,
+    "install_vcam": draw_install_vcam,
 }
 
 
