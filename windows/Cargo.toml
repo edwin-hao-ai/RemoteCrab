@@ -19,6 +19,7 @@ members = [
     "crates/rc-mirror",
     "crates/rc-vcam",
     "crates/rc-vcam-source",
+    "crates/rc-phone-sim",
     "crates/rc-notify",
     "crates/rc-app",
 ]

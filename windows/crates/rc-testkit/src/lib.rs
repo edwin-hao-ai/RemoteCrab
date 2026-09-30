@@ -62,13 +62,33 @@ pub enum Frame2 {
     FeatureControl(rc_protocol::FeatureControl),
     Touch(TouchEvent),
     Key(KeyEvent),
+    /// A ping, with the timestamp the receiver put in it — so a caller can
+    /// measure the round trip itself rather than only seeing that one happened.
+    Ping(u64),
+    /// A relayed notification (0x22), the phone's copy of what a receiver sent.
+    Notification(rc_protocol::Notification),
+    /// A command result (0x23).
+    CommandResult(rc_protocol::CommandResult),
+    /// Anything else, by kind byte.
     Other(u8),
 }
 
 impl FakeIphone {
     /// Bind on a random localhost port and serve one connection.
     pub async fn start(config: FakeIphoneConfig) -> std::io::Result<FakeIphone> {
-        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        Self::start_on(config, 0).await
+    }
+
+    /// Bind a **chosen** port, so a receiver in another process can be pointed
+    /// at it.
+    ///
+    /// The in-process tests use `start()` and never care which port they got.
+    /// Testing the *shipped binary* needs a known one: there is no way to ask a
+    /// running receiver "connect to whatever port the fake phone picked".
+    ///
+    /// Port `0` still means "any", so this is `start()` with a number.
+    pub async fn start_on(config: FakeIphoneConfig, port: u16) -> std::io::Result<FakeIphone> {
+        let listener = TcpListener::bind(("127.0.0.1", port)).await?;
         let addr = listener.local_addr()?;
         let (hello_tx, hellos) = mpsc::unbounded_channel();
         let (in_tx, inbound) = mpsc::unbounded_channel();
@@ -237,6 +257,24 @@ async fn serve(
                 rc_protocol::Kind::Key => {
                     if let Ok(k) = decode_key(&f) {
                         let _ = in_tx.send(Frame2::Key(k));
+                    }
+                }
+                rc_protocol::Kind::Ping => {
+                    // The ping payload is a raw 8-byte big-endian timestamp.
+                    if f.payload.len() >= 8 {
+                        let mut b = [0u8; 8];
+                        b.copy_from_slice(&f.payload[..8]);
+                        let _ = in_tx.send(Frame2::Ping(u64::from_be_bytes(b)));
+                    }
+                }
+                rc_protocol::Kind::Notification => {
+                    if let Ok(n) = rc_protocol::decode_notification(&f) {
+                        let _ = in_tx.send(Frame2::Notification(n));
+                    }
+                }
+                rc_protocol::Kind::CommandResult => {
+                    if let Ok(r) = rc_protocol::decode_command_result(&f) {
+                        let _ = in_tx.send(Frame2::CommandResult(r));
                     }
                 }
                 rc_protocol::Kind::ClientHello => {

@@ -859,6 +859,27 @@ impl CommandStatus {
     pub fn is_ok(&self) -> bool {
         matches!(self, CommandStatus::Ok)
     }
+
+    /// The wire name, for a log line or a diagnostic.
+    ///
+    /// `Display` rather than leaving every caller to write `{:?}`: a status a
+    /// user might have to read should not print as `AppNotRunning` in one place
+    /// and `appNotRunning` in another.
+    pub fn as_wire_name(&self) -> &'static str {
+        match self {
+            CommandStatus::Ok => "ok",
+            CommandStatus::AppNotRunning => "appNotRunning",
+            CommandStatus::NoPermission => "noPermission",
+            CommandStatus::NoWindow => "noWindow",
+            CommandStatus::Failed => "failed",
+        }
+    }
+}
+
+impl std::fmt::Display for CommandStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_wire_name())
+    }
 }
 
 #[cfg(test)]

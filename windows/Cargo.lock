@@ -1086,6 +1086,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-phone-sim"
+version = "1.0.0"
+dependencies = [
+ "rc-protocol",
+ "rc-testkit",
+ "tokio",
+]
+
+[[package]]
 name = "rc-protocol"
 version = "1.0.0"
 dependencies = [
