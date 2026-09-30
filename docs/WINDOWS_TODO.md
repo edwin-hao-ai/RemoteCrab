@@ -1,6 +1,6 @@
 # Windows 接收端：待办清单与验证手册
 
-> 最后更新：2026-09-30。代码基线：`4ad4803` / `1aa1ac9` / `5027eee` / `9b2bd36` / `6707b29`（Windows 测试 359，Core 352）。
+> 最后更新：2026-09-30。代码基线：`4ad4803` / `1aa1ac9` / `5027eee` / `9b2bd36` / `6707b29`（Windows 测试 362，Core 352）。
 >
 > 这份文档是**交接给能在 Windows 上操作的人**的。每一条都写清楚：做什么、为什么、
 > 怎么验证、以及**怎么才算做完了**。没有真机的部分我不会替它勾。
@@ -22,7 +22,7 @@ cargo build --release -p rc-app --target x86_64-pc-windows-msvc
 cargo test --workspace
 ```
 
-跑完 359 个测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
+跑完 362 个测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
 那些只能看、不能推断。
 
 ---
@@ -37,7 +37,7 @@ cargo test --workspace
 | Windows 交叉编译 | `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` | 0 error / 0 warning |
 | clippy（Mac） | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | clippy（Windows） | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` | 0 |
-| Windows 测试 | `cargo test --workspace` | **359 通过 / 31 个二进制** |
+| Windows 测试 | `cargo test --workspace` | **362 通过 / 31 个二进制** |
 | Swift 侧 | `./scripts/test.sh` | Core **352** + iOS app + Mac app 全通过 |
 | 死代码 | Windows 目标下 `never used` | **0**（`notify_relay` 里 14 处 `allow(dead_code)` 已全部改成精确的 `cfg_attr`，Windows 侧现在真的会审计） |
 
@@ -265,6 +265,13 @@ remotecrab.exe --uninstall-vcam    # 需管理员
 - [ ] 关掉中继后，即使有通知在途中也会被丢弃
 
 ### 3.5 首次运行向导与设置窗口
+
+> 审计时在这里抓到两个**只有真机才会暴露**的 bug，都已修：
+> 向导的动作按钮用 `take()` 取走了闭包，所以**只能点一次**——用户取消 UAC 后
+> 按自己看到的提示再点，什么都不会发生；现在跑两次都有效，且有测试。
+> 设置窗口的摄像头那一行**只有文字没有按钮**（分发分支读了状态就丢掉，
+> 也没有任何控件用那个 ID）——现在未注册时会出现「安装虚拟摄像头」按钮，
+> 走的是和向导、托盘**同一条** `install_with_elevation()`。
 
 - [ ] **首次启动自动弹出**向导（只弹一次，`%APPDATA%\RemoteCrab\wizard-seen`）
 - [ ] 「下一步」在**未完成必做步骤时是禁用的**（摄像头没注册 → 灰色）

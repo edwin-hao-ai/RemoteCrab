@@ -73,6 +73,9 @@ pub struct Actions {
     /// Start at login.
     pub autostart: Box<dyn Fn() -> bool + Send + Sync>,
     pub set_autostart: Box<dyn Fn(bool) + Send + Sync>,
+    /// Install the virtual camera — the same UAC-raising path the wizard and
+    /// the tray row use, so the three cannot drift.
+    pub install_camera: Box<dyn Fn() + Send + Sync>,
 }
 
 static STATE: Mutex<Option<Actions>> = Mutex::new(None);
@@ -160,8 +163,19 @@ unsafe extern "system" fn wnd_proc(
                     build(hwnd);
                     LRESULT(0)
                 }
+                // Installs the camera. Present **only** when it is missing —
+                // a button that appears after the camera works is a button that
+                // lies about its own effect.
                 ID_CAMERA => {
-                    with(|a| (a.camera)()).unwrap_or(false);
+                    // Run outside the lock: installing raises a UAC dialog, and
+                    // holding a mutex across a modal dialog is how a process
+                    // deadlocks.
+                    if let Ok(g) = STATE.lock() {
+                        if let Some(a) = g.as_ref() {
+                            (a.install_camera)();
+                        }
+                    }
+                    build(hwnd);
                     LRESULT(0)
                 }
                 ID_AUTOSTART => {
@@ -451,16 +465,28 @@ unsafe fn build(hwnd: HWND) {
             label(
                 hwnd,
                 t(
-                    "虚拟摄像头：未注册——用设置向导里的「安装虚拟摄像头」。",
-                    "Virtual camera: not registered — use the wizard's \"Install the virtual camera\".",
+                    "虚拟摄像头：未注册。注册一次，这台电脑的任何程序都能把它当摄像头。",
+                    "Virtual camera: not registered. Install it once and any app on this PC can treat it as a camera.",
                 ),
                 20,
                 y,
             );
+            button(
+                hwnd,
+                ID_CAMERA,
+                t(
+                    "安装虚拟摄像头（需要允许管理员提示）",
+                    "Install the virtual camera (allow the admin prompt)",
+                ),
+                20,
+                y + 22,
+                300,
+                26,
+            );
+            y += 54;
+        } else {
+            y += 22;
         }
-        y += 22;
-        let _ = ID_CAMERA;
-        let _ = ID_QUALITY;
 
         // --- Video
         let q = with(|a| (a.quality)()).unwrap_or_default();

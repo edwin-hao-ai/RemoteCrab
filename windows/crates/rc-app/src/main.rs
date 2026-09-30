@@ -1072,6 +1072,13 @@ fn open_settings() {
         set_autostart: Box::new(|on| {
             rc_os::autostart::set_enabled(on);
         }),
+        // The same one the wizard's action button and the tray's install row
+        // use. Three surfaces, one implementation: a private copy here would be
+        // a second UAC flow that behaves slightly differently from the other two
+        // and nobody would notice until it failed.
+        install_camera: Box::new(|| {
+            vcam::install_with_elevation();
+        }),
     });
 }
 

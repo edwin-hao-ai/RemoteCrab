@@ -10,9 +10,8 @@
 //! project would carry forever to draw checkmarks.
 
 use crate::i18n::t;
-use crate::wizard::Page;
+use crate::wizard::{current_page, Page, State};
 use rc_net::firstrun::{Camera, FirstRun, Integrity};
-use std::sync::Mutex;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
@@ -29,26 +28,6 @@ const ID_CLOSE: usize = 3;
 /// The per-page action: install the camera, or re-check.
 const ID_ACTION: usize = 4;
 const ID_STATE: usize = 5;
-
-/// What the window needs to draw itself, and the one action it can perform.
-///
-/// Behind a `Mutex` rather than a `static mut`: the wizard's `WndProc` runs on
-/// the UI thread while the tray thread can raise the window, and `static mut`
-/// would be a data race dressed up as a shortcut. The lock is never held across
-/// a call that can re-enter, except the action — and that is called without it,
-/// because installing the camera raises a UAC dialog and holding a lock across a
-/// modal dialog is how a process deadlocks.
-struct State {
-    first_run: FirstRun,
-    page: Page,
-    action: Option<Box<dyn Fn() + Send + Sync>>,
-}
-
-static STATE: Mutex<Option<State>> = Mutex::new(None);
-
-fn with_state<R>(f: impl FnOnce(&State) -> R) -> Option<R> {
-    STATE.lock().ok().and_then(|g| g.as_ref().map(f))
-}
 
 /// Show the wizard, or raise the copy already open.
 ///
@@ -67,7 +46,7 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
 
         let hinstance = HINSTANCE(GetModuleHandleW(None).ok()?.0);
         register(hinstance);
-        *STATE.lock().ok()? = Some(State {
+        *crate::wizard::STATE.lock().ok()? = Some(State {
             first_run,
             page: Page::Welcome,
             action: Some(on_action),
@@ -107,26 +86,6 @@ fn register(hinstance: HINSTANCE) {
     }
 }
 
-/// Take the action out of the state, so it runs without the lock held.
-fn take_action() -> Option<Box<dyn Fn() + Send + Sync>> {
-    STATE
-        .lock()
-        .ok()
-        .and_then(|mut g| g.as_mut().and_then(|s| s.action.take()))
-}
-
-fn set_page(p: Page) {
-    if let Ok(mut g) = STATE.lock() {
-        if let Some(s) = g.as_mut() {
-            s.page = p;
-        }
-    }
-}
-
-fn current_page() -> Page {
-    with_state(|s| s.page).unwrap_or(Page::Welcome)
-}
-
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -145,7 +104,7 @@ unsafe extern "system" fn wnd_proc(
                 match id {
                     ID_NEXT => match page.next() {
                         Some(p) => {
-                            set_page(p);
+                            crate::wizard::set_page(p);
                             build_controls(hwnd);
                             LRESULT(0)
                         }
@@ -156,7 +115,7 @@ unsafe extern "system" fn wnd_proc(
                     },
                     ID_BACK => {
                         if let Some(p) = page.prev() {
-                            set_page(p);
+                            crate::wizard::set_page(p);
                             build_controls(hwnd);
                         }
                         LRESULT(0)
@@ -166,9 +125,7 @@ unsafe extern "system" fn wnd_proc(
                         // machine, so it is the only one behind a button. It
                         // runs with the lock released, because installing the
                         // camera raises a UAC dialog.
-                        if let Some(f) = take_action() {
-                            f();
-                        }
+                        crate::wizard::run_action();
                         // Whatever it did, the page's own text is now stale.
                         build_controls(hwnd);
                         LRESULT(0)
@@ -219,7 +176,7 @@ unsafe fn build_controls(hwnd: HWND) {
                 let _ = DestroyWindow(h);
             }
         }
-        let Some((page, fr)) = with_state(|s| (s.page, s.first_run)) else {
+        let Some((page, fr)) = crate::wizard::with_state(|s| (s.page, s.first_run)) else {
             return;
         };
 
@@ -424,3 +381,4 @@ fn copy_for(page: Page, fr: &FirstRun) -> (String, String, String, bool) {
         ),
     }
 }
+

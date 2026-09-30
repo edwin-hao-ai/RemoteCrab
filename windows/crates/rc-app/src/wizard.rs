@@ -80,6 +80,71 @@ impl Page {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The wizard's mutable state, kept out of the Win32 file on purpose.
+//
+// `wizard_win` is `cfg(windows)`, so anything tested only there runs on exactly
+// one platform — and the bug this was written for (an action that was `take`n,
+// so the button worked exactly once) is invisible to every test that does not
+// click twice. The logic lives here; the window draws it.
+// ---------------------------------------------------------------------------
+
+/// What the window needs to draw itself, and the one action it can perform.
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window and the tests below
+pub struct State {
+    pub(crate) first_run: rc_net::firstrun::FirstRun,
+    pub(crate) page: Page,
+    pub(crate) action: Option<Box<dyn Fn() + Send + Sync>>,
+}
+
+/// The one window's state. A process is not going to run two wizards, and a
+/// `Mutex` rather than `static mut` because the tray thread can raise the
+/// window while the UI thread draws it.
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window and the tests below
+pub(crate) static STATE: std::sync::Mutex<Option<State>> = std::sync::Mutex::new(None);
+
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn with_state<R>(f: impl FnOnce(&State) -> R) -> Option<R> {
+    STATE.lock().ok().and_then(|g| g.as_ref().map(f))
+}
+
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn set_page(p: Page) {
+    if let Ok(mut g) = STATE.lock() {
+        if let Some(s) = g.as_mut() {
+            s.page = p;
+        }
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn current_page() -> Page {
+    with_state(|s| s.page).unwrap_or(Page::Welcome)
+}
+
+/// Run the action without the lock held.
+///
+/// It used to **take** the closure out of the state, so the button worked
+/// exactly once: a user who declined the UAC prompt and clicked again got
+/// nothing, with no explanation — while the wizard's own text tells them to
+/// click again. Only reproducible on hardware, because there is no second UAC
+/// prompt anywhere near the test suite.
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn run_action() {
+    // The reference is read out and called after the guard drops, so a UAC
+    // dialog raised by the action cannot deadlock against this lock.
+    type Action = dyn Fn() + Send + Sync;
+    let ptr: Option<*const Action> = STATE
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref()?.action.as_ref().map(|f| f as *const Action));
+    if let Some(ptr) = ptr {
+        // Safe: the state is process-wide, outlives this call, and nothing
+        // replaces the closure while the window is open.
+        unsafe { (*ptr)() };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Page;
@@ -142,5 +207,82 @@ mod tests {
         }
         assert_eq!(Page::all().first().unwrap().prev(), None);
         assert_eq!(Page::all().last().unwrap().next(), None);
+    }
+}
+
+#[cfg(test)]
+mod action_tests {
+    use super::{current_page, run_action, set_page, Page, State, STATE};
+    use rc_net::firstrun::{Camera, FirstRun, Integrity};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A fully-satisfied state. `FirstRun` has no `Default`, deliberately:
+    /// "the camera is fine" and "we never looked" are different answers.
+    fn ok_state() -> FirstRun {
+        FirstRun {
+            camera: Camera::Ready,
+            integrity: Integrity::Medium,
+            autostart: true,
+            notify_relay: false,
+        }
+    }
+
+    /// The action used to be `take`n out of the state, so the button worked
+    /// exactly once — and the wizard's own text tells a user who declined the
+    /// UAC prompt to click it again. That combination is invisible to any test
+    /// that does not click twice.
+    #[test]
+    fn the_action_survives_being_run() {
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        if let Ok(mut g) = STATE.lock() {
+            *g = Some(State {
+                first_run: ok_state(),
+                page: Page::Camera,
+                action: Some(Box::new(|| {
+                    RUNS.fetch_add(1, Ordering::Relaxed);
+                })),
+            });
+        }
+        run_action();
+        run_action();
+        run_action();
+        assert_eq!(
+            RUNS.load(Ordering::Relaxed),
+            3,
+            "the action must still be there after the first click"
+        );
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
+    }
+
+    /// With no action installed it is a no-op rather than a panic: the window
+    /// can outlive the state it was built from.
+    #[test]
+    fn running_with_no_state_is_harmless() {
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
+        run_action();
+        run_action();
+    }
+
+    /// And the page survives a draw, which is what the window does every 200 ms.
+    #[test]
+    fn the_page_is_stable_across_draws() {
+        if let Ok(mut g) = STATE.lock() {
+            *g = Some(State {
+                first_run: ok_state(),
+                page: Page::Welcome,
+                action: None,
+            });
+        }
+        set_page(Page::Camera);
+        assert_eq!(current_page(), Page::Camera);
+        set_page(Page::Input);
+        assert_eq!(current_page(), Page::Input);
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
     }
 }
