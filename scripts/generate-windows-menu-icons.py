@@ -43,21 +43,26 @@ STROKE = 1
 GAP = 1            # optical inset inside the cell
 
 # (key, id) — the row ids must match `tray_menu::ids` exactly.
+# **This order is load-bearing.** It must match `tray_menu::icon_cell` in
+# `tray_menu.rs`, cell for cell. A reorder here without a reorder there gives
+# one row another row's icon, and `no_icon_cell_points_outside_the_sheet` only
+# catches the case where the counts differ.
 ROWS = [
-    "camera",
-    "microphone",
-    "trackpad",
-    "keyboard",
-    "record",
-    "stop",
-    "clipboard",
-    "folder",
-    "preview",
-    "diagnosis",
-    "reconnect",
-    "disconnect",
-    "autostart",
-    "quit",
+    "camera",        # 0
+    "microphone",    # 1
+    "trackpad",      # 2
+    "keyboard",      # 3
+    "switch_camera", # 4
+    "record",        # 5  (recording == False)
+    "clipboard",     # 6
+    "folder",        # 7
+    "preview",       # 8
+    "diagnosis",     # 9
+    "reconnect",     # 10
+    "disconnect",    # 11
+    "autostart",     # 12
+    "quit",          # 13
+    "stop",          # 14 (recording == True)
 ]
 
 
@@ -127,6 +132,17 @@ def draw_keyboard(d, o):
     for x in (4, 7, 10):
         d.rectangle([o + x, o + 6, o + x, o + 7], fill=255)
     d.rectangle([o + 6, o + 9, o + 9, o + 9], fill=255)
+
+
+def draw_switch_camera(d, o):
+    # The Mac's `arrow.triangle.2.circlepath.camera`. A camera outline with a
+    # cycle arrow across it reads as "the other one" at a glance; a bare
+    # circular arrow would be indistinguishable from Reconnect one row down.
+    box(d, o + 1, o + 5, o + 11, o + 12, r=2)
+    d.rectangle([o + 4, o + 3, o + 7, o + 5], fill=255)
+    d.rectangle([o + 5, o + 7, o + 7, o + 9], fill=255)
+    d.arc([o + 6, o + 1, o + 15, o + 10], start=290, end=30, fill=255, width=STROKE)
+    d.polygon([(o + 13, o + 1), (o + 15, o + 6), (o + 9, o + 5)], fill=255)
 
 
 def draw_record(d, o):
@@ -222,6 +238,7 @@ def draw_quit(d, o):
 
 DRAW = {
     "camera": draw_camera,
+    "switch_camera": draw_switch_camera,
     "microphone": draw_microphone,
     "trackpad": draw_trackpad,
     "keyboard": draw_keyboard,

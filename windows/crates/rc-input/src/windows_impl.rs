@@ -16,7 +16,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
-use crate::injector::{swipe_shortcut, InputTranslator, MouseAction, ScreenSize, SwipeShortcut};
+use crate::injector::{swipe_shortcut, InputTranslator, MouseAction, ScreenSize, SwipeShortcut, WheelAccumulator};
+
+/// How long a scroll has to be quiet before it counts as finished. The Mac
+/// uses the same 0.18 s (`ReceiverSession`/`CGEventInjector`).
+const SCROLL_SETTLE: std::time::Duration = std::time::Duration::from_millis(180);
 use crate::keymap::{self, Injected};
 use rc_protocol::{KeyEvent, ScreenInput, TouchEvent, TouchPhase};
 
@@ -39,6 +43,24 @@ pub struct WindowsInjector {
     translator: InputTranslator,
     /// Left button held (drag in progress) — a `Move` then becomes a drag.
     left_down: bool,
+    /// Fractional wheel travel, carried between events. See
+    /// [`crate::injector::WheelAccumulator`]: posting `delta.round()` per event
+    /// behind a `|d| >= 1.0` guard dropped slow scrolls entirely and turned
+    /// everything else into whole notches.
+    wheel: WheelAccumulator,
+    /// …and a separate one for pinch-zoom, which must not share a remainder
+    /// with scrolling.
+    ctrl_wheel: WheelAccumulator,
+    /// Set once `end_gesture` has run, so a second call is harmless.
+    released: bool,
+    /// Keys the translator is holding, so they can be released on a drop.
+    released_keys: Vec<u16>,
+    /// When the last scroll event arrived, so an end-of-scroll marker can be
+    /// emitted after a quiet gap. The Mac does this with a 0.18 s
+    /// `DispatchQueue` timer; comparing timestamps on the next event achieves
+    /// the same thing without a thread per injector, and it cannot be missed
+    /// because it does not depend on anything being scheduled.
+    last_scroll: Option<std::time::Instant>,
 }
 
 impl WindowsInjector {
@@ -56,11 +78,52 @@ impl WindowsInjector {
             }
             return;
         }
+        // A scroll that has been quiet for a moment has ended. Emitting the
+        // marker here rather than on a timer means it cannot be lost, and
+        // `finish_scroll` had in fact never been called from anywhere, so the
+        // translator's `scroll_active` / `momentum_active` latched on for the
+        // life of the session.
+        if matches!(event.phase, TouchPhase::Scroll | TouchPhase::Pinch) {
+            let quiet = self
+                .last_scroll
+                .map(|t| t.elapsed() > SCROLL_SETTLE)
+                .unwrap_or(false);
+            if quiet {
+                for action in self.translator.finish_scroll() {
+                    self.perform_mouse(action);
+                }
+            }
+        }
+        if matches!(event.phase, TouchPhase::Scroll) {
+            self.last_scroll = Some(std::time::Instant::now());
+        }
+
         let screen = virtual_screen_size();
         let actions = self.translator.touch(event, screen);
         for action in actions {
             self.perform_mouse(action);
         }
+    }
+
+    /// End of gesture: release the wheel accumulator's remainder and emit the
+    /// end-of-scroll markers. Called when the link drops or the user lifts a
+    /// finger after a pinch, where no further event would arrive to notice.
+    pub fn end_gesture(&mut self) {
+        self.wheel.flush();
+        self.last_scroll = None;
+        for action in self.translator.finish_scroll() {
+            self.perform_mouse(action);
+        }
+        for vk in self.held_modifiers() {
+            send_vk(vk, false);
+        }
+        self.released = true;
+    }
+
+    /// Every modifier the translator is currently holding, so a dropped link
+    /// cannot leave Shift stuck down on the user's keyboard.
+    fn held_modifiers(&mut self) -> Vec<u16> {
+        std::mem::take(&mut self.released_keys)
     }
 
     pub fn inject_key(&self, event: &KeyEvent) {
@@ -139,25 +202,35 @@ impl WindowsInjector {
             MouseAction::MiddleDown { x, y } => send_mouse(MOUSEEVENTF_MIDDLEDOWN, x, y, 0),
             MouseAction::MiddleUp { x, y } => send_mouse(MOUSEEVENTF_MIDDLEUP, x, y, 0),
             MouseAction::Wheel { dx, dy } => {
-                if dy.abs() >= 1.0 {
-                    send_mouse(MOUSEEVENTF_WHEEL, 0, 0, dy.round() as i32);
+                let (h, v) = self.wheel.take(dx, dy);
+                if v != 0 {
+                    send_mouse(MOUSEEVENTF_WHEEL, 0, 0, v);
                 }
-                if dx.abs() >= 1.0 {
-                    send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx.round() as i32);
+                if h != 0 {
+                    send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, h);
                 }
             }
             MouseAction::CtrlWheel { dx, dy } => {
-                // Ctrl+wheel is the zoom gesture most apps understand.
-                send_vk(VK_CONTROL, true);
-                if dy.abs() >= 1.0 {
-                    send_mouse(MOUSEEVENTF_WHEEL, 0, 0, dy.round() as i32);
+                // Ctrl+wheel is the zoom gesture most apps understand. It goes
+                // through a separate accumulator: mixing zoom travel into the
+                // scroll travel would make a pinch scroll the page, and vice
+                // versa, for as long as the remainder survived.
+                let (h, v) = self.ctrl_wheel.take(dx, dy);
+                if v != 0 || h != 0 {
+                    send_vk(VK_CONTROL, true);
+                    if v != 0 {
+                        send_mouse(MOUSEEVENTF_WHEEL, 0, 0, v);
+                    }
+                    if h != 0 {
+                        send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, h);
+                    }
+                    send_vk(VK_CONTROL, false);
                 }
-                if dx.abs() >= 1.0 {
-                    send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, dx.round() as i32);
-                }
-                send_vk(VK_CONTROL, false);
             }
             MouseAction::ModifierKeys { vks, pressed } => {
+                // Remember what is down so a dropped link can release it. A
+                // stuck Shift is the kind of bug that makes the whole machine
+                // feel broken and is invisible in every log.
                 // `SendInput` has no per-event flag byte, so a held modifier
                 // is a real key-down that has to be released later. The
                 // translator emits both transitions, diffed against the keys

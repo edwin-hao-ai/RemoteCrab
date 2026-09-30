@@ -657,3 +657,156 @@ mod modifier_tests {
         );
     }
 }
+
+/// Windows counts the wheel in **notches of 120 units**; macOS has no such
+/// unit and takes continuous pixel deltas. The port posted `delta.round()` per
+/// event behind a `|d| >= 1.0` guard, which is wrong twice over: a slow scroll
+/// produced deltas below 1.0 and was **silently dropped**, and a delta of 1.4
+/// became one whole notch. The result is a trackpad that either does nothing
+/// or jumps — the single biggest reason it felt unlike the Mac's.
+///
+/// Real Windows precision touchpads do not have that problem because the driver
+/// **accumulates** fractional deltas and emits a notch when the accumulator
+/// crosses 120. Same total travel, delivered evenly, and nothing is lost on the
+/// way. Pure and I/O-free so the pacing is testable without a mouse.
+#[derive(Debug, Clone)]
+pub struct WheelAccumulator {
+    vertical: f64,
+    horizontal: f64,
+    units_per_notch: f64,
+}
+
+impl Default for WheelAccumulator {
+    fn default() -> Self {
+        Self::new(Self::WHEEL_DELTA)
+    }
+}
+
+impl WheelAccumulator {
+    pub const WHEEL_DELTA: f64 = 120.0;
+
+    pub fn new(units_per_notch: f64) -> Self {
+        assert!(units_per_notch > 0.0, "a notch has to be worth something");
+        WheelAccumulator {
+            vertical: 0.0,
+            horizontal: 0.0,
+            units_per_notch,
+        }
+    }
+
+    /// Feed a pixel delta; get back whole notches to post this event.
+    ///
+    /// Both axes are consumed independently so a diagonal flick does not leak
+    /// leftover into the other direction, and both are truncated rather than
+    /// rounded so the accumulator never gains or loses distance — a rounded
+    /// remainder would bias scrolling by up to half a notch per event.
+    pub fn take(&mut self, dx: f64, dy: f64) -> (i32, i32) {
+        let per = self.units_per_notch;
+        self.vertical += dy;
+        self.horizontal += dx;
+        let v = (self.vertical / per).trunc();
+        let h = (self.horizontal / per).trunc();
+        self.vertical -= v * per;
+        self.horizontal -= h * per;
+        (h as i32, v as i32)
+    }
+
+    /// Fraction of a notch still owed, per axis. Exposed so the platform layer
+    /// can show a partial wheel in a diagnostics view, and so a test can prove
+    /// nothing is discarded at the end of a gesture.
+    pub fn remainder(&self) -> (f64, f64) {
+        (self.horizontal, self.vertical)
+    }
+
+    /// Drop the remainder — the end of a gesture.
+    ///
+    /// Only for a gesture that is *cancelled* (the finger went down, or the
+    /// link dropped). A gesture that simply ends must keep the remainder:
+    /// throwing away up to 119 units is a visible stutter on the way out.
+    pub fn flush(&mut self) {
+        self.vertical = 0.0;
+        self.horizontal = 0.0;
+    }
+}
+
+#[cfg(test)]
+mod wheel_tests {
+    use super::WheelAccumulator;
+
+    #[test]
+    fn a_slow_scroll_accumulates_instead_of_being_dropped() {
+        let mut w = WheelAccumulator::default();
+        // 20 events of 3 units: every one of them is below the old `>= 1.0`
+        // round threshold's useful range and the old code posted 20 notches.
+        // The right answer is zero notches now and one notch once 120 units
+        // of travel have actually happened.
+        let mut notches = 0;
+        for _ in 0..20 {
+            notches += w.take(0.0, 3.0).1;
+        }
+        assert_eq!(notches, 0, "60 units is half a notch");
+        assert_eq!(w.remainder().1, 60.0);
+        notches += w.take(0.0, 3.0).1;
+        assert_eq!(notches, 0);
+        notches += w.take(0.0, 3.0).1; // 66
+        assert_eq!(notches, 0);
+        for _ in 0..18 {
+            notches += w.take(0.0, 3.0).1;
+        }
+        assert_eq!(notches, 1, "120 units is exactly one notch");
+    }
+
+    /// The property that matters: the total distance posted must equal the
+    /// distance travelled, no matter how it is chopped up. An accumulator that
+    /// rounds per event is off by up to half a notch each time.
+    #[test]
+    fn distance_is_conserved_however_the_gesture_is_chopped() {
+        for chunk in [1.0, 3.0, 7.5, 119.0, 121.0, 500.0] {
+            let mut w = WheelAccumulator::default();
+            let mut travelled = 0.0;
+            let mut posted = 0;
+            for _ in 0..10 {
+                travelled += chunk;
+                posted += w.take(0.0, chunk).1.abs();
+            }
+            let owed = w.remainder().1;
+            assert_eq!(
+                posted as f64 * WheelAccumulator::WHEEL_DELTA + owed,
+                travelled,
+                "chunk {chunk}: posted {posted} notches + {owed} owed != {travelled}"
+            );
+        }
+    }
+
+    /// A single large flick must come out as the right number of notches at
+    /// once, not truncated to one.
+    #[test]
+    fn a_big_flick_emits_every_notch_it_earned() {
+        let mut w = WheelAccumulator::default();
+        // One phone-height swipe with the port's 1.2x gain on a 1000px screen.
+        let (h, v) = w.take(0.0, 1200.0);
+        assert_eq!(v, 10);
+        assert_eq!(h, 0);
+        assert_eq!(w.remainder(), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_two_axes_do_not_leak_into_each_other() {
+        let mut w = WheelAccumulator::default();
+        let (h, v) = w.take(60.0, 0.0);
+        assert_eq!((h, v), (0, 0), "half a notch horizontally is nothing");
+        let (h, v) = w.take(60.0, 0.0);
+        assert_eq!(h, 1, "…and the second half completes it");
+        assert_eq!(v, 0, "a horizontal gesture must not scroll vertically");
+        assert_eq!(w.remainder().1, 0.0);
+    }
+
+    #[test]
+    fn flushing_drops_the_remainder_only_when_asked() {
+        let mut w = WheelAccumulator::default();
+        w.take(0.0, 100.0);
+        assert_eq!(w.remainder().1, 100.0, "a real gesture keeps the remainder");
+        w.flush();
+        assert_eq!(w.remainder().1, 0.0);
+    }
+}

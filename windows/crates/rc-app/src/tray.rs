@@ -40,6 +40,10 @@ pub use crate::tray_menu::{decorate, menu_rows, MenuRow, MenuState, Row};
 #[cfg_attr(not(windows), allow(dead_code))]
 #[derive(Debug, Clone)]
 pub enum TrayCommand {
+    /// Flip the phone's camera. The Mac has had this row since the switcher
+    /// shipped; on Windows it was console-only, so facing the wrong way was a
+    /// two-terminal operation.
+    SwitchCamera,
     SetFeature(Feature, bool),
     ToggleRecord,
     SendClipboard,
@@ -493,6 +497,7 @@ mod win32 {
                 Feature::Keyboard,
                 !state_on(&features, |f| f.keyboard_on),
             )),
+            ids::SWITCH_CAMERA => Some(TrayCommand::SwitchCamera),
             ids::RECORD => Some(TrayCommand::ToggleRecord),
             ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
             ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),

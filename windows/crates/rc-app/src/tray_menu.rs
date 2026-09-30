@@ -58,6 +58,7 @@ pub mod ids {
     pub const AUTOSTART: usize = 116;
     pub const QUIT: usize = 117;
     pub const DIAGNOSIS: usize = 118;
+    pub const SWITCH_CAMERA: usize = 119;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -109,6 +110,14 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     push(Row::Separator, 0, String::new());
 
     push(Row::Section, 0, t("操作", "Actions").to_string());
+    // The Mac has had this row since the switcher shipped; on Windows it was
+    // console-only, which made flipping a phone that is facing the wrong way a
+    // two-terminal operation.
+    push(
+        Row::Item,
+        ids::SWITCH_CAMERA,
+        t("切换前后摄像头", "Switch Camera").to_string(),
+    );
     push(
         Row::Item,
         ids::RECORD,
@@ -251,6 +260,7 @@ pub fn known_ids() -> &'static [usize] {
         ids::RECONNECT,
         ids::DISCONNECT,
         ids::AUTOSTART,
+        ids::SWITCH_CAMERA,
         ids::QUIT,
         ids::DIAGNOSIS,
     ]
@@ -290,11 +300,12 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::CLIPBOARD => 6,
         ids::SHOW_FILE => 7,
         ids::PREVIEW => 8,
-        ids::DIAGNOSIS => 9,
-        ids::RECONNECT => 10,
-        ids::DISCONNECT => 11,
-        ids::AUTOSTART => 12,
-        ids::QUIT => 13,
+        ids::SWITCH_CAMERA => 9,
+        ids::DIAGNOSIS => 10,
+        ids::RECONNECT => 11,
+        ids::DISCONNECT => 12,
+        ids::AUTOSTART => 13,
+        ids::QUIT => 14,
         _ => return None,
     })
 }
@@ -302,11 +313,11 @@ pub fn icon_cell(id: usize) -> Option<usize> {
 /// The "stop recording" glyph is a different cell from "start recording", so
 /// one id maps to one of two depending on state.
 pub fn record_icon_cell(recording: bool) -> usize {
-    if recording { 5 } else { 4 }
+    if recording { 14 } else { 5 }
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 14;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 15;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -388,8 +399,8 @@ mod tests {
                 );
             }
         }
-        assert_eq!(record_icon_cell(false), 4);
-        assert_eq!(record_icon_cell(true), 5);
+        assert_eq!(record_icon_cell(false), 5);
+        assert_eq!(record_icon_cell(true), 14);
     }
 
     /// The recording row is the one row whose icon changes with state. If the

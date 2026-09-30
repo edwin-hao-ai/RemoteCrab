@@ -23,6 +23,8 @@ use console::{spawn_console_reader, ActiveRecording};
 
 mod args;
 mod console;
+mod diagnostics;
+mod single_instance;
 mod doctor;
 mod help;
 mod i18n;
@@ -123,6 +125,26 @@ async fn main() -> ExitCode {
     if args.vcam_selftest {
         return selftest::vcam_selftest().await;
     }
+    // Crash visibility and the "only one of us" guard, before anything else
+    // can fail: a panic from here on has to leave a trace, and a second copy
+    // of this program competing for the same iPhone is worse than no copy.
+    diagnostics::install_panic_hook();
+    diagnostics::log_startup(
+        env!("CARGO_PKG_VERSION"),
+        &std::env::args().collect::<Vec<_>>(),
+    );
+    let instance = single_instance::acquire();
+    if !instance.is_primary() {
+        println!(
+            "{}",
+            i18n::t(
+                "RemoteCrab 已经在运行了。",
+                "RemoteCrab is already running."
+            )
+        );
+        return ExitCode::SUCCESS;
+    }
+
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
     println!(
         "{}\n",
@@ -135,6 +157,11 @@ async fn main() -> ExitCode {
     let session = Session::spawn(Config::default());
     let mut events = session.subscribe();
     let mut state_rx = session.state();
+    // Set while the iPhone is showing a list it asked for. Automatic
+    // republishes of the *window* list are gated on it, because that frame
+    // carries a JPEG per window and is far too expensive to send unasked —
+    // the Mac gates the same way (`publishMacWindowsIfRecentlyRequested`).
+    let window_list_wanted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let health = session.health();
 
     if let Some(target) = &args.connect {
@@ -527,6 +554,7 @@ async fn main() -> ExitCode {
                         session.send_frame(encode_app_list(&list).unwrap_or_default());
                     }
                     Event::WindowListRequested => {
+                        window_list_wanted.store(true, std::sync::atomic::Ordering::Relaxed);
                         #[cfg(windows)]
                         let list = rc_os::windows::build_window_list();
                         #[cfg(not(windows))]
@@ -547,6 +575,13 @@ async fn main() -> ExitCode {
                                 println!("  app switch ignored (--no-input)");
                             } else if rc_os::apps::activate_id_with_title(&a.id, a.window_title.as_deref()) {
                                 println!("  activated app {}", a.id);
+                                // Republish without icons: the phone reuses its
+                                // cached ones. The Mac does the same from its
+                                // activation observer, and without it the
+                                // switcher's "active" marker sticks on the app
+                                // the user just left.
+                                let list = rc_os::apps::build_app_list(false);
+                                session.send_frame(encode_app_list(&list).unwrap_or_default());
                             } else {
                                 println!("  app switch failed: {}", a.id);
                             }
@@ -561,6 +596,18 @@ async fn main() -> ExitCode {
                                 println!("  app quit ignored (--no-input)");
                             } else if rc_os::apps::quit_id(&q.id, q.force) {
                                 println!("  quit app {}", q.id);
+                                // A quitting app must leave the phone's
+                                // window picker, or it stays tappable until the
+                                // user reopens the sheet. The Mac republishes
+                                // from its termination observer for the same
+                                // reason (`WindowCapture` lesson 38).
+                                let list = rc_os::apps::build_app_list(false);
+                                session.send_frame(encode_app_list(&list).unwrap_or_default());
+                                if window_list_wanted.load(std::sync::atomic::Ordering::Relaxed) {
+                                    let windows = rc_os::windows::build_window_list();
+                                    session
+                                        .send_frame(encode_window_list(&windows).unwrap_or_default());
+                                }
                             } else {
                                 println!("  app quit failed: {}", q.id);
                             }
@@ -653,6 +700,10 @@ async fn main() -> ExitCode {
                             recording = console::start_recording(m.width, m.height, m.fps);
                         }
                         tray.set_recording(recording.is_some());
+                    }
+                    Some(tray::TrayCommand::SwitchCamera) => {
+                        session.switch_camera();
+                        println!("  → {}", crate::i18n::t("正在切换摄像头", "switching camera"));
                     }
                     Some(tray::TrayCommand::SendClipboard) => console::send_clipboard_to_iphone(&session),
                     Some(tray::TrayCommand::ShowLastFile) => {

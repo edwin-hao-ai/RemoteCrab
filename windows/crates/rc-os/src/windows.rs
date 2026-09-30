@@ -24,17 +24,33 @@ use rc_protocol::{WindowInfo, WindowList};
 use crate::apps::{foreground_pid, process_name};
 use crate::thumbnail::encode_bgra_jpeg;
 
-/// Longest edge of the JPEG thumbnail sent to the iPhone. The Mac caps its
-/// snapshots similarly; the phone downsamples for the card anyway.
-const THUMB_MAX_EDGE: u32 = 480;
+/// Longest edge of the JPEG thumbnail sent to the iPhone.
+///
+/// 960, not 480, to match `WindowCapture`'s cap on the Mac. At 480 a large
+/// window's text was unreadable in the picker, so the card conveyed "an app is
+/// open" and nothing more — the one job the thumbnail has.
+const THUMB_MAX_EDGE: u32 = 960;
 
 /// `PW_RENDERFULLCONTENT` — capture DirectComposition / GPU-composited
 /// windows instead of a black frame.
 const PW_RENDER_FULL_CONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2);
 
-/// Build the window list. `can_capture` is true because Win32 `PrintWindow`
-/// is always available; individual windows (protected surfaces, minimised
-/// UWP) simply arrive thumbnail-less and the iPhone shows the app icon.
+/// Build the window list.
+///
+/// Two things the Mac does and this did not, both of which the iPhone's picker
+/// depends on:
+///
+/// * **Apps with no visible window are still listed.** `EnumWindows` with
+///   `IsWindowVisible` skips every minimised and every hidden window, so a
+///   minimised app simply vanished from the phone — the user could not switch
+///   to something they had deliberately tucked away. The Mac merges
+///   app-level entries in (`WindowCapture.appLevelEntries`) and lesson 38 fixed
+///   exactly this; the Windows port never got it.
+/// * **`can_capture` is reported honestly.** It was hard-coded `true`, so the
+///   phone had no way to know that a protected surface (a DRM player, a
+///   password field) would arrive with no thumbnail. Now it is `false` if
+///   *nothing* could be captured, which is the state the phone renders as
+///   "thumbnails unavailable" rather than as a row of app icons.
 pub fn build_window_list() -> WindowList {
     let own_pid = std::process::id();
     let foreground = foreground_pid();
@@ -42,20 +58,70 @@ pub fn build_window_list() -> WindowList {
         own_pid,
         foreground,
         windows: Vec::new(),
+        captured: 0,
     };
     unsafe {
         let _ = EnumWindows(Some(enum_proc), LPARAM(&mut ctx as *mut _ as isize));
     }
+
+    // Apps that own no visible window still need a row, or they cannot be
+    // brought back from the phone.
+    let listed: std::collections::HashSet<u32> =
+        ctx.windows.iter().filter_map(|w| w.app_id.strip_prefix("pid:")?.parse().ok()).collect();
+    for (pid, name) in visible_processes() {
+        if pid == own_pid || listed.contains(&pid) {
+            continue;
+        }
+        ctx.windows.push(WindowInfo {
+            id: format!("{pid}:0"),
+            app_id: format!("pid:{pid}"),
+            app_name: name.clone(),
+            title: name,
+            is_active: foreground == pid,
+            // A placeholder row: the phone shows this as "no window open",
+            // and tapping it activates the app, which un-minimises it.
+            width: 0.0,
+            height: 0.0,
+            snapshot_jpeg: None,
+        });
+    }
+
+    let can_capture = ctx.captured > 0;
     WindowList {
         windows: ctx.windows,
-        can_capture: true,
+        can_capture,
     }
+}
+
+/// Every process that has any top-level window at all, including hidden and
+/// minimised ones — i.e. everything `EnumWindows` sees minus our own.
+fn visible_processes() -> Vec<(u32, String)> {
+    struct P(Vec<(u32, String)>);
+    unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let out = &mut *(lparam.0 as *mut P);
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid != 0 && !out.0.iter().any(|(p, _)| *p == pid) {
+            let name = process_name(pid).unwrap_or_else(|| format!("pid {pid}"));
+            out.0.push((pid, name));
+        }
+        BOOL(1)
+    }
+    let own = std::process::id();
+    let mut p = P(Vec::new());
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut p as *mut _ as isize));
+    }
+    p.0.into_iter().filter(|(pid, _)| *pid != own).collect()
 }
 
 struct Ctx {
     own_pid: u32,
     foreground: u32,
     windows: Vec<WindowInfo>,
+    /// How many entries actually got a real thumbnail, so `can_capture` can be
+    /// answered rather than assumed.
+    captured: usize,
 }
 
 unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -85,6 +151,10 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
     let width = (rect.right - rect.left).max(0) as f64;
     let height = (rect.bottom - rect.top).max(0) as f64;
     let app_name = process_name(pid).unwrap_or_else(|| title.clone());
+    let snapshot_jpeg = snapshot(hwnd);
+    if snapshot_jpeg.is_some() {
+        ctx.captured += 1;
+    }
     ctx.windows.push(WindowInfo {
         id: format!("{pid}:{}", hwnd.0 as usize),
         app_id: format!("pid:{pid}"),
@@ -93,7 +163,7 @@ unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         is_active: pid == ctx.foreground,
         width,
         height,
-        snapshot_jpeg: snapshot(hwnd),
+        snapshot_jpeg,
     });
     BOOL(1)
 }

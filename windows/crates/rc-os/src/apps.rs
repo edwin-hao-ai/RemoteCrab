@@ -146,15 +146,27 @@ pub fn activate_id_with_title(id: &str, title: Option<&str>) -> bool {
     activate_pid(pid)
 }
 
-/// Terminate the process named by an `AppInfo.id` (`pid:<n>`), for the
-/// iPhone's "quit" action (`quitApp`, kind `0x16`). Windows has no graceful
-/// close request here, so the process is terminated (`force` is accepted for
-/// protocol parity but does not change the behaviour).
+/// Quit the process named by an `AppInfo.id` (`pid:<n>`), for the iPhone's
+/// "quit" action (`quitApp`, kind `0x16`).
+///
+/// Graceful by default, immediate when `force` is set — the same contract as
+/// the Mac (`ReceiverSession.quitApp(id:force:)`). This used to call
+/// `TerminateProcess` unconditionally, so **a user who tapped Quit in the
+/// switcher could lose unsaved work**: Windows has no single "please close"
+/// message, but the nearest equivalent is posting `WM_CLOSE` to the process's
+/// main window, which is what a user clicking the title-bar X does. Apps
+/// honour it (and show their save prompt); only then does it fall back to
+/// termination.
+///
+/// `true` means "we asked" — the same honesty the Mac keeps, since a graceful
+/// quit blocked by an invisible dialog is accepted and then reappears.
 pub fn quit_id(id: &str, force: bool) -> bool {
-    let _ = force;
     let Some(pid) = pid_from_id(id) else {
         return false;
     };
+    if !force && post_close_to_main_window(pid) {
+        return true;
+    }
     unsafe {
         let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) else {
             return false;
@@ -163,6 +175,44 @@ pub fn quit_id(id: &str, force: bool) -> bool {
         let _ = CloseHandle(handle);
         ok
     }
+}
+
+/// Post `WM_CLOSE` to the process's first visible top-level window.
+///
+/// Returns false when the process has no such window — a console app, a tray
+/// app, or one that has already exited — so the caller knows to fall back.
+/// `PostMessage` rather than `SendMessage` on purpose: a busy app would
+/// otherwise freeze the receiver's thread waiting for it to pump its message
+/// loop, and the phone would see a stalled tap with no answer.
+#[cfg(windows)]
+fn post_close_to_main_window(pid: u32) -> bool {
+    unsafe fn inner(pid: u32) -> bool {
+        use windows::Win32::Foundation::WPARAM;
+        use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, PostMessageW, WM_CLOSE};
+        unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> BOOL {
+            let data = &mut *(lparam.0 as *mut (u32, bool));
+            let mut pid_found = 0u32;
+            GetWindowThreadProcessId(hwnd, Some(&mut pid_found));
+            if pid_found == data.0 && IsWindowVisible(hwnd).as_bool() {
+                data.1 = true;
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+                return BOOL(0); // stop after the first match
+            }
+            BOOL(1)
+        }
+        let mut data = (pid, false);
+        let _ = EnumWindows(
+            Some(cb),
+            LPARAM(std::ptr::addr_of_mut!(data) as isize),
+        );
+        data.1
+    }
+    unsafe { inner(pid) }
+}
+
+#[cfg(not(windows))]
+fn post_close_to_main_window(_pid: u32) -> bool {
+    false
 }
 
 struct TitleMatch<'a> {
