@@ -157,6 +157,14 @@ pub(crate) fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>
         // where a peer sends one — recognised on purpose either way: without
         // the kind it would decode as `Video` and the JSON payload would reach
         // the H.264 decoder.
+        // A command outcome from a peer. Recognised rather than dropped,
+        // because a dropped `0x23` is a button on the phone that does nothing
+        // with no explanation anywhere.
+        Kind::CommandResult => {
+            if let Ok(r) = rc_protocol::decode_command_result(frame) {
+                emit(events_tx, Event::CommandResult(r));
+            }
+        }
         Kind::Notification => {
             if let Ok(n) = rc_protocol::decode_notification(frame) {
                 emit(events_tx, Event::Notification(n));

@@ -65,6 +65,9 @@ ROWS = [
     "stop",          # 14 (recording == True)
     "install_vcam",  # 15
     "notify",        # 16
+    "setup",         # 17
+    "settings",      # 18
+    "self_check",    # 19
 ]
 
 
@@ -254,6 +257,46 @@ def draw_install_vcam(d, o):
     line(d, o + 9, o + 3, o + 13, o + 3)
 
 
+def draw_self_check(d, o):
+    # A checkmark inside a rounded square: "did the four things work". The only
+    # tick in the sheet, which is the point — it is the row that answers a
+    # question rather than performing an action.
+    box(d, o + 2, o + 2, o + 13, o + 13, r=2)
+    line(d, o + 5, o + 8, o + 7, o + 11)
+    line(d, o + 7, o + 11, o + 11, o + 5)
+
+
+def draw_settings(d, o):
+    # A gear, for the settings window. Deliberately *not* the same wrench as
+    # `setup`: the wizard is a one-time guided flow and this is the standing
+    # preferences surface, and two adjacent rows with near-identical glyphs are
+    # a coin flip for a user in a hurry.
+    cx, cy, r = 8, 8, 5
+    for (x0, y0), (x1, y1) in zip(ring_pts(cx, cy, r), ring_pts(cx, cy, r)[1:] + ring_pts(cx, cy, r)[:1]):
+        line(d, o + x0, o + y0, o + x1, o + y1)
+    d.rectangle([o + 6, o + 6, o + 9, o + 9], fill=255)
+
+
+def ring_pts(cx, cy, r):
+    """An octagon: an eight-pixel circle has uneven sides at this size."""
+    return [
+        (cx - 2, cy - r), (cx + 2, cy - r), (cx + r - 1, cy - 2), (cx + r, cy + 1),
+        (cx + r - 1, cy + 3), (cx + 2, cy + r), (cx - 2, cy + r), (cx - r + 1, cy + 3),
+        (cx - r, cy + 1), (cx - r + 1, cy - 2),
+    ]
+
+
+def draw_setup(d, o):
+    # A wrench-and-spanner, i.e. "settings". Distinct from `diagnosis` (a
+    # question mark) and from `install_vcam` (a camera with a plus), both of
+    # which sit in the same section: this row *opens* the wizard, it does not
+    # fix anything and it does not ask a question.
+    line(d, o + 2, o + 13, o + 10, o + 5)
+    d.line([(o + 10, o + 5), (o + 12, o + 3), (o + 14, o + 5),
+            (o + 12, o + 7), (o + 10, o + 5)], fill=255, width=STROKE)
+    d.rectangle([o + 1, o + 13, o + 4, o + 14], fill=255)
+
+
 def draw_notify(d, o):
     # A bell. Nothing else in the sheet is a bell, and it is the only glyph
     # whose meaning is "something is trying to get your attention" — which is
@@ -287,6 +330,9 @@ DRAW = {
     "quit": draw_quit,
     "install_vcam": draw_install_vcam,
     "notify": draw_notify,
+    "setup": draw_setup,
+    "settings": draw_settings,
+    "self_check": draw_self_check,
 }
 
 

@@ -247,6 +247,12 @@ json_codec!(
     ActivateApp
 );
 json_codec!(
+    encode_command_result,
+    decode_command_result,
+    Kind::CommandResult,
+    CommandResult
+);
+json_codec!(
     encode_notification,
     decode_notification,
     Kind::Notification,

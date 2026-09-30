@@ -36,7 +36,7 @@ fn path() -> Option<PathBuf> {
     app_data_dir().map(|d| d.join("notify-relay.json"))
 }
 
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 fn read() -> Config {
     let Some(p) = path() else {
         return Config::default();
@@ -52,7 +52,7 @@ fn read() -> Config {
 /// Persist the denylist. Currently only reachable from tests and from a
 /// future settings dialog — but it is the *only* writer, so when the UI lands
 /// it cannot accidentally write a different shape.
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 fn write(cfg: &Config) -> bool {
     let Some(p) = path() else {
         return false;
@@ -80,7 +80,7 @@ pub fn is_enabled() -> bool {
 }
 
 // Only the tray's relay row flips this, and that row is Windows-shaped.
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn set_enabled(on: bool) {
     let Some(p) = flag_path() else {
         return;
@@ -162,7 +162,7 @@ pub fn start_listener(
 
 /// The relay as the decision layer wants it. Called by `start_listener`, which
 /// is Windows-shaped, and asserted directly in the tests below.
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn relay() -> rc_net::notify::Relay {
     let cfg = read();
     rc_net::notify::Relay {
@@ -289,7 +289,7 @@ pub fn integrity() -> rc_net::firstrun::Integrity {
 /// Not `cfg(windows)`: it is pure byte-slicing, and the tests for a
 /// hand-rolled parser over binary input are the most valuable ones here — they
 /// have to run somewhere, and the host is a Mac.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code))]
 fn integrity_rid(blob: &[u8]) -> Option<u32> {
     if blob.len() < 8 {
         return None;
@@ -344,7 +344,7 @@ mod integrity_tests {
 /// A flag file next to the relay's, rather than a field in its JSON: the two
 /// decisions are unrelated, and putting "seen the wizard" into the denylist file
 /// means a corrupt relay config could also make the wizard reappear forever.
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn wizard_seen() -> bool {
     app_data_dir()
         .map(|d| d.join("wizard-seen"))
@@ -354,7 +354,7 @@ pub fn wizard_seen() -> bool {
 /// Record that the wizard has been shown. Written on open, not on completion:
 /// a user who quits halfway has still been introduced, and a wizard that comes
 /// back after a quit is a nag.
-#[allow(dead_code)] // see the module note
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn mark_wizard_seen() {
     if let Some(dir) = app_data_dir() {
         let _ = std::fs::create_dir_all(&dir);
@@ -368,7 +368,7 @@ pub fn mark_wizard_seen() {
 /// round-trip: read here, written through [`set_denylist`], and validated by
 /// `rc_net::settings::NameList` before it ever reaches the file. A filter a user
 /// cannot edit is a filter nobody trusts to be doing anything.
-#[allow(dead_code)] // called by the settings window, which is Windows-shaped
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn denylist() -> Vec<String> {
     read().denylist
 }
@@ -380,18 +380,37 @@ pub fn denylist() -> Vec<String> {
 /// `NameList` already; the write is not re-validated, because a silently
 /// dropped entry here would be a privacy setting that appears to be set and is
 /// not.
-#[allow(dead_code)] // called by the settings window, which is Windows-shaped
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn set_denylist(items: Vec<String>) {
     write(&Config { denylist: items });
 }
 
 /// The chosen video quality, read fresh.
-#[allow(dead_code)] // called by the settings window, which is Windows-shaped
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn quality() -> rc_net::settings::Quality {
     quality_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .map(|t| parse_quality(&t))
         .unwrap_or_default()
+}
+
+/// The same pair, against an explicit directory.
+///
+/// Exists because the round trip through `%APPDATA%` can only be tested on the
+/// one platform that has it, and a test that runs nowhere is not a test. The
+/// format is the part that can rot — a hand-edited file, a field added by a
+/// future build — and it is fully covered here.
+#[cfg(test)]
+fn quality_in(dir: &std::path::Path) -> rc_net::settings::Quality {
+    std::fs::read_to_string(dir.join("quality"))
+        .map(|t| parse_quality(&t))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+fn set_quality_in(dir: &std::path::Path, q: rc_net::settings::Quality) -> bool {
+    let _ = std::fs::create_dir_all(dir);
+    std::fs::write(dir.join("quality"), format!("{} {} {}", q.width, q.height, q.fps)).is_ok()
 }
 
 /// Three integers, or the default. Anything else is "automatic" — a settings
@@ -425,7 +444,7 @@ fn parse_quality(text: &str) -> rc_net::settings::Quality {
 ///
 /// Three integers on one line, not a serialized struct: a struct gains a field
 /// someday, and a file holding a struct breaks the moment it does.
-#[allow(dead_code)] // called by the settings window, which is Windows-shaped
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn set_quality(q: rc_net::settings::Quality) {
     if let Some(p) = quality_path() {
         if let Some(dir) = p.parent() {
@@ -451,7 +470,7 @@ fn app_data_dir() -> Option<std::path::PathBuf> {
         .map(|d| d.join("RemoteCrab"))
 }
 
-#[allow(dead_code)] // Windows-shaped callers
+#[cfg_attr(not(windows), allow(dead_code))]
 fn quality_path() -> Option<std::path::PathBuf> {
     app_data_dir().map(|d| d.join("quality"))
 }
@@ -463,19 +482,21 @@ mod quality_tests {
 
     /// A stored quality has to come back identical.
     ///
-    /// Windows-only, and honestly so: the file lives under `%APPDATA%`, which
-    /// does not exist on the Mac where this would otherwise run — so the test
-    /// would be asserting against a write that silently did nothing, and
-    /// "passing" by reading back the default. That is a test that cannot fail.
-    /// The persistence *format* is covered on any host by the parse below.
-    #[cfg(windows)]
+    /// Against an injected directory rather than `%APPDATA%`, because the real
+    /// one does not exist on the machine that runs this suite — so the version
+    /// that used it ran on exactly one platform and nowhere else.
     #[test]
     fn a_quality_round_trips_through_its_file() {
-        use super::{quality, set_quality};
+        use super::{quality_in, set_quality_in};
+        let dir = std::env::temp_dir().join(format!(
+            "rc-quality-test-{}",
+            std::process::id()
+        ));
         for (q, _, _) in Quality::CHOICES {
-            set_quality(*q);
-            assert_eq!(quality(), *q, "{q:?} did not survive");
+            assert!(set_quality_in(&dir, *q), "could not write {q:?}");
+            assert_eq!(quality_in(&dir), *q, "{q:?} did not survive");
         }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A malformed file must read as "automatic", never as a nonsense

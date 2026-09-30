@@ -817,3 +817,95 @@ pub struct Notification {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title: Option<String>,
 }
+
+/// receiver → iPhone: the outcome of a command the phone asked for (kind `0x23`).
+///
+/// The Mac sends this for `launchApp` / `quitApp` / `showDesktop`, so a Windows
+/// receiver that drops it makes those buttons **do nothing visibly** — which the
+/// user reads as a broken app rather than as a missing reply. Windows does not
+/// *send* it (it does not declare the `commandResult` capability), but it must
+/// still decode one, because the phone talks to both receivers with the same
+/// expectations.
+///
+/// `request_id` is opaque to the receiver: it only echoes nothing and uses this
+/// to tell the user what happened. `detail` is already localised on the sender
+/// where possible, so it is passed through rather than re-worded here.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResult {
+    pub request_id: String,
+    pub status: CommandStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CommandStatus {
+    Ok,
+    /// The target app is no longer running.
+    AppNotRunning,
+    /// The permission the receiver needs is missing — on Windows, an
+    /// integrity-level problem or a UAC prompt the user declined.
+    NoPermission,
+    /// The app is running but that window does not exist.
+    NoWindow,
+    Failed,
+}
+
+impl CommandStatus {
+    /// Whether the command worked, for the case where the caller only needs a
+    /// boolean.
+    pub fn is_ok(&self) -> bool {
+        matches!(self, CommandStatus::Ok)
+    }
+}
+
+#[cfg(test)]
+mod command_result_tests {
+    use super::{CommandResult, CommandStatus};
+
+    /// The wire values are the phone's contract, so they are asserted as
+    /// literals rather than as `Debug` output.
+    #[test]
+    fn the_status_strings_match_the_phones() {
+        for (json, expected) in [
+            (r#""ok""#, CommandStatus::Ok),
+            (r#""appNotRunning""#, CommandStatus::AppNotRunning),
+            (r#""noPermission""#, CommandStatus::NoPermission),
+            (r#""noWindow""#, CommandStatus::NoWindow),
+            (r#""failed""#, CommandStatus::Failed),
+        ] {
+            let parsed: CommandStatus = serde_json::from_str(json).expect("parse");
+            assert_eq!(parsed, expected, "{json}");
+        }
+    }
+
+    /// A newer phone could send a status this build has never heard of. It must
+    /// decode as *something* rather than failing the frame, or one unknown
+    /// status would cost the user the reply entirely.
+    #[test]
+    fn an_unknown_status_is_rejected_rather_than_guessed() {
+        // Serde's default is to refuse, which is the right failure here: a
+        // guessed status could turn "no permission" into "ok".
+        let parsed: Result<CommandStatus, _> = serde_json::from_str(r#""somethingNew""#);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn detail_is_optional() {
+        let result: CommandResult =
+            serde_json::from_str(r#"{"requestId":"a1","status":"ok"}"#).expect("parse");
+        assert_eq!(result.detail, None);
+        assert!(result.status.is_ok());
+    }
+
+    /// The field is `requestId` on the wire. A `request_id` key decodes to nil
+    /// and the reply cannot be matched to the button that asked for it.
+    #[test]
+    fn the_wire_key_is_camel_case() {
+        let result: CommandResult =
+            serde_json::from_str(r#"{"requestId":"a1","status":"failed"}"#).expect("parse");
+        assert_eq!(result.request_id, "a1");
+    }
+}

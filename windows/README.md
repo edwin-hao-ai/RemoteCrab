@@ -246,7 +246,7 @@ windows/
 
 ```powershell
 cd E:\RemoteCrab\windows
-cargo test                                  # 354 tests
+cargo test                                  # 359 tests
 cargo clippy --all-targets -- -D warnings   # clean
 ```
 
@@ -279,3 +279,8 @@ Two Windows-specific caveats:
 | P3 | ~~virtual camera~~ ✅, tray UI ✅ · **virtual microphone** (sysvad signed driver, WDK-only), installer + code signing |
 
 Full plan: [`../docs/WINDOWS_PORT_PLAN.md`](../docs/WINDOWS_PORT_PLAN.md).
+
+## 📋 待办与验证
+
+见 [docs/WINDOWS_TODO.md](../docs/WINDOWS_TODO.md)——包含阻塞上线的三项
+（代码签名、安装包、MSVC 构建）和逐条的真机验证清单。

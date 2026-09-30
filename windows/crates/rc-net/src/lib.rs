@@ -155,6 +155,13 @@ pub enum Event {
     /// default, because forwarding the contents of every notification to
     /// another device is not a feature, it is a surprise with a network stack.
     Notification(rc_protocol::Notification),
+    /// The Mac answered one of the phone's commands (kind `0x23`).
+    ///
+    /// Windows does not *send* these — it does not declare the `commandResult`
+    /// capability — but the phone talks to both receivers with the same
+    /// expectations, so one can arrive from a Mac peer or a future Windows
+    /// build. Surfacing it is what stops a `launchApp` from looking broken.
+    CommandResult(rc_protocol::CommandResult),
 }
 
 #[derive(Debug, Clone)]
