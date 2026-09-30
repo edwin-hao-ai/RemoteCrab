@@ -10,6 +10,8 @@
 //! [`Command`]s. The app layer decides what to do with them.
 
 pub mod dispatch;
+pub mod firstrun;
+pub mod notify;
 pub mod ping;
 pub mod route;
 mod supervisor;
@@ -144,6 +146,12 @@ pub enum Event {
     /// One direct-manipulation input inside the mirrored window (kind `0x1E`).
     ScreenInput(ScreenInput),
     Latency(i64),
+    /// A desktop notification to relay to the phone (kind `0x22`).
+    ///
+    /// Only produced when the user has turned the relay on — it is off by
+    /// default, because forwarding the contents of every notification to
+    /// another device is not a feature, it is a surprise with a network stack.
+    Notification(rc_protocol::Notification),
 }
 
 #[derive(Debug, Clone)]

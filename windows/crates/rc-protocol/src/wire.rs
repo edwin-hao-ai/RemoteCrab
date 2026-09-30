@@ -247,6 +247,12 @@ json_codec!(
     ActivateApp
 );
 json_codec!(
+    encode_notification,
+    decode_notification,
+    Kind::Notification,
+    Notification
+);
+json_codec!(
     encode_window_list_request,
     decode_window_list_request,
     Kind::WindowListRequest,

@@ -625,3 +625,65 @@ fn installed_apps_json_matches_swift() {
     assert_eq!(value, serde_json::json!({"apps": [{"id": "a", "name": "b"}]}));
     assert_eq!(serde_json::to_string(&InstalledAppsRequest {}).unwrap(), "{}");
 }
+
+/// A relayed notification must survive the wire unchanged, because the phone
+/// decodes the *Mac's* struct for this kind — the two receivers are not allowed
+/// to drift apart on it.
+#[test]
+fn notification_round_trips() {
+    let n = Notification {
+        app: "Slack".into(),
+        title: "Build finished".into(),
+        subtitle: "#42".into(),
+        body: "12 tests passed".into(),
+        window_title: Some("CI".into()),
+    };
+    // Through the parser, like every other round-trip here: the encoder emits
+    // bytes on the wire, not a struct, and testing anything else would miss a
+    // framing bug.
+    let encoded = encode_notification(&n).expect("encode");
+    let mut parser = Parser::new();
+    let frames = parser.append(&encoded);
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].kind, Kind::Notification);
+    assert_eq!(decode_notification(&frames[0]).expect("decode"), n);
+}
+
+/// A receiver with no screen-recording permission cannot read the window title,
+/// and that must not fail the frame.
+#[test]
+fn notification_without_a_window_title_round_trips() {
+    let n = Notification {
+        app: "1Password".into(),
+        title: "Vault locked".into(),
+        ..Default::default()
+    };
+    let encoded = encode_notification(&n).expect("encode");
+    let mut parser = Parser::new();
+    let frames = parser.append(&encoded);
+    let back: Notification = decode_notification(&frames[0]).expect("decode");
+    assert_eq!(back.window_title, None);
+    assert_eq!(back.app, "1Password");
+}
+
+/// The field names are the phone's, not ours. `windowTitle` in particular: a
+/// snake_case key here decodes to nil on the phone and the tap-to-activate
+/// feature silently stops working.
+#[test]
+fn the_wire_field_names_match_the_phone() {
+    let n = Notification {
+        app: "Slack".into(),
+        title: "t".into(),
+        subtitle: "s".into(),
+        body: "b".into(),
+        window_title: Some("w".into()),
+    };
+    let encoded = encode_notification(&n).expect("encode");
+    let mut parser = Parser::new();
+    let frames = parser.append(&encoded);
+    let json = String::from_utf8(frames[0].payload.clone()).expect("utf8");
+    for key in ["app", "title", "subtitle", "body", "windowTitle"] {
+        assert!(json.contains(key), "{key} missing from {json}");
+    }
+    assert!(!json.contains("window_title"), "{json}");
+}

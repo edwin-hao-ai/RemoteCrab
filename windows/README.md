@@ -246,7 +246,7 @@ windows/
 
 ```powershell
 cd E:\RemoteCrab\windows
-cargo test                                  # 284 tests
+cargo test                                  # 315 tests
 cargo clippy --all-targets -- -D warnings   # clean
 ```
 

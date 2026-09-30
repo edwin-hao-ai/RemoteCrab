@@ -6,11 +6,20 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+# Only for the relay's decision logic, which lives next to the WinRT capture
+# so the two cannot disagree. No wire, no session.
+rc-net.workspace = true
 rc-protocol.workspace = true
 jpeg-encoder.workspace = true
 png.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# Every Win32 module in this crate is `cfg(windows)`, so the dependency is
+# target-gated to match. It is not a nicety: `windows` pulls in
+# `windows-future` unconditionally, and that crate uses `windows-core`'s
+# private marshalling internals, which do not exist off Windows — so a plain
+# `windows` dependency makes this crate unbuildable (and therefore untestable)
+# on the Mac where its pure logic is meant to be tested.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_System_DataExchange",

@@ -98,14 +98,19 @@ pub fn install_source() -> Result<(), VcamError> {
         if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
             return Err(VcamError::NeedsElevation("registering the camera"));
         }
-        return Err(VcamError::Other(format!("RegCreateKeyExW(CLSID) failed: {rc:?}")));
+        return Err(VcamError::Other(format!(
+            "RegCreateKeyExW(CLSID) failed: {rc:?}"
+        )));
     }
 
     // Default value = friendly name.
     set_string(hkey, "", "RemoteCrab Camera Source")?;
 
     // InprocServer32 subkey.
-    let inproc_sub = format!("Software\\Classes\\CLSID\\{}\\InprocServer32", clsid_string());
+    let inproc_sub = format!(
+        "Software\\Classes\\CLSID\\{}\\InprocServer32",
+        clsid_string()
+    );
     let inproc_w = to_wide(&inproc_sub);
     let mut inproc = HKEY::default();
     let rc = unsafe {
@@ -125,7 +130,9 @@ pub fn install_source() -> Result<(), VcamError> {
         unsafe {
             let _ = RegCloseKey(hkey);
         }
-        return Err(VcamError::Other(format!("RegCreateKeyExW(InprocServer32) failed: {rc:?}")));
+        return Err(VcamError::Other(format!(
+            "RegCreateKeyExW(InprocServer32) failed: {rc:?}"
+        )));
     }
     set_string(inproc, "", &dll.to_string_lossy())?;
     // COM may call from any apartment; our source is free-threaded-safe
@@ -225,7 +232,9 @@ fn set_string(key: HKEY, name: &str, value: &str) -> Result<(), VcamError> {
         if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
             return Err(VcamError::NeedsElevation("registering the camera"));
         }
-        return Err(VcamError::Other(format!("RegSetValueExW({name}) failed: {rc:?}")));
+        return Err(VcamError::Other(format!(
+            "RegSetValueExW({name}) failed: {rc:?}"
+        )));
     }
     Ok(())
 }
@@ -266,8 +275,9 @@ pub fn run_spike(name: &str, seconds: u64) -> Result<(), String> {
         let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
     }
 
-    let supported = unsafe { MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource) }
-        .map_err(|e| format!("MFIsVirtualCameraTypeSupported failed: {e}"))?;
+    let supported =
+        unsafe { MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource) }
+            .map_err(|e| format!("MFIsVirtualCameraTypeSupported failed: {e}"))?;
     println!("software-camera type supported: {}", supported.as_bool());
 
     let source_id = HSTRING::from(clsid_string());
@@ -287,9 +297,7 @@ pub fn run_spike(name: &str, seconds: u64) -> Result<(), String> {
     let callback: IMFAsyncCallback = CameraCallback.into();
     match unsafe { camera.Start(&callback) } {
         Ok(()) => println!("Start() OK — the camera should now be enumerable"),
-        Err(e) => println!(
-            "Start() failed: {e}\n  (register the source DLL: `rc-vcam --install`)"
-        ),
+        Err(e) => println!("Start() failed: {e}\n  (register the source DLL: `rc-vcam --install`)"),
     }
 
     println!("keeping the camera alive for {seconds}s — open the Windows Camera app / OBS and look for \"{name}\"");
@@ -339,9 +347,10 @@ pub fn start_camera(name: &str) -> Result<VirtualCamera, String> {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
     }
-    let supported = unsafe { MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource) }
-        .map_err(|e| format!("MFIsVirtualCameraTypeSupported failed: {e}"))?
-        .as_bool();
+    let supported =
+        unsafe { MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource) }
+            .map_err(|e| format!("MFIsVirtualCameraTypeSupported failed: {e}"))?
+            .as_bool();
     if !supported {
         return Err("software-camera type unsupported on this Windows build".to_string());
     }

@@ -16,7 +16,10 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use rc_net::{Config, Event, Session, State};
-use rc_protocol::{encode_app_list, encode_file_ack, encode_installed_apps, encode_window_list};
+use rc_protocol::{
+    encode_app_list, encode_file_ack, encode_installed_apps, encode_notification,
+    encode_window_list,
+};
 
 use args::parse_args;
 use console::{spawn_console_reader, ActiveRecording};
@@ -24,6 +27,8 @@ use console::{spawn_console_reader, ActiveRecording};
 mod args;
 mod console;
 mod diagnostics;
+mod notify_relay;
+
 mod doctor;
 #[cfg(windows)]
 mod elevate;
@@ -175,6 +180,9 @@ async fn main() -> ExitCode {
     }
 
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
+    // Before the search, so a first-time user reads "here is what you have to
+    // do" *before* the thing they are waiting for, not after a timeout.
+    show_first_run_check();
     println!(
         "{}\n",
         i18n::t(
@@ -199,6 +207,35 @@ async fn main() -> ExitCode {
     // the Mac gates the same way (`publishMacWindowsIfRecentlyRequested`).
     let window_list_wanted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let health = session.health();
+
+    // The notification relay, if the user turned it on. It runs on its own
+    // thread and pushes straight into the session, because a notification
+    // arriving is not an *event from the phone* and has no business going
+    // around the `select!` to get there — the loop is busy reconnecting, and a
+    // banner that waits for a reconnect to finish is a banner that never
+    // arrives.
+    #[cfg(windows)]
+    let _notify = {
+        let session = session.clone();
+        notify_relay::start_listener(std::sync::Arc::new(
+            move |n: rc_net::notify::Notification| {
+                // The decision layer's `Notification` is platform-neutral; the
+                // wire type is the phone's contract. They are two structs on
+                // purpose — the wire one must not gain a field the phone cannot
+                // read — so the conversion is explicit and lives here.
+                let wire = rc_protocol::Notification {
+                    app: n.app,
+                    title: n.title,
+                    subtitle: n.subtitle,
+                    body: n.body,
+                    window_title: n.window_title,
+                };
+                if let Ok(frame) = encode_notification(&wire) {
+                    session.send_frame(frame);
+                }
+            },
+        ))
+    };
 
     if let Some(target) = &args.connect {
         match rc_discovery::parse_host_port(target, rc_net::DEFAULT_PORT) {
@@ -592,6 +629,29 @@ async fn main() -> ExitCode {
                             tray.set_has_last_file(true);
                         }
                     }
+                    // A relayed desktop notification, admitted by
+                    // `rc_net::notify` (off unless enabled, denylisted apps
+                    // dropped, unnamed senders dropped).
+                    Event::Notification(n) => {
+                        if !notify_relay::is_enabled() {
+                            // The user turned it off while a banner was in
+                            // flight. Dropping it is the whole point of the
+                            // switch being immediate.
+                            continue;
+                        }
+                        match encode_notification(&n) {
+                            Ok(frame) => {
+                                session.send_frame(frame);
+                                let (app, _why) = (n.app.clone(), ());
+                                println!(
+                                    "  notify: {} → {}",
+                                    i18n::t("已转发通知", "relayed a notification"),
+                                    app
+                                );
+                            }
+                            Err(e) => eprintln!("  notify: encode failed: {e}"),
+                        }
+                    }
                     Event::SystemCommand(cmd) => {
                         // A command we cannot do has to say so in words the
                         // user reads, and say what *is* possible.
@@ -872,3 +932,45 @@ async fn main() -> ExitCode {
 
     ExitCode::SUCCESS
 }
+
+/// The first-run check, printed once at launch and only when something is
+/// genuinely missing.
+///
+/// Not a window: this program is a tray app, and a modal dialog on first launch
+/// is the fastest way to teach a user that your software is in the way. Printing
+/// it is also more useful than a window, because the console is where a user
+/// who is already looking for it will be. A wizard that reappears with nothing
+/// to say is a nag, so the gate is "is anything **blocking** unfinished".
+#[cfg(windows)]
+fn show_first_run_check() {
+    use rc_net::firstrun::{Camera, FirstRun};
+
+    let camera = if vcam::is_registered() {
+        Camera::Ready
+    } else {
+        Camera::Missing
+    };
+    let fr = FirstRun {
+        camera,
+        integrity: notify_relay::integrity(),
+        autostart: rc_os::autostart::is_enabled(),
+        notify_relay: notify_relay::is_enabled(),
+    };
+    if !fr.has_anything_to_say() {
+        return;
+    }
+    println!();
+    println!("{}", i18n::t("开始之前：", "Before you start:"));
+    for step in fr.steps() {
+        if !step.blocking || step.done {
+            continue;
+        }
+        let (title, remedy) = (step.title, step.remedy.unwrap());
+        println!("  • {}", i18n::t(title.0.as_str(), title.1.as_str()));
+        println!("    {}", i18n::t(&remedy.0, &remedy.1));
+    }
+    println!();
+}
+
+#[cfg(not(windows))]
+fn show_first_run_check() {}

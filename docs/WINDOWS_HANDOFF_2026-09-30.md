@@ -393,6 +393,47 @@ api-ms-win-crt-*    ← 11 个。Windows 10+ 通过 API-set 转发到 ucrtbase.d
 既没有 MinGW 运行时，也是所有 Windows 工具期待的 ABI。这台 Mac 上做不到
 （`openh264-sys2` 对该 triple 需要 MSVC 或可用的 GNU C++ 工具链），所以留在 Windows 那一步做。
 
+### 5c. 通知中继 0x22（Windows 端）— 本轮实现
+
+Mac 端 0x22 已验证可用，Windows 端此前是**「帧认得，直接丢弃」**（`rc-net/src/dispatch.rs`
+的 `Kind::Notification => {}`）——而且 `rc-protocol` 里**根本没有 Notification 的结构体**，
+所以这不是「没接上」，是整条链都没写。本轮补齐：
+
+- **协议层**：`rc_protocol::Notification`（字段与 Mac 的 `IBNotification` 一一对应）+ 编解码
+  + 3 条往返测试（含「`windowTitle` 是驼峰不是下划线」——写错的话手机端静默解成 nil，
+  点通知跳转功能就没了）
+- **决策层**（`rc_net::notify`，纯逻辑，任何平台可测）：默认**关闭**、拒绝列表、
+  **无法识别来源应用时按拒绝处理**（fail closed）、空通知不转发
+- **捕获层**（新 crate `rc-notify`）：WinRT `UserNotificationListener`
+- **去重**：API 返回的是**快照不是增量**，`SeenSet` 按 id 去重（不然后台循环会每 2 秒
+  重发一遍所有通知）
+- **开关**：托盘行，**默认关**，勾选状态 + 标签都显示开关状态
+- **17 格图标**：新增 `notify` 铃铛（第 17 格），生成器逐格对照测试自动覆盖
+
+**为什么轮询而不是订阅**：`windows` crate 0.62 没有投影 `NotificationPosted` 事件。轮询
+的形状和 Mac 侧（轮询 AX 树）一致，也不需要处理 apartment/线程。
+
+**顺带修掉一个真根因**：`rc-os` 的 `windows` 依赖**没有 target 化**。`windows` 无条件依赖
+`windows-future`，而后者用了 `windows-core` 的私有 marshalling 内部符号（`IMarshal`），
+**在非 Windows 上根本编译不过**。之前没暴露是因为没有任何 crate 启用 WinRT 特性去激活那条
+编译路径；本轮一启用就炸了整个 macOS 测试。这才是「把 WinRT 特性放在 target 段」也不够、
+**必须独立成 crate** 的原因——`rc-notify` 存在的唯一理由就是这个。
+
+### 5d. 首次运行自检 — 本轮实现
+
+Mac 有 `SetupAssistantView`（欢迎 → 辅助功能 → 虚拟摄像头 → 虚拟麦克风 → 完成）。Windows
+没有等价物。纯逻辑在 `rc_net::firstrun`，任何平台可测。
+
+**Windows 上对应「辅助功能授权」的不是授权，而是进程完整性级别（integrity level）**——
+没有东西可授权，它是程序如何启动的属性。`SendInput` **无法**向完整性级别高于自己的窗口
+注入，而且失败是**静默**的。这就是「触控板时灵时不灵」的一类根因，而原来没有任何地方读它。
+现在启动时读一次（`GetTokenInformation` + `TOKEN_MANDATORY_LABEL` 的 RID 解析，纯字节
+解析部分有 4 条测试，含截断/撒谎 blob）。
+
+自检的形态是**打印到 console，不是弹窗**——这是托盘程序，首次启动弹模态框是让用户觉得
+「你的软件挡事」的最快方式。只在**有阻塞项未完成**时打印；通知中继是**可选**的，
+有建议但**不阻塞**（否则用户永远关不掉这个提示）。
+
 ### 6. 仍然只有真机能验的（不要当成已验证）
 
 - 托盘图标**实际**画对了没有——上面修的是「哪一格」的映射，`CreateIconIndirect`
@@ -408,3 +449,6 @@ api-ms-win-crt-*    ← 11 个。Windows 10+ 通过 API-set 转发到 ucrtbase.d
 - **`--uninstall-vcam` 是否真能删掉带 NULL DACL 的 ring 文件**——这是唯一能证明那段代码
   不是纸上谈兵的地方。
 - **`libstdc++-6.dll` 是否随包分发**（`scripts/check-windows-deps.sh` 是判据）。
+- **通知中继**：Windows 通知权限是否授予、`AppInfo` 能否取到显示名（隐私过滤依赖它）、
+  `GetTextElements` 在真实 banner 上能否拿到 title/body（模板不同 key 不同）。
+- **完整性级别读取**：普通启动应读出 `medium`。若读出 `low` 说明 SID 解析有 bug。

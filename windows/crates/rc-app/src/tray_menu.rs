@@ -68,6 +68,9 @@ pub mod ids {
     /// Only present when the virtual camera is not registered. The row *is* the
     /// instruction: its absence is what says "nothing to do".
     pub const INSTALL_VCAM: usize = 121;
+    /// Forward desktop notifications to the phone (kind `0x22`). Off by
+    /// default — see `rc_net::notify` for why that is not negotiable.
+    pub const NOTIFY: usize = 122;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -94,6 +97,10 @@ pub struct MenuState {
     /// Empty rows are dropped, so a field that has not arrived yet simply does
     /// not appear rather than showing a zero that reads like a measurement.
     pub details: Vec<(String, String)>,
+    /// Whether desktop notifications are forwarded to the phone. `false` until
+    /// the user asks, because the alternative is a product that ships reading
+    /// your notifications before you have agreed to it.
+    pub notify_relay: bool,
     /// Whether the virtual camera's COM source is registered. `false` is the
     /// only state in which the user has something to do about it, so it is the
     /// only state that shows the install row.
@@ -107,6 +114,16 @@ pub struct MenuState {
 /// test silently stops checking anything on the other locale. Naming both
 /// lets a test state the rule ("both languages must name the consequence")
 /// without depending on the environment.
+/// The relay row's two labels, as pairs rather than resolved strings, so a
+/// test can state the rule for both languages instead of whichever one the
+/// machine running it happens to use. See `INSTALL_VCAM_LABEL` for the same
+/// reason.
+pub const NOTIFY_LABEL_ON: (&str, &str) = (
+    "通知中继：开（转发到手机）",
+    "Notification relay: on (forwarding to the phone)",
+);
+pub const NOTIFY_LABEL_OFF: (&str, &str) = ("通知中继：关", "Notification relay: off");
+
 pub const INSTALL_VCAM_LABEL: (&str, &str) = (
     "安装虚拟摄像头（需要允许管理员提示）",
     "Install virtual camera (allow the admin prompt)",
@@ -227,6 +244,19 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     );
     push(Row::Separator, 0, String::new());
 
+    // The notification relay sits with the other machine-level switches. It is
+    // always present, because it is the switch that turns it off — a row that
+    // disappeared when the feature was on would leave no way to turn it back
+    // off from the menu.
+    push(
+        Row::Item,
+        ids::NOTIFY,
+        if state.notify_relay {
+            t(NOTIFY_LABEL_ON.0, NOTIFY_LABEL_ON.1).to_string()
+        } else {
+            t(NOTIFY_LABEL_OFF.0, NOTIFY_LABEL_OFF.1).to_string()
+        },
+    );
     push(
         Row::Item,
         ids::AUTOSTART,
@@ -354,6 +384,7 @@ pub fn known_ids() -> &'static [usize] {
         ids::QUIT,
         ids::DIAGNOSIS,
         ids::INSTALL_VCAM,
+        ids::NOTIFY,
     ]
 }
 
@@ -365,6 +396,11 @@ pub fn is_on(id: usize, state: &MenuState) -> bool {
         ids::TRACKPAD => state.trackpad,
         ids::KEYBOARD => state.keyboard,
         ids::AUTOSTART => state.autostart,
+        // Without this the relay row renders identically whether the feature
+        // is on or off, so the user has no way to tell which state they are in
+        // — and a privacy switch you cannot read is a privacy switch nobody
+        // will trust to have been off.
+        ids::NOTIFY => state.notify_relay,
         _ => false,
     }
 }
@@ -397,6 +433,7 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::AUTOSTART => 12,
         ids::QUIT => 13,
         ids::INSTALL_VCAM => 15,
+        ids::NOTIFY => 16,
         // `RECORD` is deliberately absent: it is the one row whose glyph
         // depends on state, so it goes through [`record_icon_cell`] and not
         // through here. Letting both decide it is how they drift apart.
@@ -429,7 +466,7 @@ pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 16;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 17;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -759,6 +796,7 @@ mod sheet_order_tests {
             autostart: false,
             diagnosis: String::new(),
             details: vec![("延迟".to_string(), "5 ms".to_string())],
+            notify_relay: false,
             vcam_installed: true,
         }
     }
@@ -799,6 +837,7 @@ mod sheet_order_tests {
             (ids::AUTOSTART, 12),
             (ids::QUIT, 13),
             (ids::INSTALL_VCAM, 15),
+            (ids::NOTIFY, 16),
         ];
         for (id, cell) in expected {
             assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
@@ -844,6 +883,7 @@ mod sheet_order_tests {
                 "quit" => ids::QUIT,
                 "stop" => ids::RECORD,
                 "install_vcam" => ids::INSTALL_VCAM,
+                "notify" => ids::NOTIFY,
                 other => panic!("the generator draws {other:?}, which no menu row claims"),
             };
             assert_eq!(
@@ -966,5 +1006,73 @@ mod vcam_row_tests {
             pos(ids::INSTALL_VCAM) < pos(ids::MICROPHONE),
             "and before the rows it has nothing to do with"
         );
+    }
+}
+
+#[cfg(test)]
+mod notify_row_tests {
+    use super::{ids, is_on, menu_rows, MenuState, Row};
+
+    /// The relay is a privacy switch, and a switch whose state cannot be read
+    /// is one nobody will believe is off. The row's *label* carries it too, but
+    /// a tick is the native signal and the Mac uses one.
+    #[test]
+    fn the_relay_row_shows_whether_it_is_on() {
+        let off = MenuState {
+            notify_relay: false,
+            ..MenuState::default()
+        };
+        let on = MenuState {
+            notify_relay: true,
+            ..MenuState::default()
+        };
+        assert!(!is_on(ids::NOTIFY, &off));
+        assert!(is_on(ids::NOTIFY, &on));
+    }
+
+    /// The label has to say which state it is in, because a tick alone does not
+    /// tell a user what turning it *does*.
+    ///
+    /// Checked against the source strings, not the rendered one: a test that
+    /// only ever sees the machine's own language is a test that has silently
+    /// stopped checking the other one.
+    #[test]
+    fn the_relay_row_says_on_or_off_in_both_languages() {
+        use super::{NOTIFY_LABEL_OFF, NOTIFY_LABEL_ON};
+        for (on, needle_zh, needle_en) in [(true, "开", "on"), (false, "关", "off")] {
+            let rows = menu_rows(&MenuState {
+                notify_relay: on,
+                ..MenuState::default()
+            });
+            let row = rows
+                .iter()
+                .find(|r| r.id == ids::NOTIFY)
+                .expect("the relay row must always be present — it is the switch");
+            assert_eq!(row.kind, Row::Item, "it has to be clickable");
+            let (zh, en) = if on {
+                NOTIFY_LABEL_ON
+            } else {
+                NOTIFY_LABEL_OFF
+            };
+            assert!(zh.contains(needle_zh), "zh on={on}: {zh:?}");
+            assert!(en.contains(needle_en), "en on={on}: {en:?}");
+        }
+    }
+
+    /// It is a toggle, so it is always there — unlike the virtual-camera row,
+    /// which is only there when there is something to do. A control that
+    /// deletes itself when turned off is unusable.
+    #[test]
+    fn the_relay_row_is_present_in_both_states() {
+        for on in [true, false] {
+            let rows = menu_rows(&MenuState {
+                notify_relay: on,
+                ..MenuState::default()
+            });
+            assert!(
+                rows.iter().any(|r| r.id == ids::NOTIFY),
+                "on={on}: the row vanished"
+            );
+        }
     }
 }

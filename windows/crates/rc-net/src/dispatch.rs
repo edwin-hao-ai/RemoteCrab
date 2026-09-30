@@ -152,10 +152,16 @@ pub(crate) fn dispatch_frame(frame: &Frame, events_tx: &broadcast::Sender<Event>
                 emit(events_tx, Event::FileComplete(c));
             }
         }
-        // Mac → iPhone notification relay. Not implemented on Windows, but
-        // recognised on purpose: without a kind it would decode as `Video`
-        // and the JSON payload would reach the H.264 decoder.
-        Kind::Notification => {}
+        // A relayed desktop notification. Windows *sends* these rather than
+        // receiving them, so this arm exists for symmetry and for the case
+        // where a peer sends one — recognised on purpose either way: without
+        // the kind it would decode as `Video` and the JSON payload would reach
+        // the H.264 decoder.
+        Kind::Notification => {
+            if let Ok(n) = rc_protocol::decode_notification(frame) {
+                emit(events_tx, Event::Notification(n));
+            }
+        }
         _ => {}
     }
 }

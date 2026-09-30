@@ -32,10 +32,14 @@ png.workspace = true
 # self-tests still work in a dev build, and a release build can be asked
 # for them with `--features selftest`.
 rc-testkit = { workspace = true, optional = true }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# The Windows notification capture. Windows-only because its `windows` features
+# are WinRT; see that crate's manifest.
+rc-notify = { path = "../rc-notify" }
 rc-vcam = { path = "../rc-vcam" }
 # Not used as a library: depending on it makes Cargo emit
 # `rc-vcam-source.dll` into the same `target/<profile>/` directory as
@@ -43,6 +47,9 @@ rc-vcam = { path = "../rc-vcam" }
 rc-vcam-source = { path = "../rc-vcam-source" }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    # Reading the process integrity level — the Windows stand-in for the
+    # Accessibility grant, and the reason the first-run check exists.
+    "Win32_Security",
     "Win32_System_LibraryLoader",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

@@ -1002,6 +1002,7 @@ dependencies = [
  "rc-input",
  "rc-mirror",
  "rc-net",
+ "rc-notify",
  "rc-os",
  "rc-protocol",
  "rc-record",
@@ -1009,6 +1010,7 @@ dependencies = [
  "rc-testkit",
  "rc-vcam",
  "rc-vcam-source",
+ "serde",
  "serde_json",
  "tokio",
  "windows",
@@ -1065,11 +1067,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-notify"
+version = "1.0.0"
+dependencies = [
+ "rc-net",
+ "windows",
+]
+
+[[package]]
 name = "rc-os"
 version = "1.0.0"
 dependencies = [
  "jpeg-encoder",
  "png",
+ "rc-net",
  "rc-protocol",
  "windows",
 ]

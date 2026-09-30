@@ -425,6 +425,7 @@ mod win32 {
             // that it disappears the moment a UAC prompt has been accepted, and
             // a cached "no" would keep offering an action that no longer does
             // anything.
+            notify_relay: crate::notify_relay::is_enabled(),
             vcam_installed: cfg!(windows)
                 .then(crate::vcam::is_registered)
                 .unwrap_or(true),
@@ -575,6 +576,26 @@ mod win32 {
             }
             #[cfg(not(windows))]
             ids::INSTALL_VCAM => None,
+            ids::NOTIFY => {
+                let now_on = !crate::notify_relay::is_enabled();
+                crate::notify_relay::set_enabled(now_on);
+                println!(
+                    "  {}",
+                    crate::i18n::t(
+                        if now_on {
+                            "通知中继已开启 — 之后会弹一次 Windows 的通知权限确认。"
+                        } else {
+                            "通知中继已关闭。"
+                        },
+                        if now_on {
+                            "Notification relay is on — Windows will ask once for notification access."
+                        } else {
+                            "Notification relay is off."
+                        }
+                    )
+                );
+                None
+            }
             ids::DIAGNOSIS => {
                 // A modal dialog on the tray thread: the app loop must not
                 // block, and the tray thread owns the only HWND we can parent

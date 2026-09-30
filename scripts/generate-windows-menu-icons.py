@@ -64,6 +64,7 @@ ROWS = [
     "quit",          # 13
     "stop",          # 14 (recording == True)
     "install_vcam",  # 15
+    "notify",        # 16
 ]
 
 
@@ -253,6 +254,21 @@ def draw_install_vcam(d, o):
     line(d, o + 9, o + 3, o + 13, o + 3)
 
 
+def draw_notify(d, o):
+    # A bell. Nothing else in the sheet is a bell, and it is the only glyph
+    # whose meaning is "something is trying to get your attention" — which is
+    # exactly what this row does.
+    #
+    # Drawn as explicit runs rather than an arc-and-clapper: at 16px a 1px arc
+    # came out uneven, and the clapper merged with the skirt, so it read as a
+    # magnifying glass.
+    line(d, o + 4, o + 2, o + 11, o + 2)
+    d.line([(o + 4, o + 2), (o + 3, o + 8)], fill=255, width=STROKE)
+    d.line([(o + 11, o + 2), (o + 12, o + 8)], fill=255, width=STROKE)
+    line(d, o + 3, o + 9, o + 12, o + 9)
+    line(d, o + 7, o + 12, o + 8, o + 12)
+
+
 DRAW = {
     "camera": draw_camera,
     "switch_camera": draw_switch_camera,
@@ -270,6 +286,7 @@ DRAW = {
     "autostart": draw_autostart,
     "quit": draw_quit,
     "install_vcam": draw_install_vcam,
+    "notify": draw_notify,
 }
 
 

@@ -1,0 +1,32 @@
+[package]
+name = "rc-notify"
+description = "Windows notification capture for the RemoteCrab receiver (WinRT)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# The decision logic — denylist, fail-closed, empty-banner — lives in `rc-net`
+# so it can be tested without Windows. This crate only produces `Captured`
+# values and hands them over.
+rc-net.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The WinRT surface.
+#
+# These are target-gated, and the crate exists *only* because of that. The
+# `windows` crate's WinRT features pull in `windows-future`, which uses
+# `windows-core`'s private marshalling internals and therefore cannot compile
+# for a non-Windows host at all. Putting these features in a crate that is only
+# ever built for Windows is what keeps `cargo test` working on a Mac — the
+# alternative was losing the tests for the relay's privacy rules, which are the
+# part that must not be wrong.
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Win32_System_WinRT",
+    "UI_Notifications_Management",
+    # `UserNotification::AppInfo` is gated behind this one, and it is the only
+    # way to learn *which app* sent a banner — which is what the relay's
+    # denylist matches on. Without it the feature has no privacy control at all.
+    "ApplicationModel",
+] }

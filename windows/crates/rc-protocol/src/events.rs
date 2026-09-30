@@ -794,3 +794,26 @@ mod capitalize_tests {
         assert_eq!(capitalize_words("élan-vital"), "Élan-Vital");
     }
 }
+
+/// receiver → iPhone: a relayed desktop notification (kind `0x22`).
+///
+/// Field-for-field the same as the Mac's `IBNotification`, because the phone
+/// decodes one struct for both. `windowTitle` is optional on purpose: it needs
+/// screen-recording permission to read, and a build that omits it must still
+/// decode rather than fail the whole frame.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Notification {
+    /// The sending app's **localized display name** — the only identity the
+    /// platform exposes. Not a bundle id, not a path.
+    pub app: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub body: String,
+    /// The notifying app's front window title, when it could be read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_title: Option<String>,
+}
