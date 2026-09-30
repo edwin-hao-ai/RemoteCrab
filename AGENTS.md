@@ -2582,6 +2582,88 @@ a second probe after the prompt has been answered has a 2.5 s `inconclusive`
 window and no guarantee, so the honest symptom (`networkUnavailable`) is
 driven off the listener failing instead.
 
+88. **Three bugs in a row, all the same shape: the protocol was tested and
+    the wiring was not (2026-09-30 evening).** Capability negotiation, the
+    latency probe, and the settings deep-link each shipped with green unit
+    tests and a working pure-logic model, and each failed the first time it
+    met a real device. The pattern is worth more than the three fixes:
+    - **`IBClientHello.capabilities`**: 7 tests passed — including "a phone
+      only probes when the receiver advertised it" — and the receiver never
+      sent the field, because I only ever edited `ReceiverSession`'s
+      *consumer*. The negotiation degraded to "never measure anything", which
+      looked exactly like the bug I was fixing.
+    - **The ping payload**: `IBPingProbe` was exhaustively tested (including
+      20 probes against a clock three hours out), and `sendLatencyProbe` fed
+      `sendPingEcho` a whole *frame* where it wanted a *payload* — 13 bytes
+      instead of 8, rejected as malformed every three seconds. The receiver
+      log said it outright; the symptom was that latency simply never appeared.
+    - **The settings URL**: verified by calling `NSWorkspace.open` and
+      believing its return value. It means "the request was accepted", not
+      "this pane exists" — all four candidates returned true while the first
+      had not existed since macOS 25 (`com.apple.ExtensionsPreferences` is
+      absent from the 32 pane identifiers still in the binary).
+    **The rule:** a test that exercises a struct proves the struct is
+    self-consistent. It cannot prove anyone ever *calls* it. For a
+    cross-process feature, the assertion that matters is the marker in the
+    *other* process's log — `latency measured: 8ms`, `activated app …
+    raised=true` — not a unit test on your own side of a wire.
+
+89. **`CFBundleVersion` is three numbers wearing one name, and two of them
+    must never move (2026-09-30).** Bumping the release with
+    `s.replace('CFBundleVersion: "8"', 'CFBundleVersion: "9"')` matched
+    **two** lines — the app *and* the camera system extension — and an
+    `assert count == 2` confirmed my own wrong assumption instead of
+    challenging it. Replacing a system extension **resets the user's
+    approval**: the camera vanishes from every app and has to be re-approved
+    in System Settings (lesson 5). The mic driver is the same class. Only the
+    app's number rises; the sysex and HAL plug-in stay frozen, because a
+    Sparkle update replaces the app bundle alone (lesson 74(e)).
+    `scripts/check-bundle-versions.sh` now refuses a release that moves
+    them, comparing against the last committed yml rather than trusting a
+    hard-coded list — a check that only *reports* the values cannot fail, and
+    that was its own first (useless) version. It runs before anything is
+    signed. Two traps while writing it: the app's display name contains a
+    space, so awk `$2` matched `RemoteCrab` and every check came back "not
+    found" (a guard that cries wolf is worse than no guard); and it correctly
+    blocked a legitimate rebuild because I had already regenerated the appcast
+    locally, so "version must exceed the appcast" must be judged against what
+    is *published*, not what is on disk.
+
+90. **Re-cutting a release over the same build number reaches nobody
+    (2026-09-30).** The user said "nobody has downloaded it yet, just re-send
+    build 9." Sparkle offers an update only when the published version is
+    *higher* than the installed one, so re-cutting 9 skips everyone whose
+    updater had already fetched it — precisely the people a fix is for. Cut
+    10. The cost is one line; the cost of being wrong is a bug that is
+    already shipped and cannot be pushed. Same instinct, opposite sign, as
+    "nobody is on 1.0 yet so I can break 1.1" — both were about who the
+    update *reaches*, not about whether a fix is needed.
+
+91. **A stalled build is usually the network, and my diagnostics were worse
+    than the retry (2026-09-30).** `codesign` reported `The timestamp service
+    is not available` and I escalated to telling the user their proxy was
+    intercepting Apple's notarization hosts — DNS showed
+    `timestamp.apple.com → 198.18.0.241`, the Clash fake-IP range, which looked
+    conclusive. The user, who had hit this exact wall in another project
+    before, said it could not be happening. I had spent several probes trying
+    to route around it; simply running the script again succeeded on the first
+    attempt. **A measurement I can make is not a measurement of the thing**:
+    `curl` failing to a host says the path `curl` took was broken, not that
+    notarization would fail. When a script that succeeded earlier fails, the
+    first hypothesis is transient, not a structural diagnosis.
+
+92. **Parallel sessions will commit my working tree, and my own commits will
+    silently omit half of it (2026-09-30).** Three times today a concurrent
+    session swept the tree into its own commit — `0b89c23` "fix(windows)"
+    carrying six iOS files, `aefd9c7` holding four of my leftovers. So the
+    *code* was always safe while the *record* was wrong, twice: an iOS fix
+    filed under a Windows headline, and a capability declaration that existed
+    only in my unstaged tree, which is how the receiver ended up never
+    sending a field that lesson 88 says it must send. When work in a shared
+    repo is going out, re-read `git status` before assuming your commit
+    contains your work, and stage deliberately rather than adding whole
+    directories.
+
 Headless e2e launch envs for the iOS app (via
 `devicectl device process launch --environment-variables`):
 - `REMOTECRAB_E2E_SURFACE=trackpad|keyboard|camera` — preset the visible
