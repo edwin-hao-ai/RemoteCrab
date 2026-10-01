@@ -649,3 +649,36 @@ so a cross-reference from another lesson still resolves.
     repo is going out, re-read `git status` before assuming your commit
     contains your work, and stage deliberately rather than adding whole
     directories.
+    **The same day, worse: `git stash` + `git reset`, which empties the
+    tree.** The sequence was `reset: moving to HEAD` twice in the reflog,
+    then their commit. Nothing was destroyed *because* they had stashed
+    first — and that is the only reason. The part worth remembering is
+    **which files the stash does not cover**:
+    - **Tracked modifications go into the stash.** All 12 of my edited files
+      survived only because of it. If they had reset *without* stashing, the
+      work would have needed redoing from conversation history.
+    - **Untracked new files are left alone** — so they are the *only*
+      survivors, and that is precisely the dangerous case. Five new files
+      (a type plus its tests) were still on disk when a commit landed that
+      **referenced them by name**. So HEAD referenced a type that did not
+      exist in HEAD: **the repository did not compile for anyone who cloned
+      it**, and it stayed that way until the next commit. *A working tree can
+      be fine while HEAD is broken*, because `swift build` reads the tree,
+      not the commit.
+    Recovery, in the order that matters: **tag the stash first**
+    (`git tag stash-backup-YYYY-MM-DD stash@{0}`) and dump
+    `git stash show -p` to a file — a concurrent session can `pop` or `drop`
+    it at any moment, and then the recovery path is gone. Then restore
+    **file by file** with `git checkout stash@{0} -- <path>`, never
+    `git stash pop`: that stash was *mixed*, holding their Windows work and
+    mine, and popping it would have re-introduced files they had already
+    committed. Check each candidate — `git stash show --name-only` first,
+    and diff to confirm a file is yours (an iOS file I thought I had never
+    touched was in there, carrying only my own comment).
+    **Verify HEAD independently, not the tree:**
+    `git clone --no-local . /tmp/x && cd /tmp/x/Package && swift build`.
+    The tree building proves nothing about the commit.
+    And expect a chunk of your work to end up **inside someone else's commit**
+    (`baff770`, "narrow the pre-existing crash"), which is untidy but far
+    cheaper to live with than a rebase that fights their session. Leave it;
+    note it in the closeout.

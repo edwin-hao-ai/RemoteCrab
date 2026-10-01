@@ -7,7 +7,7 @@
 你在**一台 Windows 电脑**上，前一个 session 在 Mac 上把 Windows 接收端做到了
 「Mac 上能做的全部做完」的位置。剩下的**必须在这台机器上做**。
 
-代码基线：`2bc41b5`。仓库在 `windows/` 子目录里，是一个独立的 Rust workspace。
+代码基线：`baff770`。仓库在 `windows/` 子目录里，是一个独立的 Rust workspace。
 
 本 session 的完整收尾记录：**[`docs/WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)**。
 
@@ -15,7 +15,7 @@
 
 1. **`docs/WINDOWS_TODO.md`** —— 主清单。每一条都有「做什么 / 为什么 / 怎么验证 /
    **怎么算做完**」。从 §2 开始，那是三个上线阻塞。
-2. **`docs/lessons/windows.md` 第 95–104 条** —— 前一个 session 踩的十个坑。
+2. **`docs/lessons/windows.md` 第 95–107 条** —— 前一个 session 踩的十三条坑。
    **至少读 95、98、100**，每一条都造成过一整轮的返工。
 3. **`AGENTS.md`** —— 项目规则。中文，重要。
 
@@ -75,20 +75,74 @@ remotecrab.exe --connect 127.0.0.1:8765
 `drop`）让故障可以故意复现。其中 `silent`（连上后什么都不发）和 `drop`
 （连上就断）手测最难抓——**界面看起来一切正常**。
 
-详见 `docs/WINDOWS_TODO.md` §0'。
+详见 `docs/WINDOWS_TODO.md` §0'，以及 `docs/lessons/windows.md` 第 105 条。
 
-## ⚠️ 请优先定位这个 bug
+## 🔴 第 0 优先任务：定位这个崩溃
 
-接收端在 `sessionReply: Accepted` 之后立刻崩：
+接收端**一连接就崩**，它会挡住你做的**每一件事**：
 
 ```
+[net] sessionReply: Accepted
 fatal runtime error: Rust cannot catch foreign exceptions, aborting
 ```
 
-已用 `git stash` 确认**改动之前就存在**，且**在 macOS 上也复现**（所以可能
-不是 Windows 特有）。与视频无关（`--scenario silent` 一样崩）。根因未定位。
+### 前一个 session 已经查到的（别重复）
 
-它会在你开始任何真机验证之前就挡住你，所以值得先解决。
+| 实验 | 结论 |
+|---|---|
+| `git stash -u` 回到改动前重建，**同样崩** | **不是新代码引入的** |
+| macOS 上同样复现 | **不是 Windows 特有** |
+| `rc-phone-sim --scenario silent`（不发视频）也崩 | 与解码无关 |
+| `--doctor` / `--version` / 纯启动都正常 | 与网络探测、参数解析无关 |
+| **连一个只 accept 不说话的端口，也崩** | 与真手机、与握手成功无关 |
+| **不带 `--connect` 也崩**（它自己 mDNS 发现了真手机） | 与连接触发方式无关 |
+| 最后打印的是 `[CONNECTING]  handshaking…` | 崩在 `set_state` 之后、`Event::State` 的处理里 |
+| panic hook 已在启动时安装，但**日志里没有 panic 记录** | panic 没走 Rust 的 hook → 发生在 **`extern "C"` 边界** |
+
+### 嫌疑代码块（`rc-app/src/main.rs`，`Event::State` 分支内）
+
+打印状态行之后紧接着的这一段：
+
+```rust
+tray.set_status(&status::tray_status(&st));      // 纯字符串，安全
+{
+    let h = health.borrow().clone();              // ← 持 watch 锁
+    let verdict = doctor::route_verdict(&h);      // ← 阻塞式 UDP connect，async 上下文里
+    tray.set_diagnosis(
+        &doctor::panel_summary(&h, &verdict, zh),  // 字符串拼接
+        &doctor::panel(&h, &verdict, zh),
+    );
+}
+```
+
+**「async 上下文里做同步系统调用 + 同时持锁」**符合全部观察，包括
+「panic hook 拿不到信息」——在 macOS 上这个 `connect` 可能跨进系统框架。
+
+**但这只是嫌疑，没有确认。** 请这样确定它：
+
+```sh
+cd windows
+cargo build -p rc-app
+lldb -- ./target/debug/remotecrab --connect 127.0.0.1:9999 --no-tray
+# 崩之后：bt 40
+```
+
+栈顶会直接告诉你是不是这里。
+
+### 如果急着验别的东西（绕过方案）
+
+诊断面板**不是连接的前提**。任选其一：
+
+```rust
+// 方案 A：先跳过诊断，连接路径立刻可用
+//   把 set_diagnosis 那三行注释掉
+
+// 方案 B：把阻塞探测挪出去（正解）
+let verdict = tokio::task::spawn_blocking({
+    let h = h.clone();
+    move || doctor::route_verdict(&h)
+}).await.unwrap_or_default();
+```
 
 ## 验证命令
 
@@ -141,4 +195,4 @@ pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"
 ## 交付
 
 做完后请在 `docs/WINDOWS_TODO.md` 里把验证过的项勾上并注明**怎么验的**，
-以及把新踩的坑写进 `docs/lessons/windows.md`（编号接着 104 往下）。
+以及把新踩的坑写进 `docs/lessons/windows.md`（编号接着 107 往下）。

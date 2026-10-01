@@ -509,6 +509,29 @@ session had been restarted from `/Applications` and was not visible in
 `pgrep -f RemoteCrabReceiver` (the binary is `RemoteCrab`). Count the
 processes, do not pattern-match the name.
 
+### Telling whether an installed build is current — binary hash is useless
+
+After the tree was reset I could not honestly answer "is `/Applications`
+current?" and reached for the obvious tool: build it again and compare.
+**That comparison cannot work.** Two Release builds of *identical source* in
+this repo produced different Mach-O files (`30391a15…` vs `6bec6b93…`),
+because Swift/LLVM embeds a fresh UUID per object file. The 352-byte delta
+between the installed build and a fresh one was pure noise.
+
+What does work is **string literals the change introduced**, because they
+survive compilation intact and are absent from the old build:
+
+```
+installedApps frame:      已装 1  新构建 1   ← my frame-size log
+windowPickerFreshness     已装 2  新构建 2   ← my picker-freshness property
+activateAllWindows        已装 0  新构建 0   ← absent from BOTH: inlined
+```
+
+A keyword that greps zero on both sides tells you nothing — `activateApp`
+switches to `.activateAllWindows`, and that selector does not appear in the
+binary at all. So: verify the markers you can see, state plainly which ones
+you could not check, and do not let a hash comparison stand in for evidence.
+
 ### Finally: installing the receiver the right way
 
 Replacing the build under `/Applications` does **not** need a provisioning

@@ -1,6 +1,6 @@
 # Windows 接收端：待办清单与验证手册
 
-> 最后更新：2026-09-30 晚。代码基线 `2bc41b5`（Windows 测试 362，Core 367，
+> 最后更新：2026-09-30 晚。代码基线 `baff770`（Windows 测试 362，Core 367，
 > Mac↔iPhone 真机 E2E 26/26 绿）。收尾记录见
 > [`WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)。
 >
