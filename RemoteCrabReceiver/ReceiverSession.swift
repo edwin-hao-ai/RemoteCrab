@@ -545,20 +545,19 @@ final class ReceiverSession: ObservableObject {
             Self.log.info("activateApp: not running (\(id, privacy: .public))")
             return .appNotRunning
         }
-let pid = app.processIdentifier
+        let pid = app.processIdentifier
         // `activate` returns a Bool that is routinely false — a missing
         // Accessibility grant looks exactly like success otherwise, and
         // the phone is left staring at a screen that did not change.
         //
-        // Deliberately **no `.activateAllWindows`**. It was added on
-        // 2026-09-20 to make a *tapped window card* come forward, but it is
-        // all-or-nothing: it un-piles **every** window the app owns. Tapping
-        // an app in the launcher then switched apps *and* re-surfaced every
-        // window that app happened to have buried, which is a switch plus a
-        // workspace tidy-up nobody asked for. Plain activation is what
-        // "switch to this app" means on macOS; the one window the user
-        // actually tapped is raised explicitly below.
-        let raised = app.activate(options: [])
+        // `.activateAllWindows` looks wrong for an *app* tap (it un-piles
+        // every window the app owns), but it is what makes a tapped *window
+        // card* work at all — see d49e3f7, 2026-09-20. Do not remove it on
+        // the strength of a symptom that has not been reproduced: a report
+        // of "opening an app also opens its windows" turned out to come from
+        // the **launcher** sheet, not from this path, and it stopped
+        // reproducing before it could be traced.
+        let raised = app.activate(options: [.activateAllWindows])
         if let windowTitle, !windowTitle.isEmpty {
             return raiseWindow(pid: pid, title: windowTitle) ? .ok : .noWindow
         }
