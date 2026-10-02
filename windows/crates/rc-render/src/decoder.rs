@@ -21,6 +21,15 @@ pub struct H264PreviewDecoder {
     decoder: Decoder,
     width: u32,
     height: u32,
+    /// Why the last `feed_nal` produced nothing.
+    ///
+    /// `decode(..).ok()??` used to swallow this, which made "the phone sent no
+    /// video at all" and "OpenH264 refused every NAL" look identical from the
+    /// outside — both are just a counter stuck at zero, and the console prints
+    /// the counter. A stream that silently never decodes is the most expensive
+    /// thing to debug here, so the reason is kept.
+    last_error: Option<String>,
+    refused: u64,
 }
 
 impl H264PreviewDecoder {
@@ -29,6 +38,8 @@ impl H264PreviewDecoder {
             decoder: Decoder::new()?,
             width: 0,
             height: 0,
+            last_error: None,
+            refused: 0,
         })
     }
 
@@ -38,14 +49,40 @@ impl H264PreviewDecoder {
     /// wrap it in an Annex-B start code for OpenH264.
     pub fn feed_nal(&mut self, nal: &[u8]) -> Option<RgbaFrame> {
         if nal.is_empty() {
+            self.last_error = Some("empty NAL".into());
+            return None;
+        }
+        // A NAL that begins with a 4-byte length is AVCC, not a raw unit.
+        // Prepending a start code to that hands OpenH264 a length field where it
+        // expects a NAL header, and it refuses every frame with no clue why.
+        if looks_length_prefixed(nal) {
+            self.refused += 1;
+            self.last_error = Some(format!(
+                "NAL is length-prefixed (AVCC), not a raw unit; first bytes {:02x?}",
+                &nal[..nal.len().min(8)]
+            ));
             return None;
         }
         let mut annexb = Vec::with_capacity(nal.len() + 4);
         annexb.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
         annexb.extend_from_slice(nal);
 
-        let yuv = self.decoder.decode(&annexb).ok()??;
+        let yuv = match self.decoder.decode(&annexb) {
+            Ok(Some(yuv)) => yuv,
+            Ok(None) => {
+                // OpenH264's normal answer for a unit it is not ready to emit
+                // yet (a slice without its reference, say). Counted, not blamed.
+                self.last_error = None;
+                return None;
+            }
+            Err(e) => {
+                self.refused += 1;
+                self.last_error = Some(format!("OpenH264 refused the NAL: {e}"));
+                return None;
+            }
+        };
         let (w, h) = yuv.dimensions();
+        self.last_error = None;
 
         // Use the decoder's own converter (handles strides + SIMD).
         let mut rgba = vec![0u8; w * h * 4];
@@ -71,6 +108,31 @@ impl H264PreviewDecoder {
     pub fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
     }
+
+    /// NAL units this decoder refused, for any reason.
+    pub fn refused(&self) -> u64 {
+        self.refused
+    }
+
+    /// Why the most recent refusal happened, when there is a reason worth
+    /// showing. `None` after a unit OpenH264 simply had no output for.
+    pub fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+}
+
+/// Does this payload start with a 4-byte big-endian length that fits it?
+///
+/// That is the shape of AVCC, and no raw NAL has it: a NAL header byte is
+/// `0x00` only for a reserved type, and the three bytes after it are not a
+/// matching length. Getting this wrong is the difference between a stream that
+/// decodes and one that never does, so it is a named function with tests.
+fn looks_length_prefixed(nal: &[u8]) -> bool {
+    if nal.len() < 9 {
+        return false;
+    }
+    let len = u32::from_be_bytes([nal[0], nal[1], nal[2], nal[3]]) as usize;
+    len == nal.len() - 4 || (len >= 4 && len + 4 <= nal.len())
 }
 
 impl RgbaFrame {
@@ -93,7 +155,38 @@ impl RgbaFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::RgbaFrame;
+    use super::{looks_length_prefixed, RgbaFrame};
+
+    /// The failure this prevents: an AVCC blob handed to the Annex-B path,
+    /// every frame refused, and a counter stuck at zero with nothing to read.
+    #[test]
+    fn a_length_prefixed_blob_is_recognised_as_avcc() {
+        // 4-byte length, then exactly that many bytes: 0x67 = SPS.
+        let payload: [u8; 5] = [0x67, 0x42, 0x00, 0x1F, 0xAA];
+        let mut avcc = (payload.len() as u32).to_be_bytes().to_vec();
+        avcc.extend_from_slice(&payload);
+        assert_eq!(avcc.len(), 9);
+        assert!(looks_length_prefixed(&avcc));
+
+        // The common real shape: several NALs, so the first length covers only
+        // the first one and does not span the buffer.
+        let mut two = (payload.len() as u32).to_be_bytes().to_vec();
+        two.extend_from_slice(&payload);
+        two.extend_from_slice(&[0u8; 4]);
+        two.extend_from_slice(&[0x65, 0x00, 0x00, 0x00, 0x01]);
+        assert!(looks_length_prefixed(&two));
+    }
+
+    #[test]
+    fn a_raw_nal_is_not_mistaken_for_a_length_prefix() {
+        // An IDR slice: header 0x65 then arbitrary payload whose first four
+        // bytes are 00 00 00 01 — a start code, not a length of the whole blob.
+        let raw = [0x65u8, 0x00, 0x00, 0x00, 0x01, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE];
+        assert!(!looks_length_prefixed(&raw));
+        // Too short to carry a length at all.
+        assert!(!looks_length_prefixed(&[0x67, 0x42]));
+        assert!(!looks_length_prefixed(&[]));
+    }
 
     #[test]
     fn to_bgra_reorders_channels_and_forces_opaque_alpha() {

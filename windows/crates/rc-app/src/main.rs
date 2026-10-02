@@ -535,13 +535,26 @@ async fn main() -> ExitCode {
                                             *s = format!("Receiving video… ({video_frames} NALs)");
                                         }
                                     }
-                                    if p.frames_decoded().is_multiple_of(150) {
+                                    if p.frames_decoded().is_multiple_of(150)
+                                        || video_frames.is_multiple_of(150)
+                                    {
                                         let (w, h) = p.dimensions();
+                                        // `frames_decoded() == 0` is a multiple of
+                                        // 150, so this line used to print on
+                                        // *every* NAL while nothing decoded — which
+                                        // is both noise and, printed twice in a
+                                        // minute, indistinguishable from "no video
+                                        // is arriving". Counting the kinds says which.
                                         println!(
-                                            "  video: {} frames decoded ({}x{})",
+                                            "  video: {} decoded / {} received / {} refused ({}x{}){}",
                                             p.frames_decoded(),
+                                            video_frames,
+                                            p.refused(),
                                             w,
-                                            h
+                                            h,
+                                            p.last_error()
+                                                .map(|e| format!("  last: {e}"))
+                                                .unwrap_or_default()
                                         );
                                     }
                                 } else if video_frames.is_multiple_of(150) {

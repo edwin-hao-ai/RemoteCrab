@@ -52,10 +52,22 @@ impl PreviewPipeline {
         self.frames
     }
 
-    pub fn dimensions(&self) -> (u32, u32) {
-        self.decoder.dimensions()
+pub fn dimensions(&self) -> (u32, u32) {
+            self.decoder.dimensions()
+        }
+
+        /// NAL units the decoder refused, and why the last one was refused.
+        ///
+        /// Without these, a stream that never decodes is indistinguishable from
+        /// a stream that never arrives: both report `frames_decoded() == 0`.
+        pub fn refused(&self) -> u64 {
+            self.decoder.refused()
+        }
+
+        pub fn last_error(&self) -> Option<&str> {
+            self.decoder.last_error()
+        }
     }
-}
 
 #[cfg(test)]
 mod tests {
