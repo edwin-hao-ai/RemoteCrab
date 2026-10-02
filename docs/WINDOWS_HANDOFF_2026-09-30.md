@@ -215,7 +215,7 @@ Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫�
 - [ ] 自绘托盘面板：原生 `TrackPopupMenu` 的**内容**已经和 Mac 对齐且有测试，
       这只是视觉打磨。
 - [ ] AWDL：Apple 私有，Windows 不可能有。无路由场景用 iPhone 热点 / USB 网卡共享。
-- [ ] 扩展显示器：需要签名的 WDDM/IDD 显示驱动。
+- [ ] 扩展显示器：需要签名的 IddCx 间接显示驱动（**用户态 UMDF**，不是内核态 WDDM）。
 
 ---
 

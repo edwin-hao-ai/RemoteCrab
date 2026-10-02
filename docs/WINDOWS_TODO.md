@@ -145,7 +145,7 @@ pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"   # 脚本假设接收端没
 | `StreamRecorder` | ✅ 完成 |
 | `SystemCommandHandler` | `rc-os/src/system_keys.rs` | ✅ 完成 |
 | `SystemExtensionManager` | `rc-app/src/elevate.rs`（ShellExecuteW + runas） | ✅ 完成 |
-| `VirtualDisplay`（扩展显示器） | ❌ 需签名 WDDM/IDD 驱动 | 见 §4 |
+| `VirtualDisplay`（扩展显示器） | ❌ 需签名的 IddCx 间接显示驱动 | 见 §4 |
 | `RemoteCrabAudioUnit` / `MicRingWriter`（虚拟麦克风） | ❌ 需签名 WDK 驱动 | 见 §4 |
 
 ---
@@ -444,7 +444,7 @@ Mac 用 **VideoToolbox**，Windows 用 **OpenH264**（passthrough）。两个编
 | 功能 | 为什么 | 替代 |
 |---|---|---|
 | **虚拟麦克风** | 需**签名的 WDK 驱动**（`MakeAuth`），3-6 天 + 签名。**未签名驱动会直接毁掉 §2.1 代码签名的意义**——用户在杀软里看到一个未签名驱动，整个产品的信誉都没了 | 语音功能先用 `--unmute` |
-| **扩展显示器**（iPhone 当第二屏） | 需签名的 WDDM/IDD 显示驱动 | 镜像功能已有 |
+| **扩展显示器**（iPhone 当第二屏） | 需签名的 **IddCx** 间接显示驱动。是**用户态 UMDF**（不是内核态 WDDM），但仍要签名、仍要装成一个设备，且 IddCx 把桌面图像以 DirectX surface 交给驱动并**禁用 GDI / 窗口 API**，所以 Mac 那套「把已有镜像指过去」不能照搬 | 镜像功能已有；**iPhone 端已按 `platform` 隐藏这一项**（`ContentView.swift:766`），不会给用户一个点了没反应的按钮 |
 | **自绘托盘面板** | 原生 `TrackPopupMenu` 的**内容**已与 Mac 对齐且有 23 条布局测试，纯视觉打磨 | — |
 | **AWDL**（无 WiFi 直连） | Apple 私有，Windows 不可能有 | iPhone 热点 / USB 网卡共享 |
 | **`IP_UNICAST_IF` 绕过 TUN** | 在这台 Mac 上**无法验证字节序**（Windows 用反序）。猜着上会静默失败 | 走 mDNS + 直连 fallback |

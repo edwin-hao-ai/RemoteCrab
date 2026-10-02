@@ -377,7 +377,24 @@ the box before touching §5a.
   (the direct-IP fallback already covers them).
 - **Extended Display (virtual second monitor)**: needs a virtual display
   driver. macOS has the private `CGVirtualDisplay`; Windows has no equivalent
-  without a signed display driver (WDDM/IDD). Report "not supported".
+  without a signed display driver. Report "not supported".
+
+  The route is Microsoft's **IddCx** (Indirect Display Driver Class
+  eXtension), and it is worth being precise about what that is, because an
+  earlier version of this file said "WDDM/IDD" and implied a kernel-mode
+  filter. IddCx is a **user-mode** driver: *"The IDD is the third
+  party-provided UMDF driver for the device… The IDD uses a user-mode model
+  and doesn't support kernel-mode components."* No ring0, no BSOD risk, and
+  driver instability stays inside the UMDF host process in Session 0.
+
+  It is still not free, and the reasons have nothing to do with kernel code:
+  the driver must be signed (the same certificate work as §2.1), it must be
+  installed as a *device* so the virtual monitor appears in Settings →
+  Display, and IddCx hands the desktop image over as a **DirectX surface**
+  while explicitly forbidding GDI, windowing APIs, OpenGL and Vulkan inside
+  the driver. That last rule is why the Mac's approach — "point the existing
+  mirror at the new display" — does not port: the encode has to live in the
+  driver or reach it over IPC.
 
 ---
 
