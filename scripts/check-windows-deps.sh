@@ -77,6 +77,19 @@ if [[ -z "$OBJDUMP" && -z "$DUMPBIN" ]]; then
 fi
 
 # One DLL name per line, whatever the tool.
+#
+# `dumpbin` is a native Windows program and cannot open an MSYS path like
+# `/e/RemoteCrab/...`: it reports "cannot open file" on stderr, the pipeline
+# yields nothing, and — before the count guard below — that read as a binary
+# with no dependencies at all. `cygpath` is what turns one into the other.
+win_path() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
 list_dlls() {
     if [[ -n "$OBJDUMP" ]]; then
         "$OBJDUMP" -p "$EXE" | sed -n 's/.*DLL Name: //p'
@@ -87,7 +100,7 @@ list_dlls() {
         # `MSYS_NO_PATHCONV` stops Git-Bash from rewriting the leading `/` into
         # a Windows path (`C:\Program Files\Git\dependents`), which otherwise
         # makes dumpbin fail with LNK1181 and yield an empty list.
-        MSYS_NO_PATHCONV=1 "$DUMPBIN" /dependents "$EXE" \
+        MSYS_NO_PATHCONV=1 "$DUMPBIN" /dependents "$(win_path "$EXE")" \
             | tr -d '\r' \
             | sed -n 's/^[[:space:]][[:space:]]*\([A-Za-z0-9_.+-]*\.dll\)[[:space:]]*$/\1/p'
     fi
