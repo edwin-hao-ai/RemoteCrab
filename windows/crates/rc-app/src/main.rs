@@ -545,16 +545,29 @@ async fn main() -> ExitCode {
                                         // is both noise and, printed twice in a
                                         // minute, indistinguishable from "no video
                                         // is arriving". Counting the kinds says which.
+                                        //
+                                        // Startup refusals are counted apart: every
+                                        // real stream opens with NALs no decoder can
+                                        // use, and a counter that always begins with
+                                        // "22 refused" is one people learn to ignore.
+                                        let tail = match (p.frames_decoded(), p.refusals_after_start())
+                                        {
+                                            (0, _) => String::new(),
+                                            (_, 0) => format!(
+                                                "  ({} refused before the first frame)",
+                                                p.warmup_refusals()
+                                            ),
+                                            (_, n) => format!("  ({n} refused since the first frame)"),
+                                        };
                                         println!(
-                                            "  video: {} decoded / {} received / {} refused ({}x{}){}",
+                                            "  video: {} decoded / {} received ({}x{}){}",
                                             p.frames_decoded(),
                                             video_frames,
-                                            p.refused(),
                                             w,
                                             h,
                                             p.last_error()
                                                 .map(|e| format!("  last: {e}"))
-                                                .unwrap_or_default()
+                                                .unwrap_or(tail)
                                         );
                                     }
                                 } else if video_frames.is_multiple_of(150) {

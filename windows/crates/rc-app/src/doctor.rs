@@ -470,8 +470,8 @@ fn hints(h: &rc_net::Health, zh: bool) -> Vec<(String, String)> {
                 t(zh, &format!("iPhone 正被「{owner}」使用，所以这台电脑在等。"),
                     &format!("Another computer ({owner}) is using the iPhone, so this one is waiting."),
                 ),
-                t(zh, "iPhone 会自动把会话交出来；你也可以在 iPhone 上「选择电脑」立刻切过来。",
-                    "The iPhone hands the session over on its own, or pick this computer there to switch immediately.",
+                t(zh, "断开之后本机会每 10 秒重试并自己接上；但如果那台是这台 iPhone 的「首选电脑」，断开也不会切过来——要在 iPhone 的「选择电脑」里选这台。",
+                    "This PC retries every 10s and will pick it up on its own — unless that computer is the iPhone's preferred one, in which case pick this PC in \"Choose a computer\".",
                 ),
             ));
             return out;
