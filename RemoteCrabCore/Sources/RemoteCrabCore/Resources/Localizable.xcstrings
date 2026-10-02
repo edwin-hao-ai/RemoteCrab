@@ -273,19 +273,19 @@
         }
       }
     },
-    "Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click": {
+    "Tap to click · Two-finger scroll · Pinch to zoom · Three-finger drag to move the view · Long-press to right-click": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click"
+            "value": "Tap to click · Two-finger scroll · Pinch to zoom · Three-finger drag to move the view · Long-press to right-click"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "轻点即点击 · 双指滚动 · 捏合缩放 · 长按为右键"
+            "value": "轻点即点击 · 双指滚动 · 捏合缩放 · 三指拖动移动画面 · 长按为右键"
           }
         }
       }

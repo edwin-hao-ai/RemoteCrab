@@ -52,7 +52,7 @@ public enum IBLocale {
     public enum Mirror {
         public static let title = IBL("App window mirror")
         public static let guideTitle = IBL("Mirror guide")
-        public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Long-press to right-click")
+        public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Three-finger drag to move the view · Long-press to right-click")
         public static let gotIt = IBL("Got it")
         public static let followFrontmost = IBL("Follow frontmost app")
         /// Window-picker (mirror bottom chrome) — the menu header.

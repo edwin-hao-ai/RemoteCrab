@@ -22,6 +22,15 @@ public protocol InputInjector: AnyObject {
     /// instead of `CGEventInjector`'s real implementation.
     func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize)
 
+    /// Forget that the cursor is inside the mirrored window.
+    ///
+    /// Called when a mirror session ends. The injector outlives the session
+    /// (it is a long-lived property on `ReceiverSession`), so without this
+    /// the "already placed" memory survives a disconnect — and the user's
+    /// own mouse may have moved the cursor to another app in the meantime,
+    /// so the next session's first scroll would land in the wrong window.
+    func resetMirrorCursor()
+
     /// Last cursor position — tests read this back to verify movement.
     var lastCursor: CGPoint { get }
 }
@@ -30,6 +39,8 @@ public extension InputInjector {
     /// Default no-op so injectors that don't model the mirror still
     /// conform (e.g. a future test double).
     func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {}
+    func resetMirrorCursor() {}
+    var hasMirrorCursor: Bool { false }
 }
 
 /// Records every input event for inspection in tests. Lives in
@@ -79,8 +90,13 @@ public final class RecordingInputInjector: InputInjector, @unchecked Sendable {
     }
 
     public private(set) var screens: [RecordedScreen] = []
+    /// Mirrors `CGEventInjector`'s placement memory so the cross-session
+    /// behaviour is testable without a macOS target.
+    public private(set) var hasMirrorCursor = false
 
     public init() {}
+
+    public func resetMirrorCursor() { hasMirrorCursor = false }
 
     public func inject(touch: TouchEvent, screenSize: CGSize) {
         let absX = CGFloat(touch.x) * screenSize.width
@@ -97,6 +113,10 @@ public final class RecordingInputInjector: InputInjector, @unchecked Sendable {
         let absX = windowOrigin.x + CGFloat(screenInput.u) * windowSize.width
         let absY = windowOrigin.y + CGFloat(screenInput.v) * windowSize.height
         lastCursor = CGPoint(x: absX, y: absY)
+        // Same rule as the real injector: a scroll does not move the cursor,
+        // so it must not claim the cursor is placed. A click / drag /
+        // right-click does place it.
+        if screenInput.action != .scroll { hasMirrorCursor = true }
         screens.append(.init(action: screenInput.action,
                              u: screenInput.u, v: screenInput.v,
                              cursor: lastCursor))

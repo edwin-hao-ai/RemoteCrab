@@ -125,9 +125,11 @@ public final class CGEventInjector: InputInjector {
             post(type: .leftMouseDown, at: global, flags: flags, clickCount: clicks)
             post(type: .leftMouseUp, at: global, flags: flags, clickCount: clicks)
             lastCursor = global
+            hasPlacedCursor = true
         case .dragStart:
             post(type: .leftMouseDown, at: global, flags: flags)
             lastCursor = global
+            hasPlacedCursor = true
             isDragging = true
         case .dragMove:
             lastCursor = global
@@ -139,16 +141,45 @@ public final class CGEventInjector: InputInjector {
             post(type: .rightMouseDown, at: global, flags: flags, clickCount: clicks)
             post(type: .rightMouseUp, at: global, flags: flags, clickCount: clicks)
             lastCursor = global
+            hasPlacedCursor = true
         case .scroll:
-            // Put the cursor over the window first so the scroll lands in
-            // the intended app, then reuse the trackpad scroll path.
-            let screenSize = NSScreen.screens.first(where: { $0.frame.contains(global) })?.frame.size
-                ?? NSScreen.main?.frame.size
-                ?? CGSize(width: 1920, height: 1080)
-            moveCursor(to: global, screenSize: screenSize)
+            // Do NOT warp the cursor to the touch point. The mirror shows
+            // exactly one window, so there is nothing to aim at — and
+            // warping meant every two-finger swipe teleported the Mac's
+            // cursor to wherever the fingers were, which is a large part of
+            // "the pointer never lands where I tapped". Place it once, on
+            // the first scroll of a session, so the event has a window.
+            let needsPlacement = !hasPlacedCursor || !lastCursorInside(origin: windowOrigin, size: windowSize)
+            if needsPlacement {
+                let center = CGPoint(x: windowOrigin.x + windowSize.width / 2,
+                                     y: windowOrigin.y + windowSize.height / 2)
+                let screenSize = NSScreen.screens.first(where: { $0.frame.contains(center) })?.frame.size
+                    ?? NSScreen.main?.frame.size
+                    ?? CGSize(width: 1920, height: 1080)
+                moveCursor(to: center, screenSize: screenSize)
+                hasPlacedCursor = true
+            }
+            // Marker, never the user's content: "the cursor was moved" vs
+            // "the cursor was left alone" is the whole regression, and it is
+            // invisible from the outside (lesson 85 — a feature that can
+            // fail silently must leave evidence either way).
+            Self.log.info("mirror scroll: cursor \(needsPlacement ? "placed at window center" : "left where the user put it", privacy: .public)")
             postScroll(dx: screenInput.dx, dy: screenInput.dy, commandHeld: false,
                        momentum: false, screenHeight: windowSize.height)
         }
+    }
+
+    public func resetMirrorCursor() {
+        hasPlacedCursor = false
+    }
+
+    public var hasMirrorCursor: Bool { hasPlacedCursor }
+
+    /// Whether the tracked cursor is still inside the mirrored window, so a
+    /// scroll event is guaranteed to reach it.
+    private func lastCursorInside(origin: CGPoint, size: CGSize) -> Bool {
+        lastCursor.x >= origin.x && lastCursor.x <= origin.x + size.width
+            && lastCursor.y >= origin.y && lastCursor.y <= origin.y + size.height
     }
 
     /// US-ANSI character → (virtual keycode, needsShift). Enough for the
@@ -180,6 +211,10 @@ public final class CGEventInjector: InputInjector {
 
     private var isDragging = false
     private var lastPhase: TouchEvent.Phase?
+    /// True once the cursor is known to sit inside the mirrored window —
+    /// after any click/drag/right-click, or after the one scroll that had to
+    /// place it. A scroll only ever moves the cursor while this is false.
+    private var hasPlacedCursor = false
 
     private func moveCursor(to point: CGPoint, screenSize: CGSize) {
         // Clamp the tracked position to the screen: the physical cursor

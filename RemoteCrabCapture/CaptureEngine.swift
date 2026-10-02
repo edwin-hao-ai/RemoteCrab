@@ -1598,11 +1598,36 @@ final class CaptureEngine: ObservableObject {
                         try? await Task.sleep(for: .milliseconds(500))
                         if self?.screenInfo?.status == .ok { break }
                     }
+                    // Scroll FIRST, before any click. Nothing has put the cursor in the
+                    // mirrored window yet, so the Mac must place it once or
+                    // the scroll event has no window to land in. Then click,
+                    // then two more scrolls that must leave the cursor
+                    // exactly where the click put it.
+                    //
+                    // "Placed once, then left alone" vs "moved every time" IS
+                    // the regression: a two-finger swipe used to teleport the
+                    // cursor to the finger, which is most of why the pointer
+                    // never landed where the user tapped.
+                    //
+                    // The settle delay matters: the PHONE can see
+                    // `screenInfo.status == .ok` before the Mac's own
+                    // `lastScreenInfo` is populated (that assignment hops
+                    // through the main actor), and `handleScreenInput` drops
+                    // input until it lands. Sending on the phone's signal
+                    // alone lost the first frame and left the "place once"
+                    // branch unexercised.
+                    try? await Task.sleep(for: .seconds(2))
+                    self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
+                    Forensic.log("[e2e] screen input scroll 1/3 sent (pre-click)")
+                    try? await Task.sleep(for: .milliseconds(700))
                     self?.sendScreenInput(IBScreenInput(action: .click, u: 0.5, v: 0.5))
                     Forensic.log("[e2e] screen input click sent")
-                    try? await Task.sleep(for: .milliseconds(400))
-                    self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
-                    Forensic.log("[e2e] screen input scroll sent")
+                    try? await Task.sleep(for: .milliseconds(700))
+                    for i in 2...3 {
+                        self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
+                        Forensic.log("[e2e] screen input scroll \(i)/3 sent (post-click)")
+                        try? await Task.sleep(for: .milliseconds(700))
+                    }
                 }
             }
         }
