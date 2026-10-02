@@ -52,7 +52,7 @@ public enum IBLocale {
     public enum Mirror {
         public static let title = IBL("App window mirror")
         public static let guideTitle = IBL("Mirror guide")
-        public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom · Three-finger drag to move the view · Long-press to right-click")
+        public static let guideBody = IBL("Tap to click · Two-finger scroll · Pinch to zoom")
         public static let gotIt = IBL("Got it")
         public static let followFrontmost = IBL("Follow frontmost app")
         /// Window-picker (mirror bottom chrome) — the menu header.
@@ -405,8 +405,16 @@ public enum IBLocale {
 
     /// First-run coach marks on the full-screen trackpad surface.
     public enum Coach {
-        public static let title = IBL("What your trackpad can do")
+        public static let title = IBL("Gestures")
         public static let dismiss = IBL("Got it")
+
+        /// Which surface a section describes. The two surfaces share a
+        /// finger-count vocabulary — three fingers means middle-click on the
+        /// trackpad and free panning in the mirror — so every heading names
+        /// its surface instead of relying on the reader remembering which
+        /// screen they are on.
+        public static let surfaceTrackpad = IBL("Touchpad")
+        public static let surfaceMirror = IBL("App window mirror")
 
         public static let sectionMove = IBL("Move & click")
         public static let dragMove = IBL("Drag to move the cursor")
@@ -415,7 +423,7 @@ public enum IBLocale {
         public static let sectionScroll = IBL("Scroll & zoom")
         public static let twoFingerScroll = IBL("Two fingers to scroll — with momentum")
         public static let twoFingerRightClick = IBL("Two-finger tap for right-click")
-        public static let pinchZoom = IBL("Pinch to zoom")
+        public static let pinchZoom = IBL("Pinch to zoom the app on the Mac — it acts as ⌘ + scroll, so it zooms whatever the front app zooms")
 
         public static let sectionDrag = IBL("Select & drag")
         public static let doubleTapHoldDrag = IBL("Hold still, or double-tap and hold, then move to drag")
@@ -431,7 +439,34 @@ public enum IBLocale {
         public static let shiftSelect = IBL("With ⇧ locked: tap the start, then the end, to select everything between")
         public static let quickKeys = IBL("⌫ , . ⏎ sit under your thumb for quick fixes")
 
-        public static let accessibilitySummary = IBL("Trackpad guide: drag to move the cursor; tap to click; two fingers scroll, tap for right-click, pinch to zoom; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock ⌃⌥⌘⇧ to combine them, and ⇧ to select a range.")
+        // MARK: - App window mirror
+        //
+        // Its OWN section headings, not the trackpad's. Filing "two fingers
+        // sideways to move the view" under a heading that says "Scroll &
+        // zoom" hides the pan gesture from anyone who scans by heading —
+        // and the mirror has no four-finger gesture, so it does not borrow
+        // "Three & four fingers" for a single row.
+        public static let mirrorSectionTap = IBL("Tap & drag")
+        public static let mirrorSectionScroll = IBL("Scroll")
+        public static let mirrorSectionMove = IBL("Move & zoom")
+        public static let mirrorSectionThree = IBL("Three fingers")
+
+        public static let mirrorTapClick = IBL("Tap a spot to click it there; double- or triple-tap for a double or triple click")
+        public static let mirrorDrag = IBL("Keep one finger down and move to drag on the Mac")
+        public static let mirrorRightClick = IBL("Press and hold, or two-finger tap, for right-click")
+
+        /// Both one-liners because the axis lock is invisible: a reader who
+        /// does not know a swipe can scroll or pan will try the obvious
+        /// direction and be wrong about half the time.
+        public static let mirrorScroll = IBL("Two fingers up or down to scroll the Mac")
+        public static let mirrorPan = IBL("Two fingers sideways to move the view")
+        public static let mirrorPinch = IBL("Pinch to zoom, keeping the point between your fingers in place")
+        public static let mirrorDoubleTapZoom = IBL("Two-finger double-tap to zoom in on that spot; tap again to fit")
+        public static let mirrorThreeFingerPan = IBL("Three fingers to move the view in both directions")
+
+        public static let seeAll = IBL("See all gestures")
+
+        public static let accessibilitySummary = IBL("Gestures: Touchpad — drag to move the cursor; tap to click, double- or triple-tap to repeat; two fingers scroll, tap for right-click, pinch to zoom the front app; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock Control, Option, Command and Shift to combine them, and Shift to select a range. App window mirror — tap to click, double- or triple-tap to repeat, hold to drag, press and hold or two-finger tap for right-click; two fingers up or down to scroll the Mac, sideways to move the view; pinch to zoom; two-finger double-tap to zoom in on a spot; three fingers to move the view freely.")
     }
 
     /// In-context trackpad hints: shown while the drag clutch is

@@ -1,16 +1,48 @@
 import SwiftUI
 import RemoteCrabCore
 
-/// The full trackpad gesture guide. Presented as a sheet (first run +
-/// re-openable from the top-bar menu) rather than an in-surface overlay,
-/// so nothing — the dock, the hold-to-talk capsule — can cover its
-/// bottom row.
+/// The complete gesture reference.
+///
+/// One scroll rather than a segmented control: two pages behind a switch
+/// *hides* content, and the whole point of adding the mirror section is that
+/// a reader can finish the thing. Each surface is a labelled section instead,
+/// so "three fingers" is never ambiguous — it means middle-click under
+/// Touchpad and free panning under App window mirror, and the reader can
+/// see which is which without being told.
+///
+/// Opened from the mirror it scrolls to the mirror section; opened from the
+/// menu it starts at the trackpad. Nothing is behind a tap either way.
 struct TrackpadGuideView: View {
+    /// Which section to reveal first.
+    enum Surface: Hashable {
+        case trackpad
+        case mirror
+
+        var heading: String {
+            switch self {
+            case .trackpad: return IBLocale.Coach.surfaceTrackpad
+            case .mirror: return IBLocale.Coach.surfaceMirror
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .trackpad: return "hand.point.up.left.fill"
+            case .mirror: return "rectangle.on.rectangle.angled"
+            }
+        }
+    }
+
     @Environment(\.dismiss) private var dismiss
+    let surface: Surface
+
+    init(surface: Surface = .trackpad) {
+        self.surface = surface
+    }
 
     private typealias Row = (symbol: String, text: String)
 
-    private var groups: [(title: String, rows: [Row])] {
+    private var trackpadGroups: [(title: String, rows: [Row])] {
         [
             (IBLocale.Coach.sectionMove, [
                 ("hand.draw", IBLocale.Coach.dragMove),
@@ -38,30 +70,71 @@ struct TrackpadGuideView: View {
         ]
     }
 
+    private var mirrorGroups: [(title: String, rows: [Row])] {
+        [
+            (IBLocale.Coach.mirrorSectionTap, [
+                ("hand.tap", IBLocale.Coach.mirrorTapClick),
+                ("hand.draw", IBLocale.Coach.mirrorDrag),
+                ("cursorarrow.click.2", IBLocale.Coach.mirrorRightClick)
+            ]),
+            (IBLocale.Coach.mirrorSectionScroll, [
+                ("arrow.up.and.down", IBLocale.Coach.mirrorScroll)
+            ]),
+            (IBLocale.Coach.mirrorSectionMove, [
+                ("arrow.left.and.right", IBLocale.Coach.mirrorPan),
+                ("arrow.up.left.and.arrow.down.right", IBLocale.Coach.mirrorPinch),
+                ("hand.tap.fill", IBLocale.Coach.mirrorDoubleTapZoom)
+            ]),
+            (IBLocale.Coach.mirrorSectionThree, [
+                ("rectangle.3.group", IBLocale.Coach.mirrorThreeFingerPan)
+            ])
+        ]
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: IBSpace.l.pt) {
-                    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                        VStack(alignment: .leading, spacing: IBSpace.s.pt) {
-                            Text(group.title)
-                                .font(IBFont.eyebrowMono)
-                                .ibEyebrowTracking()
-                                .foregroundStyle(IBColor.textSecondary)
-                            ForEach(Array(group.rows.enumerated()), id: \.offset) { _, row in
-                                line(symbol: row.symbol, text: row.text)
-                            }
-                        }
-                    }
+                    section(Surface.trackpad, groups: trackpadGroups)
+                    Divider().padding(.vertical, IBSpace.s.pt)
+                    section(Surface.mirror, groups: mirrorGroups)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(IBSpace.l.pt)
             }
+            // Start on the section the caller cares about: the mirror
+            // section is last, so `.bottom` reveals it and the reader can
+            // scroll UP for the trackpad — nothing is hidden either way.
+            // Declarative, where `proxy.scrollTo` in a `.task` needs the
+            // target to have been measured first and silently no-ops if it
+            // has not (a magic sleep standing in for layout is a trap).
+            .defaultScrollAnchor(surface == .mirror ? .bottom : .top)
             .navigationTitle(IBLocale.Coach.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(IBLocale.Coach.dismiss) { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func section(_ surface: Surface,
+                         groups: [(title: String, rows: [Row])]) -> some View {
+        VStack(alignment: .leading, spacing: IBSpace.m.pt) {
+            Label(surface.heading, systemImage: surface.icon)
+                .font(IBFont.titleMedium)
+                .foregroundStyle(IBColor.accent)
+                .padding(.bottom, IBSpace.xs.pt)
+            ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                VStack(alignment: .leading, spacing: IBSpace.s.pt) {
+                    Text(group.title)
+                        .font(IBFont.eyebrowMono)
+                        .ibEyebrowTracking()
+                        .foregroundStyle(IBColor.textSecondary)
+                    ForEach(Array(group.rows.enumerated()), id: \.offset) { _, row in
+                        line(symbol: row.symbol, text: row.text)
+                    }
                 }
             }
         }
@@ -77,6 +150,7 @@ struct TrackpadGuideView: View {
             Text(text)
                 .font(IBFont.bodyMedium)
                 .foregroundStyle(IBColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
     }

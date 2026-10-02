@@ -472,7 +472,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "应用窗口镜像"
+            "value": "应用窗口投屏"
           }
         }
       }
@@ -2302,13 +2302,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinch to zoom"
+            "value": "Pinch to zoom the app on the Mac — it acts as ⌘ + scroll, so it zooms whatever the front app zooms"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "双指捏合缩放"
+            "value": "捏合缩放 Mac 上的应用 —— 它是 ⌘ + 滚动，所以放大什么由前台应用决定"
           }
         }
       }
@@ -2506,13 +2506,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trackpad guide: drag to move the cursor; tap to click; two fingers scroll, tap for right-click, pinch to zoom; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock ⌃⌥⌘⇧ to combine them, and ⇧ to select a range."
+            "value": "Gestures: Touchpad — drag to move the cursor; tap to click, double- or triple-tap to repeat; two fingers scroll, tap for right-click, pinch to zoom the front app; hold or double-tap and hold to drag; three-finger tap for middle-click; three or four fingers to switch; lock Control, Option, Command and Shift to combine them, and Shift to select a range. App window mirror — tap to click, double- or triple-tap to repeat, hold to drag, press and hold or two-finger tap for right-click; two fingers up or down to scroll the Mac, sideways to move the view; pinch to zoom; two-finger double-tap to zoom in on a spot; three fingers to move the view freely."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "触控板指南：滑动移动光标；轻点点击；双指滚动、双指轻点右键、捏合缩放；长按或双击按住拖拽；三指轻点中键；三/四指切换；锁定 ⌃⌥⌘⇧ 组合使用，锁定 ⇧ 可框选一段。"
+            "value": "手势指南。触控板：滑动移动光标；轻点点击，双击/三击重复；双指滚动、双指轻点右键、捏合缩放前台应用；长按或双击按住拖拽；三指轻点中键；三/四指切换；锁定 控制/选项/命令/Shift 组合使用，锁定 Shift 可框选一段。应用窗口投屏：轻点即点击，双击/三击重复，按住并移动即拖拽，长按或双指轻点为右键；双指上下滑滚动 Mac、左右滑移动画面；捏合缩放；双指双击放大到该位置；三指拖动自由移动画面。"
           }
         }
       }
@@ -9481,6 +9481,261 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新连接后再试。"
+          }
+        }
+      }
+    },
+    "Gestures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestures"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手势"
+          }
+        }
+      }
+    },
+    "Keep one finger down and move to drag on the Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep one finger down and move to drag on the Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单指按住并移动，即在 Mac 上拖拽"
+          }
+        }
+      }
+    },
+    "Press and hold, or two-finger tap, for right-click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press and hold, or two-finger tap, for right-click"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "长按或双指轻点 = 右键"
+          }
+        }
+      }
+    },
+    "Two fingers up or down to scroll the Mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two fingers up or down to scroll the Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双指上下滑 = 滚动 Mac"
+          }
+        }
+      }
+    },
+    "Two fingers sideways to move the view": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two fingers sideways to move the view"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双指左右滑 = 移动画面"
+          }
+        }
+      }
+    },
+    "Pinch to zoom, keeping the point between your fingers in place": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinch to zoom, keeping the point between your fingers in place"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捏合缩放，两指之间的位置保持不动"
+          }
+        }
+      }
+    },
+    "Two-finger double-tap to zoom in on that spot; tap again to fit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two-finger double-tap to zoom in on that spot; tap again to fit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双指双击 = 放大到该位置；再双击恢复整屏"
+          }
+        }
+      }
+    },
+    "Three fingers to move the view in both directions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three fingers to move the view in both directions"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三指拖动 = 上下左右移动画面"
+          }
+        }
+      }
+    },
+    "See all gestures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "See all gestures"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看全部手势"
+          }
+        }
+      }
+    },
+    "Tap to click · Two-finger scroll · Pinch to zoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to click · Two-finger scroll · Pinch to zoom"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点即点击 · 双指滚动 · 捏合缩放"
+          }
+        }
+      }
+    },
+    "Tap & drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap & drag"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点与拖动"
+          }
+        }
+      }
+    },
+    "Scroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scroll"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滚动"
+          }
+        }
+      }
+    },
+    "Move & zoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move & zoom"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动与缩放"
+          }
+        }
+      }
+    },
+    "Three fingers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three fingers"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三指"
+          }
+        }
+      }
+    },
+    "Tap a spot to click it there; double- or triple-tap for a double or triple click": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap a spot to click it there; double- or triple-tap for a double or triple click"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轻点哪个位置就点哪里；双击/三击 = 双击/三击"
           }
         }
       }

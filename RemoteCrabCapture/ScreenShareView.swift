@@ -82,6 +82,9 @@ struct ScreenShareView: View {
     @State private var chromeVisible = false
     @AppStorage("remotecrab.ios.screenFill") private var fillsViewStored = false
     @AppStorage("remotecrab.ios.screenGuideShown") private var guideShown = false
+    /// Opens the complete gesture reference, which lives outside the mirror
+    /// so it can stay re-readable long after this one-shot hint is gone.
+    @State private var showFullGuide = false
 
     /// shift=1, control=2, option=4, command=8 — matches `TouchEvent`.
     private var modifierMask: UInt8 {
@@ -385,6 +388,11 @@ struct ScreenShareView: View {
 
     /// First-use hint. Non-blocking: only the card itself is hit-testable,
     /// so the mirror still responds everywhere else.
+    ///
+    /// Its job is DISCOVERY, so it stays to the three gestures that make the
+    /// surface make sense; the complete reference (both surfaces, every
+    /// gesture, re-readable any time) is one tap away. Cramming all of them
+    /// in here is what made this line unreadable in the first place.
     private var coachMark: some View {
         VStack(spacing: 10) {
             Text(IBLocale.Mirror.guideTitle)
@@ -394,20 +402,35 @@ struct ScreenShareView: View {
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text(IBLocale.Mirror.windowPickerHint)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.65))
                 .multilineTextAlignment(.center)
-            Button {
-                guideShown = true
-            } label: {
-                Text(IBLocale.Mirror.gotIt)
-                    .font(IBFont.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background { Capsule().fill(Color.accentColor) }
-                    .contentShape(Capsule())
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button {
+                    showFullGuide = true
+                } label: {
+                    Text(IBLocale.Coach.seeAll)
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(.ultraThinMaterial) }
+                        .contentShape(Capsule())
+                }
+                Button {
+                    guideShown = true
+                } label: {
+                    Text(IBLocale.Mirror.gotIt)
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.accentColor) }
+                        .contentShape(Capsule())
+                }
             }
         }
         .padding(16)
@@ -415,6 +438,9 @@ struct ScreenShareView: View {
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showFullGuide) {
+            TrackpadGuideView(surface: .mirror)
         }
     }
 }
