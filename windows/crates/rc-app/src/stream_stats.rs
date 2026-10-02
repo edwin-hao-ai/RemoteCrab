@@ -410,7 +410,15 @@ fn t(zh: &str, en: &str) -> String {
 mod readout_tests {
     use super::*;
 
-    fn label(rows: &[(String, String)], want: &str) -> Option<String> {
+    /// Look a row up by the label the *reader's* locale shows.
+    ///
+    /// Hardcoding the English label here made these tests pass only on an
+    /// English-language machine: on a Chinese Windows the row is labelled
+    /// 「分辨率」, the lookup found nothing, and the tests failed while the
+    /// code was right. A test that only passes in one locale is worse than no
+    /// test — it reads as a defect report and is really a broken assertion.
+    fn label(rows: &[(String, String)], zh: &str, en: &str) -> Option<String> {
+        let want = crate::i18n::t(zh, en);
         rows.iter().find(|(l, _)| l == want).map(|(_, v)| v.clone())
     }
 
@@ -437,10 +445,19 @@ mod readout_tests {
             pps: None,
         });
         let rows = detail_rows(&s);
-        assert_eq!(label(&rows, "iPhone").as_deref(), Some("iPhone"));
-        assert_eq!(label(&rows, "Resolution").as_deref(), Some("1080x1920"));
-        assert_eq!(label(&rows, "Frame rate").as_deref(), Some("30 fps"));
-        assert_eq!(label(&rows, "Bitrate").as_deref(), Some("2.4 Mbps"));
+        assert_eq!(label(&rows, "iPhone", "iPhone").as_deref(), Some("iPhone"));
+        assert_eq!(
+            label(&rows, "分辨率", "Resolution").as_deref(),
+            Some("1080x1920")
+        );
+        assert_eq!(
+            label(&rows, "帧率", "Frame rate").as_deref(),
+            Some("30 fps")
+        );
+        assert_eq!(
+            label(&rows, "码率", "Bitrate").as_deref(),
+            Some("2.4 Mbps")
+        );
     }
 
     #[test]
@@ -464,8 +481,8 @@ mod readout_tests {
             timestamp_micros: 0,
         });
         let rows = detail_rows(&s);
-        assert_eq!(label(&rows, "Last key").as_deref(), Some("a"));
-        assert_eq!(label(&rows, "Cursor").as_deref(), Some("0, 0"));
+        assert_eq!(label(&rows, "最后按键", "Last key").as_deref(), Some("a"));
+        assert_eq!(label(&rows, "光标", "Cursor").as_deref(), Some("0, 0"));
     }
 
     /// The sparkline sits in a menu row, which cannot reflow (AGENTS.md

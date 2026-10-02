@@ -38,10 +38,60 @@ if [[ -z "$EXE" || ! -f "$EXE" ]]; then
 fi
 
 OBJDUMP="$(command -v x86_64-w64-mingw32-objdump || command -v llvm-objdump || true)"
-if [[ -z "$OBJDUMP" ]]; then
-    echo "need x86_64-w64-mingw32-objdump (brew install mingw-w64) or llvm-objdump" >&2
+
+# `dumpbin` ships with Visual Studio Build Tools. Looking for it on PATH is not
+# enough: nobody puts the MSVC bin directory on PATH permanently, so this
+# script could not run on Windows at all — and the check that decides whether a
+# release is shippable would only ever run on a Mac, with the MSVC path it
+# recommends never actually measured.
+#
+# `vswhere` is asked where the tools are rather than a path being written down:
+# the MSVC version directory changes with every VS update, and a hardcoded one
+# breaks on the next machine.
+find_dumpbin() {
+    local found
+    found="$(command -v dumpbin.exe || command -v dumpbin || true)"
+    [[ -n "$found" ]] && { echo "$found"; return 0; }
+
+    local vswhere="${VSWHERE:-/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe}"
+    if [[ -f "$vswhere" ]]; then
+        local vs
+        vs="$("$vswhere" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+              -property installationPath 2>/dev/null | tr -d '\r' | head -1)"
+        if [[ -n "$vs" ]]; then
+            # The VC tools directory is versioned; ask the filesystem rather
+            # than picking one, and take the newest.
+            local tool
+            tool="$(ls -1d "$vs"/VC/Tools/MSVC/*/bin/Hostx64/x64 2>/dev/null | sort -V | tail -1)"
+            [[ -n "$tool" && -f "$tool/dumpbin.exe" ]] && { echo "$tool/dumpbin.exe"; return 0; }
+        fi
+    fi
+    echo ""
+}
+DUMPBIN="$(find_dumpbin)"
+
+if [[ -z "$OBJDUMP" && -z "$DUMPBIN" ]]; then
+    echo "need one of: x86_64-w64-mingw32-objdump (brew install mingw-w64)," >&2
+    echo "             llvm-objdump, or dumpbin (Visual Studio Build Tools)" >&2
     exit 1
 fi
+
+# One DLL name per line, whatever the tool.
+list_dlls() {
+    if [[ -n "$OBJDUMP" ]]; then
+        "$OBJDUMP" -p "$EXE" | sed -n 's/.*DLL Name: //p'
+    else
+        # `dumpbin /dependents` prints the names indented under a blank line,
+        # one per line, with no "DLL Name:" prefix.
+        #
+        # `MSYS_NO_PATHCONV` stops Git-Bash from rewriting the leading `/` into
+        # a Windows path (`C:\Program Files\Git\dependents`), which otherwise
+        # makes dumpbin fail with LNK1181 and yield an empty list.
+        MSYS_NO_PATHCONV=1 "$DUMPBIN" /dependents "$EXE" \
+            | tr -d '\r' \
+            | sed -n 's/^[[:space:]][[:space:]]*\([A-Za-z0-9_.+-]*\.dll\)[[:space:]]*$/\1/p'
+    fi
+}
 
 DIR="$(cd "$(dirname "$EXE")" && pwd)"
 
@@ -64,10 +114,23 @@ in_box() {
 }
 
 echo "remotecrab.exe: $EXE"
-"$OBJDUMP" -p "$EXE" | sed -n 's/.*DLL Name: //p' | tr -d '\r' | sort -u > /tmp/rc-dlls.txt
+list_dlls | sort -u > /tmp/rc-dlls.txt
 total=$(wc -l < /tmp/rc-dlls.txt | tr -d ' ')
 echo "imports: $total DLLs"
 echo
+
+# Zero imports is not a pass. It is the tool failing in a way that looks like a
+# clean bill of health — Git-Bash mangling a flag, a dumpbin that printed an
+# error to stderr, a wrong file — and this script is the gate that decides
+# whether a release can be shipped. A gate that reports OK because it read
+# nothing is worse than no gate: it converts into a green mark.
+if [[ "$total" -lt 5 ]]; then
+    echo "FAIL: parsed only $total DLL name(s) from $EXE." >&2
+    echo "      A real remotecrab.exe imports at least KERNEL32, USER32 and" >&2
+    echo "      WS2_32. Fewer than five means the listing tool failed, not" >&2
+    echo "      that the binary is self-contained." >&2
+    exit 1
+fi
 
 missing=0
 ship=()
