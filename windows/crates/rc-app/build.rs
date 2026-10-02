@@ -35,6 +35,15 @@ fn main() {
         );
     }
 
+    // Which artifact `winres` leaves behind is a property of the *resource
+    // compiler*, not of ours: GNU `windres` writes a relocatable object
+    // (`resource.o`), Microsoft's `rc.exe` writes an import-style archive
+    // (`resource.lib`). Both exit 0, so a check that only knows about one of
+    // them silently passes on the wrong toolchain and then ships an exe with
+    // no icon and no version.
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let gnu = target_env == "gnu";
+
     let version = std::env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
     // `FileVersion` is a 4×16-bit integer: major.minor.build.patch. A
     // semver with a pre-release (`1.0.0-rc1`) has to be squeezed in or the
@@ -44,7 +53,7 @@ fn main() {
 
     let mut res = winres::WindowsResource::new();
     res.set_icon(icon.to_str().expect("icon path is not UTF-8"));
-    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("gnu") {
+    if gnu {
         // `winres` defaults to a *bare* `windres` / `ar`, which a MinGW-w64
         // install does not put on PATH — Homebrew ships only the
         // target-prefixed ones. So a GNU build from a Mac or a Linux CI box
@@ -72,17 +81,23 @@ fn main() {
         return;
     }
 
-    // `winres` finishes by archiving `resource.o` into `libresource.a` and
-    // asking for `-l static=resource`. That does not work: a member of a
-    // static archive is only pulled in when it resolves an undefined symbol,
-    // and `resource.o` defines none — it contributes sections and nothing
-    // else. The link therefore succeeds, silently, and ships a binary with no
-    // icon and no version.
+    // `winres` finishes by archiving the resource object into `libresource.a`
+    // (GNU) or `resource.lib` (MSVC) and asking for `-l static=resource` /
+    // `-l dylib=resource`. On GNU that does not work: a member of a static
+    // archive is only pulled in when it resolves an undefined symbol, and
+    // `resource.o` defines none — it contributes sections and nothing else.
+    // The link therefore succeeds, silently, and ships a binary with no icon
+    // and no version.
     //
     // Passing the object file itself forces it in. (Verified by looking for a
     // `.rsrc` section in the built .exe, because nothing warns about this.)
+    //
+    // MSVC needs no such help — `link.exe` always includes the resource
+    // archive `winres` asked for — and adding our own second copy would put
+    // two `.rsrc` sections in one image.
     let out = std::env::var("OUT_DIR").expect("OUT_DIR");
-    let obj = std::path::Path::new(&out).join("resource.o");
+    let artifact = resource_artifact(&target_env);
+    let obj = std::path::Path::new(&out).join(artifact);
     if !obj.exists() {
         panic!(
             "winres reported success but {} is missing — the .exe would ship \
@@ -90,7 +105,23 @@ fn main() {
             obj.display()
         );
     }
-    println!("cargo:rustc-link-arg={}", obj.display());
+    if gnu {
+        println!("cargo:rustc-link-arg-bins={}", obj.display());
+    }
+}
+
+/// The file `winres` leaves in `OUT_DIR` for a given Rust target env.
+///
+/// A wrong answer here is invisible until someone reads the wrong number in
+/// Explorer's Properties dialog, so it is a named function with tests rather
+/// than a string inline at the use site.
+fn resource_artifact(target_env: &str) -> &'static str {
+    match target_env {
+        // Microsoft's `rc.exe` is always given `/fo resource.lib`.
+        "msvc" => "resource.lib",
+        // GNU `windres` emits `resource.o`, which `winres` then archives.
+        _ => "resource.o",
+    }
 }
 
 /// The MinGW-w64 tool prefix for a Rust target.
@@ -163,7 +194,23 @@ fn numeric_version(version: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::numeric_version;
+    use super::{numeric_version, resource_artifact};
+
+    /// The failure this prevents: an MSVC build that links cleanly and ships
+    /// an exe with no icon, because the guard was looking for the GNU artifact
+    /// name in a directory that only ever gets the MSVC one.
+    #[test]
+    fn each_toolchain_is_checked_for_the_artifact_it_actually_writes() {
+        assert_eq!(resource_artifact("msvc"), "resource.lib");
+        assert_eq!(resource_artifact("gnu"), "resource.o");
+    }
+
+    /// An unknown env must not resolve to `None` and skip the check.
+    #[test]
+    fn an_unrecognised_env_still_gets_an_assertion() {
+        assert_eq!(resource_artifact(""), "resource.o");
+        assert_eq!(resource_artifact("uclibc"), "resource.o");
+    }
 
     #[test]
     fn plain_semver_gets_a_zero_build_component() {

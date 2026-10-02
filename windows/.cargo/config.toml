@@ -1,0 +1,20 @@
+# How the Windows build is configured.
+#
+# Scoped to the MSVC target on purpose. `[build] rustflags` would also apply to
+# build scripts — which are compiled for the *host* — and a host built with a
+# different CRT than the artifact is a confusing way to spend an afternoon.
+
+[target.x86_64-pc-windows-msvc]
+# `crt-static` is the whole reason to prefer MSVC here.
+#
+# Measured on this box with `scripts/check-windows-deps.sh`, an MSVC build
+# without this imports `VCRUNTIME140.dll`. That file is *not* part of Windows:
+# it arrives with the Visual C++ redistributable, so on a clean machine with no
+# MSVC application ever installed the process fails to start — with no message
+# a user can act on. The MinGW build had the same shape of problem
+# (`libstdc++-6.dll`), so switching toolchains does not fix it on its own.
+#
+# The cost is that the CRT stops receiving Windows Update patches, which is the
+# real trade-off. The alternative is to ship `vc_redist.x64.exe` from the
+# installer, and then this flag should be removed rather than left redundant.
+rustflags = ["-C", "target-feature=+crt-static"]
