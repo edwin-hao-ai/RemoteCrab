@@ -82,6 +82,9 @@ struct ScreenShareView: View {
     @State private var chromeVisible = false
     @AppStorage("remotecrab.ios.screenFill") private var fillsViewStored = false
     @AppStorage("remotecrab.ios.screenGuideShown") private var guideShown = false
+    /// Opens the complete gesture reference, which lives outside the mirror
+    /// so it can stay re-readable long after this one-shot hint is gone.
+    @State private var showFullGuide = false
 
     /// shift=1, control=2, option=4, command=8 — matches `TouchEvent`.
     private var modifierMask: UInt8 {
@@ -123,8 +126,23 @@ struct ScreenShareView: View {
                 rebuild(size: geo.size, reset: true)
             }
             .onChange(of: geo.size) { _, size in rebuild(size: size) }
-            .onChange(of: info) { _, _ in rebuild(size: geo.size, reset: true) }
+            .onChange(of: viewportKey) { _, _ in rebuild(size: geo.size, reset: true) }
         }
+    }
+
+    /// Identity of the thing being mirrored, for deciding whether a new
+    /// `screenInfo` should throw the user's zoom and pan away.
+    ///
+    /// `screenInfo` is republished every time the window *moves* (the Mac
+    /// re-reads its global frame on a 1 s timer so taps keep tracking), and
+    /// `CaptureEngine` assigns every one of them. Resetting the viewport on
+    /// all of them silently undid the user's pinch on a window that had not
+    /// even changed — only a different window or a different capture
+    /// resolution needs a fresh viewport, and that is exactly what the
+    /// engine already computes to reset the decoder.
+    private var viewportKey: String {
+        guard let info else { return "-" }
+        return "\(info.windowId ?? "-")@\(info.pixelWidth)x\(info.pixelHeight)"
     }
 
     /// Rebuild the pure viewport model for the current window + view
@@ -370,6 +388,11 @@ struct ScreenShareView: View {
 
     /// First-use hint. Non-blocking: only the card itself is hit-testable,
     /// so the mirror still responds everywhere else.
+    ///
+    /// Its job is DISCOVERY, so it stays to the three gestures that make the
+    /// surface make sense; the complete reference (both surfaces, every
+    /// gesture, re-readable any time) is one tap away. Cramming all of them
+    /// in here is what made this line unreadable in the first place.
     private var coachMark: some View {
         VStack(spacing: 10) {
             Text(IBLocale.Mirror.guideTitle)
@@ -379,20 +402,35 @@ struct ScreenShareView: View {
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text(IBLocale.Mirror.windowPickerHint)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.65))
                 .multilineTextAlignment(.center)
-            Button {
-                guideShown = true
-            } label: {
-                Text(IBLocale.Mirror.gotIt)
-                    .font(IBFont.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background { Capsule().fill(Color.accentColor) }
-                    .contentShape(Capsule())
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button {
+                    showFullGuide = true
+                } label: {
+                    Text(IBLocale.Coach.seeAll)
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(.ultraThinMaterial) }
+                        .contentShape(Capsule())
+                }
+                Button {
+                    guideShown = true
+                } label: {
+                    Text(IBLocale.Mirror.gotIt)
+                        .font(IBFont.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.accentColor) }
+                        .contentShape(Capsule())
+                }
             }
         }
         .padding(16)
@@ -400,6 +438,9 @@ struct ScreenShareView: View {
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.ultraThinMaterial)
+        }
+        .sheet(isPresented: $showFullGuide) {
+            TrackpadGuideView(surface: .mirror)
         }
     }
 }
@@ -455,9 +496,9 @@ struct ScreenGestureOverlay: UIViewRepresentable {
             binding.wrappedValue = s
         }
 
-        func setZoom(_ zoom: Double) {
+        func setZoom(_ zoom: Double, anchor: CGPoint?) {
             var s = binding.wrappedValue
-            s.setZoom(zoom)
+            s.setZoom(zoom, anchor: anchor)
             binding.wrappedValue = s
         }
 
@@ -467,8 +508,12 @@ struct ScreenGestureOverlay: UIViewRepresentable {
             binding.wrappedValue = s
         }
 
-        func twoFinger(translation: CGSize) -> ScreenZoomState.TwoFingerResult {
-            binding.wrappedValue.twoFinger(translation: translation)
+        func twoFinger(axis: ScreenDragAxis, translation: CGSize) -> ScreenZoomState.TwoFingerResult {
+            binding.wrappedValue.twoFinger(axis: axis, translation: translation)
+        }
+
+        func panGesture(translation: CGSize) -> ScreenZoomState.TwoFingerResult {
+            binding.wrappedValue.panGesture(translation: translation)
         }
 
         func contentUV(for point: CGPoint) -> (u: Double, v: Double)? {
@@ -487,6 +532,21 @@ struct ScreenGestureOverlay: UIViewRepresentable {
                                   clickCount: clickCount,
                                   timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)))
         }
+
+        /// A scroll needs no position: the mirror shows exactly one window,
+        /// so the Mac does not have to be told where to scroll — and sending
+        /// a position is what used to drag the Mac's cursor away from the
+        /// button the user was aiming at. `.scroll` is therefore never
+        /// dropped for landing on the letterbox, which is where a
+        /// two-finger swipe usually starts when the window is letterboxed.
+        func sendScroll(dx: Float, dy: Float) {
+            onInput(IBScreenInput(action: .scroll,
+                                  u: 0.5, v: 0.5,
+                                  dx: dx, dy: dy,
+                                  modifiers: modifierMask,
+                                  clickCount: 1,
+                                  timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)))
+        }
     }
 
     final class ScreenGestureView: UIView, UIGestureRecognizerDelegate {
@@ -499,6 +559,7 @@ struct ScreenGestureOverlay: UIViewRepresentable {
         private let singlePan = UIPanGestureRecognizer()
         private let longPress = UILongPressGestureRecognizer()
         private let twoFingerPan = UIPanGestureRecognizer()
+        private let threeFingerPan = UIPanGestureRecognizer()
         private let twoFingerTap = UITapGestureRecognizer()
         private let twoFingerDoubleTap = UITapGestureRecognizer()
         private let pinch = UIPinchGestureRecognizer()
@@ -509,11 +570,15 @@ struct ScreenGestureOverlay: UIViewRepresentable {
         /// True while a long-press right-click owns the current touch, so
         /// the single-finger pan/tap don't also fire.
         private var rightClickActive = false
-        /// A two-finger swipe does ONE thing for its whole lifetime —
-        /// `.scroll` (fit zoom) or `.pan` (zoomed in / fill) — latched at
-        /// `.began` so a swipe never flips mid-way.
-        private enum TwoFingerMode { case scroll, pan }
-        private var twoFingerMode: TwoFingerMode?
+        /// A two-finger swipe does ONE thing for its whole lifetime, chosen
+        /// once from the accumulated travel: a **scroll** on the locked axis
+        /// or a **pan** on the other. Latching it at `.began` from the zoom
+        /// level was wrong twice over — it made a zoomed mirror impossible
+        /// to scroll (「双指上下滚动失灵，被感应成拖动镜像」), and because the
+        /// first pinch starts at zoom 1 it made *pinching* scroll the remote
+        /// app too.
+        private var twoFingerAxis: ScreenDragAxis = .undecided
+        private var twoFingerTravel: CGSize = .zero
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -548,6 +613,14 @@ struct ScreenGestureOverlay: UIViewRepresentable {
             twoFingerPan.maximumNumberOfTouches = 2
             twoFingerPan.addTarget(self, action: #selector(handleTwoFingerPan))
 
+            // Free 2-axis viewport pan. Two fingers are axis-locked (one of
+            // them has to mean "scroll the app"), so panning needs its own
+            // gesture — and three fingers is the one that cannot collide
+            // with anything else on the surface.
+            threeFingerPan.minimumNumberOfTouches = 3
+            threeFingerPan.maximumNumberOfTouches = 3
+            threeFingerPan.addTarget(self, action: #selector(handleThreeFingerPan))
+
             twoFingerTap.numberOfTouchesRequired = 2
             twoFingerTap.addTarget(self, action: #selector(handleTwoFingerTap))
 
@@ -571,7 +644,8 @@ struct ScreenGestureOverlay: UIViewRepresentable {
             twoFingerTap.require(toFail: twoFingerDoubleTap)
 
             for g in [singleTap, doubleTap, tripleTap, singlePan, longPress,
-                      twoFingerPan, twoFingerTap, twoFingerDoubleTap, pinch] as [UIGestureRecognizer] {
+                      twoFingerPan, threeFingerPan, twoFingerTap, twoFingerDoubleTap,
+                      pinch] as [UIGestureRecognizer] {
                 g.cancelsTouchesInView = false
                 g.delegate = self
                 addGestureRecognizer(g)
@@ -607,7 +681,11 @@ struct ScreenGestureOverlay: UIViewRepresentable {
                 lastUV = coordinator.contentUV(for: dragStartPoint)
             case .changed:
                 let moved = hypot(point.x - dragStartPoint.x, point.y - dragStartPoint.y)
-                if !dragStarted, moved > 10 {
+                // The slop is a CONTENT distance, so it grows with the zoom:
+                // a fixed 10 view points is only 2.5 content points at 4×,
+                // which is a real drag on the Mac — a slightly-off tap on a
+                // button became a drag-select instead of a click.
+                if !dragStarted, moved > (coordinator.state.dragSlop) {
                     dragStarted = true
                     let startUV = coordinator.contentUV(for: dragStartPoint)
                     if let startUV {
@@ -652,41 +730,89 @@ struct ScreenGestureOverlay: UIViewRepresentable {
 
         // MARK: - Two finger
 
+        /// Two fingers: ONE axis for the whole gesture, decided from the
+        /// accumulated travel. The locked axis scrolls the Mac; the other
+        /// pans the viewport when there is room, and scrolls when there
+        /// isn't. See `ScreenDragAxis` for why vertical wins a near-tie.
         @objc private func handleTwoFingerPan(_ g: UIPanGestureRecognizer) {
             guard let coordinator else { return }
-            let point = g.location(in: self)
             switch g.state {
             case .began:
                 g.setTranslation(.zero, in: self)
-                // Latch the mode for the WHOLE gesture. Previously each
-                // delta was classified on its own, so a zoomed swipe panned
-                // until it hit the edge and then became a remote scroll —
-                // "滚动着就变成了移动屏幕". One swipe now does one thing.
-                let zoomedIn = coordinator.state.zoom > 1.05 || coordinator.state.fillsView
-                twoFingerMode = zoomedIn ? .pan : .scroll
+                twoFingerAxis = .undecided
+                twoFingerTravel = .zero
+            case .changed:
+                let t = g.translation(in: self)
+                // Always consume the translation, even while yielding: leaving
+                // it banked would hand the pinch's centroid drift to the axis
+                // lock as one huge delta the moment the pinch ended.
+                g.setTranslation(.zero, in: self)
+                // The pinch owns both fingers while it is running. Letting the
+                // pan run too meant a pinch whose centroid drifted also
+                // scrolled or panned the view — the user asked to magnify and
+                // got a transform nobody asked for.
+                guard pinch.state != .began, pinch.state != .changed else { return }
+                twoFingerTravel.width += t.x
+                twoFingerTravel.height += t.y
+                let axisJustLocked = twoFingerAxis == .undecided
+                if twoFingerAxis == .undecided {
+                    twoFingerAxis = ScreenDragAxis.decide(twoFingerTravel)
+                    if axisJustLocked {
+                        Forensic.log("[mirror] two-finger latched \(axisLogName(twoFingerAxis))"
+                            + " travel=(\(Int(twoFingerTravel.width)),\(Int(twoFingerTravel.height)))"
+                            + " zoom=\(String(format: "%.2f", coordinator.state.zoom))"
+                            + " canPanX=\(coordinator.state.canPanHorizontally)")
+                    }
+                }
+                let result = coordinator.twoFinger(
+                    axis: twoFingerAxis,
+                    translation: CGSize(width: t.x, height: t.y))
+                coordinator.commitPan(result.pan)
+                if result.isScroll {
+                    coordinator.sendScroll(dx: Float(result.scrollDX),
+                                           dy: Float(result.scrollDY))
+                }
+            default:
+                twoFingerAxis = .undecided
+                twoFingerTravel = .zero
+            }
+        }
+
+        /// Three fingers: free 2-axis viewport pan, handing off to a scroll
+        /// once an edge is reached (so a pan that runs out of room still
+        /// does something useful).
+        @objc private func handleThreeFingerPan(_ g: UIPanGestureRecognizer) {
+            guard let coordinator else { return }
+            switch g.state {
+            case .began:
+                g.setTranslation(.zero, in: self)
             case .changed:
                 let t = g.translation(in: self)
                 g.setTranslation(.zero, in: self)
-                let delta = CGSize(width: t.x, height: t.y)
-                switch twoFingerMode ?? .scroll {
-                case .scroll:
-                    let w = max(1, bounds.width), h = max(1, bounds.height)
-                    coordinator.send(.scroll,
-                                     uv: coordinator.contentUV(for: point),
-                                     dx: Float(delta.width / w),
-                                     dy: Float(delta.height / h))
-                case .pan:
-                    let result = coordinator.twoFinger(translation: delta)
-                    coordinator.commitPan(result.pan)
-                    if result.isScroll {
-                        coordinator.send(.scroll,
-                                         uv: coordinator.contentUV(for: point),
-                                         dx: Float(result.scrollDX),
-                                         dy: Float(result.scrollDY))
-                    }
+                // A three-finger drag is not a magnifier: UIPinch also tracks
+                // three touches, and letting it run would drift the zoom on
+                // every pan.
+                guard pinch.state != .began, pinch.state != .changed else { return }
+                let result = coordinator.panGesture(
+                    translation: CGSize(width: t.x, height: t.y))
+                coordinator.commitPan(result.pan)
+                if result.isScroll {
+                    coordinator.sendScroll(dx: Float(result.scrollDX),
+                                           dy: Float(result.scrollDY))
                 }
             default:
-                twoFingerMode = nil
+                break
+            }
+        }
+
+        /// Marker-friendly name for the latched axis. The whole point of the
+        /// latch is that it is invisible until it is wrong, so it has to be
+        /// observable from the device log.
+        private func axisLogName(_ axis: ScreenDragAxis) -> String {
+            switch axis {
+            case .undecided: return "undecided"
+            case .horizontal: return "horizontal"
+            case .vertical: return "vertical"
             }
         }
 
@@ -700,7 +826,28 @@ struct ScreenGestureOverlay: UIViewRepresentable {
 
         @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
             guard let coordinator else { return }
-            coordinator.setZoom(coordinator.state.zoom * Double(g.scale))
+            // Anchor on the point BETWEEN the two fingers. Zooming about the
+            // view centre instead made the thing you were pinching slide out
+            // from under your fingertips — measured at 168 pt for a 2× pinch
+            // near the top-left of the content, usually off the screen
+            // entirely — so afterwards there was no button left to hit.
+            // `ScreenZoomState.setZoom(_:anchor:)` already does this and is
+            // tested; the pinch path simply never called it.
+            let anchor = g.location(in: self)
+            if g.state == .began {
+                Forensic.log("[mirror] pinch began anchor=(\(Int(anchor.x)),\(Int(anchor.y)))"
+                    + " zoom=\(String(format: "%.2f", coordinator.state.zoom))"
+                    + " rect=\(Int(coordinator.state.displayedContentRect.minX)),\(Int(coordinator.state.displayedContentRect.minY))"
+                    + " \(Int(coordinator.state.displayedContentRect.width))x\(Int(coordinator.state.displayedContentRect.height))")
+            }
+            coordinator.setZoom(coordinator.state.zoom * Double(g.scale),
+                                anchor: anchor)
+            if g.state == .ended {
+                Forensic.log("[mirror] pinch ended zoom=\(String(format: "%.2f", coordinator.state.zoom))"
+                    + " rect=\(Int(coordinator.state.displayedContentRect.minX)),\(Int(coordinator.state.displayedContentRect.minY))"
+                    + " \(Int(coordinator.state.displayedContentRect.width))x\(Int(coordinator.state.displayedContentRect.height))"
+                    + " slop=\(Int(coordinator.state.dragSlop))")
+            }
             g.scale = 1
         }
 

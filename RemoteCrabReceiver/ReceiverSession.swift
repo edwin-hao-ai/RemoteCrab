@@ -457,6 +457,11 @@ final class ReceiverSession: ObservableObject {
     private func handleScreenControl(_ control: IBScreenControl) {
         switch control.command {
         case .start:
+            // A new session invalidates the injector's "the cursor is
+            // already inside the window" memory: the user may have moved
+            // their own mouse to another app since the last session, so the
+            // first scroll would land over there.
+            inputInjector.resetMirrorCursor()
             ensureScreenStreamer()
             screenStreamer?.setMaxPixel(control.maxPixel)
             screenStreamer?.start()
@@ -1497,6 +1502,10 @@ final class ReceiverSession: ObservableObject {
         screenStreamer?.stop()
         screenStreamer = nil
         lastScreenInfo = nil
+        // The injector outlives the connection, so drop its mirror-cursor
+        // memory too — the user's own mouse may have moved the cursor to a
+        // different app while we were disconnected.
+        inputInjector.resetMirrorCursor()
         stopNotificationRelay()
         broadcaster = nil
         connection = nil

@@ -104,4 +104,31 @@ final class ScreenMirrorWireTests: XCTestCase {
         XCTAssertEqual(injector.screens.count, 1)
         XCTAssertEqual(injector.screens.first?.action, .click)
     }
+
+    /// The cursor-placement memory must not survive a session boundary.
+    ///
+    /// `CGEventInjector` is a long-lived property on `ReceiverSession`, so a
+    /// flag that says "the cursor is already inside the mirrored window"
+    /// outlives the connection. While it is set, a scroll deliberately does
+    /// NOT move the cursor — which is the fix for the pointer jumping to the
+    /// finger. But if the user moved their own mouse to another app while we
+    /// were disconnected, that remembered "yes it's in the window" is a lie,
+    /// and the new session's first scroll lands in the wrong app. A test that
+    /// only ever makes ONE connection cannot see this (lesson 8).
+    func testResettingTheMirrorCursorSpansASessionBoundary() {
+        let injector = RecordingInputInjector()
+        XCTAssertFalse(injector.hasMirrorCursor, "a fresh injector has placed nothing")
+
+        injector.inject(screenInput: IBScreenInput(action: .click, u: 0.5, v: 0.5),
+                        windowOrigin: .zero, windowSize: CGSize(width: 800, height: 400))
+        XCTAssertTrue(injector.hasMirrorCursor, "a click puts the cursor in the window")
+
+        injector.inject(screenInput: IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05),
+                        windowOrigin: .zero, windowSize: CGSize(width: 800, height: 400))
+        XCTAssertTrue(injector.hasMirrorCursor, "scrolling must not invalidate it")
+
+        injector.resetMirrorCursor()
+        XCTAssertFalse(injector.hasMirrorCursor,
+                       "a new session must re-place the cursor on its first scroll")
+    }
 }

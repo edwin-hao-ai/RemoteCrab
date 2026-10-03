@@ -97,9 +97,30 @@ env REMOTECRAB_E2E_RECORD=1 REMOTECRAB_DEBUG_NOTIFY=1 REMOTECRAB_E2E_NOTIFY_RELA
     /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
 disown 2>/dev/null || true
 sleep 3
-xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
+# Do NOT swallow the launch result. A locked iPhone makes devicectl fail
+# with "Unable to launch … because the device was not, or could not be,
+# unlocked", and when that output is discarded the run continues to the
+# assertions — where the app simply never started, so EVERY marker is
+# missing and the suite reports ~24 product failures for what is really one
+# precondition. Worse, the phone's forensic.log is APPENDED, so a stale
+# file from an earlier run can satisfy an assertion and report a false PASS.
+# Fail loudly here instead.
+LAUNCH_OUT=$(xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
   --environment-variables '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_MIC":"1","REMOTECRAB_E2E_INPUT":"1","REMOTECRAB_E2E_SEND_FILE":"1","REMOTECRAB_E2E_CLIPBOARD":"1","REMOTECRAB_E2E_SWITCH":"com.apple.TextEdit","REMOTECRAB_E2E_SCREEN":"1","REMOTECRAB_E2E_SCREEN_INPUT":"1","REMOTECRAB_E2E_INSTALLED_APPS":"1","REMOTECRAB_E2E_DESKTOP":"1","REMOTECRAB_E2E_EXTEND":"1","REMOTECRAB_E2E_NOTIFY_TAP":"1"}' \
-  "$BUNDLE_IOS" >/dev/null 2>&1
+  "$BUNDLE_IOS" 2>&1)
+if [ $? -ne 0 ] || echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
+  echo "  ✗ could not launch the app on the iPhone:"
+  echo "$LAUNCH_OUT" | sed 's/^/      /' | head -20
+  if echo "$LAUNCH_OUT" | grep -qi "Locked"; then
+    echo ""
+    echo "  → UNLOCK THE IPHONE and keep the screen on, then re-run."
+    echo "    (iOS suspends the app while locked, so nothing it advertises"
+    echo "     is reachable and every assertion below would fail for that"
+    echo "     reason alone.)"
+  fi
+  exit 2
+fi
+echo "  launched OK"
 echo "  waiting 30s for the scripted run…"
 sleep 12
 # The relay needs a live session; fire a real banner and let it cross the
@@ -125,12 +146,32 @@ pkill -f "log stream --predicate" 2>/dev/null
 
 # Best-effort: pull the iPhone's forensic log so we can assert the mirror
 # actually DECODED on the device (not just that the Mac encoded + sent).
+#
+# The file is APPENDED, so it can hold lines from an EARLIER run — and a
+# stale marker then reports a false PASS for a feature this run never
+# exercised. Delete it first (the app recreates it on launch) and refuse to
+# use it if it predates the run: an iOS assertion that cannot be attributed
+# to this run must not count either way.
 IOS_LOG=/tmp/remotecrab-ios-forensic.log
 rm -f "$IOS_LOG"
 xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
   --domain-identifier "$BUNDLE_IOS" --source Documents/forensic.log \
   --destination "$IOS_LOG" >/dev/null 2>&1 || true
-[ -f "$IOS_LOG" ] && cat "$IOS_LOG" >> "$LOG"
+IOS_LOG_FRESH=1
+if [ -f "$IOS_LOG" ]; then
+  IOS_LOG_AGE=$(( $(date +%s) - $(stat -f %m "$IOS_LOG") ))
+  # Anything older than 10 minutes cannot be from this run.
+  if [ "$IOS_LOG_AGE" -gt 600 ]; then
+    IOS_LOG_FRESH=0
+    echo "  ⚠ the iPhone's forensic.log is ${IOS_LOG_AGE}s old — a previous run."
+    echo "    Its markers are NOT evidence for this run; iOS-side assertions are skipped."
+  else
+    cat "$IOS_LOG" >> "$LOG"
+  fi
+else
+  IOS_LOG_FRESH=0
+  echo "  ⚠ could not pull forensic.log; iOS-side assertions are skipped."
+fi
 
 echo "[5/5] assertions"
 check "sessionReply: accepted"            "iPhone accepted the Mac (handshake)"
@@ -147,8 +188,77 @@ check "screen mirror created"             "screen mirror requested (screenContro
 check "screenInfo status=ok"              "frontmost window resolved"
 check "streaming window"                  "ScreenCaptureKit stream started"
 check "screen frames sent:"               "mirror frames encoded + sent"
-check "first screen frame decoded OK"     "mirror frame decoded on iPhone"
+# This marker only ever appears in the PHONE's forensic log, so it is the
+# one assertion that proves the pixels reached the device. Gate it on the
+# log being from this run (see the freshness note above) so a leftover file
+# can't report a pass for a mirror this run never received.
+if [ "$IOS_LOG_FRESH" -eq 1 ]; then
+  check "first screen frame decoded OK"   "mirror frame decoded on iPhone"
+else
+  echo "  ⤼ SKIP mirror frame decoded on iPhone — forensic.log not attributable to this run"
+  skipped=$((skipped+1))
+fi
 check "-> global"                         "mirror input injected on Mac"
+# A scroll must never move the pointer while the cursor is already inside
+# the mirrored window: that teleporting was most of why "the pointer never
+# lands where I tapped".
+#
+# TWO traps this assertion has to avoid, both of which produced a
+# convincing wrong answer first:
+#
+#  1. Count, don't check for a marker — the old behaviour logged the same
+#     line three times.
+#  2. Scope the count to ONE target. This run also flips to the extended
+#     virtual display (REMOTECRAB_E2E_EXTEND), and when the mirror changes
+#     window the cursor legitimately must be re-placed — a second
+#     "placed" line is then correct, not a regression. So only consider the
+#     scrolls that arrive while the geometry still matches the window the
+#     click landed in.
+#  3. Require BOTH branches. Asserting only "left alone" passes trivially
+#     when the pre-click scroll is dropped before reaching the injector —
+#     a green run that proves nothing.
+#
+# `grep -c` prints "0" AND exits non-zero on no match, so `|| echo 0` would
+# append a second "0" and break the integer test.
+#  4. Count ONLY the Mac's injector lines. `$LOG` also has the phone's
+#     forensic log appended to it, and that file contains its own "screen
+#     input scroll" lines — counting the bare substring double-counts them
+#     and makes the arithmetic nonsense.
+# Correlate each scroll with the cursor decision that followed it, so this
+# asserts the REAL invariant rather than a positional guess. Read the
+# verified run:
+#   scroll 899x448   → placed      (nothing had placed it yet — correct)
+#   click  899x448   → places it
+#   scroll 899x448   → left alone  ← THE INVARIANT
+#   scroll 1920x1200 → placed      (different window, after the extend hook)
+# The last one is correct behaviour, not a regression: this run also flips
+# to the extended virtual display (REMOTECRAB_E2E_EXTEND), and a new window
+# genuinely needs the cursor placed in it again. So the assertion is
+# "exactly one scroll was left alone" — the post-click scroll in the window
+# the click landed in — rather than a global count.
+PRE_LEFT=0; POST_LEFT=0; PLACED=0; SEEN_CLICK=0; PENDING=""
+while IFS= read -r line; do
+  if [[ "$line" == *"screen input click"* ]]; then
+    SEEN_CLICK=1; PENDING=""
+  elif [[ "$line" == *"screen input scroll"* ]]; then
+    PENDING=scroll
+  elif [[ "$line" == *"mirror scroll: cursor placed"* ]]; then
+    PLACED=$((PLACED+1)); PENDING=""
+  elif [[ "$line" == *"mirror scroll: cursor left"* ]]; then
+    if [ "$SEEN_CLICK" -eq 1 ]; then POST_LEFT=$((POST_LEFT+1)); else PRE_LEFT=$((PRE_LEFT+1)); fi
+    PENDING=""
+  fi
+done < <(grep -a "com.remotecrab:injector" "$LOG" 2>/dev/null || true)
+# Require the click to have happened AND the post-click scroll to have been
+# left alone: before the fix every scroll moved the pointer, so POST_LEFT
+# was 0 and this fails loudly instead of passing vacuously.
+if [ "$SEEN_CLICK" -eq 1 ] && [ "$POST_LEFT" -ge 1 ]; then
+  printf '  \033[32m✓\033[0m %s\n' \
+    "scrolling never steals the cursor (post-click scroll left the pointer alone; $PLACED placement(s) were target changes)"; pass=$((pass+1))
+else
+  printf '  \033[31m✗\033[0m %s  (click seen=%s expected 1, post-click scrolls left alone=%s expected >=1, placed=%s)\n' \
+    "scrolling never steals the cursor" "$SEEN_CLICK" "$POST_LEFT" "$PLACED"; fail=$((fail+1))
+fi
 check "installed apps"                    "installed-app list published (Open App…)"
 check "showDesktop requested"             "Desktop quick action (showDesktop)"
 check "toggle extended display"           "Extended Display toggle fired (top-bar button path)"

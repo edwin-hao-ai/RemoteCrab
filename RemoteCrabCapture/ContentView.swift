@@ -803,7 +803,9 @@ struct ContentView: View {
                 }
                 Divider()
                 Button {
-                    engine.features.activeSurface = .trackpad
+                    // No longer forces the trackpad surface: the sheet is a
+                    // reference for BOTH surfaces now, so switching the
+                    // screen behind it would be noise.
                     showTrackpadGuide = true
                 } label: {
                     Label(IBLocale.Coach.title, systemImage: "hand.point.up.left.fill")

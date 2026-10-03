@@ -178,27 +178,82 @@ iOS 已经知道对面是什么系统 —— `hello.platform == "windows"`，
 
 ---
 
-## 5. 汇总：谁需要 Mac 编译
+## 5. 汇总：Mac 侧已完成（2026-10-03，`5c373a3`）
 
-| # | 事项 | 改哪里 | Mac 编译 | iOS 重构建 | 真机验证 |
-|---|---|---|---|---|---|
-| 1 | 情景模式 profile 匹配（方案 A，改 Swift） | `RemoteCrabCore/State/ContextProfiles.swift` | ✅ | ✅ | ✅ |
-| 2 | 情景模式 `AppInfo.appRef`（方案 B，改协议） | `IBEvents.swift` + `rc-protocol/events.rs` + `rc-os/apps.rs` | ✅ | ✅ | ✅ |
-| 3 | Win 键行（⊞ 与 ⌘ 并存） | `RemoteCrabCapture/KeyboardScreen.swift` | ✅ | ✅ | ✅ |
-| 4 | 分屏 | —— | 待定义 | 待定义 | 待定义 |
-| 5 | 虚拟麦克风 | 不做（需签名 WDK 驱动） | — | — | — |
-| 6 | 扩展屏 | 不做（等签名证书） | — | — | — |
-| 7 | `capabilities` 无人消费 | `RemoteCrabCapture`（记为 lesson 112，未开成待办） | 可选 | 可选 | — |
+设计文档：`docs/superpowers/specs/2026-10-03-windows-context-parity-design.md`
+实现计划：`docs/superpowers/plans/2026-10-03-windows-context-parity.md`
 
-**Windows 侧在这几条里需要动的只有第 2 项的 `rc-protocol` + `rc-os` 两处**，
-其余都是共享 Swift 包或纯 iOS。第 1、3 项**完全不需要碰 Windows 代码**。
+| # | 事项 | 状态 | 说明 |
+|---|---|---|---|
+| 1 | 情景模式 profile 匹配 | ✅ **已完成** `59a5f7f` | 按 `platform:` 匹配；Windows 走进程名（`app.id` 是 `pid:N`，每次启动都变）。`platform:` 有默认值，**25 个原 Mac 测试一字未改** |
+| 2 | `AppInfo.appRef`（方案 B） | ⏸ **本轮不做** | `windowsProcessNames` 已按进程名解决同一问题，且不改协议、不需双端重建。真要拆字段，等有第二个非-Windows 平台再说 |
+| 3 | ⊞ 键行 | ✅ **已完成** `ab86efe` + `d5f23e6` | ⊞ **顶替** ⌘，不是并存——`windowsLabel` 把 ⌃ 和 ⌘ 都渲染成 `"Ctrl"`，本来就有两个同名按钮。⊞ 组合键需要新的 `meta = 16` 位（交接文档说「协议不用动」只对单独点 ⊞ 成立） |
+| 4 | 分屏 | ⏸ 待定义 | 仍需要你给一个具体场景 |
+| 5 | 虚拟麦克风 | 不做（需签名 WDK 驱动） | — |
+| 6 | 扩展屏 | 不做（等签名证书） | — |
+| 7 | `capabilities` 无人消费 | 未动 | 记为 lesson 112 |
 
-### 建议的执行顺序（在 Mac 上）
+### 5.1 交接文档漏掉的四个坏按钮 —— 已修 `1cf323d`
 
-1. **第 3 项**（Win 键行）—— 最小、最独立、收益最直接，且不改协议。
-2. **第 1 项**（profile 匹配加 name 回退）—— 让情景模式在 Windows 上不再是空的。
-3. **第 2 项**（`appRef` 字段）—— 正解，但要改协议 + 双端重建，放在 1、2 之后。
-4. **第 4 项** —— 等你给场景。
+`ContextSheetView.swift:42` 的系统区是**无条件渲染**的，所以每个 Windows 用户
+**现在**就能看到 8 个按钮，其中 4 个是坏的。这比「面板是空的」严重：
+
+| 按钮 | 之前在 Windows 上 | 现在 |
+|---|---|---|
+| 亮度上/下 | `system_keys.rs:33` 直接 `return false`，**什么都不发生** | **移除**（不做死按钮，规则 1） |
+| **锁定屏幕**（⌃⌘Q） | `keymap.rs:147` 把 ⌘/⌃ 塌缩成 Ctrl → **`Ctrl+Q`**，在很多软件里是**退出** | **⊞L** |
+| **Safari** | `ContextSheetView.swift:147` 写死 `bing.com` → 打开 **Bing** | 标签「浏览器」，参数与标签绑在数据里（`.systemArg`） |
+
+根因是 `keymap.rs:147` 的 `command | control` 塌缩。它还导致 agent 套件的
+「中断 ⌃C」和「复制 ⌘C」变成**同一个按键**——而 Windows Terminal 里 Ctrl+C 是
+中断，所以「复制」按钮会中断。
+
+### 5.2 新增测试把这类塌缩变成不可能再犯
+
+`testNoTwoWindowsActionsCollapseToTheSameKeystroke` 会把每个套件里的动作按
+Windows 的解析规则归一化，任何两个动作塌缩成同一个注入按键就失败。
+
+### 5.3 Windows app 名单 —— 只上「有据可依」的
+
+| 套件 | Windows 应用 | 依据 |
+|---|---|---|
+| `agent` | WindowsTerminal / powershell / pwsh / cmd / conhost | 终端里跑 Claude Code、Codex CLI、OpenCode、Gemini CLI、Aider、goose —— 终端无法区分是哪个 agent，与 Mac 同理 |
+| `editor` | Code / devenv / cursor / notepad++ | VS Code 官方键位表 |
+| `browser` | chrome / msedge / firefox / brave | Chromium/Firefox 通用 Ctrl 组合 |
+
+**其余套件故意不映射**，落到系统控制区 —— 那是诚实且能用的行为。
+「没有套件」不是缺陷，「套件里全是 Mac 快捷键」才是。
+
+### 5.4 ⛔ 故意砍掉的两处（等真机确认再加回来）
+
+| 项 | 为什么砍 |
+|---|---|
+| agent 套件的**复制/粘贴** | Windows Terminal 的复制粘贴组合键无法从文档确认。「复制」按钮变成中断正是这次要消灭的失败 |
+| **PowerPoint**（`POWERPNT`） | F5 / Shift+F5 需要 `keymap.rs` 支持扩展功能键（F1–F12），这一点未验证。能匹配上却发出两个可能相同的按键，比匹配不上更糟。`testPowerPointIsNotYetMapped` 明确断言它**没有**映射，让这个省略读起来像一个决定而不是疏漏 |
+
+### 5.5 套件格式（为市场留缝，零网络）
+
+`Documents/RemoteCrab/Profiles/*.json`，面板打开时重读。字段：
+`schemaVersion` / `source`（`.builtin` / `.userFile` / `.remote`）/
+`bundleIDs`（Mac）/ `windowsProcessNames`（Windows）/ `windowsActions`。
+
+- 优先级 `userFile > remote > builtin`，**同 id 覆盖**（旧的先匹配先赢让「装了插件等于没装」）
+- 坏文件只损失自己，其余照常加载，并给出**带文件名和两个版本号**的可读原因
+- 非内置套件在面板标题下显示「自定义套件」——这些按钮注入真实按键，来源不该不可见
+- **`remote` 现在没人填**。上云端时格式一行都不用改，需要的只有签名校验、信任根和真实投递
+- 一个套件就是一段「可执行输入」。云端来源的 profile 必须先解决信任问题再上
+
+### 5.6 🔲 本机无法验证的（请在 Windows 真机上逐条打勾）
+
+- [ ] ⊞L 真的锁屏（**不是退出**）
+- [ ] ⊞E 打开资源管理器、⊞R 打开运行
+- [ ] ⊞ 与 Ctrl/Alt/Shift 并存时修饰键提示不串
+- [ ] Windows Terminal 里「中断」是中断；确认复制/粘贴该不该加回来
+- [ ] 亮度按钮**不再出现**
+- [ ] 「浏览器」按钮的标签与实际打开的一致
+- [ ] 三个套件（agent / editor / browser）匹配正确，且每个按钮真的执行对应动作
+- [ ] `POWERPNT` 落到系统控制区（不是错误地匹配到 presentation）
+- [ ] 往 `Documents/RemoteCrab/Profiles/` 放一个 JSON 生效；放一个坏文件有可读报错且**不影响**其它套件
 
 ### 顺便：Mac 上顺手能验的 Windows 侧结论
 

@@ -68,10 +68,29 @@ final class LocalizationCatalogTests: XCTestCase {
     func testEveryContextActionLabelIsTranslated() throws {
         var labels = Set<String>()
         for profile in ContextProfiles.all {
-            for action in profile.actions {
+            // `windowsActions` too: those labels render through the same
+            // path, so a Windows suite that forgets its translations has
+            // to fail here for the same reason a Mac one does.
+            for action in profile.actions + (profile.windowsActions ?? []) {
                 switch action {
                 case .key(let label, _, _, _),
                      .system(let label, _, _),
+                     .systemArg(let label, _, _, _),
+                     .voiceHero(let label, _):
+                    labels.insert(label)
+                }
+            }
+        }
+        // The system grid is NOT one of `all` — it is its own list per
+        // platform — so it has to be walked explicitly or its labels ship
+        // untranslated. That is how "Talk to Computer" would have reached
+        // a Chinese user in English.
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            for action in ContextProfiles.systemActions(for: platform) {
+                switch action {
+                case .key(let label, _, _, _),
+                     .system(let label, _, _),
+                     .systemArg(let label, _, _, _),
                      .voiceHero(let label, _):
                     labels.insert(label)
                 }

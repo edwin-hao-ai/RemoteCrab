@@ -12,7 +12,30 @@ import Foundation
 public enum ContextAction: Codable, Equatable, Sendable {
     case key(label: String, symbol: String, keycode: UInt16, modifiers: UInt8 = 0)
     case system(label: String, symbol: String, command: IBSystemCommand.Command)
+    /// `.system` plus the argument it needs.
+    ///
+    /// Added because `launchApp`'s target was decided in the *view* while
+    /// its label lived in the data — so on Windows a button labelled
+    /// "Safari" opened Bing. An action that needs an argument now carries
+    /// it, and the label can no longer drift away from the behaviour.
+    case systemArg(label: String, symbol: String, command: IBSystemCommand.Command, argument: String)
     case voiceHero(label: String, symbol: String)
+}
+
+/// Where a profile came from.
+///
+/// This is not bookkeeping. A profile is executable input — it replays
+/// real key events into a machine that already holds Accessibility
+/// permission — so its origin has to be visible in the UI and
+/// disableable by whoever owns the machine. `remote` is declared now as
+/// the seam a signed feed will arrive through; nothing populates it.
+public enum ProfileSource: String, Codable, Sendable, Equatable {
+    /// Shipped in the app binary.
+    case builtin
+    /// A JSON file the user dropped into Documents.
+    case userFile
+    /// From a future signed feed. Never populated today.
+    case remote
 }
 
 /// A frontmost-app-keyed set of shortcuts.
@@ -22,18 +45,77 @@ public enum ContextAction: Codable, Equatable, Sendable {
 /// (which Mac apps it claims), which is what a marketplace entry needs;
 /// the registry below is just the built-in set.
 public struct ContextProfile: Codable, Equatable, Sendable {
-    public let id: String
+    /// Bumped when the on-disk shape changes incompatibly. A file
+    /// claiming a newer version is rejected with a readable reason
+    /// rather than half-read.
+    public static let currentSchemaVersion = 1
+
+    public let schemaVersion: Int
     /// Display name shown in the sheet header (localized for built-ins).
     public let title: String
-    /// Mac bundle identifiers this profile matches, first-match-wins.
+    public let id: String
+    public let source: ProfileSource
+    /// macOS bundle identifiers this profile matches, first-match-wins.
+    ///
+    /// Deliberately NOT renamed to something generic: rule 2 forbids
+    /// renaming a persisted field. `windowsProcessNames` is the additive
+    /// Windows counterpart.
     public let bundleIDs: [String]
     public let actions: [ContextAction]
+    /// Windows executable stems, matched case-insensitively with any
+    /// trailing `.exe` ignored. The Mac `id` on Windows is a literal
+    /// `"pid:1234"` that changes every launch, so it is useless for
+    /// identity — the name is the only stable thing the receiver sends.
+    public let windowsProcessNames: [String]?
+    /// The Windows action set.
+    ///
+    /// `nil` means "no verified Windows mapping for this suite" and MUST
+    /// render as an empty app section. It must never fall back to
+    /// `actions`: those are Mac-menu-verified shortcuts, and on Windows
+    /// ⌘ collapses into ⌃, so a suite that borrows them produces
+    /// buttons that are wrong rather than missing — including a
+    /// "Copy" that interrupts, and a "Lock Screen" that quits the app.
+    public let windowsActions: [ContextAction]?
 
-    public init(id: String, title: String, bundleIDs: [String] = [], actions: [ContextAction]) {
+    public init(
+        schemaVersion: Int = ContextProfile.currentSchemaVersion,
+        id: String,
+        title: String,
+        source: ProfileSource = .builtin,
+        bundleIDs: [String] = [],
+        actions: [ContextAction],
+        windowsProcessNames: [String]? = nil,
+        windowsActions: [ContextAction]? = nil
+    ) {
+        self.schemaVersion = schemaVersion
         self.id = id
         self.title = title
+        self.source = source
         self.bundleIDs = bundleIDs
         self.actions = actions
+        self.windowsProcessNames = windowsProcessNames
+        self.windowsActions = windowsActions
+    }
+
+    /// Hand-written so a file written before `schemaVersion` / `source`
+    /// existed still decodes.
+    ///
+    /// Synthesized Codable would throw on the missing non-optional `Int`
+    /// — and this project's loaders swallow decode errors, which is
+    /// precisely how one missing `#[serde(default)]` silently destroys a
+    /// user's data with no error anywhere (rule 2). Every added field
+    /// goes through `decodeIfPresent` with an explicit default.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        bundleIDs = try c.decodeIfPresent([String].self, forKey: .bundleIDs) ?? []
+        actions = try c.decodeIfPresent([ContextAction].self, forKey: .actions) ?? []
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion)
+            ?? Self.currentSchemaVersion
+        source = try c.decodeIfPresent(ProfileSource.self, forKey: .source) ?? .builtin
+        windowsProcessNames = try c.decodeIfPresent([String].self, forKey: .windowsProcessNames)
+        windowsActions = try c.decodeIfPresent([ContextAction].self, forKey: .windowsActions)
     }
 
     /// The push-to-talk hero, if this profile has one. Rendered
@@ -80,6 +162,19 @@ public enum ContextProfiles {
             .key(label: "Exit", symbol: "escape", keycode: 53),
         ])
 
+    /// Windows Terminal, and therefore every CLI agent that runs inside
+    /// it — Claude Code, Codex CLI, OpenCode, Gemini CLI, Aider, goose.
+    /// The terminal cannot say which agent it hosts, exactly as on the
+    /// Mac, so they all land here by design.
+    ///
+    /// Only keys whose Windows behaviour is documented ship. Copy and
+    /// paste are **absent on purpose**: their Windows Terminal bindings
+    /// could not be confirmed without a machine, and a "Copy" that
+    /// interrupts is the exact failure this whole change exists to
+    /// remove. See the checklist in `docs/WINDOWS-GAPS-2026-10-03.md`.
+    ///
+    /// Note there is no ⌘C here: on Windows ⌘ and ⌃ are the same key, so
+    /// the Mac suite's ⌃C "Interrupt" and ⌘C "Copy" were one button.
     public static let agent = ContextProfile(
         id: "agent", title: IBLocale.Context.profileAgent,
         bundleIDs: [
@@ -94,6 +189,14 @@ public enum ContextProfiles {
             .key(label: "Paste", symbol: "doc.on.clipboard", keycode: 9, modifiers: 8), // ⌘V
             .key(label: "Clear", symbol: "eraser", keycode: 37, modifiers: 2),       // ⌃L
             .key(label: "Escape", symbol: "escape", keycode: 53),
+        ],
+        windowsProcessNames: ["WindowsTerminal", "powershell", "pwsh", "cmd", "conhost"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Agent", symbol: "waveform"),
+            .key(label: "Approve", symbol: "checkmark", keycode: 36),              // Enter
+            .key(label: "Stop", symbol: "stop.fill", keycode: 53),                 // Esc
+            .key(label: "Interrupt", symbol: "xmark", keycode: 8, modifiers: 2),   // Ctrl+C
+            .key(label: "Clear", symbol: "eraser", keycode: 37, modifiers: 2),     // Ctrl+L
         ])
 
     /// OpenCode desktop (`ai.opencode.desktop`). Shortcuts read out of its
@@ -178,6 +281,17 @@ public enum ContextProfiles {
             .key(label: "Forward", symbol: "chevron.forward", keycode: 30, modifiers: 8),    // ⌘] (menu-verified)
             .key(label: "Reload", symbol: "arrow.clockwise", keycode: 15, modifiers: 8),     // ⌘R (menu-verified)
             .key(label: "Address Bar", symbol: "text.cursor", keycode: 37, modifiers: 8),    // ⌘L (menu-verified)
+        ],
+        // The Ctrl chords every Chromium/Firefox on Windows agrees on.
+        windowsProcessNames: ["chrome", "msedge", "firefox", "brave"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Browser", symbol: "waveform"),
+            .key(label: "New Tab", symbol: "plus.square", keycode: 24, modifiers: 2),        // Ctrl+T
+            .key(label: "Close Tab", symbol: "xmark.square", keycode: 23, modifiers: 2),     // Ctrl+W
+            .key(label: "Next Tab", symbol: "chevron.right", keycode: 43, modifiers: 2),      // Ctrl+Tab
+            .key(label: "Previous Tab", symbol: "chevron.left", keycode: 43, modifiers: 1 | 2), // Ctrl+Shift+Tab
+            .key(label: "Reload", symbol: "arrow.clockwise", keycode: 15, modifiers: 2),     // Ctrl+R
+            .key(label: "Address Bar", symbol: "text.cursor", keycode: 37, modifiers: 2),    // Ctrl+L
         ])
 
     public static let mail = ContextProfile(
@@ -248,6 +362,19 @@ public enum ContextProfiles {
             .key(label: "Comment", symbol: "text.bubble", keycode: 44, modifiers: 8),       // ⌘/
             .key(label: "Find", symbol: "magnifyingglass", keycode: 3, modifiers: 8),       // ⌘F
             .key(label: "Save", symbol: "square.and.arrow.down", keycode: 1, modifiers: 8), // ⌘S
+        ],
+        // VS Code's documented defaults (and the same in Cursor / VSCodium,
+        // which are VS Code forks). ⌃` is already unprefixed on the Mac side
+        // because VS Code binds Ctrl+` on both platforms.
+        windowsProcessNames: ["Code", "devenv", "cursor", "notepad++"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Editor", symbol: "waveform"),
+            .key(label: "Command Palette", symbol: "command", keycode: 35, modifiers: 1 | 2), // Ctrl+Shift+P
+            .key(label: "Find", symbol: "magnifyingglass", keycode: 3, modifiers: 2),         // Ctrl+F
+            .key(label: "Save", symbol: "square.and.arrow.down", keycode: 1, modifiers: 2),  // Ctrl+S
+            .key(label: "Terminal", symbol: "terminal", keycode: 50, modifiers: 2),           // Ctrl+`
+            .key(label: "Quick Open", symbol: "doc.text.magnifyingglass", keycode: 35, modifiers: 2), // Ctrl+P
+            .key(label: "Close Editor", symbol: "xmark", keycode: 13, modifiers: 2),         // Ctrl+W
         ])
 
     /// Rich-text / document editors (TextEdit, Pages, Numbers, Word) —
@@ -350,8 +477,64 @@ public enum ContextProfiles {
             .system(label: "Brightness Up", symbol: "sun.max.fill", command: .brightnessUp),
             .system(label: "Brightness Down", symbol: "sun.min.fill", command: .brightnessDown),
             .key(label: "Lock Screen", symbol: "lock.fill", keycode: 12, modifiers: 2 | 8), // ⌃⌘Q
-            .system(label: "Safari", symbol: "safari.fill", command: .launchApp),
+            .systemArg(label: "Safari", symbol: "safari.fill", command: .launchApp,
+                       argument: "com.apple.Safari"),
         ])
+
+    /// The Windows system controls, kept beside `console` rather than
+    /// inside it so that `console.gridActions` — which three existing
+    /// tests pin by index — keeps its Mac shape exactly.
+    ///
+    /// Volume and media use `VK_*` and genuinely work. **Brightness is
+    /// deliberately absent**: `system_keys.rs` returns `false` for it,
+    /// and a button that visibly does nothing is worse than no button.
+    /// Lock is ⊞L because the Mac's ⌃⌘Q collapses to `Ctrl+Q` on Windows
+    /// — a button labelled "Lock Screen" that quits your app.
+    public static let windowsSystemActions: [ContextAction] = [
+        .voiceHero(label: "Talk to Computer", symbol: "waveform"),
+        .system(label: "Volume Up", symbol: "speaker.plus.fill", command: .volumeUp),
+        .system(label: "Volume Down", symbol: "speaker.minus.fill", command: .volumeDown),
+        .system(label: "Mute", symbol: "speaker.slash.fill", command: .volumeMute),
+        .system(label: "Play / Pause", symbol: "playpause.fill", command: .mediaPlayPause),
+        .key(label: "Lock Screen", symbol: "lock.fill", keycode: 37,
+             modifiers: TouchEvent.Modifier.meta.rawValue),          // ⊞L
+        .key(label: "Show Desktop", symbol: "macwindow.on.rectangle", keycode: 53,
+             modifiers: TouchEvent.Modifier.meta.rawValue | 4),      // ⊞⌥D
+        .systemArg(label: "Browser", symbol: "safari.fill", command: .launchApp,
+                   argument: "https://www.bing.com"),
+    ]
+
+    /// The system section is ALWAYS rendered (`ContextSheetView`), so it
+    /// is the one place a wrong entry hurts a user who never asked for
+    /// one. Hence per-platform rather than one shared list.
+    public static func systemActions(for platform: IBModifierBar.PeerPlatform) -> [ContextAction] {
+        platform == .windows ? windowsSystemActions : console.gridActions
+    }
+
+    /// The app-specific section — empty for the console, since its keys
+    /// ARE the system keys and rendering them twice looked like a bug.
+    ///
+    /// The Windows branch is the important one: it reads
+    /// `windowsActions` and **never** `actions`. Returning the Mac set
+    /// here is the original defect — a suite that matched on Windows
+    /// would show Mac-menu-verified shortcuts, which on Windows means a
+    /// "Copy" that interrupts and a "Lock Screen" that quits the app.
+    public static func appActions(for profile: ContextProfile,
+                                  platform: IBModifierBar.PeerPlatform) -> [ContextAction] {
+        if profile.id == console.id { return [] }
+        guard platform == .windows else { return profile.gridActions }
+        let actions = profile.windowsActions ?? []
+        return actions.filter { if case .voiceHero = $0 { return false }; return true }
+    }
+
+    /// The push-to-talk hero for the peer's platform. A suite with no
+    /// verified Windows mapping has no hero either — the voice shortcut
+    /// is the one button that always works, so it is never withheld.
+    public static func voiceHero(for profile: ContextProfile,
+                                 platform: IBModifierBar.PeerPlatform) -> ContextAction? {
+        let actions = platform == .windows ? (profile.windowsActions ?? []) : profile.actions
+        return actions.first { if case .voiceHero = $0 { return true }; return false }
+    }
 
     /// Built-in suites, most specific first. A marketplace would append
     /// developer-supplied profiles here (or merge them ahead of these).
@@ -360,8 +543,50 @@ public enum ContextProfiles {
         xcode, editor, text, media, chat, meeting, image, notebook, console,
     ]
 
-    public static func profile(for app: IBAppInfo?) -> ContextProfile {
+    /// `platform` and `in` both default, so every existing Mac call site
+    /// and every existing test compiles and behaves exactly as before.
+    ///
+    /// Windows matches the process NAME, never `app.id`: the receiver
+    /// sends `format!("pid:{pid}")`, which changes on every launch and
+    /// identifies nothing. Matching it was the original reason the whole
+    /// context sheet looked empty on Windows.
+    public static func profile(for app: IBAppInfo?,
+                               platform: IBModifierBar.PeerPlatform = .mac,
+                               in registry: [ContextProfile] = all) -> ContextProfile {
         guard let app else { return console }
-        return all.first { $0.bundleIDs.contains(app.id) } ?? console
+        if platform == .windows {
+            let key = normalizedProcessName(app.name)
+            return registry.first { profile in
+                profile.windowsProcessNames?.contains {
+                    normalizedProcessName($0) == key
+                } == true
+            } ?? console
+        }
+        return registry.first { $0.bundleIDs.contains(app.id) } ?? console
+    }
+
+    /// Windows executable stems, compared without case and without a
+    /// trailing `.exe`. `rc-os`'s `process_name` already trims the
+    /// suffix, but a hand-written profile file may not.
+    static func normalizedProcessName(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        if s.lowercased().hasSuffix(".exe") { s = String(s.dropLast(4)) }
+        return s.lowercased()
+    }
+
+    /// Order matters: a later tier REPLACES an earlier one by `id`.
+    ///
+    /// The old lookup was first-match-wins over one flat list, which
+    /// meant a user-installed suite could never take effect — installing
+    /// a plugin changed nothing, silently.
+    public static func merged(_ extra: [ContextProfile] = []) -> [ContextProfile] {
+        var out = all
+        for tier in [ProfileSource.remote, .userFile] {
+            for profile in extra where profile.source == tier {
+                out.removeAll { $0.id == profile.id }
+                out.append(profile)
+            }
+        }
+        return out
     }
 }

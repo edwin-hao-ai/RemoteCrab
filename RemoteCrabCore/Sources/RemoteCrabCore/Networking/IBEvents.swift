@@ -28,6 +28,16 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         case control = 2
         case option  = 4
         case command = 8
+        /// The Windows key (⊞). Bit 16 was unused in the original mask.
+        ///
+        /// Needed because `command` collapses into Ctrl on Windows, so
+        /// without a bit of its own the ⊞ chords (⊞E / ⊞R / ⊞D / ⊞L)
+        /// were unreachable from the phone — `keymap.rs` could already
+        /// send a bare ⊞ but had no way to hold it.
+        ///
+        /// The Mac receiver has no ⊞ and `CGEventInjector.eventFlags`
+        /// ignores bits it does not know, so a stray 16 is inert there.
+        case meta    = 16
     }
 
     public let phase: Phase

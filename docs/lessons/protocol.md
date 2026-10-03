@@ -291,3 +291,46 @@ so a cross-reference from another lesson still resolves.
     being restructured, print the invariant, assert it, and make the script
     refuse to write if the count moved. A refactor that does not verify its
     own output is a refactor that deletes whatever it failed to model.
+
+111. **Five ways the device e2e produced a wrong verdict in one session
+    (2026-10-02).** None of them were the product; all of them looked like
+    product failures or passes. (1) The launcher's output went to
+    `/dev/null`, so a **locked iPhone** (`FBSOpenApplicationErrorDomain …
+    Locked`) became *24 missing-marker failures* instead of one
+    precondition error — fail loudly at the launch. (2) The phone's
+    `forensic.log` is **appended**, so a marker from a run three hours
+    earlier satisfied an assertion and reported a **false PASS**; compare
+    the file's mtime and SKIP rather than count anything un-attributable.
+    (3) The staged binaries **predated the fix**, and the probe said so
+    wrongly: `strings` on the app binary found nothing because a Debug build
+    keeps the real code in `RemoteCrabCapture.debug.dylib` (the binary is
+    92 KB). Check for your own **string literals in the dylib**, not a hash.
+    (4) The frame that exercises the branch under test was **silently
+    dropped**: the phone sees `screenInfo.status == .ok` before the Mac's
+    `lastScreenInfo` lands (that assignment hops through the main actor), and
+    `handleScreenInput` returns early until it does — so the "place the
+    cursor once" path never ran and the assertion passed *vacuously*.
+    (5) Counting across the target boundary invented a regression: this run
+    also flips to the extended virtual display, and when the mirror changes
+    window the cursor **must** be re-placed, so `placed=2` was correct.
+    **Generalizable rule: an assertion that passes when its branch never
+    executed is worse than no assertion.** Require both branches, scope the
+    count to one target, count only the side that owns the marker, and prove
+    the assertion **fails** on a hand-built log of the old behaviour before
+    believing a green run. (`grep -c` also prints `0` *and* exits non-zero
+    on no match, so `$(grep -c … || echo 0)` yields the unusable `0\n0`.)
+
+112. **Two geometry hypotheses died cheaply, and that is the point.** A user
+    reported mirror taps landing off-target "sometimes right, sometimes off
+    by a distance". The obvious suspects were a titlebar offset and a
+    ZStack layout shift. Both were killed by measurement before a line was
+    edited: `SCWindow.frame` vs `CGWindowListCopyWindowInfo` bounds on this
+    machine came back `cgOriginDelta=0.00 cgSizeDelta=0.00x0.00` for a real
+    1224×800 app window (capture box and mapping box are the same box), and
+    a headless SwiftUI host showed the gesture overlay's frame stays at
+    `0,0 393×852` regardless of zoom — so `contentUV`'s coordinates and
+    `displayedContentRect` share an origin after all. What remained was the
+    gesture transform itself, which is where the 168 pt pinch came from.
+    **Generalizable: "occasionally right, off by a varying distance" is a
+    transform symptom, not a mapping symptom — and a symmetric error that
+    scales with zoom is the signature of a wrong anchor, not a wrong box.**

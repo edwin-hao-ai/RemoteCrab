@@ -50,26 +50,30 @@ final class ScreenZoomStateTests: XCTestCase {
         XCTAssertEqual(m.pan.height, 0, accuracy: 0.01)
     }
 
-    func testTwoFingerAtFitScrollsTheMacInsteadOfPanning() {
+    func testFitModeHasNothingToPanSoBothAxesScroll() {
         let s = makeState()   // zoom 1 → nothing to pan
-        let r = s.twoFinger(translation: CGSize(width: 30, height: 40))
+        let r = s.twoFinger(axis: .horizontal, translation: CGSize(width: 30, height: 0))
         XCTAssertEqual(r.pan.width, 0, accuracy: 0.001)
         XCTAssertEqual(r.pan.height, 0, accuracy: 0.001)
         XCTAssertEqual(r.scrollDX, 30.0 / 400.0, accuracy: 0.001)
-        XCTAssertEqual(r.scrollDY, 40.0 / 800.0, accuracy: 0.001)
         XCTAssertTrue(r.isScroll)
+        let v = s.twoFinger(axis: .vertical, translation: CGSize(width: 0, height: 40))
+        XCTAssertEqual(v.scrollDY, 40.0 / 800.0, accuracy: 0.001)
     }
 
-    func testTwoFingerWhileZoomedPansWithoutScrolling() {
+    /// The two-finger gesture is axis-locked now, so "pans while zoomed"
+    /// is a THREE-finger statement. Two fingers mean scroll on the locked
+    /// axis and pan on the other (see `testTwoFingerAxis*`).
+    func testThreeFingerWhileZoomedPansWithoutScrolling() {
         let s = makeState(zoom: 2)
-        let r = s.twoFinger(translation: CGSize(width: 50, height: 0))
+        let r = s.panGesture(translation: CGSize(width: 50, height: 0))
         XCTAssertEqual(r.pan.width, 50, accuracy: 0.01)
         XCTAssertFalse(r.isScroll)
     }
 
-    func testTwoFingerAtEdgePansThenScrollsTheResidual() {
+    func testPanGestureAtEdgePansThenScrollsTheResidual() {
         let s = makeState(zoom: 2, pan: CGSize(width: 180, height: 0))
-        let r = s.twoFinger(translation: CGSize(width: 50, height: 0))
+        let r = s.panGesture(translation: CGSize(width: 50, height: 0))
         XCTAssertEqual(r.pan.width, 200, accuracy: 0.01)          // clamped at edge
         XCTAssertEqual(r.scrollDX, 30.0 / 400.0, accuracy: 0.001) // 50 - 20 residual
     }
@@ -161,21 +165,103 @@ final class ScreenZoomStateTests: XCTestCase {
                      "a touch in the top chrome area is not on the window")
     }
 
-    func testTwoFingerScrollsWhenFittedEvenWithInsets() {
+    func testPanGestureScrollsWhenFittedEvenWithInsets() {
         // Regression: with chrome insets the fitted content is taller than
-        // the usable band, which used to make two-finger drags PAN instead
-        // of scroll. At zoom 1 / fit they must scroll.
+        // the usable band, which used to make a drag PAN instead of scroll.
+        // At zoom 1 / fit the pan gesture must scroll.
         var s = makeInsetState()
-        let r = s.twoFinger(translation: CGSize(width: 0, height: 40))
-        XCTAssertTrue(r.isScroll, "a two-finger drag at fit zoom is a content scroll")
+        let r = s.panGesture(translation: CGSize(width: 0, height: 40))
+        XCTAssertTrue(r.isScroll, "a pan-gesture drag at fit zoom is a content scroll")
         XCTAssertEqual(r.pan.height, s.pan.height, accuracy: 0.001, "no pan at fit zoom")
         XCTAssertEqual(r.scrollDY, 40.0 / 390.0, accuracy: 0.001)
     }
 
-    func testTwoFingerPansOnceZoomedIn() {
+    func testPanGesturePansOnceZoomedIn() {
         var s = makeInsetState()
         s.setZoom(2)
-        let r = s.twoFinger(translation: CGSize(width: 0, height: 10))
-        XCTAssertGreaterThan(r.pan.height, s.pan.height, "zoomed-in two-finger pans the content")
+        let r = s.panGesture(translation: CGSize(width: 0, height: 10))
+        XCTAssertGreaterThan(r.pan.height, s.pan.height, "zoomed-in pan gesture pans the content")
+    }
+
+    // MARK: - Two-finger axis lock
+
+    func testAxisIsUndecidedBelowTheThreshold() {
+        // A finger resting on the glass must not pick an axis — that is
+        // what made a stationary two-finger touch jitter the remote app.
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 4, height: -6)), .undecided)
+        XCTAssertEqual(ScreenDragAxis.decide(.zero), .undecided)
+    }
+
+    func testAxisPrefersVerticalOnADiagonal() {
+        // Fingers almost always drift sideways while scrolling up/down, so
+        // a near-diagonal must resolve to VERTICAL (libinput's rule).
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 10, height: -14)), .vertical)
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 11, height: -12)), .vertical)
+    }
+
+    func testAxisNeedsAClearHorizontalWin() {
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 40, height: -6)), .horizontal)
+        // 26 vs 20 is diagonal, not a deliberate sideways swipe.
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 26, height: -20)), .vertical)
+    }
+
+    func testAxisDecidesFromTheAccumulatedTravelNotOneDelta() {
+        // The gesture accumulates: many small vertical deltas must still
+        // decide vertical even when no single delta crosses the threshold.
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 2, height: -5)), .undecided)
+        XCTAssertEqual(ScreenDragAxis.decide(CGSize(width: 6, height: -20)), .vertical)
+    }
+
+    /// THE regression this whole change exists for: a two-finger swipe up
+    /// or down must scroll the remote app even when zoomed in. It used to
+    /// be latched into `.pan` for the gesture's whole lifetime, which is
+    /// exactly "双指上下滚动失灵，被感应成拖动镜像".
+    func testTwoFingerVerticalSwipeScrollsEvenWhenZoomedIn() {
+        var s = makeState(zoom: 3)
+        let axis = ScreenDragAxis.decide(CGSize(width: 4, height: -40))
+        XCTAssertEqual(axis, .vertical)
+        let r = s.twoFinger(axis: axis, translation: CGSize(width: 4, height: -40))
+        XCTAssertEqual(r.pan, .zero, "a vertical two-finger swipe must not pan")
+        XCTAssertEqual(r.scrollDY, -40.0 / 800.0, accuracy: 0.0001)
+        XCTAssertEqual(r.scrollDX, 0, accuracy: 0.0001, "the cross axis is dropped")
+    }
+
+    func testTwoFingerHorizontalSwipePansWhenZoomedIn() {
+        var s = makeState(zoom: 3)
+        let r = s.twoFinger(axis: .horizontal, translation: CGSize(width: 40, height: -4))
+        XCTAssertGreaterThan(r.pan.width, 0, "horizontal two-finger pans the mirror")
+        XCTAssertEqual(r.pan.height, 0, accuracy: 0.0001)
+        XCTAssertFalse(r.isScroll)
+    }
+
+    func testTwoFingerHorizontalSwipeScrollsWhenThereIsNothingToPan() {
+        // Fit zoom: the content cannot pan, so the locked axis scrolls the
+        // remote app instead of doing nothing at all.
+        let s = makeState(zoom: 1)
+        let r = s.twoFinger(axis: .horizontal, translation: CGSize(width: 40, height: -4))
+        XCTAssertEqual(r.pan, .zero)
+        XCTAssertEqual(r.scrollDX, 40.0 / 400.0, accuracy: 0.0001)
+        XCTAssertEqual(r.scrollDY, 0, accuracy: 0.0001)
+    }
+
+    func testTwoFingerUndecidedAxisDoesNothing() {
+        let s = makeState(zoom: 3)
+        let r = s.twoFinger(axis: .undecided, translation: CGSize(width: 2, height: -3))
+        XCTAssertEqual(r.pan, .zero)
+        XCTAssertFalse(r.isScroll, "nothing is sent until an axis is chosen")
+    }
+
+    // MARK: - Tap vs drag slop
+
+    func testDragSlopGrowsWithZoom() {
+        // A tap near a button must not become a Mac drag just because the
+        // view is magnified: the slop is a CONTENT distance, so it has to
+        // be divided by the zoom to stay 10 content points of travel.
+        var s = makeState()
+        XCTAssertEqual(s.dragSlop, 10, accuracy: 0.001)          // unchanged at 1x
+        s.setZoom(2); XCTAssertEqual(s.dragSlop, 10, accuracy: 0.001)
+        s.setZoom(4); XCTAssertEqual(s.dragSlop, 16, accuracy: 0.001)
+        // Capped so a future maxZoom bump cannot make a tap unrecognisable.
+        XCTAssertLessThanOrEqual(s.dragSlop, 28)
     }
 }

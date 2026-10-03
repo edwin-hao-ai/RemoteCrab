@@ -12,7 +12,16 @@ struct ContextSheetView: View {
     @State private var voiceHeld = false
 
     private var profile: ContextProfile {
-        ContextProfiles.profile(for: engine.frontmostMacApp)
+        ContextProfiles.profile(for: engine.frontmostMacApp,
+                                platform: engine.peerPlatform,
+                                in: engine.profiles.merged)
+    }
+
+    /// Per-platform, because this grid is rendered unconditionally — so
+    /// a wrong entry here is the one a user sees without asking for it.
+    /// `console.gridActions` is the Mac list verbatim.
+    private var systemActions: [ContextAction] {
+        ContextProfiles.systemActions(for: engine.peerPlatform)
     }
 
     var body: some View {
@@ -25,7 +34,7 @@ struct ContextSheetView: View {
                     // grid cell would clip the capsule. The remaining
                     // actions pair up two-per-row (ContextProfiles keeps
                     // related controls adjacent).
-                    if let hero = profile.voiceHero {
+                    if let hero = voiceHero {
                         actionButton(hero)
                     }
 
@@ -39,9 +48,11 @@ struct ContextSheetView: View {
                     // System keys are ALWAYS present, below the app keys —
                     // so switching apps never takes away volume/brightness.
                     sectionLabel(IBLocale.Context.systemSection)
-                    grid(ContextProfiles.console.gridActions)
+                    grid(systemActions)
 
-                    Text(IBLocale.Context.footer)
+                    Text(engine.connectedIsWindows
+                         ? IBLocale.Context.footerWindows
+                         : IBLocale.Context.footer)
                         .font(IBFont.caption)
                         .foregroundStyle(.white.opacity(0.4))
                         .padding(.top, IBSpace.s.pt)
@@ -55,6 +66,7 @@ struct ContextSheetView: View {
         }
         .onAppear {
             engine.requestMacApps()  // refresh the frontmost app
+            engine.profiles.reload()   // pick up any suite dropped into Documents
             voice.onPartial = { text, committed in
                 engine.updateVoiceText(text, committed: committed)
             }
@@ -73,8 +85,16 @@ struct ContextSheetView: View {
 
     /// The frontmost app's keys, unless this profile already IS the
     /// system console (then the system section is the only content).
+    ///
+    /// Resolved by `ContextProfiles` rather than here, because this is the
+    /// one piece of logic that must never read `profile.actions` on a
+    /// Windows peer \\u{2014} and it has to be unit-testable.
     private var appActions: [ContextAction] {
-        profile.id == ContextProfiles.console.id ? [] : profile.gridActions
+        ContextProfiles.appActions(for: profile, platform: engine.peerPlatform)
+    }
+
+    private var voiceHero: ContextAction? {
+        ContextProfiles.voiceHero(for: profile, platform: engine.peerPlatform)
     }
 
     private func sectionLabel(_ text: String) -> some View {
@@ -110,6 +130,14 @@ struct ContextSheetView: View {
                     .font(IBFont.eyebrowMono)
                     .ibEyebrowTracking()
                     .foregroundStyle(.white.opacity(0.45))
+                // A suite that came from a file says so. These buttons
+                // inject real key events, so where a suite came from
+                // should never be invisible.
+                if profile.source != .builtin {
+                    Text(IBLocale.Context.customSuite)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
             }
             Spacer()
             Button { dismiss() } label: {
@@ -138,16 +166,13 @@ struct ContextSheetView: View {
             }
         case .system(let label, let symbol, let command):
             contextButton(label: label, symbol: symbol) {
-                // `launchApp` carries its launch argument: a Mac bundle id,
-                // or (on Windows, where that bundle id means nothing) a URL
-                // so the default browser opens. Everything else is
-                // argument-less.
-                var argument: String?
-                if command == .launchApp {
-                    argument = engine.connectedIsWindows
-                        ? "https://www.bing.com"
-                        : "com.apple.Safari"
-                }
+                engine.sendSystemCommand(IBSystemCommand(command: command))
+            }
+        case .systemArg(let label, let symbol, let command, let argument):
+            // The argument travels with the label. It used to be decided
+            // here in the view while the label lived in the data, which is
+            // how a button labelled "Safari" opened Bing.
+            contextButton(label: label, symbol: symbol) {
                 engine.sendSystemCommand(IBSystemCommand(command: command, argument: argument))
             }
         }

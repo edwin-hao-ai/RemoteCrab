@@ -10,11 +10,14 @@ public struct IBModifierBar: View {
         public init(_ id: Modifier) { self.id = id }
     }
 
-    public enum Modifier: String, CaseIterable, Hashable {
+    public enum Modifier: String, CaseIterable, Hashable, Sendable {
         case control = "⌃"
         case option  = "⌥"
         case command = "⌘"
         case shift   = "⇧"
+        /// ⊞ — the Windows key. Shown **instead of** ⌘ when the peer is
+        /// Windows (see `visibleModifiers(for:)`), never alongside it.
+        case meta    = "⊞"
 
         public var sfSymbol: String {
             switch self {
@@ -22,6 +25,7 @@ public struct IBModifierBar: View {
             case .option:  return "option"
             case .command: return "command"
             case .shift:   return "shift"
+            case .meta:    return "command"
             }
         }
 
@@ -32,6 +36,9 @@ public struct IBModifierBar: View {
             case .option:  return 58
             case .command: return 55
             case .shift:   return 56
+            /// Same key as ⌘ — `keymap.rs` translates kVK_Command to
+            /// `LWIN`, and the wire bit is `TouchEvent.Modifier.meta`.
+            case .meta:    return 55
             }
         }
 
@@ -39,14 +46,46 @@ public struct IBModifierBar: View {
         /// (⌃⌥⌘) are meaningless. `command` displays as "Ctrl" because the
         /// Windows receiver maps both the ⌘ and ⌃ bits to Ctrl — so the
         /// muscle-memory `⌘C` on iPhone becomes `Ctrl+C` on the PC.
+        ///
+        /// Note that this makes `.control` and `.command` render the SAME
+        /// string, which is why `visibleModifiers(for:)` never shows both.
         public var windowsLabel: String {
             switch self {
             case .control: return "Ctrl"
             case .option:  return "Alt"
             case .command: return "Ctrl"
             case .shift:   return "Shift"
+            case .meta:    return "⊞"
             }
         }
+
+        /// This key's bit in `TouchEvent.modifiers`. Named rather than
+        /// inlined at call sites so the ⊞ bit cannot drift from the wire.
+        public var wireBit: UInt8 {
+            switch self {
+            case .control: return TouchEvent.Modifier.control.rawValue
+            case .option:  return TouchEvent.Modifier.option.rawValue
+            case .command: return TouchEvent.Modifier.command.rawValue
+            case .shift:   return TouchEvent.Modifier.shift.rawValue
+            case .meta:    return TouchEvent.Modifier.meta.rawValue
+            }
+        }
+    }
+
+    /// Which keys the row shows.
+    ///
+    /// Mac: ⌃ ⌥ ⌘ ⇧ — unchanged, this is the product on a Mac.
+    /// Windows: Ctrl Alt ⊞ Shift — ⊞ **replaces** ⌘, because ⌘ and ⌃ both
+    /// render as the string "Ctrl" and two identically-labelled buttons is
+    /// worse than one honest key. The ⌘ → Ctrl mapping itself is
+    /// unchanged, so muscle memory still works; we just stop advertising
+    /// a key that isn't there.
+    public nonisolated static func visibleModifiers(for platform: PeerPlatform) -> [Modifier] {
+        // Listed explicitly rather than derived from `allCases`: ⊞ is a
+        // member of the enum so it can be carried in a sticky-modifier
+        // set, but it must never RENDER on a Mac.
+        platform == .windows ? [.control, .option, .meta, .shift]
+                             : [.control, .option, .command, .shift]
     }
 
     /// Which OS owns the session — drives the labels only. The wire
@@ -87,7 +126,7 @@ public struct IBModifierBar: View {
 
     public var body: some View {
         HStack(spacing: IBSpace.s.pt) {
-            ForEach(Modifier.allCases, id: \.self) { modifier in
+            ForEach(Self.visibleModifiers(for: platform), id: \.self) { modifier in
                 keyView(modifier)
             }
         }
@@ -140,6 +179,7 @@ public struct IBModifierBar: View {
         case .option:  return IBLocale.A11y.optionKey
         case .command: return IBLocale.A11y.commandKey
         case .shift:   return IBLocale.A11y.shiftKey
+        case .meta:    return IBLocale.A11y.windowsKey
         }
     }
 

@@ -1,6 +1,41 @@
 import CoreGraphics
 import Foundation
 
+/// Which axis a two-finger drag means, latched once per gesture.
+///
+/// Two fingers have to mean two different things — a content scroll
+/// and a viewport pan — and neither can own the gesture outright: a
+/// zoomed mirror still has to scroll, and a scroll still needs to be
+/// reachable. So the axis is decided ONCE from the accumulated travel
+/// and the whole gesture means that one thing.
+///
+/// The rule follows libinput, Chrome (`kMinSnapRatio`) and Safari's
+/// dominant-axis scrolling: ignore the cross axis unless the locked
+/// axis wins by a clear margin, and **prefer vertical on a near-tie**
+/// because fingers almost always drift sideways while scrolling up or
+/// down — locking those to horizontal is what makes "scroll feels
+/// broken".
+public enum ScreenDragAxis: Equatable, Sendable {
+    case undecided
+    case horizontal
+    case vertical
+
+    /// Travel (view points) before an axis is chosen at all.
+    public static let threshold: Double = 12
+    /// How much the dominant axis must beat the other one by.
+    public static let ratio: Double = 1.4
+
+    /// Decide from the gesture's **accumulated** travel, so many small
+    /// deltas still count (a single delta under the threshold must
+    /// not be the only thing that can decide).
+    public static func decide(_ travel: CGSize) -> ScreenDragAxis {
+        let dx = abs(travel.width), dy = abs(travel.height)
+        guard dx >= threshold || dy >= threshold else { return .undecided }
+        guard dx > dy * ratio else { return .vertical }
+        return .horizontal
+    }
+}
+
 /// Pure viewport model for the iOS screen-mirror surface.
 ///
 /// The mirrored Mac window is laid out inside the phone's view with a
@@ -188,10 +223,63 @@ public struct ScreenZoomState: Equatable, Sendable {
         return (u: Double(u), v: Double(v))
     }
 
-    // MARK: - Two-finger drag: pan first, then scroll
+    // MARK: - Tap vs drag
 
-    /// Result of a two-finger drag: the committed pan and any residual
-    /// finger travel that the pan could not absorb (to be sent as scroll).
+    /// View points a finger may travel before a tap becomes a Mac drag.
+    ///
+    /// The slop is a *content* distance, because that is what the Mac
+    /// sees: a fixed 10 view points is 10 content points at 1× but only
+    /// 2.5 content points at 4×, which is a real drag on the Mac — so a
+    /// slightly-off tap on a button became a drag-select (「点了没点中」).
+    public var dragSlop: Double { min(28, max(10, 4 * zoom)) }
+
+    // MARK: - Two-finger axis lock
+
+    /// Advance an axis-locked two-finger drag. The locked axis scrolls the
+    /// Mac; the other axis pans the viewport, or scrolls too when there is
+    /// nothing left to pan.
+    public func twoFinger(axis: ScreenDragAxis, translation: CGSize) -> TwoFingerResult {
+        switch axis {
+        case .undecided:
+            return TwoFingerResult(pan: pan, scrollDX: 0, scrollDY: 0)
+        case .vertical:
+            return TwoFingerResult(
+                pan: pan,
+                scrollDX: 0,
+                scrollDY: viewSize.height > 0 ? Double(translation.height / viewSize.height) : 0
+            )
+        case .horizontal:
+            guard canPanHorizontally else {
+                return TwoFingerResult(
+                    pan: pan,
+                    scrollDX: viewSize.width > 0 ? Double(translation.width / viewSize.width) : 0,
+                    scrollDY: 0
+                )
+            }
+            // Pan on X only. The cross axis is DROPPED, not handed off to
+            // the Mac: a locked gesture means one thing, and forwarding the
+            // vertical drift as a scroll is how a horizontal pan ended up
+            // scrolling the app sideways. Only the locked axis's own
+            // residual — the pan running out of room — becomes a scroll.
+            let proposed = CGSize(width: pan.width + translation.width,
+                                  height: pan.height)
+            let clamped = clampedPan(proposed)
+            let residualX = proposed.width - clamped.width
+            return TwoFingerResult(
+                pan: clamped,
+                scrollDX: viewSize.width > 0 ? Double(residualX / viewSize.width) : 0,
+                scrollDY: 0
+            )
+        }
+    }
+
+    /// Whether the viewport can still be moved on the horizontal axis.
+    public var canPanHorizontally: Bool { maxPan.width > 0.5 }
+
+    // MARK: - Viewport pan: pan first, then scroll the residual
+
+    /// Result of a pan gesture: the committed pan and any residual finger
+    /// travel that the pan could not absorb (to be sent as scroll).
     public struct TwoFingerResult: Equatable, Sendable {
         public let pan: CGSize
         /// Residual normalized to the view size (fraction). Zero when the
@@ -207,16 +295,21 @@ public struct ScreenZoomState: Equatable, Sendable {
         }
     }
 
-    /// Advance by one two-finger drag `translation` (in view points).
-    /// While the content can still pan in that direction it pans; the
-    /// leftover once an edge is reached becomes a normalized scroll delta
-    /// (option X: pan first, then hand off to the Mac's content scroll).
-    public func twoFinger(translation: CGSize) -> TwoFingerResult {
+    /// Advance a free 2-axis viewport pan by one `translation` (in view
+    /// points). While the content can still pan in that direction it pans;
+    /// the leftover once an edge is reached becomes a normalized scroll
+    /// delta, so a pan that runs out of room still does something useful.
+    ///
+    /// This is the THREE-finger gesture. Two fingers are axis-locked (see
+    /// `twoFinger(axis:translation:)`) because "scroll the app" and "move
+    /// the picture" are both two-finger intents and only the axis tells
+    /// them apart.
+    public func panGesture(translation: CGSize) -> TwoFingerResult {
         // Panning is only meaningful when the content is bigger than the
         // band BECAUSE THE USER ZOOMED (or chose fill). The chrome insets
         // can also make the fitted content taller than the band — treating
-        // that as pannable turned every two-finger drag into a pan and broke
-        // content scrolling ("双指滚动失灵"), so fit-at-zoom-1 scrolls.
+        // that as pannable turned every drag into a pan and broke content
+        // scrolling, so fit-at-zoom-1 scrolls.
         guard zoom > 1.01 || fillsView else {
             return TwoFingerResult(
                 pan: pan,

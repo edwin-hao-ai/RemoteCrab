@@ -454,3 +454,67 @@ so a cross-reference from another lesson still resolves.
     `onLongPressGesture(minimumDuration: 0, maximumDistance: .infinity,
     onPressingChange:)` — `DragGesture`/`Button` variants restarted the hold
     on re-render (the 1×/s start storm).
+
+108. **An unanchored pinch is a measurable defect, and the correct overload
+    already existed (2026-10-02).** The mirror's pinch called
+    `ScreenZoomState.setZoom(_ z)`, the centre-anchored branch, while
+    `setZoom(_ z, anchor:)` sat right beside it — written, documented and
+    unit-tested by `testAnchoredZoomKeepsTheTouchedPointFixed`. A zoom that
+    ignores the gesture's own centroid moves whatever you were pinching:
+    measured on a 393×852 phone with a 1224×800 window, pinching a point at
+    content u=0.153/v=0.117 to 2× displaced that same point **168 pt**, to
+    x=−76 — off the left edge of the screen. The user had already reported
+    it as "放大后点不准". **Generalizable: a tested-and-correct model function
+    can exist while its call site silently uses the neighbouring overload, so
+    "the model is covered" is not evidence the feature is.** Anchor every
+    zoom at `gestureRecognizer.location(in:)`.
+
+109. **A drag threshold in view points is wrong the moment the view is
+    zoomed.** The single-finger drag-to-Mac-drag threshold was a fixed
+    `moved > 10` in *view* points. What the Mac sees is *content* points, so
+    at 4× a 10-point slip is a 2.5-point Mac drag — real enough to turn a
+    near-miss tap on a button into a drag-select ("点了没点中"). Now
+    `ScreenZoomState.dragSlop = min(28, max(10, 4 * zoom))`, unchanged at 1×
+    so nothing regresses. **Generalizable: any touch threshold must be
+    expressed in the space the far side acts in, not the space you measure
+    in.**
+
+110. **A three-finger gesture is a trackpad gesture.** The conflict was
+    "two fingers must mean both scroll and pan", so three fingers were added
+    for the pan. It worked and the user called it "姿势别扭，手挡住画面":
+    three fingers is comfortable on a trackpad *because the hand is not on
+    the content*, and on a touchscreen the palm covers the very region being
+    examined. No amount of tuning fixes that. **Generalizable: before porting
+    a gesture between input surfaces, ask whether the reason it is comfortable
+    survives the port.** The replacement already existed and was anchored —
+    two-finger double-tap zooms at the tap point (`toggleZoom(at:)`) — and at
+    the common 2× reading zoom the vertical pan range is **0 pt** anyway, so
+    vertical panning was redundant all along.
+
+113. **A complete reference must be filed where the reader will look for it
+    (2026-10-02).** The gesture sheet was a "trackpad guide" that never
+    mentioned the mirror, and the mirror's only hint was one line carrying
+    five gestures — the two also disagreed about what *three fingers* means
+    (middle-click on the trackpad, free panning in the mirror). Scoping each
+    section to its surface dissolved the ambiguity without a note explaining
+    it. Two things the diff could not catch, only rendering it could:
+    filing "two fingers sideways to move the view" under a heading that said
+    **"Scroll & zoom"** hid the pan gesture from anyone who scans by heading,
+    and the mirror borrowed **"Three & four fingers"** for a single row it
+    does not have a gesture for. One scroll, not a segmented control: a tab
+    per surface would *hide* half the content, which is the opposite of the
+    point when the reason for writing it was completeness. **Generalizable:
+    a documentation change is a layout change — render it and read it, and
+    check that each row sits under a heading that describes it.**
+
+114. **A hint and a reference are different jobs.** The mirror's coach mark
+    existed to make the surface make sense once; it was also the *only*
+    place five of the mirror's gestures were written down, so "shown once"
+    quietly meant "unreadable after the first session". It is now three
+    gestures plus a button into the full reference, reachable from the menu
+    too. And `proxy.scrollTo` in a `.task` needs its target measured before
+    the proxy will honour it, so it silently no-ops behind a magic sleep
+    standing in for layout; `.defaultScrollAnchor` is declarative and cannot
+    race. **Generalizable: when a one-shot hint is also the only copy, either
+    it is a hint or it is documentation — it cannot be both, and the fix is a
+    link, not more text.**

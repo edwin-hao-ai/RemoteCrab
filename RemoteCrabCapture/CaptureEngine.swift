@@ -24,6 +24,13 @@ final class CaptureEngine: ObservableObject {
     }
 
     // Public state surfaced to SwiftUI.
+    /// User-installed context suites, merged over the built-ins.
+    ///
+    /// Owned here rather than in the view so the sheet and anything else
+    /// that resolves a profile read the same list, and so a file dropped
+    /// into Documents is picked up without an app relaunch.
+    let profiles = ContextProfileStore()
+
     @Published private(set) var isStreaming = false
     /// True once the capture session's first `startRunning()` has
     /// RETURNED. SwiftUI must not create a camera preview before this:
@@ -93,6 +100,10 @@ final class CaptureEngine: ObservableObject {
     /// True when the connected computer is Windows — i.e. the keyboard
     /// surface must show Ctrl/Alt/Shift and Windows shortcut chords.
     var connectedIsWindows: Bool { connectedPlatform.lowercased() == "windows" }
+    /// The peer as the shared package models it. The context sheet needs
+    /// this (not a Bool) because a whole action *set* differs per platform,
+    /// not just a few labels.
+    var peerPlatform: IBModifierBar.PeerPlatform { IBModifierBar.PeerPlatform(connectedPlatform) }
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
     /// Frontmost Mac app, from the latest pushed appList (0x0C).
@@ -1598,11 +1609,36 @@ final class CaptureEngine: ObservableObject {
                         try? await Task.sleep(for: .milliseconds(500))
                         if self?.screenInfo?.status == .ok { break }
                     }
+                    // Scroll FIRST, before any click. Nothing has put the cursor in the
+                    // mirrored window yet, so the Mac must place it once or
+                    // the scroll event has no window to land in. Then click,
+                    // then two more scrolls that must leave the cursor
+                    // exactly where the click put it.
+                    //
+                    // "Placed once, then left alone" vs "moved every time" IS
+                    // the regression: a two-finger swipe used to teleport the
+                    // cursor to the finger, which is most of why the pointer
+                    // never landed where the user tapped.
+                    //
+                    // The settle delay matters: the PHONE can see
+                    // `screenInfo.status == .ok` before the Mac's own
+                    // `lastScreenInfo` is populated (that assignment hops
+                    // through the main actor), and `handleScreenInput` drops
+                    // input until it lands. Sending on the phone's signal
+                    // alone lost the first frame and left the "place once"
+                    // branch unexercised.
+                    try? await Task.sleep(for: .seconds(2))
+                    self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
+                    Forensic.log("[e2e] screen input scroll 1/3 sent (pre-click)")
+                    try? await Task.sleep(for: .milliseconds(700))
                     self?.sendScreenInput(IBScreenInput(action: .click, u: 0.5, v: 0.5))
                     Forensic.log("[e2e] screen input click sent")
-                    try? await Task.sleep(for: .milliseconds(400))
-                    self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
-                    Forensic.log("[e2e] screen input scroll sent")
+                    try? await Task.sleep(for: .milliseconds(700))
+                    for i in 2...3 {
+                        self?.sendScreenInput(IBScreenInput(action: .scroll, u: 0.5, v: 0.5, dx: 0, dy: 0.05))
+                        Forensic.log("[e2e] screen input scroll \(i)/3 sent (post-click)")
+                        try? await Task.sleep(for: .milliseconds(700))
+                    }
                 }
             }
         }
