@@ -162,6 +162,19 @@ public enum ContextProfiles {
             .key(label: "Exit", symbol: "escape", keycode: 53),
         ])
 
+    /// Windows Terminal, and therefore every CLI agent that runs inside
+    /// it — Claude Code, Codex CLI, OpenCode, Gemini CLI, Aider, goose.
+    /// The terminal cannot say which agent it hosts, exactly as on the
+    /// Mac, so they all land here by design.
+    ///
+    /// Only keys whose Windows behaviour is documented ship. Copy and
+    /// paste are **absent on purpose**: their Windows Terminal bindings
+    /// could not be confirmed without a machine, and a "Copy" that
+    /// interrupts is the exact failure this whole change exists to
+    /// remove. See the checklist in `docs/WINDOWS-GAPS-2026-10-03.md`.
+    ///
+    /// Note there is no ⌘C here: on Windows ⌘ and ⌃ are the same key, so
+    /// the Mac suite's ⌃C "Interrupt" and ⌘C "Copy" were one button.
     public static let agent = ContextProfile(
         id: "agent", title: IBLocale.Context.profileAgent,
         bundleIDs: [
@@ -176,6 +189,14 @@ public enum ContextProfiles {
             .key(label: "Paste", symbol: "doc.on.clipboard", keycode: 9, modifiers: 8), // ⌘V
             .key(label: "Clear", symbol: "eraser", keycode: 37, modifiers: 2),       // ⌃L
             .key(label: "Escape", symbol: "escape", keycode: 53),
+        ],
+        windowsProcessNames: ["WindowsTerminal", "powershell", "pwsh", "cmd", "conhost"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Agent", symbol: "waveform"),
+            .key(label: "Approve", symbol: "checkmark", keycode: 36),              // Enter
+            .key(label: "Stop", symbol: "stop.fill", keycode: 53),                 // Esc
+            .key(label: "Interrupt", symbol: "xmark", keycode: 8, modifiers: 2),   // Ctrl+C
+            .key(label: "Clear", symbol: "eraser", keycode: 37, modifiers: 2),     // Ctrl+L
         ])
 
     /// OpenCode desktop (`ai.opencode.desktop`). Shortcuts read out of its
@@ -260,6 +281,17 @@ public enum ContextProfiles {
             .key(label: "Forward", symbol: "chevron.forward", keycode: 30, modifiers: 8),    // ⌘] (menu-verified)
             .key(label: "Reload", symbol: "arrow.clockwise", keycode: 15, modifiers: 8),     // ⌘R (menu-verified)
             .key(label: "Address Bar", symbol: "text.cursor", keycode: 37, modifiers: 8),    // ⌘L (menu-verified)
+        ],
+        // The Ctrl chords every Chromium/Firefox on Windows agrees on.
+        windowsProcessNames: ["chrome", "msedge", "firefox", "brave"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Browser", symbol: "waveform"),
+            .key(label: "New Tab", symbol: "plus.square", keycode: 24, modifiers: 2),        // Ctrl+T
+            .key(label: "Close Tab", symbol: "xmark.square", keycode: 23, modifiers: 2),     // Ctrl+W
+            .key(label: "Next Tab", symbol: "chevron.right", keycode: 43, modifiers: 2),      // Ctrl+Tab
+            .key(label: "Previous Tab", symbol: "chevron.left", keycode: 43, modifiers: 1 | 2), // Ctrl+Shift+Tab
+            .key(label: "Reload", symbol: "arrow.clockwise", keycode: 15, modifiers: 2),     // Ctrl+R
+            .key(label: "Address Bar", symbol: "text.cursor", keycode: 37, modifiers: 2),    // Ctrl+L
         ])
 
     public static let mail = ContextProfile(
@@ -330,6 +362,19 @@ public enum ContextProfiles {
             .key(label: "Comment", symbol: "text.bubble", keycode: 44, modifiers: 8),       // ⌘/
             .key(label: "Find", symbol: "magnifyingglass", keycode: 3, modifiers: 8),       // ⌘F
             .key(label: "Save", symbol: "square.and.arrow.down", keycode: 1, modifiers: 8), // ⌘S
+        ],
+        // VS Code's documented defaults (and the same in Cursor / VSCodium,
+        // which are VS Code forks). ⌃` is already unprefixed on the Mac side
+        // because VS Code binds Ctrl+` on both platforms.
+        windowsProcessNames: ["Code", "devenv", "cursor", "notepad++"],
+        windowsActions: [
+            .voiceHero(label: "Talk to Editor", symbol: "waveform"),
+            .key(label: "Command Palette", symbol: "command", keycode: 35, modifiers: 1 | 2), // Ctrl+Shift+P
+            .key(label: "Find", symbol: "magnifyingglass", keycode: 3, modifiers: 2),         // Ctrl+F
+            .key(label: "Save", symbol: "square.and.arrow.down", keycode: 1, modifiers: 2),  // Ctrl+S
+            .key(label: "Terminal", symbol: "terminal", keycode: 50, modifiers: 2),           // Ctrl+`
+            .key(label: "Quick Open", symbol: "doc.text.magnifyingglass", keycode: 35, modifiers: 2), // Ctrl+P
+            .key(label: "Close Editor", symbol: "xmark", keycode: 13, modifiers: 2),         // Ctrl+W
         ])
 
     /// Rich-text / document editors (TextEdit, Pages, Numbers, Word) —

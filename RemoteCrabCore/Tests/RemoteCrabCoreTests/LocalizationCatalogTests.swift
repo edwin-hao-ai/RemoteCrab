@@ -81,6 +81,21 @@ final class LocalizationCatalogTests: XCTestCase {
                 }
             }
         }
+        // The system grid is NOT one of `all` — it is its own list per
+        // platform — so it has to be walked explicitly or its labels ship
+        // untranslated. That is how "Talk to Computer" would have reached
+        // a Chinese user in English.
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            for action in ContextProfiles.systemActions(for: platform) {
+                switch action {
+                case .key(let label, _, _, _),
+                     .system(let label, _, _),
+                     .systemArg(let label, _, _, _),
+                     .voiceHero(let label, _):
+                    labels.insert(label)
+                }
+            }
+        }
         XCTAssertGreaterThan(labels.count, 50, "expected the full suite registry")
 
         let strings = try catalog()
