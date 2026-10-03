@@ -342,7 +342,10 @@ remotecrab.exe --uninstall-vcam    # 需管理员
 
 - [ ] `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RemoteCrab` 被删
 - [ ] `%APPDATA%\RemoteCrab\` 被删
-- [ ] `HKLM\Software\Classes\CLSID\{8B2C4D19-…}` 被删
+- [ ] `HKLM\Software\Classes\CLSID\{9D4B0D4D-1D2A-4B3E-9C0A-7F6E5D4C3B2A}` 被删
+      （**注意**：安装清单 `RemoteCrab.wxs` 之前写的是 `{8B2C4D19-…}` —— 那个 GUID
+      在整个产品里根本不存在，所以卸载清的是一个空键，真正的摄像头注册会留在原地。
+      2026-10-02 已改为 `rc_vcam::win::SOURCE_CLSID`，两处同步）
 - [ ] **`%ProgramData%\RemoteCrab\vcam-ring.bin` 被删** ← 这条最容易失败
 - [ ] **跑第二次不算失败**（幂等）
 

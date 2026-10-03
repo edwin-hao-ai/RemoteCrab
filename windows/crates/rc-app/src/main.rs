@@ -155,8 +155,11 @@ async fn main() -> ExitCode {
     // because "another copy is already running" is the one thing that must
     // never happen to the process that is trying to fix the installation.
     #[cfg(windows)]
-    if args.install_vcam || args.uninstall_vcam {
-        return vcam::run_elevated_job(args.install_vcam);
+    if args.install_vcam || args.uninstall_vcam || args.uninstall_vcam_machine {
+        return vcam::run_one_shot(
+            args.install_vcam,
+            args.uninstall_vcam_machine,
+        );
     }
     if args.scan {
         return scan::run_scan(args.subnet.as_deref()).await;
