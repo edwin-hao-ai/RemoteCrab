@@ -141,7 +141,9 @@ pub fn cg_to_vk(cg: u16) -> Option<u16> {
 /// order they should be pressed.
 ///
 /// `command` (⌘) and `control` (⌃) both collapse to Ctrl so that a Mac-style
-/// `⌘C` becomes `Ctrl+C`.
+/// `⌘C` becomes `Ctrl+C`. `meta` (⊞) deliberately does NOT join that collapse:
+/// it is a real key on Windows, and folding it into Ctrl would make every
+/// ⊞ chord unreachable from the phone.
 pub fn modifier_vks(modifiers: u8) -> Vec<u16> {
     let mut out = Vec::new();
     let ctrl = modifiers & (Modifier::COMMAND | Modifier::CONTROL) != 0;
@@ -153,6 +155,9 @@ pub fn modifier_vks(modifiers: u8) -> Vec<u16> {
     }
     if modifiers & Modifier::SHIFT != 0 {
         out.push(vk::SHIFT);
+    }
+    if modifiers & Modifier::META != 0 {
+        out.push(vk::LWIN);
     }
     out
 }
@@ -246,6 +251,49 @@ mod tests {
             modifier_vks(Modifier::COMMAND | Modifier::SHIFT),
             vec![vk::CONTROL, vk::SHIFT]
         );
+    }
+
+    #[test]
+    fn meta_maps_to_the_windows_key_and_never_to_ctrl() {
+        assert_eq!(modifier_vks(Modifier::META), vec![vk::LWIN]);
+        // The regression this bit exists to prevent: ⊞ folded into the
+        // same Ctrl as ⌘, which made every ⊞ chord unreachable.
+        assert_ne!(modifier_vks(Modifier::META), modifier_vks(Modifier::COMMAND));
+        assert!(!modifier_vks(Modifier::META).contains(&vk::CONTROL));
+    }
+
+    #[test]
+    fn meta_composes_with_shift_and_alt() {
+        assert_eq!(
+            modifier_vks(Modifier::META | Modifier::SHIFT),
+            vec![vk::SHIFT, vk::LWIN]
+        );
+        assert_eq!(
+            modifier_vks(Modifier::META | Modifier::OPTION),
+            vec![vk::MENU, vk::LWIN]
+        );
+        // ⊞⌘ is still just Win + Ctrl — they are different keys, and a
+        // profile may legitimately ask for both.
+        assert_eq!(
+            modifier_vks(Modifier::META | Modifier::COMMAND),
+            vec![vk::CONTROL, vk::LWIN]
+        );
+    }
+
+    #[test]
+    fn meta_bit_is_the_unused_one() {
+        // Guards the wire contract: 16 must not collide with the four
+        // bits that shipped in V0.2, or an old bitmask would change
+        // meaning without anyone noticing.
+        for used in [
+            Modifier::SHIFT,
+            Modifier::CONTROL,
+            Modifier::OPTION,
+            Modifier::COMMAND,
+        ] {
+            assert_eq!(Modifier::META & used, 0, "META overlaps {used:#04x}");
+        }
+        assert_eq!(Modifier::META, 16);
     }
 
     #[test]

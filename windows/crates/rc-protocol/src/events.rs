@@ -95,6 +95,12 @@ impl Modifier {
     pub const CONTROL: u8 = 2;
     pub const OPTION: u8 = 4;
     pub const COMMAND: u8 = 8;
+    /// The Windows key (⊞). Bit 16 — the original mask only defined
+    /// 1/2/4/8, and `COMMAND` collapses into Ctrl, so there was no way
+    /// to *hold* ⊞ and therefore no way to send ⊞E / ⊞R / ⊞D / ⊞L.
+    /// Purely additive: an older receiver ignores it, a newer one that
+    /// never sees it is unaffected.
+    pub const META: u8 = 16;
 }
 
 // ---------------------------------------------------------------------------
