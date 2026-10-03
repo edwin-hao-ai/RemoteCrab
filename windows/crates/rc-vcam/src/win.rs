@@ -70,18 +70,23 @@ pub fn install_source() -> Result<(), VcamError> {
     if !dll.exists() {
         return Err(VcamError::SourceMissing(dll.display().to_string()));
     }
-    // Already registered to this exact DLL (e.g. by an earlier elevated run)?
-    // Then this is a no-op we can do without admin rights.
-    if let Some(existing) = registered_dll() {
-        if existing.eq_ignore_ascii_case(&dll.to_string_lossy()) {
-            return Ok(());
-        }
-        // Registered, but to a different file. We know precisely what is wrong
-        // and both paths, so say so — the alternative is falling through to a
-        // bare ACCESS_DENIED below, which reads to the user as "you are not an
-        // administrator" when in fact they very likely are, and the real cause
-        // is a leftover from an earlier install somewhere else on the disk.
-        return Err(VcamError::Stale);
+    // Registered to this exact DLL (e.g. by an earlier elevated run)? Then this
+    // is a no-op we can do without admin rights.
+    //
+    // Registered to a *different* file? Note it and fall through to the write
+    // anyway. Returning `Stale` here — which is the obvious thing to do, and what
+    // this function did briefly — makes the mismatch **permanent**: the elevated
+    // caller stops at the same error before reaching `RegCreateKeyExW`, so
+    // nothing can ever re-register, including the process that has the rights to.
+    // The mismatch only becomes worth reporting once the write is refused, and
+    // then it is the *accurate* thing to report: "not an administrator" is what
+    // the bare ACCESS_DENIED would have said, and it is usually wrong.
+    let existing = registered_dll();
+    let was_stale = existing
+        .as_deref()
+        .is_some_and(|e| !e.eq_ignore_ascii_case(&dll.to_string_lossy()));
+    if existing.is_some() && !was_stale {
+        return Ok(());
     }
 
     let subkey = format!("Software\\Classes\\CLSID\\{}", clsid_string());
@@ -102,7 +107,16 @@ pub fn install_source() -> Result<(), VcamError> {
     };
     if rc.is_err() {
         if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
-            return Err(VcamError::NeedsElevation("registering the camera"));
+            // A mismatch we noted earlier is the accurate thing to report here.
+            // "NeedsElevation" on its own tells the user they are not an
+            // administrator, which is the wrong story when the truth is that the
+            // camera is still pointed at a copy of the DLL that has since moved
+            // or been deleted.
+            return Err(if was_stale {
+                VcamError::Stale
+            } else {
+                VcamError::NeedsElevation("registering the camera")
+            });
         }
         return Err(VcamError::Other(format!(
             "RegCreateKeyExW(CLSID) failed: {rc:?}"
@@ -160,7 +174,7 @@ pub fn uninstall_source() -> Result<(), VcamError> {
     let rc = unsafe { RegDeleteTreeW(HKEY_LOCAL_MACHINE, PCWSTR(w.as_ptr())) };
     if rc.is_err() {
         if rc == windows::Win32::Foundation::ERROR_ACCESS_DENIED {
-            return Err(VcamError::NeedsElevation("removing the camera"));
+            return Err(VcamError::NeedsElevation("registering the camera"));
         }
         return Err(VcamError::Other(format!("RegDeleteTreeW failed: {rc:?}")));
     }

@@ -60,8 +60,18 @@ impl TokenStore {
             .and_then(|s| serde_json::from_str::<TokenStoreData>(&s).ok())
             .unwrap_or_default();
 
-        if data.pc_id.is_empty() {
-            data.pc_id = generate_id();
+        // Adopt the machine-derived identity, but never at the cost of a working
+        // pairing.
+        //
+        // The iPhone recognises us by this id, so changing it while a token is
+        // live presents the phone with a stranger and forces the user through
+        // approval again for no reason. With no pairing in flight there is
+        // nothing to orphan, and preferring the machine id is the entire point —
+        // it is what makes the next uninstall-and-reinstall a non-event.
+        match machine_stable_id() {
+            Some(machine) if data.tokens.is_empty() => data.pc_id = machine,
+            None if data.pc_id.is_empty() => data.pc_id = generate_id(),
+            _ => {}
         }
         if data.pc_name.is_empty() {
             data.pc_name = default_pc_name();
@@ -206,6 +216,72 @@ impl TokenStore {
     }
 }
 
+/// An identity that belongs to *this machine*, not to this install.
+///
+/// `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid` is per-machine, already a
+/// UUID, and survives the app-data directory being deleted. That last part is
+/// the whole point: uninstalling removes `%APPDATA%\RemoteCrab`, so an id kept
+/// only there is not per-machine at all — it is per-install. Reinstalling then
+/// produces a fresh id, the iPhone still remembers the old one under the same
+/// display name, and its computer list grows a second "Edwin" that the user
+/// cannot remove from this side.
+///
+/// `None` off Windows, and on Windows if the key is unreadable, in which case
+/// the caller falls back to [`generate_id`] — degraded, but no worse than
+/// before.
+#[cfg(windows)]
+fn machine_stable_id() -> Option<String> {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+
+    let subkey = HSTRING::from(r"SOFTWARE\Microsoft\Cryptography");
+    let name = HSTRING::from("MachineGuid");
+
+    let read = |buf: Option<*mut std::ffi::c_void>, bytes: &mut u32| unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(subkey.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            buf,
+            Some(bytes),
+        )
+    };
+
+    // Size probe: a null buffer purely to learn how much is needed.
+    let mut size: u32 = 0;
+    let probe = read(None, &mut size);
+    // FILE_NOT_FOUND just means this Windows has no MachineGuid — a "fall back",
+    // not a fault worth surfacing.
+    if probe != ERROR_SUCCESS && probe != ERROR_FILE_NOT_FOUND {
+        return None;
+    }
+    if size == 0 {
+        return None;
+    }
+
+    let mut buf = vec![0u16; (size / 2) as usize + 1];
+    let mut out = size;
+    if read(Some(buf.as_mut_ptr().cast()), &mut out) != ERROR_SUCCESS {
+        return None;
+    }
+    // Trim the terminating NUL, and reject anything that is not a plausible
+    // UUID: a half-read or empty value would otherwise go out to the phone as an
+    // identity that looks real.
+    let chars = (out as usize / 2).saturating_sub(1);
+    let text = String::from_utf16_lossy(&buf[..chars.min(buf.len())]);
+    let text = text.trim().to_string();
+    let plausible = text.len() == 36 && text.chars().all(|c| c == '-' || c.is_ascii_hexdigit());
+    plausible.then_some(text)
+}
+
+#[cfg(not(windows))]
+fn machine_stable_id() -> Option<String> {
+    None
+}
+
 /// A random-ish stable id (UUID v4 without the `uuid` dependency).
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -222,6 +298,7 @@ fn generate_id() -> String {
         (mix >> 64) as u16 & 0x0fff,
         (mix >> 48) as u16 & 0x3fff | 0x8000,
         (mix & 0xffff_ffff_ffff) as u64
+
     )
 }
 
@@ -246,8 +323,7 @@ mod tests {
         assert!(!store.pc_id().is_empty());
         store.set_token("iPhone", "tok-1");
         assert_eq!(store.token_for("iPhone").as_deref(), Some("tok-1"));
-        store.forget("iPhone");
-        assert_eq!(store.token_for("iPhone"), None);
+        store.forget("iPhone");        assert_eq!(store.token_for("iPhone"), None);
     }
 
     #[test]
@@ -350,5 +426,127 @@ mod listing_tests {
             Some("Ben's phone"),
             "another phone's address must survive"
         );
+    }
+
+    /// The id must belong to the machine, not to the install directory.
+    ///
+    /// Uninstalling deletes `%APPDATA%\RemoteCrab`. If the id were regenerated
+    /// there, reinstalling would present the iPhone with a *new* computer wearing
+    /// the *same* display name — and since the phone remembers the old one, its
+    /// computer list grows a duplicate "Edwin" that nothing on this side can
+    /// remove. That is not hypothetical: it is what happened the first time an
+    /// uninstall cleaned the app data.
+    ///
+    /// Windows-only on purpose. Elsewhere there is no machine GUID to read, the
+    /// fallback is a fresh id, and the duplicate would come back — so the test
+    /// must not assert a promise the other platforms do not make. CI builds three
+    /// OSes, and this would have been a red build nobody could act on.
+    #[cfg(windows)]
+    #[test]
+    fn the_id_survives_the_app_data_being_deleted() {
+        let first = TokenStore::load(None).pc_id().to_string();
+        // A second store, as after an uninstall + reinstall: nothing carried
+        // over except whatever the machine itself provides.
+        let second = TokenStore::load(None).pc_id().to_string();
+        assert_eq!(
+            first, second,
+            "a fresh token store produced a different identity — reinstalling will \
+             show the phone a second computer with the same name"
+        );
+    }
+
+    /// Off Windows the id *is* regenerated. Recording that as the documented
+    /// fallback stops the Windows-only test above from looking, to whoever hits
+    /// it on a Mac, like a platform bug — and tells whoever adds a stable source
+    /// elsewhere to un-gate the stronger test.
+    #[cfg(not(windows))]
+    #[test]
+    fn without_a_machine_guid_the_id_is_per_install() {
+        let first = TokenStore::load(None).pc_id().to_string();
+        let second = TokenStore::load(None).pc_id().to_string();
+        assert_ne!(
+            first, second,
+            "this platform has no machine GUID, so a fresh id is the documented \
+             fallback — if this now fails, a stable source was added and the \
+             Windows-only test should be un-gated"
+        );
+    }
+
+    /// Whatever the source, it has to look like an id. A half-read or empty
+    /// value would otherwise be sent to the phone as an identity that appears
+    /// real.
+    #[test]
+    fn the_id_looks_like_an_id() {
+        let id = TokenStore::load(None).pc_id().to_string();
+        assert_eq!(id.len(), 36, "{id}");
+        assert!(
+            id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()),
+            "{id}"
+        );
+    }
+
+    /// A live pairing outranks the machine id.
+    ///
+    /// The phone recognises the computer by this id, so swapping it out from
+    /// under a working token would make the user re-approve a machine they
+    /// already approved — the exact "why is this asking again" experience the
+    /// field's own doc comment says the id exists to prevent.
+    #[cfg(windows)]
+    #[test]
+    fn a_working_pairing_keeps_the_id_it_was_approved_with() {
+        let dir = std::env::temp_dir().join(format!("rc-id-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("tokens.json");
+
+        let mut first = TokenStore::load(Some(path.clone()));
+        let approved_as = first.pc_id().to_string();
+        first.set_token("Dana's iPhone", "tok-1");
+
+        // Relaunch: the id on disk is whatever the pairing was approved with.
+        let reloaded = TokenStore::load(Some(path));
+        assert_eq!(
+            reloaded.pc_id(),
+            approved_as,
+            "the id changed while a pairing was live — the phone would see a stranger"
+        );
+        assert_eq!(reloaded.token_for("Dana's iPhone").as_deref(), Some("tok-1"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// And once the pairing is gone, the next load takes the machine id — which
+    /// is the state an uninstall leaves behind.
+    #[cfg(windows)]
+    #[test]
+    fn an_unpaired_store_adopts_the_machine_id_even_if_one_was_stored() {
+        let dir = std::env::temp_dir().join(format!("rc-id-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("tokens.json");
+
+        // A store left by an older build: a random id, and a pairing.
+        std::fs::write(
+            &path,
+            r#"{"pc_id":"00000000-0000-4de4-98db-023a844ff7a4","pc_name":"Edwin",
+                "tokens":{"Dana's iPhone":"tok-1"}}"#,
+        )
+        .expect("seed");
+
+        let paired = TokenStore::load(Some(path.clone()));
+        assert_eq!(paired.pc_id(), "00000000-0000-4de4-98db-023a844ff7a4");
+        assert_eq!(paired.token_for("Dana's iPhone").as_deref(), Some("tok-1"));
+
+        // After the user forgets the phone — or after an uninstall removed the
+        // app data — the stored id no longer anchors anything.
+        std::fs::write(&path, r#"{"pc_name":"Edwin","tokens":{}}"#).expect("seed");
+        let unpaired = TokenStore::load(Some(path));
+        assert_ne!(
+            unpaired.pc_id(),
+            "00000000-0000-4de4-98db-023a844ff7a4",
+            "a stale per-install id survived; reinstalling would duplicate the computer again"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

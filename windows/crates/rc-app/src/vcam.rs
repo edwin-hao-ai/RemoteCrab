@@ -58,6 +58,22 @@ pub fn run_one_shot(
                 );
                 std::process::ExitCode::FAILURE
             }
+            crate::elevate::Elevation::AlreadyElevated => {
+                // Name the real reason, because "already elevated" plus a
+                // refusal is otherwise unexplainable to whoever has to fix it.
+                let why = rc_vcam::install_source()
+                    .err()
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "-".into());
+                eprintln!(
+                    "  {} {why}",
+                    crate::i18n::t(
+                        "注册失败，且已在管理员权限下运行。",
+                        "registration failed, and this was already running as administrator."
+                    )
+                );
+                std::process::ExitCode::FAILURE
+            }
         };
     }
     if machine_only {
@@ -67,6 +83,15 @@ pub fn run_one_shot(
         return report_removal(&rc_os::uninstall::remove_user_state());
     }
     uninstall_with_elevation()
+}
+
+/// Whether a one-shot job may still raise a UAC prompt.
+///
+/// The recursion guard, in one place: the elevated copy of `--uninstall-vcam`
+/// runs the identical flag, so without this it would re-prompt forever.
+#[cfg(windows)]
+fn may_prompt() -> bool {
+    !crate::elevate::is_elevated()
 }
 
 /// Remove everything, machine-wide bits included, prompting if that is what it
@@ -88,6 +113,16 @@ pub fn uninstall_with_elevation() -> std::process::ExitCode {
     removed.ring = rc_os::uninstall::remove_machine_files();
     if removed.is_complete() {
         return report_removal(&removed);
+    }
+    if !may_prompt() {
+        eprintln!(
+            "  {}",
+            crate::i18n::t(
+                "部分清理失败，且已在管理员权限下运行。",
+                "Some parts could not be removed, and this was already running as administrator."
+            )
+        );
+        return std::process::ExitCode::FAILURE;
     }
 
     match crate::elevate::run_elevated("--uninstall-vcam") {
@@ -176,6 +211,12 @@ pub fn install_with_elevation() -> crate::elevate::Elevation {
     // prompt on every launch is how a product teaches users to click "Yes".
     if rc_vcam::install_source().is_ok() {
         return crate::elevate::Elevation::PromptAccepted;
+    }
+    // Already elevated and it still failed. Re-launching would raise a second
+    // prompt, the copy would fail the same way, and the user would sit there
+    // clicking "Yes" forever. This is the whole reason `is_elevated` exists.
+    if crate::elevate::is_elevated() {
+        return crate::elevate::Elevation::AlreadyElevated;
     }
     crate::elevate::run_elevated("--install-vcam")
 }

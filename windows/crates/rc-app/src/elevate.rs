@@ -40,6 +40,29 @@ pub enum Elevation {
     /// The prompt could not be shown at all (a policy blocks UAC, a packaged
     /// build without the right manifest, no shell). Rare, and worth saying.
     Unavailable,
+    /// Already elevated, and it still failed. Raising a prompt now would either
+    /// loop forever or accomplish nothing, so the honest answer is to report the
+    /// underlying failure instead.
+    AlreadyElevated,
+}
+
+/// Is this process already running elevated?
+///
+/// The check exists because of a bug this module's own design invited. The
+/// one-shot entry point re-launches itself with `runas` when the registry write
+/// is refused; the elevated copy then runs **the same flag**, hits the same
+/// refused write, and re-launches itself again. The user gets UAC prompts
+/// forever and no camera. Nothing is left running afterwards except the
+/// evidence.
+///
+/// Reusing the integrity level rather than opening a fresh token query: the app
+/// already computes it for the first-run check, and a UAC-elevated process is
+/// precisely the High-integrity one. If the level cannot be read we answer
+/// "not elevated", because that is the answer that keeps the prompt available —
+/// the cost of guessing wrong upward is a pointless prompt, and the cost of
+/// guessing wrong downward is the loop above.
+pub fn is_elevated() -> bool {
+    crate::notify_relay::integrity() == rc_net::firstrun::Integrity::High
 }
 
 /// Re-launch this executable elevated with `flag`, and wait for it to finish.
@@ -121,7 +144,7 @@ fn quote_arg(arg: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{quote_arg, Elevation};
+    use super::{is_elevated, quote_arg, Elevation};
 
     /// The install path with a space in it is the *normal* case, so a quoting
     /// bug here is not an edge case — it is the default install breaking.
@@ -159,5 +182,27 @@ mod tests {
     fn declining_is_distinct_from_being_unavailable() {
         assert_ne!(Elevation::Declined, Elevation::Unavailable);
         assert_ne!(Elevation::PromptAccepted, Elevation::Declined);
+    }
+
+    /// "Already elevated and it still failed" must not be conflated with "the
+    /// prompt could not be shown". They call for different words: one says
+    /// policy is in the way, the other says retrying will not help. Folding
+    /// them together is how a real refusal gets reported as a UAC problem.
+    #[test]
+    fn already_elevated_is_distinct_from_unavailable() {
+        assert_ne!(Elevation::AlreadyElevated, Elevation::Unavailable);
+        assert_ne!(Elevation::AlreadyElevated, Elevation::Declined);
+        assert_ne!(Elevation::AlreadyElevated, Elevation::PromptAccepted);
+    }
+
+    /// The recursion guard. This test runs in CI as an ordinary medium-integrity
+    /// process, so it can only assert the *negative* — but that is the half that
+    /// matters, because it is the half that, when wrong, prompts forever.
+    #[test]
+    fn an_ordinary_test_process_is_not_elevated() {
+        assert!(
+            !is_elevated(),
+            "if CI ever runs elevated, this guard is masking a real elevation path"
+        );
     }
 }

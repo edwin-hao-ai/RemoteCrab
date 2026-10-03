@@ -565,6 +565,13 @@ mod win32 {
                         "This PC will not show an administrator prompt (a group policy may block \
                          it). Ask an administrator to run remotecrab.exe --install-vcam once.",
                     ),
+                    // Only reachable if the tray itself is somehow already
+                    // elevated, in which case the write should have succeeded.
+                    // Say that rather than implying a prompt is needed.
+                    crate::elevate::Elevation::AlreadyElevated => crate::i18n::t(
+                        "已经在管理员权限下运行，但注册仍然失败。",
+                        "Already running as administrator, and the registration still failed.",
+                    ),
                 };
                 // No toast, no status overwrite: the row vanishing from the
                 // next popup *is* the confirmation, because `is_registered` is
