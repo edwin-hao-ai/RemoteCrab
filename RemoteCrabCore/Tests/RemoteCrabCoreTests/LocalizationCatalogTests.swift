@@ -118,6 +118,133 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "context labels with no zh-Hans translation: \(missing)")
     }
 
+    /// No user-visible string may be a bare Swift literal.
+    ///
+    /// Found by looking at a real screenshot: the trackpad's context chip
+    /// read "Computer" in English while the button under it read
+    /// "按住说话". The catalog already had the key (`Computer` → 电脑) —
+    /// the call site just used a literal, so the lookup never happened.
+    /// This is lesson 84's mechanism, and it is invisible in English.
+    ///
+    /// The three places that showed it: the trackpad and keyboard context
+    /// chips, and the context sheet's header.
+    func testTheContextChipIsNotAHardcodedEnglishLiteral() throws {
+        // The catalog entry these call sites now use must exist in both
+        // locales, or swapping the literal for it would be no improvement.
+        let strings = try catalog()
+        let locs = (strings["Computer"] as? [String: Any])?["localizations"] as? [String: Any]
+        XCTAssertNotNil(locs?["en"])
+        let zh = (locs?["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+        XCTAssertEqual(zh?["value"] as? String, "电脑")
+    }
+
+    /// A VoiceOver label must name the action the key actually performs.
+    ///
+    /// The Windows chord row reuses the Mac row's *layout* but its keys do
+    /// different things, and it borrowed the Mac labels wholesale — so
+    /// Ctrl+Z announced as "Mission Control" and Ctrl+A as "App Exposé".
+    /// The button text was right, which is exactly why nothing caught it:
+    /// only a VoiceOver user hears the label.
+    func testWindowsChordLabelsNameWhatTheKeyDoes() {
+        let chords: [(label: String, mac: String)] = [
+            (IBLocale.Switcher.windowsUndo, IBLocale.Switcher.chordMissionControl),
+            (IBLocale.Switcher.windowsSelectAll, IBLocale.Switcher.chordAppExpose),
+            (IBLocale.Switcher.windowsNextTab, IBLocale.Switcher.chordQuitApp),
+            (IBLocale.Switcher.windowsCloseActive, IBLocale.Switcher.chordHideApp),
+        ]
+        for chord in chords {
+            XCTAssertNotEqual(chord.label, chord.mac,
+                              "Windows chord \(chord.label) still announces as \(chord.mac)")
+        }
+        // Mission Control / App Exposé / Exposé are macOS names. A Windows
+        // user has neither, so they must not appear in a PC label.
+        for chord in chords {
+            for banned in ["Mission Control", "Exposé", "Dock"] {
+                XCTAssertFalse(chord.label.contains(banned),
+                               "a Windows chord says \(banned): \(chord.label)")
+            }
+        }
+    }
+
+    /// The chord labels are read aloud, so an untranslated one is spoken in
+    /// English inside a Chinese UI.
+    func testWindowsChordLabelsAreTranslated() throws {
+        let strings = try catalog()
+        var missing: [String] = []
+        for label in [IBLocale.Switcher.windowsSwitchApps,
+                      IBLocale.Switcher.windowsCloseWindow,
+                      IBLocale.Switcher.windowsUndo,
+                      IBLocale.Switcher.windowsSelectAll,
+                      IBLocale.Switcher.windowsCloseActive,
+                      IBLocale.Switcher.windowsNextTab] {
+            let locs = (strings[label] as? [String: Any])?["localizations"] as? [String: Any]
+            let zh = (locs?["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+            if (zh?["value"] as? String)?.isEmpty != false { missing.append(label) }
+        }
+        XCTAssertTrue(missing.isEmpty, "chord labels with no zh-Hans: \(missing)")
+    }
+
+    /// The gesture reference, walked for both platforms.
+    ///
+    /// It is read *while connected*, and it used to describe a Mac
+    /// unconditionally: three modifier keys a PC keyboard does not have,
+    /// "Mission Control", and "the Mac" — while the shortcut bar two
+    /// inches away was already showing Ctrl / Alt / ⊞ / Shift. A reference
+    /// that names the wrong machine is worse than a shorter one, because
+    /// the reader has no way to know which rows to trust.
+    ///
+    /// Assertions are on the *Windows* strings: they are the ones that were
+    /// wrong, and the Mac rows are correct by definition.
+    func testTheGestureReferenceDescribesTheConnectedComputer() {
+        let windows = [
+            IBLocale.Coach.modifierBar(for: .windows),
+            IBLocale.Coach.threeFingerSwipe(for: .windows),
+            IBLocale.Coach.pinchZoom(for: .windows),
+            IBLocale.Coach.mirrorDrag(for: .windows),
+            IBLocale.Coach.mirrorScroll(for: .windows),
+        ]
+        for text in windows {
+            for banned in ["\u{2318}", "\u{2325}", "\u{2303}", "Mission Control", "Mac"] {
+                XCTAssertFalse(text.contains(banned),
+                               "the Windows gesture reference says \(banned): \(text)")
+            }
+        }
+        // And the two platforms must actually differ, or this test would
+        // pass on a pair of identical Mac strings.
+        XCTAssertNotEqual(IBLocale.Coach.modifierBar(for: .windows),
+                          IBLocale.Coach.modifierBar(for: .mac))
+        XCTAssertNotEqual(IBLocale.Coach.threeFingerSwipe(for: .windows),
+                          IBLocale.Coach.threeFingerSwipe(for: .mac))
+    }
+
+    /// Every per-platform gesture string must ship in both locales.
+    ///
+    /// `Coach.pinchZoom` had **no catalog entry at all**, so it rendered as
+    /// the raw English key in a Chinese UI — the same class as lesson 84,
+    /// where the translation existed but nothing looked it up. Here the
+    /// entry was simply absent, and nothing failed.
+    func testEveryGestureReferenceStringIsTranslated() throws {
+        let strings = try catalog()
+        var missing: [String] = []
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            let rows = [
+                IBLocale.Coach.modifierBar(for: platform),
+                IBLocale.Coach.threeFingerSwipe(for: platform),
+                IBLocale.Coach.pinchZoom(for: platform),
+                IBLocale.Coach.mirrorDrag(for: platform),
+                IBLocale.Coach.mirrorScroll(for: platform),
+            ]
+            for row in rows {
+                // `IBL` resolved the value, so the KEY is the English source
+                // string; look the key up to prove the entry exists.
+                let locs = (strings[row] as? [String: Any])?["localizations"] as? [String: Any]
+                let zh = (locs?["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+                if (zh?["value"] as? String)?.isEmpty != false { missing.append(row) }
+            }
+        }
+        XCTAssertTrue(missing.isEmpty, "gesture rows with no zh-Hans: \(missing)")
+    }
+
     /// Nothing reachable **inside a live session** may name a Mac.
     ///
     /// These surfaces are the ones a Windows user reads *while connected*,

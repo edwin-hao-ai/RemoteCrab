@@ -53,4 +53,68 @@ final class MetaKeyRowTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - Shortcut chords
+
+    /// The chord row is a **pair**: the keycap you read and the label
+    /// VoiceOver speaks. The Windows row borrowed the Mac row's labels, so
+    /// Ctrl+Z announced as "Mission Control" and Ctrl+A as "App Exposé" —
+    /// right keycap, wrong action in the ear.
+    func testEachWindowsChordIsAnnouncedAsWhatItDoes() {
+        let macByKey = Dictionary(
+            ShortcutChords.mac.map { ("\($0.keycode)|\($0.modifiers)", $0.accessibility) },
+            uniquingKeysWith: { first, _ in first })
+
+        for chord in ShortcutChords.windows {
+            let key = "\(chord.keycode)|\(chord.modifiers)"
+            if let macLabel = macByKey[key] {
+                XCTAssertNotEqual(chord.accessibility, macLabel,
+                                  "\(chord.text ?? "?") does a different thing on Windows "
+                                  + "than on the Mac, but announces as \(macLabel)")
+            }
+        }
+        // Mission Control / Exposé / Dock are macOS names with no PC
+        // equivalent, so they must not appear in a Windows label.
+        for chord in ShortcutChords.windows {
+            for banned in ["Mission Control", "Exposé", "Dock"] {
+                XCTAssertFalse(chord.accessibility.contains(banned),
+                               "a Windows chord says \(banned): \(chord.accessibility)")
+            }
+        }
+    }
+
+    /// Every Windows chord must reach the receiver with Ctrl or Alt. The
+    /// receiver collapses the ⌘ and ⌃ bits to Ctrl, so a chord carrying
+    /// neither arrives as a bare keystroke.
+    func testEveryWindowsChordCarriesAModifierTheReceiverHonours() {
+        for chord in ShortcutChords.windows {
+            // command(8) counts: it is what becomes Ctrl on Windows.
+            let carries = chord.modifiers & (1 | 2 | 4 | 8 | 16)
+            XCTAssertNotEqual(carries, 0,
+                              "\(chord.text ?? "?") would arrive as a bare \(chord.keycode)")
+        }
+    }
+
+    /// Two chords that collapse to the same keystroke are two buttons doing
+    /// one thing — the same defect class as the context-sheet suites.
+    func testNoTwoWindowsChordsCollapseToTheSameKeystroke() {
+        var seen: Set<String> = []
+        for chord in ShortcutChords.windows {
+            let ctrl = chord.modifiers & 8 != 0 || chord.modifiers & 2 != 0
+            let normalized = "\(chord.keycode)|ctrl:\(ctrl)"
+                + "|alt:\(chord.modifiers & 4)"
+                + "|meta:\(chord.modifiers & 16)"
+            XCTAssertTrue(seen.insert(normalized).inserted,
+                          "two Windows chords collapse to \(normalized)")
+        }
+    }
+
+    /// The Mac set must not change shape — it is the product on a Mac.
+    func testTheMacChordsAreUnchanged() {
+        XCTAssertEqual(ShortcutChords.mac.count, 6)
+        XCTAssertEqual(ShortcutChords.mac.map(\.text),
+                       ["⌘⇥", "⌘`", nil, nil, "⌘H", "⌘Q"])
+        XCTAssertEqual(ShortcutChords.chords(for: .mac), ShortcutChords.mac)
+        XCTAssertEqual(ShortcutChords.chords(for: .windows), ShortcutChords.windows)
+    }
 }

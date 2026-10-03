@@ -123,7 +123,7 @@ struct ContextSheetView: View {
                         .fill(Color.accentColor.gradient)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                Text(engine.frontmostMacApp?.name ?? "Computer")
+                Text(engine.frontmostMacApp?.name ?? IBLocale.Mirror.computer)
                     .font(IBFont.bodyMedium.weight(.semibold))
                     .foregroundStyle(.white)
                 Text(profile.title.uppercased())

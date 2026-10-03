@@ -171,7 +171,7 @@ struct ContentView: View {
                 .presentationDetents([.large])
         }
         .sheet(isPresented: $showTrackpadGuide) {
-            TrackpadGuideView()
+            TrackpadGuideView(platform: engine.peerPlatform)
                 .presentationDetents([.large])
         }
         .onChange(of: engine.features.activeSurface) { _, surface in
