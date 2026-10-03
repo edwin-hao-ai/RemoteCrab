@@ -86,4 +86,21 @@ mod tests {
         assert!(m.contains("administrator"), "{m}");
         assert!(!m.contains("VcamError"), "{m}");
     }
+
+    /// `Stale` used to be unreachable: `install_source` compared the registered
+    /// DLL against its own and, on a mismatch, fell through to a bare
+    /// `ACCESS_DENIED`. So the one error that could actually explain the
+    /// situation never reached a user. Now that `win.rs` returns it, hold the
+    /// message to the standard the other arms meet — it must not read as "you
+    /// are not an administrator", which is what the user concludes from the
+    /// generic message and is usually wrong.
+    #[test]
+    fn a_stale_registration_does_not_read_as_a_permissions_problem() {
+        let m = VcamError::Stale.to_string();
+        assert!(m.contains("different file"), "{m}");
+        assert!(
+            !m.contains("not an administrator") && !m.contains("permission"),
+            "{m}"
+        );
+    }
 }

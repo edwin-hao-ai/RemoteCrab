@@ -23,10 +23,16 @@ pub struct Args {
     pub record: bool,
     pub version: bool,
     /// One-shot, elevated: register the virtual camera's COM source, exit.
-    /// Started by `ShellExecuteW("runas", …)` — not something a user types.
+    /// Reached two ways — the tray's `runas`, and typed by a user who self-elevates.
     pub install_vcam: bool,
     /// One-shot, elevated: undo the machine-wide bits, exit.
     pub uninstall_vcam: bool,
+    /// One-shot: undo **only** the machine-wide bits, exit. Never touches
+    /// per-user state, so it is safe to run as SYSTEM — which is exactly how the
+    /// MSI's uninstall custom action invokes it. Running the full
+    /// `--uninstall-vcam` there would delete the *system profile's* app data and
+    /// leave the real user's untouched.
+    pub uninstall_vcam_machine: bool,
     pub no_tray: bool,
     /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
     pub doctor: bool,
@@ -74,6 +80,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--version" | "-V" => args.version = true,
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
+            "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
             "--no-tray" => args.no_tray = true,
             // `--doctor [ip[:port]]`: the operand is optional and
             // position-sensitive, so it is consumed here rather than left to
@@ -172,5 +179,27 @@ mod arg_tests {
     fn unknown_arguments_are_ignored_rather_than_fatal() {
         let a = args(&["--nonsense", "--vcam"]);
         assert!(a.vcam);
+    }
+
+    /// The MSI uninstalls by invoking the machine-only flag. If it is not
+    /// parsed, the flag falls through to the generic unknown-argument path and
+    /// the custom action exits having done nothing — silently, because the MSI
+    /// sets `Return="ignore"`. The ring file with its NULL DACL then survives
+    /// every uninstall.
+    #[test]
+    fn the_machine_only_uninstall_flag_is_recognised() {
+        let a = args(&["--uninstall-vcam-machine"]);
+        assert!(a.uninstall_vcam_machine, "flag was swallowed");
+        // It must not be mistaken for the full uninstall: that one deletes
+        // per-user state, which under SYSTEM is the wrong user's.
+        assert!(!a.uninstall_vcam);
+    }
+
+    #[test]
+    fn the_three_camera_jobs_are_distinct_flags() {
+        let a = args(&["--install-vcam"]);
+        assert!(a.install_vcam && !a.uninstall_vcam && !a.uninstall_vcam_machine);
+        let b = args(&["--uninstall-vcam"]);
+        assert!(b.uninstall_vcam && !b.install_vcam && !b.uninstall_vcam_machine);
     }
 }

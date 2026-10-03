@@ -76,6 +76,12 @@ pub fn install_source() -> Result<(), VcamError> {
         if existing.eq_ignore_ascii_case(&dll.to_string_lossy()) {
             return Ok(());
         }
+        // Registered, but to a different file. We know precisely what is wrong
+        // and both paths, so say so — the alternative is falling through to a
+        // bare ACCESS_DENIED below, which reads to the user as "you are not an
+        // administrator" when in fact they very likely are, and the real cause
+        // is a leftover from an earlier install somewhere else on the disk.
+        return Err(VcamError::Stale);
     }
 
     let subkey = format!("Software\\Classes\\CLSID\\{}", clsid_string());

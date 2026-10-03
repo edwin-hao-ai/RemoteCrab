@@ -16,56 +16,146 @@ pub struct Vcam {
     frames: u64,
 }
 
-/// The one-shot jobs an elevated copy exists to do.
+/// The one-shot jobs: register, or clean up. Run before the single-instance
+/// guard, so the process that is fixing or removing the installation is never
+/// the one refused for being a second copy of itself.
 ///
-/// Run before the single-instance guard, so the process that is fixing or
-/// removing the installation is never the one refused for being a second copy
-/// of itself.
+/// Each of these raises its own UAC prompt when it needs one. The earlier
+/// version assumed the caller had already arranged the elevation, which was true
+/// for the tray and false for anyone typing the command — so a terminal user was
+/// told to "approve the Windows prompt" for a window that never appeared, and
+/// had no way forward. The whole point of the product is that nobody should have
+/// to know what an administrator prompt is.
 #[cfg(windows)]
-pub fn run_elevated_job(install: bool) -> std::process::ExitCode {
+pub fn run_one_shot(install: bool, machine_only: bool) -> std::process::ExitCode {
     if install {
-        return match rc_vcam::install_source() {
-            Ok(()) => {
-                println!("  vcam: {}", crate::i18n::t("已注册", "registered"));
-                std::process::ExitCode::SUCCESS
+        return match install_with_elevation() {
+            // The elevated copy prints its own result; Windows reports no exit
+            // code for it, so "the prompt was accepted" is the strongest claim
+            // available and the strongest we make.
+            crate::elevate::Elevation::PromptAccepted => std::process::ExitCode::SUCCESS,
+            crate::elevate::Elevation::Declined => {
+                eprintln!(
+                    "  {}",
+                    crate::i18n::t(
+                        "已取消 — 摄像头没有注册。",
+                        "cancelled — the camera was not registered."
+                    )
+                );
+                std::process::ExitCode::FAILURE
             }
-            Err(e) => {
-                eprintln!("  vcam: {e}");
+            crate::elevate::Elevation::Unavailable => {
+                eprintln!(
+                    "  {}",
+                    crate::i18n::t(
+                        "无法弹出管理员提示（可能被系统策略阻止）。",
+                        "could not raise the administrator prompt (a policy may be blocking it)."
+                    )
+                );
                 std::process::ExitCode::FAILURE
             }
         };
     }
-    uninstall_elevated()
+    if machine_only {
+        return uninstall_machine_only();
+    }
+    uninstall_with_elevation()
 }
 
-/// Remove everything, machine-wide bits included.
+/// Remove everything, machine-wide bits included, prompting if that is what it
+/// takes.
 ///
 /// Split in two on purpose: the per-user half needs no rights and is done by
 /// whoever ran the command, the machine half needs an administrator. Both
 /// halves are idempotent, so running this twice is not an error.
 #[cfg(windows)]
-pub fn uninstall_elevated() -> std::process::ExitCode {
-    let mut removed = rc_os::uninstall::remove_user_state();
+pub fn uninstall_with_elevation() -> std::process::ExitCode {
+    let removed = rc_os::uninstall::remove_user_state();
 
-    // Machine-wide: the COM registration and the NULL-DACL ring file. Both need
-    // this process to be elevated, which is why this function is only ever
-    // reached from the `runas` copy.
+    // Try the machine half in place first. If this process is already elevated —
+    // or if there is nothing left to remove — no prompt is raised, and a
+    // pointless one on every uninstall is how a product teaches users to click
+    // "Yes" without reading.
+    let mut removed = removed;
     removed.clsid = rc_vcam::uninstall_source().is_ok();
     removed.ring = rc_os::uninstall::remove_machine_files();
-
     if removed.is_complete() {
-        println!("  {}", crate::i18n::t("已清理干净。", "Removed cleanly."));
-        return std::process::ExitCode::SUCCESS;
+        return report_removal(&removed);
     }
-    eprintln!(
-        "  {}",
-        crate::i18n::t(
-            "部分清理失败（COM 注册或 ring 文件）。请以管理员身份再运行一次。",
-            "Some parts could not be removed (the COM registration or the ring file). \
-             Run it once more as administrator.",
-        )
-    );
-    std::process::ExitCode::FAILURE
+
+    match crate::elevate::run_elevated("--uninstall-vcam") {
+        crate::elevate::Elevation::PromptAccepted => {
+            println!(
+                "  {}",
+                crate::i18n::t("已清理干净。", "Removed cleanly.")
+            );
+            std::process::ExitCode::SUCCESS
+        }
+        _ => {
+            eprintln!(
+                "  {}",
+                crate::i18n::t(
+                    "部分清理失败。请以管理员身份再运行一次。",
+                    "Some parts could not be removed. Run it once more as administrator."
+                )
+            );
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// The machine-wide half on its own, with **no** prompt and **no** per-user work.
+///
+/// This is what the MSI's uninstall custom action calls. Two constraints shape
+/// it, both learned the hard way:
+///
+///   * It runs as SYSTEM, where `%APPDATA%` resolves to the system profile's.
+///     Calling the full `--uninstall-vcam` there would delete the wrong user's
+///     data and leave the real user's behind — the uninstall would report
+///     success while accomplishing nothing for the person who ran it.
+///   * It must never try to elevate. A UAC prompt inside an uninstall would
+///     either hang the install or fail silently, and either way the machine-wide
+///     cleanup is the part that genuinely needs the rights we already have.
+#[cfg(windows)]
+fn uninstall_machine_only() -> std::process::ExitCode {
+    let clsid = rc_vcam::uninstall_source().is_ok();
+    let ring = rc_os::uninstall::remove_machine_files();
+    if clsid && ring {
+        println!(
+            "  {}",
+            crate::i18n::t("已清理干净。", "Removed cleanly.")
+        );
+        std::process::ExitCode::SUCCESS
+    } else {
+        eprintln!(
+            "  {}",
+            crate::i18n::t(
+                "机器级清理失败（COM 注册或 ring 文件）。",
+                "machine-wide cleanup failed (the COM registration or the ring file)."
+            )
+        );
+        std::process::ExitCode::FAILURE
+    }
+}
+
+#[cfg(windows)]
+fn report_removal(removed: &rc_os::uninstall::Removed) -> std::process::ExitCode {
+    if removed.is_complete() {
+        println!(
+            "  {}",
+            crate::i18n::t("已清理干净。", "Removed cleanly.")
+        );
+        std::process::ExitCode::SUCCESS
+    } else {
+        eprintln!(
+            "  {}",
+            crate::i18n::t(
+                "部分清理失败。",
+                "Some parts could not be removed."
+            )
+        );
+        std::process::ExitCode::FAILURE
+    }
 }
 
 /// Ask Windows to register the camera, elevating if that is what it takes.

@@ -55,6 +55,7 @@
 
     <Feature Id="Main" Title="RemoteCrab" Level="1">
       <ComponentGroupRef Id="Payload" />
+      <ComponentGroupRef Id="VcamRegistration" />
       <ComponentGroupRef Id="Shortcuts" />
       <ComponentGroupRef Id="Uninstall" />
     </Feature>
@@ -114,6 +115,50 @@
       </Component>
     </ComponentGroup>
 
+    <!--
+      The virtual camera's COM source, registered **at install time**.
+
+      This is the step that made the product feel broken. The installer is
+      perMachine, so it is already running elevated the moment it executes — and
+      the one thing that genuinely needs elevation is writing HKLM. Having the
+      installer sit on that privilege and then make the user open an elevated
+      PowerShell to finish the job was nonsense. Register here; the camera works
+      the moment the install finishes.
+
+      HKLM rather than HKCU is not a choice. The Windows Frame Server services
+      that activate a virtual camera source run as LocalService / LocalSystem
+      and cannot see a per-user hive, so an HKCU registration produces a camera
+      that is invisible to the very component it exists to feed.
+
+      These three values must match `rc_vcam::win::install_source` exactly:
+      the friendly name, the absolute DLL path, and `ThreadingModel = Both`.
+      When the two disagree the app reports the mismatch rather than picking
+      one, which is correct but unhelpful; see HANDOFF_WINDOWS_MSI.md.
+
+      `[INSTALLFOLDER]` is a formatted field, so the MSI resolves the directory
+      the user actually got. Hard-coding `C:\Program Files\RemoteCrab` here
+      would be simpler and would also be a lie the moment someone installs
+      elsewhere.
+    -->
+    <ComponentGroup Id="VcamRegistration" Directory="INSTALLFOLDER">
+      <Component Id="RegisterCameraSource" Guid="8F1D4B60-3C27-4A95-B7E8-6D0A2F5C9B31" Directory="INSTALLFOLDER">
+        <RegistryKey Root="HKLM" Key="Software\Classes\CLSID\{9D4B0D4D-1D2A-4B3E-9C0A-7F6E5D4C3B2A}">
+          <RegistryValue Type="string" Value="RemoteCrab Camera Source" />
+          <!-- No `Root` on the nested key: WiX v4 rejects it (WIX0064). The
+               hive is inherited from the parent.
+
+               And `Key` here is **relative** — WiX appends it to the parent, so
+               repeating the full path produced
+               `...\CLSID\{9D4B…}\CLSID\{9D4B…}\InprocServer32`, a key that does
+               not exist and never matched what the app reads. -->
+          <RegistryKey Key="InprocServer32">
+            <RegistryValue Type="string" Value="[INSTALLFOLDER]rc_vcam_source.dll" />
+            <RegistryValue Name="ThreadingModel" Type="string" Value="Both" KeyPath="yes" />
+          </RegistryKey>
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
     <ComponentGroup Id="Uninstall" Directory="INSTALLFOLDER">
       <!-- Everything the app wrote outside its own folder.
 
@@ -139,23 +184,33 @@
     </ComponentGroup>
 
     <!--
-      Deferred and impersonating=no, so it runs as SYSTEM: the uninstaller is
-      elevated, and the ring file cannot be deleted otherwise.
+      Deferred and impersonating=no, so it runs as SYSTEM.
 
-      `Return="ignore"` is deliberate. The exe is still present at this point in
-      the sequence, but if a user has already deleted it by hand the uninstall
-      must still finish — leaving a half-removed product in Programs and Features
-      is worse than leaving a stale registry value that the next install fixes.
+      Two reasons it is the machine-only uninstall flag and not the full one:
+      under SYSTEM `%APPDATA%` resolves to the *system profile's*, so the full
+      command would delete the wrong user's app data and leave the real user's
+      behind — reporting success while doing nothing for the person who ran the
+      uninstall. And this action must never try to raise a UAC prompt: it is
+      already elevated, and a prompt inside an uninstall hangs the install.
+
+      It is here only for the one thing an MSI table cannot express: the ring
+      file's NULL DACL. The COM registration this file used to also manage is
+      now written at install time (see `VcamRegistration`), so Windows Installer
+      removes it by itself.
+
+      `Return="ignore"`: if a user has already deleted the exe by hand the
+      uninstall must still finish. A half-removed product sitting in Programs
+      and Features is worse than a stale value the next install overwrites.
     -->
-    <CustomAction Id="UninstallCameraRegistration"
+    <CustomAction Id="UninstallMachineState"
                   Directory="INSTALLFOLDER"
-                  ExeCommand='"[INSTALLFOLDER]remotecrab.exe" --uninstall-vcam'
+                  ExeCommand='"[INSTALLFOLDER]remotecrab.exe" --uninstall-vcam-machine'
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="UninstallCameraRegistration" Before="RemoveFiles" />
+      <Custom Action="UninstallMachineState" Before="RemoveFiles" />
     </InstallExecuteSequence>
   </Package>
 </Wix>
