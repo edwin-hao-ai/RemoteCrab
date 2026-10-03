@@ -144,4 +144,51 @@ final class ContextWindowsSuiteTests: XCTestCase {
         XCTAssertEqual(ContextProfiles.profile(for: win("POWERPNT"), platform: .windows).id,
                        "console")
     }
+
+    // MARK: - What the sheet actually renders
+
+    private func named(_ name: String) -> IBAppInfo {
+        IBAppInfo(id: "pid:1", name: name, pid: 1, isActive: true, iconPNG: nil)
+    }
+
+    /// The load-bearing regression test for the whole change: a matched
+    /// suite on Windows must render its OWN actions. Before this the view
+    /// read `profile.gridActions` unconditionally, so a Windows suite
+    /// that matched still showed the Mac shortcuts.
+    func testAMatchedWindowsSuiteRendersItsOwnActions() {
+        let macKeys = ContextProfiles.appActions(for: ContextProfiles.editor, platform: .mac)
+        let winKeys = ContextProfiles.appActions(for: ContextProfiles.editor, platform: .windows)
+        XCTAssertEqual(macKeys.count, 6)
+        XCTAssertEqual(winKeys.count, 6)
+        XCTAssertNotEqual(macKeys, winKeys, "Windows must not render the Mac action set")
+        XCTAssertTrue(macKeys.contains { action in
+            if case .key(_, _, _, let m) = action { return m & 8 != 0 }
+            return false
+        }, "the Mac set is \u{2318}-based")
+        XCTAssertFalse(winKeys.contains { action in
+            if case .key(_, _, _, let m) = action { return m & 8 != 0 }
+            return false
+        }, "no Windows action may carry the \u{2318} bit")
+    }
+
+    /// A Mac-only suite on Windows renders an empty app section rather
+    /// than the Mac keys \u{2014} and the always-on system grid stays.
+    func testAMacOnlySuiteRendersNothingOnWindows() {
+        let p = ContextProfiles.profile(for: named("Keynote"), platform: .windows)
+        XCTAssertEqual(ContextProfiles.appActions(for: p, platform: .windows), [])
+        XCTAssertFalse(ContextProfiles.systemActions(for: .windows).isEmpty)
+    }
+
+    func testTheConsoleNeverRendersItsKeysTwice() {
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            XCTAssertEqual(ContextProfiles.appActions(for: ContextProfiles.console,
+                                                      platform: platform), [], "\(platform)")
+        }
+    }
+
+    func testVoiceHeroIsPerPlatformToo() {
+        XCTAssertNotNil(ContextProfiles.voiceHero(for: ContextProfiles.agent, platform: .mac))
+        XCTAssertNotNil(ContextProfiles.voiceHero(for: ContextProfiles.agent, platform: .windows))
+        XCTAssertNil(ContextProfiles.voiceHero(for: ContextProfiles.opencode, platform: .windows))
+    }
 }

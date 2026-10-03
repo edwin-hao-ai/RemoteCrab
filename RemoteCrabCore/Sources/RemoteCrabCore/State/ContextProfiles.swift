@@ -511,6 +511,31 @@ public enum ContextProfiles {
         platform == .windows ? windowsSystemActions : console.gridActions
     }
 
+    /// The app-specific section — empty for the console, since its keys
+    /// ARE the system keys and rendering them twice looked like a bug.
+    ///
+    /// The Windows branch is the important one: it reads
+    /// `windowsActions` and **never** `actions`. Returning the Mac set
+    /// here is the original defect — a suite that matched on Windows
+    /// would show Mac-menu-verified shortcuts, which on Windows means a
+    /// "Copy" that interrupts and a "Lock Screen" that quits the app.
+    public static func appActions(for profile: ContextProfile,
+                                  platform: IBModifierBar.PeerPlatform) -> [ContextAction] {
+        if profile.id == console.id { return [] }
+        guard platform == .windows else { return profile.gridActions }
+        let actions = profile.windowsActions ?? []
+        return actions.filter { if case .voiceHero = $0 { return false }; return true }
+    }
+
+    /// The push-to-talk hero for the peer's platform. A suite with no
+    /// verified Windows mapping has no hero either — the voice shortcut
+    /// is the one button that always works, so it is never withheld.
+    public static func voiceHero(for profile: ContextProfile,
+                                 platform: IBModifierBar.PeerPlatform) -> ContextAction? {
+        let actions = platform == .windows ? (profile.windowsActions ?? []) : profile.actions
+        return actions.first { if case .voiceHero = $0 { return true }; return false }
+    }
+
     /// Built-in suites, most specific first. A marketplace would append
     /// developer-supplied profiles here (or merge them ahead of these).
     public static let all: [ContextProfile] = [

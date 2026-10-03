@@ -629,6 +629,11 @@ public enum IBLocale {
         public static let open = IBL("App shortcuts")
         public static let systemSection = IBL("System")
         public static let footer = IBL("Buttons send keyboard or system events to your Mac")
+        /// The Mac wording above names the wrong computer on Windows.
+        public static let footerWindows = IBL("Buttons send keyboard or system events to your computer")
+        /// Shown under the suite title when it came from a file the user
+        /// installed, so a button's origin is never invisible.
+        public static let customSuite = IBL("Custom suite")
         // Context-sheet profile titles (frontmost Mac app → suite).
         public static let profilePresentation = IBL("Presentation")
         public static let profileAgent = IBL("Agent")

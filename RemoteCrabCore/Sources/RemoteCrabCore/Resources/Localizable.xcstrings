@@ -9858,6 +9858,40 @@
           }
         }
       }
+    },
+    "Buttons send keyboard or system events to your computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buttons send keyboard or system events to your computer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按钮会向你的电脑发送键盘或系统事件"
+          }
+        }
+      }
+    },
+    "Custom suite": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom suite"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义套件"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

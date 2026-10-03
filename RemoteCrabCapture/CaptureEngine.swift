@@ -24,6 +24,13 @@ final class CaptureEngine: ObservableObject {
     }
 
     // Public state surfaced to SwiftUI.
+    /// User-installed context suites, merged over the built-ins.
+    ///
+    /// Owned here rather than in the view so the sheet and anything else
+    /// that resolves a profile read the same list, and so a file dropped
+    /// into Documents is picked up without an app relaunch.
+    let profiles = ContextProfileStore()
+
     @Published private(set) var isStreaming = false
     /// True once the capture session's first `startRunning()` has
     /// RETURNED. SwiftUI must not create a camera preview before this:

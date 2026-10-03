@@ -13,7 +13,8 @@ struct ContextSheetView: View {
 
     private var profile: ContextProfile {
         ContextProfiles.profile(for: engine.frontmostMacApp,
-                                platform: engine.peerPlatform)
+                                platform: engine.peerPlatform,
+                                in: engine.profiles.merged)
     }
 
     /// Per-platform, because this grid is rendered unconditionally — so
@@ -33,7 +34,7 @@ struct ContextSheetView: View {
                     // grid cell would clip the capsule. The remaining
                     // actions pair up two-per-row (ContextProfiles keeps
                     // related controls adjacent).
-                    if let hero = profile.voiceHero {
+                    if let hero = voiceHero {
                         actionButton(hero)
                     }
 
@@ -49,7 +50,9 @@ struct ContextSheetView: View {
                     sectionLabel(IBLocale.Context.systemSection)
                     grid(systemActions)
 
-                    Text(IBLocale.Context.footer)
+                    Text(engine.connectedIsWindows
+                         ? IBLocale.Context.footerWindows
+                         : IBLocale.Context.footer)
                         .font(IBFont.caption)
                         .foregroundStyle(.white.opacity(0.4))
                         .padding(.top, IBSpace.s.pt)
@@ -63,6 +66,7 @@ struct ContextSheetView: View {
         }
         .onAppear {
             engine.requestMacApps()  // refresh the frontmost app
+            engine.profiles.reload()   // pick up any suite dropped into Documents
             voice.onPartial = { text, committed in
                 engine.updateVoiceText(text, committed: committed)
             }
@@ -81,8 +85,16 @@ struct ContextSheetView: View {
 
     /// The frontmost app's keys, unless this profile already IS the
     /// system console (then the system section is the only content).
+    ///
+    /// Resolved by `ContextProfiles` rather than here, because this is the
+    /// one piece of logic that must never read `profile.actions` on a
+    /// Windows peer \\u{2014} and it has to be unit-testable.
     private var appActions: [ContextAction] {
-        profile.id == ContextProfiles.console.id ? [] : profile.gridActions
+        ContextProfiles.appActions(for: profile, platform: engine.peerPlatform)
+    }
+
+    private var voiceHero: ContextAction? {
+        ContextProfiles.voiceHero(for: profile, platform: engine.peerPlatform)
     }
 
     private func sectionLabel(_ text: String) -> some View {
@@ -118,6 +130,14 @@ struct ContextSheetView: View {
                     .font(IBFont.eyebrowMono)
                     .ibEyebrowTracking()
                     .foregroundStyle(.white.opacity(0.45))
+                // A suite that came from a file says so. These buttons
+                // inject real key events, so where a suite came from
+                // should never be invisible.
+                if profile.source != .builtin {
+                    Text(IBLocale.Context.customSuite)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
             }
             Spacer()
             Button { dismiss() } label: {
