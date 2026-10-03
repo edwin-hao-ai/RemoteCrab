@@ -229,11 +229,11 @@ check "-> global"                         "mirror input injected on Mac"
 # placement after a target change is not a regression, and why the reason
 # has to come from the injector rather than be inferred from geometry here.
 if "$ROOT/scripts/e2e-cursor-guard.sh" "$LOG" 2>/tmp/remotecrab-cursor-guard.txt; then
-  printf '  \033[32m\u2713\033[0m %s\n' \
+  printf '  \033[32m✓\033[0m %s\n' \
     "scrolling never steals the cursor ($(tr '\n' ' ' </tmp/remotecrab-cursor-guard.txt))"
   pass=$((pass+1))
 else
-  printf '  \033[31m\u2717\033[0m %s\n' \
+  printf '  \033[31m✗\033[0m %s\n' \
     "scrolling never steals the cursor ($(tr '\n' ' ' </tmp/remotecrab-cursor-guard.txt))"
   fail=$((fail+1))
 fi
