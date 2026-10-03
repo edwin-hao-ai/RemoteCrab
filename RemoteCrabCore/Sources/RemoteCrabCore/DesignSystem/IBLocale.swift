@@ -861,6 +861,8 @@ public enum IBLocale {
         public static let optionKey = IBL("Option key")
         public static let commandKey = IBL("Command key")
         public static let shiftKey = IBL("Shift key")
+        /// ⊞ on a Windows peer. Deliberately not "Windows key key".
+        public static let windowsKey = IBL("Windows key")
 
         // Trackpad labs floating buttons.
         public static let holdToActivate = IBL("Hold to activate")

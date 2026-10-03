@@ -9739,6 +9739,23 @@
           }
         }
       }
+    },
+    "Windows key": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows key"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows 键"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

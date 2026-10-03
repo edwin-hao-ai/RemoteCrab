@@ -31,13 +31,13 @@ struct KeyboardScreen: View {
     @State private var keyboardHandle = SystemKeyboardInput.Handle()
 
     /// Modifier bitmask shared with TouchEvent: shift=1, control=2,
-    /// option=4, command=8.
+    /// option=4, command=8, meta=16. The constants are used rather than
+    /// literals so the ⊞ bit cannot drift from the wire enum.
     private var modifierMask: UInt8 {
         var mask: UInt8 = 0
-        if modifiers.contains(.shift) { mask |= 1 }
-        if modifiers.contains(.control) { mask |= 2 }
-        if modifiers.contains(.option) { mask |= 4 }
-        if modifiers.contains(.command) { mask |= 8 }
+        for m in modifiers {
+            mask |= m.wireBit
+        }
         return mask
     }
 
@@ -238,10 +238,9 @@ struct KeyboardScreen: View {
                     shortcutKey(symbol: "delete.left", accessibility: IBLocale.A11y.deleteKey, keycode: 51)
                     shortcutKey(text: "esc", accessibility: IBLocale.A11y.escapeKey, keycode: 53)
                     shortcutKey(text: "tab", accessibility: IBLocale.A11y.tabKey, keycode: 48)
-                    modifierKey(.control)
-                    modifierKey(.option)
-                    modifierKey(.command)
-                    modifierKey(.shift)
+                    ForEach(IBModifierBar.visibleModifiers(for: engine.peerPlatform), id: \.self) { m in
+                        modifierKey(m)
+                    }
                     shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
                     shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
                     // App / window switching chords. macOS and Windows use
@@ -398,6 +397,7 @@ struct KeyboardScreen: View {
         case .option:  return IBLocale.A11y.optionKey
         case .command: return IBLocale.A11y.commandKey
         case .shift:   return IBLocale.A11y.shiftKey
+        case .meta:    return IBLocale.A11y.windowsKey
         }
     }
 
