@@ -28,6 +28,15 @@ struct MacPickerView: View {
                 seenSection
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
+            .task {
+                // Opening the picker is the moment stale rows are visible,
+                // so it is also the moment to drop them: superseded
+                // identities (a receiver that changed id) and machines gone
+                // for months. Without this the list only ever shrinks when
+                // the next connection happens to knock, and a phone that
+                // accumulated duplicates keeps showing them.
+                engine.pruneSeenComputers()
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button { dismiss() } label: {

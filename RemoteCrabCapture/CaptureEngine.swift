@@ -2196,6 +2196,14 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    /// Drop computer rows the picker should no longer offer: identities a
+    /// receiver has superseded, and machines long gone. Purely a display +
+    /// bookkeeping fix — it never touches `paired`, so a live session and
+    /// every approval survive untouched.
+    func pruneSeenComputers() {
+        if pairingStore.pruneStale() { refreshPairedMacs() }
+    }
+
     /// The user-visible name we know for a computer id, preferring the live
     /// connection over the remembered list.
     private func nameForComputer(id: String) -> String? {

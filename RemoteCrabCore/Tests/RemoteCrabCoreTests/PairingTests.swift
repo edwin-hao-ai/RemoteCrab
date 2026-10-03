@@ -393,4 +393,143 @@ final class PairingTests: XCTestCase {
         XCTAssertTrue(store.seen.isEmpty)
         XCTAssertNil(store.platform(for: "pc-1"))
     }
+
+    // MARK: - Superseded identities and stale rows
+    //
+    // A receiver used to mint a new `pc_id` on every install, and `seen` is
+    // keyed by id alone — so every reinstall added a row that could never be
+    // removed by id, and the user's picker filled with identical
+    // "Windows PC" entries. Two rules, both self-healing.
+
+    private func seen(_ id: String, _ name: String,
+                      platform: String = "windows",
+                      daysAgo: Double = 0) -> SeenComputer {
+        SeenComputer(id: id, name: name, platform: platform,
+                     lastSeen: Date().addingTimeInterval(-daysAgo * 24 * 60 * 60))
+    }
+
+    /// The reported bug, as a pure function: two ids, one machine.
+    func testASupersededIdentityDoesNotLeaveADuplicateRow() {
+        // Newest first, the way `noteSeen` stores it.
+        let out = MacPairingStore.pruned([
+            seen("new-id", "EDWIN", daysAgo: 0),
+            seen("old-id", "EDWIN", daysAgo: 1),
+        ])
+        XCTAssertEqual(out.map(\.id), ["new-id"])
+    }
+
+    /// Case-insensitive, because the same machine names itself differently
+    /// across operating systems.
+    func testTheSameNameCollapsesRegardlessOfCase() {
+        // Newest first, the way `noteSeen` stores it.
+        let out = MacPairingStore.pruned([
+            seen("c", "Edwin-PC", daysAgo: 0),
+            seen("b", "EDWIN", daysAgo: 1),
+            seen("a", "edwin", daysAgo: 2),
+        ])
+        XCTAssertEqual(out.map(\.id), ["c", "b"])
+    }
+
+    /// The cost of the rule, stated as a decision: a genuinely different
+    /// machine is only collapsed when it shares a hostname.
+    func testDifferentNamesAllSurvive() {
+        let out = MacPairingStore.pruned([
+            seen("mac", "MacBook Pro", platform: "macos", daysAgo: 3),
+            seen("pc", "Gaming PC", daysAgo: 2),
+            seen("lin", "build-box", platform: "linux", daysAgo: 1),
+        ])
+        XCTAssertEqual(out.map(\.id), ["lin", "pc", "mac"])
+    }
+
+    func testARowExpiresAfterTheTTL() {
+        let ttl: TimeInterval = 60
+        let now = Date()
+        // Explicit timestamps: this rule is about a 60-second window, so a
+        // `daysAgo` helper would put every fixture on the wrong side of it.
+        func at(_ secondsAgo: TimeInterval) -> SeenComputer {
+            SeenComputer(id: "x", name: "PC", platform: "windows",
+                         lastSeen: now.addingTimeInterval(-secondsAgo))
+        }
+        let out = MacPairingStore.pruned([
+            SeenComputer(id: "fresh", name: "PC A", platform: "windows", lastSeen: now),
+            SeenComputer(id: "edge", name: "PC B", platform: "windows",
+                         lastSeen: now.addingTimeInterval(-30)),
+            at(3600),
+        ], now: now, ttl: ttl)
+        XCTAssertEqual(out.map(\.id), ["fresh", "edge"])
+    }
+
+    /// Exactly at the TTL is expired, not fresh — a boundary that must not
+    /// depend on which side of `<` a refactor lands on.
+    func testTheTTLBoundaryIsExclusive() {
+        let ttl: TimeInterval = 60
+        let now = Date()
+        let at = SeenComputer(id: "x", name: "PC", platform: "windows",
+                              lastSeen: now.addingTimeInterval(-ttl))
+        XCTAssertTrue(MacPairingStore.pruned([at], now: now, ttl: ttl).isEmpty)
+    }
+
+    /// Entries written in the same instant really do tie, and the row order
+    /// must not then depend on hash order.
+    func testEqualTimestampsStillProduceADeterministicOrder() {
+        let entries = [seen("c", "C"), seen("a", "A"), seen("b", "B")]
+        XCTAssertEqual(MacPairingStore.pruned(entries).map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(MacPairingStore.pruned(entries.reversed()).map(\.id), ["a", "b", "c"])
+    }
+
+    func testPruningPreservesNewestFirstOrder() {
+        let out = MacPairingStore.pruned([
+            seen("a", "A", daysAgo: 0),
+            seen("b", "B", daysAgo: 3),
+            seen("c", "C", daysAgo: 1),
+        ])
+        XCTAssertEqual(out.map(\.id), ["a", "c", "b"])
+    }
+
+    // MARK: - Store integration
+
+    func testKnockingUnderANewIdCollapsesTheOldRowOnDisk() {
+        let suite = "test.remotecrab.pairing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let store = MacPairingStore(defaults: defaults)
+
+        store.noteSeen(IBClientHello(name: "EDWIN", id: "id-1", platform: "windows"))
+        store.noteSeen(IBClientHello(name: "EDWIN", id: "id-2", platform: "windows"))
+        XCTAssertEqual(store.seen.map(\.id), ["id-2"])
+        // Persisted, not just in memory — the picker re-reads from disk.
+        XCTAssertEqual(MacPairingStore(defaults: defaults).seen.map(\.id), ["id-2"])
+    }
+
+    /// A preference naming a row that pruning removes is cleared. Left
+    /// dangling it would keep answering every other computer "in use" for a
+    /// machine that can no longer connect.
+    func testPruningClearsADanglingPreference() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "EDWIN", id: "old", platform: "windows"))
+        store.setPreferred(id: "old", name: "EDWIN")
+        store.noteSeen(IBClientHello(name: "EDWIN", id: "new", platform: "windows"))
+        XCTAssertNil(store.preferredId, "the armed preference named a computer that no longer exists")
+    }
+
+    /// The one thing pruning must never do: touch the allow-list. An
+    /// approval carries a token, and dropping it would force a re-approval
+    /// for a machine that is still perfectly well paired.
+    func testPruningNeverTouchesTheAllowList() {
+        let store = freshStore()
+        let hello = IBClientHello(name: "EDWIN", id: "old", platform: "windows")
+        store.noteSeen(hello)
+        store.pair(hello)
+        store.noteSeen(IBClientHello(name: "EDWIN", id: "new", platform: "windows"))
+        XCTAssertEqual(store.paired.map(\.id), ["old"], "the token must survive a display prune")
+        XCTAssertEqual(store.seen.map(\.id), ["new"])
+    }
+
+    /// A brand-new machine must never be pruned for being unseen — it just
+    /// knocked, and it is exactly the case the picker exists for.
+    func testABrandNewComputerIsNeverPruned() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "New PC", id: "brand-new", platform: "windows"))
+        XCTAssertEqual(store.seen.map(\.id), ["brand-new"])
+    }
 }

@@ -166,6 +166,63 @@ public final class MacPairingStore {
     /// without hoarding stale machines forever.
     public static let seenLimit = 20
 
+    /// How long a computer may stay out of touch before its row is dropped.
+    ///
+    /// Generous on purpose: the cost of keeping a row too long is a stale
+    /// line in a picker, and the cost of dropping one too early is a
+    /// re-approval. Thirty days means a machine you use weekly never
+    /// expires, and one you stopped using a year ago does.
+    public static let staleSeenTTL: TimeInterval = 30 * 24 * 60 * 60
+
+    /// Drop the rows the picker should no longer offer, newest-first.
+    ///
+    /// Two independent reasons, both self-healing rather than a control the
+    /// user has to remember to use:
+    ///
+    /// 1. **Expiry.** A row for a machine that has not knocked in
+    ///    `ttl` cannot be acted on — tapping it arms a preference for a
+    ///    computer that will never connect under that id.
+    /// 2. **Superseded identity.** `seen` is keyed by `id` alone, so every
+    ///    time a receiver changes identity it adds a *new* row and the old
+    ///    one can never be removed by id. That is exactly what a reinstall
+    ///    used to do on Windows (`pc_id` lived in the app-data directory,
+    ///    so uninstalling deleted it), and the user's picker filled with
+    ///    identical "Windows PC" rows. A machine that has taken a new id
+    ///    will never use the old one again, so among rows sharing a
+    ///    display name only the most recent is a real choice.
+    ///
+    /// Names are compared case-insensitively because the same machine
+    /// reports itself differently across operating systems ("EDWIN" from
+    /// Windows, "Edwin's Mac" aside). The cost of this rule is that two
+    /// genuinely different computers with the same hostname collapse into
+    /// one row — accepted deliberately, because the alternative is a picker
+    /// full of identical rows where picking the wrong one is invisible.
+    ///
+    /// Pure and static so the rules can be tested without `UserDefaults`.
+    /// Output is newest-first, matching how `noteSeen` maintains the list.
+    public static func pruned(_ entries: [SeenComputer],
+                              now: Date = Date(),
+                              ttl: TimeInterval = staleSeenTTL) -> [SeenComputer] {
+        let fresh = entries.filter { now.timeIntervalSince($0.lastSeen) < ttl }
+        // Best (most recent) entry per display name. Computed from
+        // `lastSeen` rather than from position, so the result does not
+        // depend on the caller happening to hand over a newest-first list.
+        var best: [String: SeenComputer] = [:]
+        for entry in fresh {
+            let key = entry.name.trimmingCharacters(in: .whitespaces).lowercased()
+            if let held = best[key], held.lastSeen >= entry.lastSeen { continue }
+            best[key] = entry
+        }
+        // Sorted with an `id` tiebreaker so the result is a total order.
+        // Two entries really can share a `lastSeen` (anything written in
+        // the same second, and every fixture that does), and an unstable
+        // sort there would make the row order — and therefore the test —
+        // depend on hashing.
+        return best.values.sorted { $0.lastSeen == $1.lastSeen
+            ? $0.id < $1.id
+            : $0.lastSeen > $1.lastSeen }
+    }
+
     /// The allow-list of approved computers.
     public private(set) var paired: [PairedMac]
 
@@ -197,8 +254,28 @@ public final class MacPairingStore {
         if seen.count > Self.seenLimit {
             seen = Array(seen.prefix(Self.seenLimit))
         }
+        pruneStale()
         saveSeen()
         return entry
+    }
+
+    /// Apply `pruned(_:)` to the stored list. Called on every knock, and by
+    /// the picker when it opens so an existing phone is cleaned without
+    /// waiting for the next connection.
+    ///
+    /// A preference pointing at a dropped id is cleared for the same reason
+    /// `forget` clears one: it names a computer that can no longer connect,
+    /// and while it is armed every other computer is answered "in use".
+    @discardableResult
+    public func pruneStale(now: Date = Date()) -> Bool {
+        let before = seen
+        seen = Self.pruned(before, now: now)
+        if seen.count == before.count { return false }
+        if let preferred = preferredId, !seen.contains(where: { $0.id == preferred }) {
+            clearPreferred()
+        }
+        saveSeen()
+        return true
     }
 
     /// The platform we last saw for a given computer id.
