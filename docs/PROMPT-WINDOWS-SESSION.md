@@ -208,3 +208,93 @@ pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"
 
 做完后请在 `docs/WINDOWS_TODO.md` 里把验证过的项勾上并注明**怎么验的**，
 以及把新踩的坑写进 `docs/lessons/windows.md`（编号接着 107 往下）。
+
+---
+
+# 追加：iOS 侧的 Windows 兼容修完了（2026-10-03 晚，`33e2183` / `7fbbf81` / `84f30fa`）
+
+Mac 这边把 iOS 上残留的 Mac 假设查了一遍并修掉了。**这一段和上面的清单并行，
+不冲突**；下面每一条都需要**真机 + 真 Windows 接收端**才能验证，本机验不了。
+
+## 三个提交做了什么
+
+| 提交 | 改了什么 | Mac 侧影响 |
+|---|---|---|
+| `33e2183` | 修饰键行。`IBShortcutBar`（**触控板 + 投屏**共用）调 `IBModifierBar` 时**没传 `platform`**，走缺省 `.mac` —— 所以 Windows 用户在最常用的两个界面上看到的还是 `⌃⌥⌘⇧`，只有键盘界面对。三处 `platform` 现在**都没有默认值**，编译器强制表态 | 零 |
+| `7fbbf81` | Windows 系统区三个说谎的按钮 + macOS 独有的「屏幕录制」提示 | 零 |
+| `84f30fa` | iOS 设备列表一个电脑一行（见下） | 零 |
+
+`console` / `gridActions` / `systemActions(for: .mac)` / `voiceHero(for: .mac)` /
+`appActions` 的 Mac 分支**一行都没改**，原有 41 个 `ContextProfilesTests` 全绿。
+444 测试 + 两个 app target + Windows 套件全绿。
+
+## ⚠️ 先做这件事：重新编译并部署接收端
+
+`c9c0463`（MachineGuid 机器身份）**已经在 main 上，但你的机器上跑的还是旧版**。
+旧版每装一次换一个 `pc_id`，后果不只是列表难看：
+
+- token 跟着 `pc_id` 走 → **每次重装都要重新批准**
+- 手机上「选择电脑」里会堆积同名行
+
+iOS 侧现在会**按名字合并 + 30 天过期**（`84f30fa`），所以列表不再堆了，
+但**根因在接收端**。不部署 `c9c0463`，重装后仍然要重新配对。
+
+## 需要真机打勾的（本轮新增，接到 `WINDOWS-GAPS-2026-10-03.md` §5.6）
+
+**修饰键（`33e2183` 的全部意义就是这几条）**
+
+- [ ] 触控板界面：修饰键行显示 `Ctrl Alt ⊞ Shift`，**没有 ⌘**
+- [ ] 投屏界面：同上
+- [ ] 键盘界面：`Ctrl Alt ⊞ Shift`（这条本来就是对的，用来对照）
+- [ ] ⊞ 单独按 = Windows 键；⊞ 单独用（不点 ⌘）能开资源管理器 / 运行
+- [ ] 三个界面**互不串**（`platform` 现在是必填参数，理论上不可能串，但要人眼确认一次）
+
+**情景模式系统区（`7fbbf81`）**
+
+- [ ] 「显示桌面」真的**最小化全部窗口**（本轮从 ⊞⌥D 改成走
+      `IBSystemCommand.showDesktop`；旧按钮发的是 **keycode 53 = Escape**，什么都不会发生）
+- [ ] 「浏览器」图标是**地球**（不再是 Safari 罗盘），点开是默认浏览器
+- [ ] 语音 hero **只出现一次**（全宽那个）。系统区里不该再有一个
+- [ ] **没有**亮度按钮（`system_keys.rs` 对它 `return false`）
+- [ ] 「锁屏」是 ⊞L，锁屏而**不是**退出应用
+
+**设备列表（`84f30fa`）**
+
+- [ ] 手机「选择电脑」里同名电脑**只有一行**
+- [ ] 重装接收端后**不需要**重新配对（这才是 `c9c0463` 真正的验证）
+
+## 一个会让 e2e 全红的坑，先看这个
+
+Mac 上 `./scripts/e2e-device.sh` 现在跑出 **22 个失败**，看起来像全线崩了，
+**其实只有一条根因**：手机正被**另一台** RemoteCrab 接收端占着。
+
+```
+[receiver] sessionReply: busy owner=EDWIN
+```
+
+手机上的 `seenComputers` 读出来是这样（真实数据）：
+
+```
+EDWIN                    …-98db-0bce2018971c   streaming   ← 另一台机器
+EDWIN                    …-98db-023a844ff7a4   streaming   ← 同一台，旧身份
+MacBook Pro de Edwin     ECBDD7BA-…            refusedBusy ← 本机，被正确拒绝
+```
+
+`…98db…` 两条 **node 相同、id 不同** —— 同一台机器的两个身份。
+
+**所以：跑 e2e 之前先确认那台机器没连着手机。** 不然 22 条断言会因为一个
+被拒绝的握手全部变红，而你会以为是自己刚改的东西坏了（lesson 111）。
+
+## Mac 侧真机已经验过的（不用重做）
+
+- iPhone 装上、启动、不崩、渲染正常（自截图确认，修饰键行在 Mac peer 下是 `⌃`）
+- Mac 接收端真机启动、摄像头 sysex 注册、发布已安装应用列表
+- `84f30fa` 在**真机上**：设备列表 5 行 → 3 行，同名归零，正在 streaming 的那台保留
+- `/Applications/RemoteCrab.app` 在 e2e 前后 CDHash 完全一致
+  （`d9dacda991ffaa8a1a32aff7abacf9b38b945549`，Developer ID，build 11）——
+  lesson 80 的备份/还原陷阱有效
+
+## 还没验的（本机不可能验）
+
+- 上面所有带 ☑ 的条目
+- `docs/WINDOWS-GAPS-2026-10-03.md` §5.6 原有那 11 条
