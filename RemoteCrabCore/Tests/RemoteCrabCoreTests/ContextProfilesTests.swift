@@ -202,4 +202,166 @@ final class ContextProfilesTests: XCTestCase {
             XCTAssertEqual(decoded, profile, profile.id)
         }
     }
+
+    // MARK: - Windows matching (mechanism)
+    //
+    // These use a synthetic registry on purpose: which real suites ship
+    // Windows mappings is data, pinned in ContextWindowsSuiteTests.
+
+    private func win(_ name: String) -> IBAppInfo {
+        IBAppInfo(id: "pid:1234", name: name, pid: 1234, isActive: true, iconPNG: nil)
+    }
+
+    private func registry() -> [ContextProfile] {
+        [
+            ContextProfile(id: "term", title: "Terminal",
+                           actions: [.key(label: "Stop", symbol: "stop.fill", keycode: 53)],
+                           windowsProcessNames: ["WindowsTerminal", "cmd"],
+                           windowsActions: [.key(label: "Stop", symbol: "stop.fill", keycode: 53)]),
+            ContextProfile(id: "maconly", title: "Mac only",
+                           bundleIDs: ["com.example.mac"],
+                           actions: [.key(label: "Go", symbol: "arrow.right", keycode: 123)]),
+        ]
+    }
+
+    /// Windows 的 `id` 是字面量 "pid:1234"，每次启动都变。匹配必须走
+    /// 进程名，且这个 id 绝不能参与匹配。
+    func testWindowsMatchesOnProcessName() {
+        XCTAssertEqual(
+            ContextProfiles.profile(for: win("WindowsTerminal"), platform: .windows,
+                                    in: registry()).id, "term")
+    }
+
+    func testWindowsProcessNameMatchIsCaseInsensitiveAndStripsExe() {
+        for spelling in ["WindowsTerminal", "windowsterminal", "WINDOWSTERMINAL.EXE"] {
+            XCTAssertEqual(
+                ContextProfiles.profile(for: win(spelling), platform: .windows,
+                                        in: registry()).id, "term", spelling)
+        }
+    }
+
+    /// 一个只有 Mac 名单的套件，在 Windows 上绝不能因为名字碰巧一样而命中。
+    func testWindowsIgnoresMacBundleIdentifiers() {
+        let p = ContextProfiles.profile(for: win("com.example.mac"), platform: .windows,
+                                        in: registry())
+        XCTAssertEqual(p.id, "console")
+    }
+
+    func testWindowsUnknownAppFallsBackToConsole() {
+        XCTAssertEqual(ContextProfiles.profile(for: win("zzz"), platform: .windows,
+                                               in: registry()).id, "console")
+    }
+
+    /// 核心不变量：一个没有 Windows 映射的套件，在 Windows 上必须渲染成
+    /// **空的应用区**，而不是借用 Mac 的按键。Mac 的动作是对着 Mac 菜单栏
+    /// 核对过的，在 Windows 上 ⌘ 塌缩成 ⌃ —— 借过来得到的是「错按钮」，
+    /// 包括一个会中断的「复制」和一个会退出程序的「锁定屏幕」。
+    func testASuiteWithNoWindowsMappingResolvesToNoWindowsActions() {
+        let macOnly = ContextProfiles.profile(for: app("com.example.mac"), in: registry())
+        XCTAssertNil(macOnly.windowsActions)
+        // And the renderer is handed an empty list, never `actions`.
+        let rendered = macOnly.windowsActions ?? []
+        XCTAssertTrue(rendered.isEmpty)
+    }
+
+    // MARK: - Per-platform system actions
+
+    private func systemCommands(_ actions: [ContextAction]) -> [IBSystemCommand.Command] {
+        actions.compactMap { action in
+            if case .system(_, _, let c) = action { return c }
+            if case .systemArg(_, _, let c, _) = action { return c }
+            return nil
+        }
+    }
+
+    /// `system_keys.rs` 对亮度直接 `return false`。留着按钮就是留一个
+    /// 点了没反应的东西——比没有更糟（规则 1）。
+    func testWindowsSystemActionsHaveNoBrightness() {
+        let commands = systemCommands(ContextProfiles.systemActions(for: .windows))
+        XCTAssertFalse(commands.contains(.brightnessUp))
+        XCTAssertFalse(commands.contains(.brightnessDown))
+    }
+
+    func testWindowsSystemActionsKeepTheKeysThatActuallyWork() {
+        let commands = systemCommands(ContextProfiles.systemActions(for: .windows))
+        XCTAssertTrue(commands.contains(.volumeUp))
+        XCTAssertTrue(commands.contains(.volumeMute))
+        XCTAssertTrue(commands.contains(.mediaPlayPause))
+    }
+
+    /// ⌃⌘Q 会塌缩成 Ctrl+Q（在很多软件里是「退出」）。锁屏必须是 ⊞L。
+    func testWindowsLockScreenIsWinLNotCtrlQ() {
+        let keys = ContextProfiles.systemActions(for: .windows).compactMap { action -> (UInt16, UInt8)? in
+            if case .key(_, _, let kc, let mods) = action { return (kc, mods) }
+            return nil
+        }
+        let lock = keys.first { $0.0 == 37 }   // 37 = L
+        XCTAssertEqual(lock?.1, TouchEvent.Modifier.meta.rawValue)
+        // The old encoding must be gone: ⌃⌘Q (keycode 12, bits 2|8).
+        XCTAssertFalse(keys.contains { $0.0 == 12 && $0.1 == (2 | 8) })
+    }
+
+    /// Mac 侧的排列顺序被 testConsolePairsRelatedActionsInRows 按下标钉住，
+    /// 这里保证新的平台分支没有动它。
+    func testMacSystemActionsAreExactlyTheConsoleGrid() {
+        XCTAssertEqual(ContextProfiles.systemActions(for: .mac),
+                       ContextProfiles.console.gridActions)
+    }
+
+    /// 标签与参数必须成对 —— 旧的 bug 就是「标签写 Safari、参数传 bing」。
+    func testLaunchLabelsAndArgumentsAgreeOnBothPlatforms() {
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            for action in ContextProfiles.systemActions(for: platform) {
+                guard case .systemArg(let label, _, let cmd, let argument) = action,
+                      cmd == .launchApp else { continue }
+                if label == "Safari" {
+                    XCTAssertEqual(argument, "com.apple.Safari", "\(platform)")
+                } else {
+                    XCTAssertNotEqual(argument, "com.apple.Safari",
+                                      "\(platform): non-Safari button opens Safari")
+                }
+            }
+        }
+    }
+
+    // MARK: - Precedence
+
+    func testUserFileOverridesBuiltinById() {
+        let override = ContextProfile(id: "agent", title: "My Agent", source: .userFile,
+                                      actions: [.voiceHero(label: "T", symbol: "waveform")])
+        let merged = ContextProfiles.merged([override])
+        XCTAssertEqual(merged.first { $0.id == "agent" }?.title, "My Agent")
+        XCTAssertEqual(merged.filter { $0.id == "agent" }.count, 1)
+    }
+
+    func testUserFileOutranksRemote() {
+        let r = ContextProfile(id: "agent", title: "Remote", source: .remote, actions: [])
+        let u = ContextProfile(id: "agent", title: "User", source: .userFile, actions: [])
+        XCTAssertEqual(ContextProfiles.merged([r, u]).first { $0.id == "agent" }?.title, "User")
+        XCTAssertEqual(ContextProfiles.merged([u, r]).first { $0.id == "agent" }?.title, "User")
+    }
+
+    func testRemoteOverridesBuiltinButNotAUserFile() {
+        let r = ContextProfile(id: "agent", title: "Remote", source: .remote, actions: [])
+        XCTAssertEqual(ContextProfiles.merged([r]).first { $0.id == "agent" }?.title, "Remote")
+    }
+
+    /// 一个 `.builtin` 标记的外部套件不该被当成用户安装的——那会让优先级
+    /// 取决于调用方忘了改 source。
+    func testAnExtraBuiltinIsNotTreatedAsAnOverride() {
+        let sneaky = ContextProfile(id: "agent", title: "Sneaky", actions: [])
+        XCTAssertEqual(ContextProfiles.merged([sneaky]).first { $0.id == "agent" }?.title,
+                       IBLocale.Context.profileAgent)
+    }
+
+    /// 合并后的列表仍然要能正常匹配 —— 否则装了就等于没装。
+    func testAMergedOverrideStillMatchesItsApp() {
+        let override = ContextProfile(
+            id: "agent", title: "My Agent", source: .userFile,
+            bundleIDs: ["com.apple.Terminal"],
+            actions: [.voiceHero(label: "T", symbol: "waveform")])
+        let merged = ContextProfiles.merged([override])
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.Terminal"), in: merged).id,
+                       "agent")
+    }
 }

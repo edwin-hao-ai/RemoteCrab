@@ -432,8 +432,39 @@ public enum ContextProfiles {
             .system(label: "Brightness Up", symbol: "sun.max.fill", command: .brightnessUp),
             .system(label: "Brightness Down", symbol: "sun.min.fill", command: .brightnessDown),
             .key(label: "Lock Screen", symbol: "lock.fill", keycode: 12, modifiers: 2 | 8), // ⌃⌘Q
-            .system(label: "Safari", symbol: "safari.fill", command: .launchApp),
+            .systemArg(label: "Safari", symbol: "safari.fill", command: .launchApp,
+                       argument: "com.apple.Safari"),
         ])
+
+    /// The Windows system controls, kept beside `console` rather than
+    /// inside it so that `console.gridActions` — which three existing
+    /// tests pin by index — keeps its Mac shape exactly.
+    ///
+    /// Volume and media use `VK_*` and genuinely work. **Brightness is
+    /// deliberately absent**: `system_keys.rs` returns `false` for it,
+    /// and a button that visibly does nothing is worse than no button.
+    /// Lock is ⊞L because the Mac's ⌃⌘Q collapses to `Ctrl+Q` on Windows
+    /// — a button labelled "Lock Screen" that quits your app.
+    public static let windowsSystemActions: [ContextAction] = [
+        .voiceHero(label: "Talk to Computer", symbol: "waveform"),
+        .system(label: "Volume Up", symbol: "speaker.plus.fill", command: .volumeUp),
+        .system(label: "Volume Down", symbol: "speaker.minus.fill", command: .volumeDown),
+        .system(label: "Mute", symbol: "speaker.slash.fill", command: .volumeMute),
+        .system(label: "Play / Pause", symbol: "playpause.fill", command: .mediaPlayPause),
+        .key(label: "Lock Screen", symbol: "lock.fill", keycode: 37,
+             modifiers: TouchEvent.Modifier.meta.rawValue),          // ⊞L
+        .key(label: "Show Desktop", symbol: "macwindow.on.rectangle", keycode: 53,
+             modifiers: TouchEvent.Modifier.meta.rawValue | 4),      // ⊞⌥D
+        .systemArg(label: "Browser", symbol: "safari.fill", command: .launchApp,
+                   argument: "https://www.bing.com"),
+    ]
+
+    /// The system section is ALWAYS rendered (`ContextSheetView`), so it
+    /// is the one place a wrong entry hurts a user who never asked for
+    /// one. Hence per-platform rather than one shared list.
+    public static func systemActions(for platform: IBModifierBar.PeerPlatform) -> [ContextAction] {
+        platform == .windows ? windowsSystemActions : console.gridActions
+    }
 
     /// Built-in suites, most specific first. A marketplace would append
     /// developer-supplied profiles here (or merge them ahead of these).
@@ -442,8 +473,50 @@ public enum ContextProfiles {
         xcode, editor, text, media, chat, meeting, image, notebook, console,
     ]
 
-    public static func profile(for app: IBAppInfo?) -> ContextProfile {
+    /// `platform` and `in` both default, so every existing Mac call site
+    /// and every existing test compiles and behaves exactly as before.
+    ///
+    /// Windows matches the process NAME, never `app.id`: the receiver
+    /// sends `format!("pid:{pid}")`, which changes on every launch and
+    /// identifies nothing. Matching it was the original reason the whole
+    /// context sheet looked empty on Windows.
+    public static func profile(for app: IBAppInfo?,
+                               platform: IBModifierBar.PeerPlatform = .mac,
+                               in registry: [ContextProfile] = all) -> ContextProfile {
         guard let app else { return console }
-        return all.first { $0.bundleIDs.contains(app.id) } ?? console
+        if platform == .windows {
+            let key = normalizedProcessName(app.name)
+            return registry.first { profile in
+                profile.windowsProcessNames?.contains {
+                    normalizedProcessName($0) == key
+                } == true
+            } ?? console
+        }
+        return registry.first { $0.bundleIDs.contains(app.id) } ?? console
+    }
+
+    /// Windows executable stems, compared without case and without a
+    /// trailing `.exe`. `rc-os`'s `process_name` already trims the
+    /// suffix, but a hand-written profile file may not.
+    static func normalizedProcessName(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespaces)
+        if s.lowercased().hasSuffix(".exe") { s = String(s.dropLast(4)) }
+        return s.lowercased()
+    }
+
+    /// Order matters: a later tier REPLACES an earlier one by `id`.
+    ///
+    /// The old lookup was first-match-wins over one flat list, which
+    /// meant a user-installed suite could never take effect — installing
+    /// a plugin changed nothing, silently.
+    public static func merged(_ extra: [ContextProfile] = []) -> [ContextProfile] {
+        var out = all
+        for tier in [ProfileSource.remote, .userFile] {
+            for profile in extra where profile.source == tier {
+                out.removeAll { $0.id == profile.id }
+                out.append(profile)
+            }
+        }
+        return out
     }
 }
