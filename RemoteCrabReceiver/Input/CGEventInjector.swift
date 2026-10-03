@@ -149,7 +149,11 @@ public final class CGEventInjector: InputInjector {
             // cursor to wherever the fingers were, which is a large part of
             // "the pointer never lands where I tapped". Place it once, on
             // the first scroll of a session, so the event has a window.
-            let needsPlacement = !hasPlacedCursor || !lastCursorInside(origin: windowOrigin, size: windowSize)
+            let alreadyInside = lastCursorInside(origin: windowOrigin, size: windowSize)
+            // Read BEFORE the block below: it sets `hasPlacedCursor`, which
+            // would make the "first scroll" reason unreachable.
+            let firstScroll = !hasPlacedCursor
+            let needsPlacement = firstScroll || !alreadyInside
             if needsPlacement {
                 let center = CGPoint(x: windowOrigin.x + windowSize.width / 2,
                                      y: windowOrigin.y + windowSize.height / 2)
@@ -163,7 +167,27 @@ public final class CGEventInjector: InputInjector {
             // "the cursor was left alone" is the whole regression, and it is
             // invisible from the outside (lesson 85 — a feature that can
             // fail silently must leave evidence either way).
-            Self.log.info("mirror scroll: cursor \(needsPlacement ? "placed at window center" : "left where the user put it", privacy: .public)")
+            //
+            // The WHY is in the line too, and it has to be. A placement is
+            // only a *bug* when the cursor was already inside the target;
+            // after the mirror switches window or flips to the extended
+            // virtual display, re-placing is correct. An earlier version of
+            // the e2e assertion counted placements globally and therefore
+            // reported a regression on a correct run — the "跨目标切换计数，
+            // 凭空造出一个『回归』" note in AGENTS.md. Inferring the reason
+            // from log geometry in bash got that wrong twice; the injector
+            // is the only thing that knows, so it says so.
+            let reason: String
+            if !needsPlacement {
+                reason = "left where the user put it"
+            } else if firstScroll {
+                reason = "placed at window center (first scroll of session)"
+            } else if alreadyInside {
+                reason = "placed at window center (STOLE: cursor was already inside the target)"
+            } else {
+                reason = "placed at window center (target changed)"
+            }
+            Self.log.info("mirror scroll: cursor \(reason, privacy: .public)")
             postScroll(dx: screenInput.dx, dy: screenInput.dy, commandHeld: false,
                        momentum: false, screenHeight: windowSize.height)
         }

@@ -224,40 +224,18 @@ check "-> global"                         "mirror input injected on Mac"
 #     forensic log appended to it, and that file contains its own "screen
 #     input scroll" lines — counting the bare substring double-counts them
 #     and makes the arithmetic nonsense.
-# Correlate each scroll with the cursor decision that followed it, so this
-# asserts the REAL invariant rather than a positional guess. Read the
-# verified run:
-#   scroll 899x448   → placed      (nothing had placed it yet — correct)
-#   click  899x448   → places it
-#   scroll 899x448   → left alone  ← THE INVARIANT
-#   scroll 1920x1200 → placed      (different window, after the extend hook)
-# The last one is correct behaviour, not a regression: this run also flips
-# to the extended virtual display (REMOTECRAB_E2E_EXTEND), and a new window
-# genuinely needs the cursor placed in it again. So the assertion is
-# "exactly one scroll was left alone" — the post-click scroll in the window
-# the click landed in — rather than a global count.
-PRE_LEFT=0; POST_LEFT=0; PLACED=0; SEEN_CLICK=0; PENDING=""
-while IFS= read -r line; do
-  if [[ "$line" == *"screen input click"* ]]; then
-    SEEN_CLICK=1; PENDING=""
-  elif [[ "$line" == *"screen input scroll"* ]]; then
-    PENDING=scroll
-  elif [[ "$line" == *"mirror scroll: cursor placed"* ]]; then
-    PLACED=$((PLACED+1)); PENDING=""
-  elif [[ "$line" == *"mirror scroll: cursor left"* ]]; then
-    if [ "$SEEN_CLICK" -eq 1 ]; then POST_LEFT=$((POST_LEFT+1)); else PRE_LEFT=$((PRE_LEFT+1)); fi
-    PENDING=""
-  fi
-done < <(grep -a "com.remotecrab:injector" "$LOG" 2>/dev/null || true)
-# Require the click to have happened AND the post-click scroll to have been
-# left alone: before the fix every scroll moved the pointer, so POST_LEFT
-# was 0 and this fails loudly instead of passing vacuously.
-if [ "$SEEN_CLICK" -eq 1 ] && [ "$POST_LEFT" -ge 1 ]; then
-  printf '  \033[32m✓\033[0m %s\n' \
-    "scrolling never steals the cursor (post-click scroll left the pointer alone; $PLACED placement(s) were target changes)"; pass=$((pass+1))
+# Delegates to scripts/e2e-cursor-guard.sh, which is separately runnable
+# against a known log in BOTH directions — see that file for why a
+# placement after a target change is not a regression, and why the reason
+# has to come from the injector rather than be inferred from geometry here.
+if "$ROOT/scripts/e2e-cursor-guard.sh" "$LOG" 2>/tmp/remotecrab-cursor-guard.txt; then
+  printf '  \033[32m\u2713\033[0m %s\n' \
+    "scrolling never steals the cursor ($(tr '\n' ' ' </tmp/remotecrab-cursor-guard.txt))"
+  pass=$((pass+1))
 else
-  printf '  \033[31m✗\033[0m %s  (click seen=%s expected 1, post-click scrolls left alone=%s expected >=1, placed=%s)\n' \
-    "scrolling never steals the cursor" "$SEEN_CLICK" "$POST_LEFT" "$PLACED"; fail=$((fail+1))
+  printf '  \033[31m\u2717\033[0m %s\n' \
+    "scrolling never steals the cursor ($(tr '\n' ' ' </tmp/remotecrab-cursor-guard.txt))"
+  fail=$((fail+1))
 fi
 check "installed apps"                    "installed-app list published (Open App…)"
 check "showDesktop requested"             "Desktop quick action (showDesktop)"
