@@ -321,6 +321,22 @@ pub(crate) async fn supervisor(
                             target = None;
                         }
                         failed_target = target.clone().or(failed_target);
+                        // The session is over, so whatever the state said a moment ago is
+                        // now false. `Streaming` is a claim rather than a
+                        // description, and leaving it there means the tray
+                        // says "streaming" forever: no error, nothing to act on.
+                        //
+                        // Unconditional on purpose. The retry below may be about
+                        // to overwrite this with `Connecting`, which is fine and
+                        // honest; but there are paths where it cannot — the
+                        // target was just cleared, and with `--connect` there is
+                        // no discovery to find another one. `rc-phone-sim
+                        // --scenario drop` reproduces exactly that.
+                        set_state(
+                            &state_tx,
+                            &events_tx,
+                            State::Error("The connection was lost".to_string()),
+                        );
                         if !suppress_auto {
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }

@@ -31,6 +31,14 @@ pub struct FakeIphoneConfig {
     /// so protocol tests stay deterministic; on for the preview self-test.
     pub stream_video: bool,
     pub video_frames: usize,
+    /// Drop the connection after this many video frames. `None` keeps it open.
+    ///
+    /// This exists because a scenario named `drop` needs to actually drop. The
+    /// phone-sim had `Drop => {}` — an empty arm, identical to the happy path —
+    /// so every "verify the receiver reconnects" run had been passing without the
+    /// disconnect ever happening. Reconnect behaviour cannot be tested against a
+    /// tool that never disconnects; worse, it looks tested.
+    pub drop_after_frames: Option<usize>,
 }
 
 impl Default for FakeIphoneConfig {
@@ -42,6 +50,7 @@ impl Default for FakeIphoneConfig {
             echo_pings: true,
             stream_video: false,
             video_frames: 0,
+            drop_after_frames: None,
         }
     }
 }
@@ -209,7 +218,7 @@ async fn serve(
     // 3b. Stream real H.264 (for the preview self-test).
     if cfg.stream_video && cfg.video_frames > 0 {
         let nals = encode_test_video(cfg.video_frames, 320, 180);
-        for nal in nals {
+        for (i, nal) in nals.into_iter().enumerate() {
             // NAL type is the low 5 bits of the first byte.
             let nal_type = nal.first().map(|b| b & 0x1F).unwrap_or(1);
             let kind = match nal_type {
@@ -227,6 +236,10 @@ async fn serve(
             }
             // Pace the stream roughly like the real 30 fps sender.
             tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+            // Vanish mid-stream, the way a phone walking out of range does.
+            if cfg.drop_after_frames.is_some_and(|n| i + 1 >= n) {
+                return;
+            }
         }
     }
 
