@@ -33,6 +33,11 @@ pub struct Args {
     /// `--uninstall-vcam` there would delete the *system profile's* app data and
     /// leave the real user's untouched.
     pub uninstall_vcam_machine: bool,
+    /// One-shot: undo **only** the per-user bits, exit. Needs no rights, and
+    /// must be run *impersonated* — the MSI's uninstall runs elevated, where
+    /// `%APPDATA%` and `HKCU` are the system profile's, and cleaning those leaves
+    /// the real user's tokens and autostart entry behind.
+    pub uninstall_vcam_user: bool,
     pub no_tray: bool,
     /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
     pub doctor: bool,
@@ -81,6 +86,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
+            "--uninstall-vcam-user" => args.uninstall_vcam_user = true,
             "--no-tray" => args.no_tray = true,
             // `--doctor [ip[:port]]`: the operand is optional and
             // position-sensitive, so it is consumed here rather than left to
@@ -195,11 +201,40 @@ mod arg_tests {
         assert!(!a.uninstall_vcam);
     }
 
+    /// Same argument for the user-side flag. Measured failure: an MSI uninstall
+    /// left `%APPDATA%\RemoteCrab\tokens.json` — the saved pairing token — on
+    /// disk, because nothing invoked the app's per-user cleanup.
     #[test]
-    fn the_three_camera_jobs_are_distinct_flags() {
-        let a = args(&["--install-vcam"]);
-        assert!(a.install_vcam && !a.uninstall_vcam && !a.uninstall_vcam_machine);
-        let b = args(&["--uninstall-vcam"]);
-        assert!(b.uninstall_vcam && !b.install_vcam && !b.uninstall_vcam_machine);
+    fn the_user_only_uninstall_flag_is_recognised() {
+        let a = args(&["--uninstall-vcam-user"]);
+        assert!(a.uninstall_vcam_user, "flag was swallowed");
+        assert!(!a.uninstall_vcam, "must not trigger the machine-wide half");
+        assert!(!a.uninstall_vcam_machine);
+    }
+
+    /// The four jobs are four distinct states. Collapsing any two of them is how
+    /// the wrong user's data gets deleted, or how the ring file survives.
+    #[test]
+    fn the_four_camera_jobs_are_distinct_flags() {
+        for (argv, pick) in [
+            (&["--install-vcam"][..], 0usize),
+            (&["--uninstall-vcam"][..], 1),
+            (&["--uninstall-vcam-machine"][..], 2),
+            (&["--uninstall-vcam-user"][..], 3),
+        ] {
+            let a = args(argv);
+            let flags = [
+                a.install_vcam,
+                a.uninstall_vcam,
+                a.uninstall_vcam_machine,
+                a.uninstall_vcam_user,
+            ];
+            assert!(flags[pick], "{argv:?} did not set its own flag");
+            assert_eq!(
+                flags.iter().filter(|f| **f).count(),
+                1,
+                "{argv:?} set more than one: {flags:?}"
+            );
+        }
     }
 }
