@@ -56,6 +56,47 @@ win_path() {
     fi
 }
 
+# `signtool` ships with the Windows SDK, which is installed *separately* from
+# Visual Studio and is not on anyone's PATH by default. Without this, `sign`
+# fails with `signtool: command not found` on a machine where everything else
+# works — and it fails *after* the certificate is in hand, which is the worst
+# moment to discover it.
+#
+# The SDK's `bin` directory is versioned and several can be installed at once,
+# so the newest is chosen rather than a path being written down.
+find_signtool() {
+    local found
+    found="$(command -v signtool.exe || command -v signtool || true)"
+    [[ -n "$found" ]] && { echo "$found"; return 0; }
+
+    # `ProgramFiles(x86)` is a real environment variable but bash cannot expand
+    # it — parentheses are not valid in a parameter name — so the two known
+    # install roots are listed instead. Only the *version* directory is
+    # globbed, which is the part that actually moves.
+    local hit
+    for root in "/c/Program Files (x86)/Windows Kits/10/bin" \
+                "/c/Program Files/Windows Kits/10/bin"; do
+        [[ -d "$root" ]] || continue
+        # Version directories sort as 10.0.22621.0 < 10.0.26100.0 with `sort -V`.
+        hit="$(ls -1d "$root"/*/x64/signtool.exe 2>/dev/null | sort -V | tail -1)"
+        if [[ -n "$hit" ]]; then
+            echo "$hit"
+            return 0
+        fi
+    done
+    echo ""
+}
+SIGNTOOL="$(find_signtool)"
+
+# True when the tools this script needs are present, so `sign` can say what is
+# missing instead of failing on the first command it happens to reach.
+require_signing_tools() {
+    [[ -n "$SIGNTOOL" ]] || die "signtool.exe not found. Install the Windows SDK
+  (Visual Studio Installer > Individual components > 'Windows SDK for Build Tools'),
+  or put it on PATH.  release-windows.sh looks in the Windows Kits bin
+  directories, but a machine without the SDK installed has nothing to find."
+}
+
 require_windows() {
     case "$(uname -s)" in
         MINGW*|MSYS*|CYGWIN*) ;;
@@ -86,7 +127,22 @@ cmd_build() {
     require_windows
     local v; v="$(version)"
     note "building $TARGET $PROFILE, version $v"
-    note "host toolchain: ${RUSTUP_TOOLCHAIN:-<from rust-toolchain.toml>}"
+    # `TARGET` above pins the *target* triple, but build scripts are compiled
+    # for the *host*, and `windows/rust-toolchain.toml` resolves that to
+    # `stable-x86_64-pc-windows-gnu` by naming plain `stable`. Some Windows
+    # machines cannot link with that host at all — this one's bundled
+    # `dlltool.exe` starts and then fails every invocation with
+    # `CreateProcess` — and the failure arrives three lines deep as
+    # `error calling dlltool ... program not found`, naming nothing useful.
+    #
+    # Since the release target is MSVC anyway, default the host to match when
+    # the caller has not chosen. Set RUSTUP_TOOLCHAIN yourself to override.
+    if [[ -z "${RUSTUP_TOOLCHAIN:-}" ]]; then
+        export RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-msvc"
+        note "host toolchain: defaulting to $RUSTUP_TOOLCHAIN (matches $TARGET; set RUSTUP_TOOLCHAIN to override)"
+    else
+        note "host toolchain: $RUSTUP_TOOLCHAIN"
+    fi
     # The MSVC target on purpose: it has no MinGW runtime to ship, and its ABI
     # is what every Windows tool expects. The GNU build pulls in
     # `libstdc++-6.dll`, which is on no stock Windows — see
@@ -149,12 +205,12 @@ sign_one() {
     # `/fd sha256` is not optional: the default since 2016, but an unsigned
     # timestamp service or an old build script can still leave SHA-1 in there,
     # and SmartScreen treats the two very differently.
-    signtool sign /sha1 "$RC_CERT_SHA1" /fd sha256 /tr http://timestamp.digicert.com \
+    MSYS_NO_PATHCONV=1 "$SIGNTOOL" sign /sha1 "$RC_CERT_SHA1" /fd sha256 /tr http://timestamp.digicert.com \
         /td sha256 "$f" || die "signing failed for $f"
     # Confirm, because `signtool` exits 0 having signed nothing when the
     # certificate is expired — and an expired signature is worse than none,
     # since it looks deliberate.
-    signtool verify /pa "$f" >/dev/null || die "signature does not verify: $f"
+    MSYS_NO_PATHCONV=1 "$SIGNTOOL" verify /pa "$f" >/dev/null || die "signature does not verify: $f"
     note "signed and verified: $(basename "$f")"
 }
 
@@ -221,8 +277,8 @@ cmd_package() {
     elif command -v candle >/dev/null 2>&1 && command -v light >/dev/null 2>&1; then
         note "WiX v3 candle + light"
         local wobj; wobj="$(win_path "$stage/RemoteCrab.wixobj")"
-        candle -arch x64 -out "$wobj" "$wxs" \
-            && light -out "$wmsi" "$wobj" \
+        MSYS_NO_PATHCONV=1 candle -arch x64 -out "$wobj" "$wxs" \
+            && MSYS_NO_PATHCONV=1 light -out "$wmsi" "$wobj" \
             || die "MSI build failed (see the WiX output above)"
     else
         die "no WiX toolset found. Install v4:  dotnet tool install --global wix"
@@ -254,7 +310,7 @@ cmd_verify() {
     local unsigned=0
     for f in remotecrab.exe rc_vcam_source.dll; do
         [[ -f "$dir/$f" ]] || { echo "  MISSING   $f"; unsigned=$((unsigned+1)); continue; }
-        if signtool verify /pa "$dir/$f" >/dev/null 2>&1; then
+        if MSYS_NO_PATHCONV=1 "$SIGNTOOL" verify /pa "$dir/$f" >/dev/null 2>&1; then
             echo "  signed     $f"
         else
             echo "  UNSIGNED   $f"
