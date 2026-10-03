@@ -535,13 +535,39 @@ async fn main() -> ExitCode {
                                             *s = format!("Receiving video… ({video_frames} NALs)");
                                         }
                                     }
-                                    if p.frames_decoded().is_multiple_of(150) {
+                                    if p.frames_decoded().is_multiple_of(150)
+                                        || video_frames.is_multiple_of(150)
+                                    {
                                         let (w, h) = p.dimensions();
+                                        // `frames_decoded() == 0` is a multiple of
+                                        // 150, so this line used to print on
+                                        // *every* NAL while nothing decoded — which
+                                        // is both noise and, printed twice in a
+                                        // minute, indistinguishable from "no video
+                                        // is arriving". Counting the kinds says which.
+                                        //
+                                        // Startup refusals are counted apart: every
+                                        // real stream opens with NALs no decoder can
+                                        // use, and a counter that always begins with
+                                        // "22 refused" is one people learn to ignore.
+                                        let tail = match (p.frames_decoded(), p.refusals_after_start())
+                                        {
+                                            (0, _) => String::new(),
+                                            (_, 0) => format!(
+                                                "  ({} refused before the first frame)",
+                                                p.warmup_refusals()
+                                            ),
+                                            (_, n) => format!("  ({n} refused since the first frame)"),
+                                        };
                                         println!(
-                                            "  video: {} frames decoded ({}x{})",
+                                            "  video: {} decoded / {} received ({}x{}){}",
                                             p.frames_decoded(),
+                                            video_frames,
                                             w,
-                                            h
+                                            h,
+                                            p.last_error()
+                                                .map(|e| format!("  last: {e}"))
+                                                .unwrap_or(tail)
                                         );
                                     }
                                 } else if video_frames.is_multiple_of(150) {

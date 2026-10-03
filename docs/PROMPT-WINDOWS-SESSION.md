@@ -77,9 +77,9 @@ remotecrab.exe --connect 127.0.0.1:8765
 
 详见 `docs/WINDOWS_TODO.md` §0'，以及 `docs/lessons/windows.md` 第 105 条。
 
-## 🔴 第 0 优先任务：定位这个崩溃
+## 第 0 优先任务：~~定位这个崩溃~~ → 2026-10-02 复查后无法复现
 
-接收端**一连接就崩**，它会挡住你做的**每一件事**：
+接收端曾经**一连接就崩**：
 
 ```
 [net] sessionReply: Accepted
@@ -98,6 +98,18 @@ fatal runtime error: Rust cannot catch foreign exceptions, aborting
 | **不带 `--connect` 也崩**（它自己 mDNS 发现了真手机） | 与连接触发方式无关 |
 | 最后打印的是 `[CONNECTING]  handshaking…` | 崩在 `set_state` 之后、`Event::State` 的处理里 |
 | panic hook 已在启动时安装，但**日志里没有 panic 记录** | panic 没走 Rust 的 hook → 发生在 **`extern "C"` 边界** |
+
+### 2026-10-02 复查：这些现在都跑得过去了
+
+在这台 Windows 机器上用当前代码，以下全部**不崩**，接收端一直活到被杀：
+accept-only 端口（`--connect 127.0.0.1:9999`）、`rc-phone-sim` 的四种握手结果
+（`normal` 一路走到 `[LIVE] streaming: 1080p`）、带托盘（下面那段嫌疑代码会
+真的执行）、`--no-tray`。`%LOCALAPPDATA%\RemoteCrab\RemoteCrab.log` 里也只有
+启动行，没有 panic。
+
+**所以别再照着下面那段去改代码** —— 没有复现路径的修改违反项目纪律
+（"prohibited: fixing without a failing test"）。如果你在**真机**上又撞上，
+下面这套还是唯一能定案的办法。
 
 ### 嫌疑代码块（`rc-app/src/main.rs`，`Event::State` 分支内）
 

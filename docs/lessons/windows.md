@@ -145,7 +145,7 @@ so a cross-reference from another lesson still resolves.
     (a) 向导的动作按钮用 `take()` 把闭包**取走**了，所以**只能点一次**。
     失败场景极其具体：用户取消 UAC 后，**向导自己的文案叫他再点一次**，
     而再点什么都不会发生。**测试套件里没有第二个 UAC 弹窗**，所以任何
-    单测都抓不到。修法：读出引用、在锁外调用，并加一条「点三次」��测试
+    单测都抓不到。修法：读出引用、在锁外调用，并加一条「点三次」的测试
     （已验证恢复 `take` 后变红）。
     (b) 设置窗口的摄像头行**只有文字没有按钮**——分发分支写了
     `with(|a| (a.camera)()).unwrap_or(false);` **读了值就丢掉**，而且
@@ -253,3 +253,109 @@ so a cross-reference from another lesson still resolves.
     教训有两条。第一，**怀疑自己刚写的代码之前，先花五分钟排除它**——
     `git stash` + 重建 + 复现，比读代码快且确定。第二：这条能成立是因为
     测试套件是绿的；**如果当时套件是红的，「我改坏的」和「本来就有」就分不开了**。
+
+## 108 · 一个 panic 说得比它的成因更准（`build.rs` 的护栏）
+
+2026-10-02。`WINDOWS_TODO.md` §2.3 一直把「MSVC 构建」列为上线阻塞，建议换到
+MSVC 目标。切过去之后**根本编译不过**：
+
+```
+panic: winres reported success but ...\resource.o is missing
+       — the .exe would ship without an icon or a version
+```
+
+护栏本身是对的。错的是它**只认识一种工具链的产物**：`resource.o` 是 GNU
+`windres` 的输出，微软的 `rc.exe` 出的是 `resource.lib`。`winres` 对两者都
+返回成功，于是「成功」这个信号从来没有区分过是谁在编译。
+
+**教训**：当一个检查只对**某一个工具链**成立时，它会变成「在正确的工具链上
+静默通过、在其余的全部报错」——而报错的那一个往往是你刚换上的那个。写护栏时
+按 `target` 分支，而不是按「我手头这个」写。
+
+## 109 · 判据读到 0 条，等于给了绿灯
+
+`scripts/check-windows-deps.sh` 是决定「这个发布能不能发」的那道判据。它在
+Windows 上**从来跑不起来**（只认 `x86_64-w64-mingw32-objdump` / `llvm-objdump`），
+所以只能在 Mac 上跑——于是它推荐的 MSVC 路径从来没被真正测量过。
+
+给它加上 `dumpbin`（经 `vswhere` 定位）之后，它第一次在 Windows 上运行就报：
+
+```
+imports: 0 DLLs
+OK — every dependency is either in the box or shipped with the exe.
+```
+
+0 个导入被当成了「什么都不缺」。真因是 Git-Bash 把 `/dependents` 改写成了
+`C:\Program Files\Git\dependents`，dumpbin 的报错走了 stderr，而脚本把空结果
+读成了通过。
+
+**教训**：**一个判据读到 0 条输入时必须失败，不能通过。** 「没读到东西」和
+「没有东西」在结果上长得一模一样，而这道判据的输出会变成一个绿色的勾。
+`if [ "$total" -lt 5 ]; then exit 1; fi` 是这里唯一重要的一行。
+
+## 110 · 只在一种语言下成立的测试，是坏掉的断言
+
+`stream_stats.rs` 有两个测试用**英文 label** 去 `detail_rows()` 的结果里找行，
+而那些 label 来自 `i18n::t`。在这台中文 Windows 上它们失败：
+
+```
+assertion `left == right` failed
+  left: None
+  right: Some("a")
+```
+
+代码是对的，断言是错的。修法是让测试**用和代码一样的 `t()`** 去解析 label，
+这样两种语言下它问的是同一个问题。
+
+**教训**：`i18n::t(a, b)` 这种「按语言二选一」的写法，会把**语言**变成测试的
+隐式输入。断言里任何一处硬编码了某个语言分支的字符串，测试就只在那一半的机器
+上有效——而 CI 通常跑在另一半，于是它长期是绿的，从来没被人质疑过。
+和 `lessons/windows.md` 第 100 条（`#[cfg(windows)]` 里的测试等于不存在）
+是同一类：**测试的适用范围比它看起来窄。**
+
+## 111 · 换工具链不消除外部依赖，它只是换了一个名字
+
+「MSVC 构建不需要 MinGW 运行时」这句话，在 §2.3 里被当成理所当然。实测：
+
+```
+26 imports   MISSING VCRUNTIME140.dll
+19 imports   OK            （加了 -C target-feature=+crt-static 之后）
+```
+
+`vcruntime140.dll` 不是 Windows 自带的，它随 VC++ 重分发包来。所以不开静态
+CRT 的 MSVC 构建，在一台没装过任何 MSVC 应用的干净机器上**照样起不来**——
+和 GNU 缺 `libstdc++-6.dll` 是同一个形状的问题，只是文件名换了。
+
+**教训**：把「A 构建方式有依赖」换成「B 构建方式没有依赖」之前，先量 B 的导入表。
+依赖来自**你链接进去的代码**（这里是 OpenH264 的 C++），不是来自工具链的牌子。
+## 112 · 「协议里有这个字段」不等于「有人在读它」
+
+2026-10-02。有人问「镜像投屏实现了，扩展屏是不是还没实现」，我grep 了
+`toggleExtendedDisplay`，看到 Mac 侧有实现、Windows 侧只有一句
+`not supported`，于是判断「iPhone 端还在无条件显示这个入口」并准备动手。
+
+读完 `ContentView.swift` 才发现那一行早就有门：
+
+```swift
+if !engine.connectedIsWindows {
+    Button { ... engine.toggleExtendedDisplay() } ...
+}
+```
+
+`CaptureEngine.swift:95` 的 `connectedIsWindows` 来自 `clientHello.platform`，
+而 Windows 一直在发它（`supervisor.rs:655`）。功能**早就完整了**。
+
+同一次排查里还看到：`IBClientHello.capabilities` 这套机制 Mac 声明了
+（`ReceiverSession.swift:1290`）、Core 建模了、还配了 19 条测试，但全仓
+`.supports(` **零调用**——iOS 从来没读过它。今天没人受害，是因为 `platform`
+恰好覆盖了唯一需要的判断（这是不是 Windows）。等真需要按能力而不是按操作系统
+区分时，这个「已建模、已测试、无人消费」的状态就是陷阱。
+
+**教训**：grep 到「A 端有实现」不能推出「整条链没接完」。要证明一个功能缺失，
+得找到**该功能本该出现的那一行**，而不是找到另一端的实现。我的错误是把
+「Windows 说不支持」当成了「iPhone 没做判断」——前者是结论，后者是原因，
+而结论恰好是对的，所以我连自己要修的东西都不存在。
+
+和 `WINDOWS_SESSION_CLOSEOUT.md` §6 那六次「做完了说太早」是同一个家族的反面：
+那次是**有**却当**无**，这次是**无**却当**有**。两个方向的错误都靠「逐个动作问
+它真的做事吗」才能挡住。

@@ -19,6 +19,15 @@ pub struct PreviewPipeline {
     decoder: H264PreviewDecoder,
     latest: Option<RgbaFrame>,
     frames: u64,
+    /// How many NALs were refused by the time the first frame came out.
+    ///
+    /// Every real stream starts with a handful the decoder cannot use — the
+    /// leading pictures before the first IDR. Measured against a live iPhone:
+    /// 22 refusals on a cold encoder, 9 on a warm one, then zero for the rest
+    /// of the session. Left uncounted, a counter that always opens with "22
+    /// refused" teaches whoever reads it next to ignore the number, which
+    /// costs the counter its only job.
+    warmup_refused: u64,
 }
 
 impl PreviewPipeline {
@@ -27,6 +36,7 @@ impl PreviewPipeline {
             decoder: H264PreviewDecoder::new()?,
             latest: None,
             frames: 0,
+            warmup_refused: 0,
         })
     }
 
@@ -36,6 +46,9 @@ impl PreviewPipeline {
             NalKind::Video | NalKind::Sps | NalKind::Pps => {}
         }
         if let Some(frame) = self.decoder.feed_nal(&nal.data) {
+            if self.frames == 0 {
+                self.warmup_refused = self.decoder.refused();
+            }
             self.latest = Some(frame);
             self.frames += 1;
             true
@@ -52,10 +65,34 @@ impl PreviewPipeline {
         self.frames
     }
 
-    pub fn dimensions(&self) -> (u32, u32) {
-        self.decoder.dimensions()
+pub fn dimensions(&self) -> (u32, u32) {
+            self.decoder.dimensions()
+        }
+
+        /// NAL units the decoder refused, and why the last one was refused.
+        ///
+        /// Without these, a stream that never decodes is indistinguishable from
+        /// a stream that never arrives: both report `frames_decoded() == 0`.
+        pub fn refused(&self) -> u64 {
+            self.decoder.refused()
+        }
+
+        pub fn last_error(&self) -> Option<&str> {
+            self.decoder.last_error()
+        }
+
+        /// Refusals that happened before the stream produced anything — the
+        /// leading pictures no decoder can turn into a frame.
+        pub fn warmup_refusals(&self) -> u64 {
+            self.warmup_refused
+        }
+
+        /// Refusals since the first frame, which is the number that means
+        /// something is actually wrong.
+        pub fn refusals_after_start(&self) -> u64 {
+            self.decoder.refused().saturating_sub(self.warmup_refused)
+        }
     }
-}
 
 #[cfg(test)]
 mod tests {

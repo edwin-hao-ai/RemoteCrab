@@ -1,6 +1,6 @@
 # Windows 接收端：待办清单与验证手册
 
-> 最后更新：2026-09-30 晚。代码基线 `baff770`（Windows 测试 362，Core 367，
+> 最后更新：2026-09-30 晚。代码基线 `baff770`（Windows 测试 385，Core 367，
 > Mac↔iPhone 真机 E2E 26/26 绿）。收尾记录见
 > [`WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)。
 >
@@ -46,9 +46,26 @@ remotecrab.exe --connect 127.0.0.1:8765
 `--help`。假手机会打印它看到的每一帧：clientHello（**含对方有没有带 token**）、
 ping、featureControl、touch、key、notification、commandResult。
 
-> **已知问题（2026-09-30 报告，未定位）**：接收端在 `sessionReply: Accepted`
-> 之后会崩：`fatal runtime error: Rust cannot catch foreign exceptions`。
-> 已用 `git stash` 确认**改动前就存在**，且 **macOS 上也复现**。请优先定位它。
+> **2026-10-02 复查：在当前代码上复现不出来。** 跑过的组合全部正常，接收端一直
+> 活到被杀为止：
+>
+> | 场景 | 结果 |
+> |---|---|
+> | 连一个只 accept 不说话的端口（`--connect 127.0.0.1:9999`） | 干净地 6 s 握手超时循环，不崩 |
+> | `rc-phone-sim` 四种握手结果 `normal` / `pending` / `denied` / `busy` | 全部正常，`normal` 走到 `[LIVE] streaming: 1080p` |
+> | 带托盘（`tray.set_status` / `set_diagnosis` 那段嫌疑代码会真的执行） | 不崩 |
+> | `--no-tray` | 不崩 |
+> | panic hook 日志 `%LOCALAPPDATA%\RemoteCrab\RemoteCrab.log` | 只有启动行，**无 panic 记录** |
+>
+> 所以它要么已被 `baff770` 之后的某个 commit 修掉，要么只在真机 / 真网络上出现。
+> **按项目纪律（"prohibited: fixing without a failing test"），在没有复现路径之前
+> 不要改那段代码。** 如果你在真机上又撞上，`lldb -- ./target/debug/remotecrab
+> --connect 127.0.0.1:9999` 抓 `bt 40` 是唯一能定案的办法。
+>
+> 顺带记一笔仍然存在的隐患（不是这个崩溃）：`Event::State` 分支里那段
+> `health.borrow()` + `doctor::route_verdict(&h)` 是在 async 上下文里做**同步 UDP
+> connect**，同时持着 watch 锁。它不崩，但会阻塞 executor 线程。正解是
+> `spawn_blocking`。这是独立的一次改动，别和别的混在一起。
 
 ---
 
@@ -63,11 +80,11 @@ ping、featureControl、touch、key、notification、commandResult。
 cd windows
 cargo build --release -p rc-app --target x86_64-pc-windows-msvc
 
-# 3. 跑测试：359 个，全部不需要手机、不需要 Windows
+# 3. 跑测试：385 个，全部不需要手机、不需要 Windows
 cargo test --workspace
 ```
 
-跑完 362 个测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
+跑完 385 个测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
 那些只能看、不能推断。
 
 ---
@@ -82,7 +99,7 @@ cargo test --workspace
 | Windows 交叉编译 | `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` | 0 error / 0 warning |
 | clippy（Mac） | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | clippy（Windows） | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` | 0 |
-| Windows 测试 | `cargo test --workspace` | **362 通过 / 31 个二进制** |
+| Windows 测试 | `cargo test --workspace` | **385 通过 / 31 个二进制** |
 | Swift 侧 | `./scripts/test.sh` | Core **367**（含 8 条跨实现契约）+ iOS app + Mac app 全通过 |
 | 死代码 | Windows 目标下 `never used` | **0**（`notify_relay` 里 14 处 `allow(dead_code)` 已全部改成精确的 `cfg_attr`，Windows 侧现在真的会审计） |
 
@@ -128,7 +145,7 @@ pkill -f "RemoteCrab.app/Contents/MacOS/RemoteCrab"   # 脚本假设接收端没
 | `StreamRecorder` | ✅ 完成 |
 | `SystemCommandHandler` | `rc-os/src/system_keys.rs` | ✅ 完成 |
 | `SystemExtensionManager` | `rc-app/src/elevate.rs`（ShellExecuteW + runas） | ✅ 完成 |
-| `VirtualDisplay`（扩展显示器） | ❌ 需签名 WDDM/IDD 驱动 | 见 §4 |
+| `VirtualDisplay`（扩展显示器） | ❌ 需签名的 IddCx 间接显示驱动 | 见 §4 |
 | `RemoteCrabAudioUnit` / `MicRingWriter`（虚拟麦克风） | ❌ 需签名 WDK 驱动 | 见 §4 |
 
 ---
@@ -202,30 +219,56 @@ scripts/release-windows.sh package
 **怎么算做完**：在一台干净 VM 上装 → 确认无 SmartScreen → 运行
 `scripts/check-windows-deps.sh "C:\Program Files\RemoteCrab\remotecrab.exe"` 输出 `OK`。
 
-### 2.3 MSVC 构建 —— **当前是 GNU 构建，依赖一个纯净 Windows 没有的 DLL**
+### 2.3 MSVC 构建 —— ✅ 已通（2026-10-02）
 
-**实测结果**（`scripts/check-windows-deps.sh` 在 GNU 构建上的输出）：
+**结论先说**：MSVC 目标现在能构建、能跑，且**没有任何纯净 Windows 没有的依赖**。
+
+**曾经为什么不通**：`rc-app/build.rs` 断言 `winres` 留下 `resource.o`，而微软的
+`rc.exe` 出的是 `resource.lib`（它自己 `/fo` 指定的）。所以一切到 MSVC 目标就
+直接 panic：`winres reported success but ...\resource.o is missing`。
+那个 panic 是护栏在正常工作 —— 只是护栏只认识一种工具链的产物。
+现在按 target env 区分文件名（`resource_artifact()`），并且只给 GNU 补
+`rustc-link-arg`（`link.exe` 本来就会收 `winres` 要求的 resource 库，补两次
+会出现两个 `.rsrc` 段）。
+
+**换工具链本身并不能消除外部依赖**，这是原来写错的另一半。实测：
 
 ```
-imports: 30 DLLs
-MISSING  libstdc++-6.dll          ← 纯净 Windows 绝对没有
+换成 MSVC、没开 crt-static：        26 imports   MISSING VCRUNTIME140.dll
+再开 -C target-feature=+crt-static： 19 imports   OK
 ```
 
-`libstdc++-6.dll` 是 MinGW 的 C++ 运行时，由 OpenH264 的 **C++** 代码拉进来。
-Windows 自带 `api-ms-win-crt-*`（Universal CRT，Win10+ 通过 API-set 转发），那些没问题。
-**MSVC 构建两者都不需要**，而且 ABI 是所有 Windows 工具期待的那个。
+`vcruntime140.dll` **不是** Windows 自带的（它随 VC++ 重分发包来），所以不开
+静态 CRT 的 MSVC 构建在干净机器上照样起不来 —— 和 GNU 缺 `libstdc++-6.dll`
+是同一类问题。`windows/.cargo/config.toml` 只对 MSVC 目标加 `crt-static`
+（用 `[build] rustflags` 会连 build script 一起改，而 build script 是按 host
+编译的）。
 
-**怎么算做完**：
+**怎么验（这台机器上已通过）**：
 
 ```sh
-rustup target add x86_64-pc-windows-msvc
-cargo build --release -p rc-app --target x86_64-pc-windows-msvc
-scripts/check-windows-deps.sh target/x86_64-pc-windows-msvc/release/remotecrab.exe
-# 必须输出 OK
+export RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc
+cargo build --release -p rc-app
+scripts/check-windows-deps.sh windows/target/release/remotecrab.exe   # → OK
 ```
 
-> 这条**曾经被写错**在旧交接文档里（说缺的是 `vcruntime140.dll`，那是 MSVC 的 CRT，
-> GNU 构建根本不涉及）。以 `check-windows-deps.sh` 的实测输出为准。
+`.rsrc` 段与 `FileVersion` / `ProductVersion` / `Beijing VGO Co.,Ltd` / `1.0.0.0`
+都已在 exe 里核对过 —— 这个必须用 `dumpbin` 看，`build.rs` 自己的注释就写了
+「nothing warns about this」。
+
+> ⚠️ **这台机器的 host 工具链**：`x86_64-pc-windows-gnu` 的 host **完全无法链接**。
+> 它自带的 `dlltool.exe` 能启动，但每次真正干活都失败并报 `CreateProcess`，于是
+> 每一个链接步骤都死。1.98.0 与 1.99.0 表现一致，Defender 的 ASR/CFA 全关，也没有
+> 第三方杀软。**根因尚未定位。** 目前用用户级
+> `RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc` 绕开（本机装有 VS Build Tools
+> 2022 + SDK 10.0.26100）。注意 `rust-toolchain.toml` 会覆盖 `rustup default`，
+> 所以必须用环境变量，`rustup default` 无效。
+
+> ⚠️ `check-windows-deps.sh` 之前在 Windows 上**根本跑不了**（只认
+> `x86_64-w64-mingw32-objdump` / `llvm-objdump`）—— 决定「能不能发布」的那道判据
+> 只能在 Mac 上跑。现在它通过 `vswhere` 找 `dumpbin`。而且它解析到 0 个 DLL 时
+> **不再报 OK**：Git-Bash 会把 `/dependents` 改写成路径，脚本读到 0 条曾经被当成
+> 「干净无依赖」。
 
 ---
 
@@ -401,7 +444,7 @@ Mac 用 **VideoToolbox**，Windows 用 **OpenH264**（passthrough）。两个编
 | 功能 | 为什么 | 替代 |
 |---|---|---|
 | **虚拟麦克风** | 需**签名的 WDK 驱动**（`MakeAuth`），3-6 天 + 签名。**未签名驱动会直接毁掉 §2.1 代码签名的意义**——用户在杀软里看到一个未签名驱动，整个产品的信誉都没了 | 语音功能先用 `--unmute` |
-| **扩展显示器**（iPhone 当第二屏） | 需签名的 WDDM/IDD 显示驱动 | 镜像功能已有 |
+| **扩展显示器**（iPhone 当第二屏） | 需签名的 **IddCx** 间接显示驱动。是**用户态 UMDF**（不是内核态 WDDM），但仍要签名、仍要装成一个设备，且 IddCx 把桌面图像以 DirectX surface 交给驱动并**禁用 GDI / 窗口 API**，所以 Mac 那套「把已有镜像指过去」不能照搬 | 镜像功能已有；**iPhone 端已按 `platform` 隐藏这一项**（`ContentView.swift:766`），不会给用户一个点了没反应的按钮 |
 | **自绘托盘面板** | 原生 `TrackPopupMenu` 的**内容**已与 Mac 对齐且有 23 条布局测试，纯视觉打磨 | — |
 | **AWDL**（无 WiFi 直连） | Apple 私有，Windows 不可能有 | iPhone 热点 / USB 网卡共享 |
 | **`IP_UNICAST_IF` 绕过 TUN** | 在这台 Mac 上**无法验证字节序**（Windows 用反序）。猜着上会静默失败 | 走 mDNS + 直连 fallback |
@@ -413,7 +456,7 @@ Mac 用 **VideoToolbox**，Windows 用 **OpenH264**（passthrough）。两个编
 ### 5.1 Windows 目标和 macOS 编译出来的**不是同一个东西**
 
 `cargo check --target x86_64-pc-windows-gnu` 只保证**能编译**，不保证**能跑**。
-macOS 上 359 个测试全绿，也不代表 Win32 那部分对。AGENTS.md 的核心规则：
+macOS 上 385 个测试全绿，也不代表 Win32 那部分对。AGENTS.md 的核心规则：
 改了 `#[cfg(windows)]` 里的代码，交叉编译是唯一保证，而它连运行时都证明不了。
 
 ### 5.2 `rc-os` 的 `windows` 依赖**必须** target 化

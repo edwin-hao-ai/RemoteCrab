@@ -12,7 +12,7 @@
 ## 1. 状态（提交 `2bc41b5`）
 
 ```
-Windows 测试  362        Core 测试 367（359 + 8 跨实现协议契约）
+Windows 测试  385        Core 测试 367（359 + 8 跨实现协议契约）
 macOS build   0 error / 0 warning
 win-gnu check 0 error / 0 warning
 clippy -D warnings  两平台均 0
@@ -54,6 +54,12 @@ Mac↔iPhone 真机 E2E   26 / 26 绿（iPhone 14 / iOS 26.6.2）
 ## 3. ❌ 没有解决的部分
 
 ### 3.1 既有崩溃（**优先级最高**，已大幅缩小范围）
+
+> **2026-10-02：在当前代码上复现不出来。** 详见
+> [`WINDOWS_TODO.md`](WINDOWS_TODO.md) §0' 的复查表 —— accept-only 端口、
+> 四种握手结果、带/不带托盘、以及一路到 `[LIVE] streaming`，全部不崩，
+> panic hook 日志里也没有 panic 记录。所以它要么已被后续 commit 修掉，
+> 要么只在真机上出现。**没有复现路径之前不要改那段代码。**
 
 ```
 [net] sessionReply: Accepted
@@ -162,7 +168,7 @@ remotecrab.exe --connect 127.0.0.1:8765
 
 值得写下来，因为它比任何一条技术结论都更影响你明天的判断：
 
-**我至少六次把「做完了」说得太早，每次都是你对，每��次你都对了。**
+**我至少六次把「做完了」说得太早，每次都是你对，每次你都对了。**
 
 根因不是忘了检查，而是**检查的层次错了**：
 

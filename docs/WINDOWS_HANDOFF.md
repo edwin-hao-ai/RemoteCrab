@@ -16,7 +16,7 @@ Last updated: 2026-09-29 (on the Windows box — virtual camera brought up end t
 end).
 **State**: the receiver is feature-complete for the "utility" surface
 (discovery/handshake/video/audio/input/mirror/recording/tray/launcher/
-clipboard **+ virtual camera**) — `windows` **238 tests** (`cargo test
+clipboard **+ virtual camera**) — `windows` **385 tests** (`cargo test
 --workspace` on MSVC) + clippy `-D warnings` clean. **The only remaining
 feature work is the virtual microphone** (§5b), plus the Extended Display
 limit (§4), and both need the user's Windows 11 box. **Next concrete action
@@ -48,7 +48,7 @@ is already green.
 
 ## 0. TL;DR status
 
-**Done and shipped** (`cargo test --workspace` **238** on Windows/MSVC;
+**Done and shipped** (`cargo test --workspace` **385** on Windows/MSVC;
 `clippy -D warnings` clean, now enforced by CI (§5e). The
 `x86_64-pc-windows-gnu` cross-check is the macOS-side equivalent — run it
 there via `cargo check --target x86_64-pc-windows-gnu --workspace`):
@@ -88,7 +88,7 @@ there via `cargo check --target x86_64-pc-windows-gnu --workspace`):
 
 1. **Virtual microphone** (appear as a system input device) — §5b.
 2. **Virtual camera — user-visible confirmation only.** The pipeline is
-   E2E-green (`vcam_probe` PASS, 238 tests, clippy clean, CI-enforced) but
+   E2E-green (`vcam_probe` PASS, 385 tests, clippy clean, CI-enforced) but
    *a person has still not looked at it*: no iPhone has been connected with
    `--vcam` on, and no camera app has shown the moving phone feed. That is the
    last gate, and it is a manual one (§6 step 10).
@@ -377,7 +377,24 @@ the box before touching §5a.
   (the direct-IP fallback already covers them).
 - **Extended Display (virtual second monitor)**: needs a virtual display
   driver. macOS has the private `CGVirtualDisplay`; Windows has no equivalent
-  without a signed display driver (WDDM/IDD). Report "not supported".
+  without a signed display driver. Report "not supported".
+
+  The route is Microsoft's **IddCx** (Indirect Display Driver Class
+  eXtension), and it is worth being precise about what that is, because an
+  earlier version of this file said "WDDM/IDD" and implied a kernel-mode
+  filter. IddCx is a **user-mode** driver: *"The IDD is the third
+  party-provided UMDF driver for the device… The IDD uses a user-mode model
+  and doesn't support kernel-mode components."* No ring0, no BSOD risk, and
+  driver instability stays inside the UMDF host process in Session 0.
+
+  It is still not free, and the reasons have nothing to do with kernel code:
+  the driver must be signed (the same certificate work as §2.1), it must be
+  installed as a *device* so the virtual monitor appears in Settings →
+  Display, and IddCx hands the desktop image over as a **DirectX surface**
+  while explicitly forbidding GDI, windowing APIs, OpenGL and Vulkan inside
+  the driver. That last rule is why the Mac's approach — "point the existing
+  mirror at the new display" — does not port: the encode has to live in the
+  driver or reach it over IPC.
 
 ---
 
@@ -439,7 +456,7 @@ cargo run -p rc-app -- --vcam-selftest   # moving test pattern, no phone; stops 
 
 **Verification ladder** (bottom rungs are automatic; only the top needs a human):
 
-1. `cargo test --workspace` → **238** + `cargo clippy --workspace --all-targets -- -D warnings` clean.
+1. `cargo test --workspace` → **385** + `cargo clippy --workspace --all-targets -- -D warnings` clean.
 2. `vcam_probe` (E2E, no phone) — opens the camera **by CLSID like a real
    consumer**, reads 12 samples, asserts the pixels change:
    ```powershell
@@ -516,7 +533,7 @@ a tool that cries wolf gets ignored.
 
 ### 5e. CI (`.github/workflows/windows.yml`)
 
-The repository had **no** GitHub Actions at all, so this workspace's 238
+The repository had **no** GitHub Actions at all, so this workspace's 385
 tests only ran when a human remembered. Two jobs, on `windows/**` changes:
 
 - **test + clippy** — `cargo build --workspace --all-targets` (so a broken

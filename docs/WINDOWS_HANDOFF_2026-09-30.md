@@ -62,8 +62,8 @@ help 结构都可以直接在这边验证，不用等 Windows。
 偏好设置、菜单栏实时预览、设备选择器、通知中继、虚拟麦克风、自动更新。
 Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫描、四个离线自检。
 
-⚠️ `docs/WINDOWS_HANDOFF.md` 里的测试数量（153 / 166 / 207）和
-`windows/README.md` 里「Not yet implemented: virtual camera, tray UI」都已经过期。
+✅ 2026-10-02 已修：`docs/WINDOWS_HANDOFF.md` 里的测试数量（153 / 166 / 207 / 238）
+和 `windows/README.md` 里「Not yet implemented: virtual camera, tray UI」都已更正为实数。
 
 ---
 
@@ -215,7 +215,7 @@ Windows 独有、**Mac 反而没有**的：诊断面板、`--scan`、`/24` 扫�
 - [ ] 自绘托盘面板：原生 `TrackPopupMenu` 的**内容**已经和 Mac 对齐且有测试，
       这只是视觉打磨。
 - [ ] AWDL：Apple 私有，Windows 不可能有。无路由场景用 iPhone 热点 / USB 网卡共享。
-- [ ] 扩展显示器：需要签名的 WDDM/IDD 显示驱动。
+- [ ] 扩展显示器：需要签名的 IddCx 间接显示驱动（**用户态 UMDF**，不是内核态 WDDM）。
 
 ---
 
@@ -573,7 +573,7 @@ iPhone 14 / iOS 26.6.2，**Mac 接收端 ↔ iPhone 整条链**。含通知中�
 ### 状态
 
 ```
-Windows 测试  362        Core 测试 367（359 + 8 契约）
+Windows 测试  385        Core 测试 367（359 + 8 契约）
 macOS build   0 error / 0 warning
 win-gnu check 0 error / 0 warning
 clippy -D warnings  两平台均 0
