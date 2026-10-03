@@ -18,7 +18,7 @@ fn error_text(reason: &str) -> String {
     }
 }
 
-pub fn state_line(state: &State) -> String {
+pub fn state_line(state: &State, seen_frame: bool) -> String {
     match state {
         State::Searching => format!(
             "[LOOKING]  {}",
@@ -47,6 +47,24 @@ pub fn state_line(state: &State) -> String {
         // NOTE: the label deliberately omits latency — including it made the
         // state line reprint on every 2 s ping (visual spam). Latency is
         // surfaced only for real spikes, by the Latency event handler.
+        //
+        // `seen_frame` is whether a decoded frame has arrived at all this
+        // session, and it is the difference between "streaming" and "claiming to
+        // stream".
+        //
+        // `rc-phone-sim --scenario silent` reproduces the case: the phone
+        // completes the handshake and then sends nothing at all. Without this
+        // distinction the tray said "正在投屏" — a positive claim — indefinitely,
+        // while not one frame arrived. No error, no warning, and nothing for the
+        // user to act on, because from the protocol's point of view the
+        // connection was perfect.
+        State::Streaming { name, .. } if !seen_frame => {
+            format!(
+                "[LIVE]  {}{name} \u{2014} {}",
+                i18n::t("已连接，", "connected, "),
+                i18n::t("等待画面\u{2026}", "waiting for video\u{2026}")
+            )
+        }
         State::Streaming { name, .. } => {
             format!("[LIVE]  {}{name}", i18n::t("正在投屏 ", "streaming from "))
         }
@@ -83,8 +101,16 @@ pub fn state_line(state: &State) -> String {
 /// One-line, pill-language status for the tray menu — same wording the Mac's
 /// menu-bar popover and the iOS status pill use (`State::pill_label` /
 /// `Status.latency`), without the console's [TAG] + wrapped explanation.
-pub fn tray_status(state: &State) -> String {
+pub fn tray_status(state: &State, seen_frame: bool) -> String {
     match state {
+        // Before the latency arm: a round-trip number with not one frame
+        // decoded is a measurement of nothing, and printing it would dress the
+        // "waiting" state up as a working one.
+        State::Streaming { name, .. } if !seen_frame => format!(
+            "{}{name} \u{2014} {}",
+            i18n::t("正在投屏 ", "Streaming from "),
+            i18n::t("已连接，等待画面…", "connected, waiting for video\u{2026}")
+        ),
         State::Streaming { name, latency_ms } if *latency_ms > 0 => {
             format!(
                 "{}{name} · {latency_ms} ms",
@@ -130,7 +156,7 @@ mod busy_copy_tests {
     fn the_busy_copy_names_the_preferred_computer_caveat() {
         let s = state_line(&State::Busy {
             owner: "MacBook Pro".into(),
-        });
+        }, true);
         assert!(
             s.contains("MacBook Pro"),
             "the owner must be named: {s}"
@@ -143,11 +169,68 @@ mod busy_copy_tests {
     fn the_busy_copy_always_offers_the_phone_side_switch() {
         let s = state_line(&State::Busy {
             owner: "Some PC".into(),
-        });
+        }, true);
         let mentions_switch = s.contains("选择电脑") || s.contains("Choose a computer");
         assert!(
             mentions_switch,
             "the phone-side switch is the only path that always works: {s}"
         );
+    }
+}
+#[cfg(test)]
+mod no_video_tests {
+    use super::{state_line, tray_status};
+    use rc_net::State;
+
+    fn streaming() -> State {
+        State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 0,
+        }
+    }
+
+    /// The bug, as a test. `rc-phone-sim --scenario silent` handshakes and then
+    /// sends nothing: no error, no event, no warning. Both surfaces used to
+    /// answer with an unqualified "streaming", which is a positive claim about
+    /// something that was not happening.
+    #[test]
+    fn a_connected_phone_that_sends_nothing_does_not_say_streaming() {
+        for line in [state_line(&streaming(), false), tray_status(&streaming(), false)] {
+            assert!(
+                !line.contains("正在投屏") || line.contains("等待画面"),
+                "claims to be streaming with no frames: {line}"
+            );
+            assert!(
+                line.contains("等待画面") || line.contains("waiting for video"),
+                "does not say it is waiting: {line}"
+            );
+        }
+    }
+
+    /// And the converse must stay true, or the fix has simply swapped one lie
+    /// for another.
+    #[test]
+    fn a_connected_phone_that_is_sending_says_so_plainly() {
+        for line in [state_line(&streaming(), true), tray_status(&streaming(), true)] {
+            assert!(
+                !line.contains("等待画面") && !line.contains("waiting for video"),
+                "says it is waiting while frames are arriving: {line}"
+            );
+        }
+    }
+
+    /// Latency with zero decoded frames measures nothing, so it must not appear
+    /// in place of the waiting notice.
+    #[test]
+    fn a_latency_reading_never_replaces_the_waiting_notice() {
+        let with_ping = State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 12,
+        };
+        let line = tray_status(&with_ping, false);
+        assert!(line.contains("等待画面"), "{line}");
+        assert!(!line.contains("12 ms"), "{line}");
+        // With frames, the same reading is worth showing.
+        assert!(tray_status(&with_ping, true).contains("12 ms"));
     }
 }

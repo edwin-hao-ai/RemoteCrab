@@ -421,7 +421,7 @@ async fn main() -> ExitCode {
                             }
                         }
 
-                        let label = status::state_line(&st);
+                        let label = status::state_line(&st, stats.last_frame.is_some());
                         if label != last_label {
                             println!("{label}");
                             last_label = label;
@@ -438,7 +438,11 @@ async fn main() -> ExitCode {
                             );
                         }
                         // Keep the tray's status row in sync (single-line pill-style).
-                        tray.set_status(&status::tray_status(&st));
+                        // `frames` is what separates "streaming" from "claiming
+                        // to stream": a phone that handshakes and then sends
+                        // nothing produces no error and no event, so without it
+                        // the tray asserts success forever.
+                        tray.set_status(&status::tray_status(&st, stats.last_frame.is_some()));
 
                         // …and give the "why not connected" row something true to say.
                         //

@@ -309,6 +309,52 @@ async fn disconnect_returns_to_searching() {
 }
 
 #[tokio::test]
+async fn a_phone_that_hangs_up_does_not_leave_us_claiming_to_stream() {
+    // The manual-connect case, which is the one that used to lie.
+    //
+    // `--connect <ip>` suppresses auto-reconnect on purpose: the user named an
+    // address, so hammering it forever is wrong. But suppressing the *retry* also
+    // meant nothing ever moved the state off `Streaming` — so after the phone
+    // walked out of range the tray said "streaming" indefinitely, with no error
+    // and nothing to act on. `disconnect_returns_to_searching` above cannot catch
+    // it: that path has a next iteration which sets `Searching`, and this one
+    // has none.
+    let phone = FakeIphone::start(FakeIphoneConfig {
+        stream_video: true,
+        video_frames: 30,
+        drop_after_frames: Some(5),
+        ..FakeIphoneConfig::default()
+    })
+    .await
+    .unwrap();
+    let session = Session::spawn(test_config());
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("did not reach streaming");
+
+    // The phone hangs up. An honest "lost" must follow promptly. Waiting only
+    // for "not Streaming" would pass on a retry that eventually reconnects,
+    // which is a different and much less interesting outcome — the failure is
+    // the case where nothing can be retried and the UI must say so.
+    let after = wait_for_state(
+        &session,
+        |s| matches!(s, State::Error(_)),
+        Duration::from_secs(5),
+    )
+    .await;
+    assert!(
+        after.is_some(),
+        "no error after the phone hung up — the state stays Streaming, so the UI \
+         claims a live session that does not exist"
+    );
+}
+
+#[tokio::test]
 async fn link_loss_reconnects_on_its_own() {
     // A phone that completes the handshake and then immediately hangs up.
     //

@@ -26,14 +26,21 @@
 //!
 //! ## What it does and does not prove
 //!
-//! **Proves:** the handshake, the token exchange, metadata, video decode, the
-//! ping/RTT path, feature toggles, the reconnect loop, and every code path in
-//! the binary that only runs once bytes are flowing.
+//! **Proves:** the handshake, the token exchange, metadata, the ping/RTT path,
+//! feature toggles, the reconnect loop, and every code path in the binary that
+//! only runs once bytes are flowing.
 //!
-//! **Does not prove:** anything about a real iOS encoder, a real camera, real
-//! notifications, real WiFi discovery, or the real app's UI. Those still need
-//! the phone. The point is not to replace the device — it is that the checks
-//! which *do not need* a device stop needing one, so the device is only
+//! **Does not prove: video decoding.** `encode_test_video` emits synthetic
+//! bytes, not real H.264, so a decoder refuses every frame. No scenario sends
+//! decodable video, and the `streaming: 1080p` line you see comes from the
+//! metadata frame alone. This line used to claim the opposite ("video decode"),
+//! which is worse than a gap: a green run looked like the decode path was
+//! covered. Use `--vcam-selftest`, or a real phone, for that.
+//!
+//! **Also does not prove:** anything about a real iOS encoder, a real camera,
+//! real notifications, real WiFi discovery, or the real app's UI. Those still
+//! need the phone. The point is not to replace the device — it is that the
+//! checks which *do not need* a device stop needing one, so the device is only
 //! needed for the things that genuinely require it.
 //!
 //! ## Scenarios
@@ -43,13 +50,13 @@
 //!
 //! | scenario | what it does | reproduces |
 //! |---|---|---|
-//! | `normal` | accepts, sends metadata, echoes pings, streams video | the happy path |
+//! | `normal` | accepts, sends metadata, echoes pings | the happy path |
 //! | `pending` | answers `pending` once, then `accepted` | the approval prompt |
 //! | `denied` | answers `denied` | "this computer is not allowed" |
 //! | `busy` | answers `busy` with an owner name | another Mac owns the session |
 //! | `silent` | accepts and then sends nothing | a stream that stops without erroring |
 //! | `no-token` | accepts but issues no token | the iPhone asking again next time |
-//! | `drop` | accepts, then drops the connection | reconnect behaviour |
+//! | `drop` | accepts, then hangs up mid-stream | an unexpected disconnect |
 
 use std::time::Duration;
 
@@ -82,10 +89,16 @@ impl Scenario {
 
     fn config(self) -> FakeIphoneConfig {
         let mut c = FakeIphoneConfig {
-            // Video on by default: the decode path is the one most likely to
-            // break silently, and a phone that sends nothing proves very little.
             stream_video: true,
-            video_frames: 0, // 0 = keep going, see `video: true` below
+            // 0 = do not stream, and it stays 0 for every scenario except `drop`.
+            //
+            // Tempting to set this so `normal` matches its help text, and wrong:
+            // `encode_test_video` emits *synthetic* bytes, not real H.264, so a
+            // decoder refuses every one. Turning it on made `normal` send garbage
+            // and made the receiver report a lost connection -- strictly worse
+            // than sending nothing. `check-windows-deps.sh` and
+            // `--vcam-selftest` cover the real decode path; this tool cannot.
+            video_frames: 0,
             ..Default::default()
         };
         match self {
@@ -102,7 +115,17 @@ impl Scenario {
                 c.send_metadata = false;
             }
             Self::NoToken => c.token = None,
-            Self::Drop => {}
+            // Was `Drop => {}` — an empty arm, so this scenario was the happy
+            // path with a different name. Every "does the receiver come back?"
+            // run had been green without a disconnect ever happening.
+            Self::Drop => {
+                // The one scenario that needs `video_frames > 0`, because
+                // `drop_after_frames` is read inside the video branch. Sending
+                // undecodable bytes is fine here: the point is that the socket
+                // closes, and the receiver noticing is the thing under test.
+                c.video_frames = 60;
+                c.drop_after_frames = Some(5);
+            }
         }
         c
     }
@@ -161,14 +184,14 @@ fn parse_args() -> Result<Args, String> {
                     "rc-phone-sim — a fake iPhone for testing the receiver\n\n\
                      USAGE:\n    rc-phone-sim [--port N] [--scenario NAME] [--frames N] [--seconds N]\n\n\
                      SCENARIOS:\n\
-                       normal     accepts, streams video, echoes pings   (default)\n\
+                       normal     accepts, sends metadata, echoes pings (default)\n\
                        pending    answers pending once, then accepted\n\
                        denied     answers denied\n\
                        busy       answers busy, naming another owner\n\
                        silent     accepts, then sends nothing at all\n\
                        no-token   accepts but issues no pairing token\n\
-                       drop       accepts, then drops the connection\n\n\
-                     THEN, in another shell:\n    remotecrab.exe --connect 127.0.0.1:{port}\n"
+                       drop       accepts, then hangs up mid-stream\n\n\
+                     NOTE: no scenario sends decodable video (the testkit emits synthetic\n    bytes, not H.264). For the real decode path use\n    `remotecrab.exe --vcam-selftest`, or a real phone.\n\n    THEN, in another shell:\n    remotecrab.exe --connect 127.0.0.1:{port}\n"
                 );
                 std::process::exit(0);
             }
