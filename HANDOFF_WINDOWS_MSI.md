@@ -20,74 +20,74 @@
       behind a preprocessor variable nobody defined; duplicated cleanup logic
       the app already owns; `sed` ate the backslashes in `@PAYLOAD@`; plus
       schema drift.
-- [x] Cleanup now runs **the product's own** `remotecrab.exe --uninstall-vcam`
-      as a deferred SYSTEM custom action (type 3170, sequence 3499, just before
-      `RemoveFiles`) rather than a second implementation in the installer. The
-      ring file has a NULL DACL so the Frame Server can map it as LocalService —
-      deleting it is not expressible in an MSI table. That duplication is
-      exactly what let the wrong CLSID survive.
+- [x] **The installer registers the virtual camera** (`9a0e742`). The package is
+      perMachine, so it is elevated for its whole run; it was spending that on
+      copying files and then telling users to open an elevated PowerShell. One
+      UAC prompt at install time, which is what every Windows app does; **no
+      second prompt during use**.
+- [x] Cleanup runs the product's own `--uninstall-vcam-machine` as a deferred
+      SYSTEM action (type 3170, sequence 3499, just before `RemoveFiles`).
+      Machine-wide only — under SYSTEM `%APPDATA%` is the *system profile's*,
+      so the full command deleted the wrong user's data. Never prompts. The COM
+      keys are in the Registry table now, so Windows Installer removes those
+      itself; the action is there only for the ring file's NULL DACL.
 - [x] MSI built and verified: `dist/RemoteCrab-1.0.0.msi`, 1,794,048 bytes.
       File table holds **exactly** `remotecrab.exe` + `rc_vcam_source.dll` —
-      the `MsvcBuild` guard works. 391 tests pass, clippy `-D warnings` clean.
-- [x] **User installed it.** Verified on the installed copy:
-      install dir holds exactly the 2 payload files · Start Menu uninstall
-      shortcut present · MSI registered (`DisplayVersion 1.0.0`,
-      `WindowsInstaller=1`) · HKCU markers set · `check-windows-deps.sh`
-      against `C:\Program Files\RemoteCrab\remotecrab.exe` → 19 imports, OK ·
-      installed exe self-reports `remotecrab 1.0.0` and starts cleanly.
+      the `MsvcBuild` guard works. 393 tests pass, clippy `-D warnings` clean.
+- [x] **Full install→use cycle verified on the real machine.** Installed with
+      `msiexec /i` and one UAC click, no other command:
+      CLSID written to `C:\Program Files\RemoteCrab\rc_vcam_source.dll` ·
+      `ThreadingModel = Both` · DLL present · `remotecrab.exe --vcam-selftest`
+      from the installed copy → `vcam_consume` reports
+      **`PASS — 11 samples, 34560 changing bytes`**.
+- [x] **No second elevation after install.** A non-admin process can create
+      files in `%ProgramData%\RemoteCrab` (the `Users` ACE carries `Write`), and
+      the self-test that published those frames was itself non-elevated.
 - [x] The MSI is **unsigned**, so `verify` still exits nonzero. That is correct,
-      not a bug.
+      not a bug. See the SmartScreen note below.
+
+## Known remaining friction
+
+- [ ] **SmartScreen, not UAC, is the real install-time complaint.** An unsigned
+      exe triggers "Windows protected your PC", which needs *More info* →
+      *Run anyway*. That is a more confusing screen than the UAC prompt users
+      already expect, and it cannot be removed by any amount of installer work —
+      only a code signing certificate (OV ≈ $150–300/yr) clears it. Decide
+      whether to buy one before any public distribution.
 
 ## Blocked — needs the user
 
-- [ ] **Re-register the virtual camera.** The CLSID currently points at
-      `E:\RemoteCrab\windows\target\release\rc_vcam_source.dll` — left over from
-      earlier dev testing. The installed exe correctly refuses rather than
-      silently using the wrong DLL. One elevated command fixes it:
-
-      ```powershell
-      & "C:\Program Files\RemoteCrab\remotecrab.exe" --install-vcam
-      ```
-
-      I cannot run it: not an administrator, and `Start-Process -Verb RunAs`
-      does not work from the constrained shell this session had.
-
-- [ ] After that, re-run the chain that is still unproven end to end:
-      `--vcam-selftest` from the **installed** exe →
-      `cargo build --release -p rc-vcam --example vcam_consume` (lands in
-      `windows/target/release/examples/`) → expect changing pixels.
-- [ ] Still unverified: the tray's UAC "Install virtual camera" row, and a human
-      looking at the picture in the Windows Camera app. `vcam_consume` only
-      proves Media Foundation hands over changing bytes.
-- [ ] Work through `docs/WINDOWS_TODO.md`'s uninstall checklist — the
+- [ ] **The uninstall half is still untested.** Everything above is the install
+      path. Work through `docs/WINDOWS_TODO.md`'s checklist — the
       `%ProgramData%\RemoteCrab\vcam-ring.bin` line is the one most likely to
-      fail.
+      fail, because of the NULL DACL.
+- [ ] Still unverified: the tray's UAC row (now a fallback rather than the main
+      path, since the installer registers), and a human looking at the picture in
+      the Windows Camera app. `vcam_consume` only proves Media Foundation hands
+      over changing bytes.
 
-## Bugs found while testing — not yet fixed
+## Bugs found while testing — fixed in `9a0e742`
 
-- [ ] **`VcamError::Stale` is never constructed.**
-      `windows/crates/rc-vcam/src/error.rs:27` declares it, `:56` gives it a
-      user-facing message, `:75` has a passing test asserting it is fixable by
-      elevating — and nothing anywhere constructs it. `win.rs:75-79` already
-      compares the registered DLL path against `source_dll_path()`; on mismatch
-      it falls through to `RegCreateKeyExW`, gets `ACCESS_DENIED`, and returns
-      the vague `NeedsElevation`. The app knows precisely what is wrong and says
-      something generic instead. A dead variant with a test guarding an
-      unreachable path.
+- [x] **`VcamError::Stale` was unreachable.** `win.rs` already compared the
+      registered DLL path against its own; on a mismatch it fell through to
+      `RegCreateKeyExW`, got `ACCESS_DENIED`, and returned the generic
+      `NeedsElevation` — so the one error that could explain "your camera is
+      registered to a copy you deleted" never reached a user, who was told they
+      were not an administrator. Usually they were. Now returned, with a test
+      holding its message to the standard the other arms meet.
 
-- [ ] **Console one-shot flags never self-elevate, but the error message
-      promises a UAC window.**
-      `error.rs:49` reads *"needs administrator rights — approve the Windows
-      prompt and it is done"*. The tray does self-elevate (`vcam.rs:83` →
-      `elevate::run_elevated`), but `main.rs:158` runs `run_elevated_job`
-      directly and `--vcam-selftest` only prints. A user who types the command is
-      told to approve a window that never appears — which is exactly how this
-      session got stuck.
+- [x] **The one-shot flags never self-elevated while their error text promised
+      a UAC window** — *"approve the Windows prompt and it is done"*. The tray
+      self-elevated; `main.rs` did not. A terminal user was told to approve a
+      dialog that never appeared, which is exactly how this session got stuck.
+      `run_elevated_job` is now `run_one_shot`, which prompts when it needs to
+      and says plainly when the user declines or a policy blocks the prompt.
 
-      **Constraint on the fix:** the MSI invokes `--uninstall-vcam` as a
-      deferred SYSTEM action. Naively adding self-elevation would make
-      uninstall try to raise a UAC prompt inside an already-elevated install.
-      Check "am I already elevated" first.
+  Two WiX v4 traps, both of which compile to a manifest that installs nothing
+  useful, were hit on the way: a nested `RegistryKey` rejects `Root` (WIX0064),
+  and its `Key` is *appended* to the parent rather than relative — repeating the
+  full path produced `…\CLSID\{9D4B…}\CLSID\{9D4B…}\InprocServer32`.
+
 
 ## Drift, deliberately not started
 
