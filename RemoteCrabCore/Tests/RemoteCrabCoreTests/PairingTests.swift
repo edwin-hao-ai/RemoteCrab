@@ -472,7 +472,13 @@ final class PairingTests: XCTestCase {
     /// Entries written in the same instant really do tie, and the row order
     /// must not then depend on hash order.
     func testEqualTimestampsStillProduceADeterministicOrder() {
-        let entries = [seen("c", "C"), seen("a", "A"), seen("b", "B")]
+        // ONE shared timestamp. `seen(_:_:daysAgo: 0)` calls `Date()` per
+        // entry, so the "tied" fixtures were microseconds apart and this
+        // was really testing the recency sort again.
+        let stamp = Date()
+        let entries = ["c", "a", "b"].map {
+            SeenComputer(id: $0, name: $0.uppercased(), platform: "windows", lastSeen: stamp)
+        }
         XCTAssertEqual(MacPairingStore.pruned(entries).map(\.id), ["a", "b", "c"])
         XCTAssertEqual(MacPairingStore.pruned(entries.reversed()).map(\.id), ["a", "b", "c"])
     }

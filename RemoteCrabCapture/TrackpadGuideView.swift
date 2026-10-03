@@ -35,9 +35,16 @@ struct TrackpadGuideView: View {
 
     @Environment(\.dismiss) private var dismiss
     let surface: Surface
+    /// Which OS owns the session. **Required, no default** — the reference
+    /// is read mid-session, and a row that names ⌘ or Mission Control to a
+    /// PC user describes a machine they are not holding. Same reasoning as
+    /// `IBModifierBar.platform`: a default here would make the wrong
+    /// wording the silent default rather than a visible mistake.
+    let platform: IBModifierBar.PeerPlatform
 
-    init(surface: Surface = .trackpad) {
+    init(surface: Surface = .trackpad, platform: IBModifierBar.PeerPlatform) {
         self.surface = surface
+        self.platform = platform
     }
 
     private typealias Row = (symbol: String, text: String)
@@ -51,7 +58,7 @@ struct TrackpadGuideView: View {
             (IBLocale.Coach.sectionScroll, [
                 ("arrow.up.and.down", IBLocale.Coach.twoFingerScroll),
                 ("cursorarrow.click.2", IBLocale.Coach.twoFingerRightClick),
-                ("arrow.up.left.and.arrow.down.right", IBLocale.Coach.pinchZoom)
+                ("arrow.up.left.and.arrow.down.right", IBLocale.Coach.pinchZoom(for: platform))
             ]),
             (IBLocale.Coach.sectionDrag, [
                 ("hand.draw", IBLocale.Coach.doubleTapHoldDrag),
@@ -59,11 +66,11 @@ struct TrackpadGuideView: View {
             ]),
             (IBLocale.Coach.sectionFingers, [
                 ("hand.point.up", IBLocale.Coach.threeFingerTap),
-                ("rectangle.3.group", IBLocale.Coach.threeFingerSwipe),
+                ("rectangle.3.group", IBLocale.Coach.threeFingerSwipe(for: platform)),
                 ("hand.point.up.braille", IBLocale.Coach.forceClick)
             ]),
             (IBLocale.Coach.sectionKeys, [
-                ("command", IBLocale.Coach.modifierBar),
+                (IBLocale.Coach.modifierSymbol(for: platform), IBLocale.Coach.modifierBar(for: platform)),
                 ("shift", IBLocale.Coach.shiftSelect),
                 ("delete.left", IBLocale.Coach.quickKeys)
             ])
@@ -74,11 +81,11 @@ struct TrackpadGuideView: View {
         [
             (IBLocale.Coach.mirrorSectionTap, [
                 ("hand.tap", IBLocale.Coach.mirrorTapClick),
-                ("hand.draw", IBLocale.Coach.mirrorDrag),
+                ("hand.draw", IBLocale.Coach.mirrorDrag(for: platform)),
                 ("cursorarrow.click.2", IBLocale.Coach.mirrorRightClick)
             ]),
             (IBLocale.Coach.mirrorSectionScroll, [
-                ("arrow.up.and.down", IBLocale.Coach.mirrorScroll)
+                ("arrow.up.and.down", IBLocale.Coach.mirrorScroll(for: platform))
             ]),
             (IBLocale.Coach.mirrorSectionMove, [
                 ("arrow.left.and.right", IBLocale.Coach.mirrorPan),

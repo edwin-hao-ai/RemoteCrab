@@ -439,6 +439,56 @@ public enum IBLocale {
         public static let shiftSelect = IBL("With ⇧ locked: tap the start, then the end, to select everything between")
         public static let quickKeys = IBL("⌫ , . ⏎ sit under your thumb for quick fixes")
 
+        // MARK: - Windows wording
+        //
+        // The gesture reference is read *while connected*, and these five
+        // rows named things a PC does not have: three keys that are not on
+        // its keyboard, "Mission Control", and "the Mac". A reference that
+        // describes the wrong machine is worse than one that says less —
+        // the reader has no way to tell which parts to trust.
+        //
+        // Functions rather than a `platform:` parameter on each string so a
+        // caller cannot forget: `CoachText.modifierBar` has to be spelled
+        // out at every use, and there is a test that walks both platforms.
+
+        /// ⌃⌥⌘⇧ on a Mac; Ctrl / Alt / ⊞ / Shift on a PC.
+        public static func modifierBar(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? windowsModifierBar : modifierBar
+        }
+
+        /// Mission Control is macOS. Windows calls it Task View.
+        public static func threeFingerSwipe(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? windowsThreeFingerSwipe : threeFingerSwipe
+        }
+
+        /// ⌘ + scroll on a Mac is Ctrl + scroll on a PC — the receiver
+        /// collapses the two modifier bits, which is why this is a
+        /// reword and not a different behaviour.
+        public static func pinchZoom(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? windowsPinchZoom : pinchZoom
+        }
+
+        public static func mirrorDrag(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? windowsMirrorDrag : mirrorDrag
+        }
+
+        public static func mirrorScroll(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? windowsMirrorScroll : mirrorScroll
+        }
+
+        /// SF Symbols has no Windows key and no Windows Task View, and the
+        /// row's icon is decorative (`accessibilityHidden`), so this is
+        /// about not drawing a Mac glyph next to PC wording.
+        public static func modifierSymbol(for platform: IBModifierBar.PeerPlatform) -> String {
+            platform == .windows ? "keyboard" : "command"
+        }
+
+        public static let windowsModifierBar = IBL("Lock Ctrl, Alt, ⊞ or Shift — they ride on every tap and gesture")
+        public static let windowsThreeFingerSwipe = IBL("Three or four fingers up for Task View, sideways to switch virtual desktops")
+        public static let windowsPinchZoom = IBL("Pinch to zoom the front app — it acts as Ctrl + scroll, so it zooms whatever the front app zooms")
+        public static let windowsMirrorDrag = IBL("Keep one finger down and move to drag on your computer")
+        public static let windowsMirrorScroll = IBL("Two fingers up or down to scroll your computer")
+
         // MARK: - App window mirror
         //
         // Its OWN section headings, not the trackpad's. Filing "two fingers
@@ -621,6 +671,30 @@ public enum IBLocale {
         public static let chordAppExpose = IBL("App Exposé")
         public static let chordHideApp = IBL("Hide app")
         public static let chordQuitApp = IBL("Quit app")
+
+        // MARK: - Windows chords
+        //
+        // The Windows row borrows the Mac *layout* but its keys do other
+        // things, and these labels are what VoiceOver reads. Reusing the Mac
+        // labels made Ctrl+Z announce as "Mission Control" and Ctrl+A as
+        // "App Exposé" — correct text on the button, wrong action in the
+        // ear. An accessibility label that names a different action than the
+        // key performs is worse than no label, so each gets its own.
+
+        /// Alt+Tab — switch windows.
+        public static let windowsSwitchApps = IBL("Switch windows")
+        /// Ctrl+W — close the current tab or window.
+        public static let windowsCloseWindow = IBL("Close tab or window")
+        /// Ctrl+Z — undo.
+        public static let windowsUndo = IBL("Undo")
+        /// Ctrl+A — select all.
+        /// Reuses the catalog's existing "Select All" entry (zh: 全选) — adding a
+        /// second key differing only in case collides in symbol generation.
+        public static let windowsSelectAll = IBL("Select All")
+        /// Alt+F4 — close the active window.
+        public static let windowsCloseActive = IBL("Close window")
+        /// Ctrl+Tab — next tab or window.
+        public static let windowsNextTab = IBL("Next tab or window")
     }
 
     /// Frontmost-app context sheet (chip + sheet chrome; action labels

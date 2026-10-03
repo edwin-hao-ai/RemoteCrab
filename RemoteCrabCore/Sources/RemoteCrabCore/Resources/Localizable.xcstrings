@@ -9892,6 +9892,176 @@
           }
         }
       }
+    },
+    "Lock Ctrl, Alt, ⊞ or Shift — they ride on every tap and gesture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock Ctrl, Alt, ⊞ or Shift — they ride on every tap and gesture"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "锁定 Ctrl、Alt、⊞ 或 Shift，之后每次点按与手势都会带上"
+          }
+        }
+      }
+    },
+    "Three or four fingers up for Task View, sideways to switch virtual desktops": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Three or four fingers up for Task View, sideways to switch virtual desktops"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "三/四指上滑 = 任务视图，左右滑 = 切换虚拟桌面"
+          }
+        }
+      }
+    },
+    "Pinch to zoom the front app — it acts as Ctrl + scroll, so it zooms whatever the front app zooms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinch to zoom the front app — it acts as Ctrl + scroll, so it zooms whatever the front app zooms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捏合缩放前台应用 —— 实际是 Ctrl + 滚动，因此缩放的是前台应用能缩放的部分"
+          }
+        }
+      }
+    },
+    "Keep one finger down and move to drag on your computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep one finger down and move to drag on your computer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单指按住并移动，即在你的电脑上拖拽"
+          }
+        }
+      }
+    },
+    "Two fingers up or down to scroll your computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two fingers up or down to scroll your computer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双指上下滑 = 滚动你的电脑"
+          }
+        }
+      }
+    },
+    "Pinch to zoom the app on the Mac — it acts as ⌘ + scroll, so it zooms whatever the front app zooms": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinch to zoom the app on the Mac — it acts as ⌘ + scroll, so it zooms whatever the front app zooms"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捏合缩放 Mac 上的应用 —— 实际是 ⌘ + 滚动，因此缩放的是前台应用能缩放的部分"
+          }
+        }
+      }
+    },
+    "Switch windows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch windows"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换窗口"
+          }
+        }
+      }
+    },
+    "Close tab or window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close tab or window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭标签页或窗口"
+          }
+        }
+      }
+    },
+    "Close window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭窗口"
+          }
+        }
+      }
+    },
+    "Next tab or window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next tab or window"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一个标签页或窗口"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

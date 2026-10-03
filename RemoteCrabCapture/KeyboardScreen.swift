@@ -244,33 +244,15 @@ struct KeyboardScreen: View {
                     shortcutKey(symbol: "arrow.left", accessibility: IBLocale.A11y.leftArrowKey, keycode: 123)
                     shortcutKey(symbol: "arrow.right", accessibility: IBLocale.A11y.rightArrowKey, keycode: 124)
                     // App / window switching chords. macOS and Windows use
-                    // different combos for the same intent. The receiver
-                    // collapses BOTH the ⌘ and ⌃ bits to Windows Ctrl
-                    // (`keymap.rs` modifier policy), so every Windows chord
-                    // below must carry one of those bits — never Alt-only.
-                    if engine.connectedIsWindows {
-                        // Alt+Tab: activate the macOS ⌥ bit (→ Windows Alt)
-                        // with Tab (48). Cycles windows.
-                        shortcutKey(text: "Alt⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 4)
-                        // Ctrl+W: close tab/window. W=13 + ⌘ bit (→ Ctrl).
-                        shortcutKey(text: "Ctrl+W", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 13, extra: 8)
-                        // Ctrl+Z / Ctrl+A — undo / select-all (Z=6, A=0).
-                        shortcutKey(text: "Ctrl+Z", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 6, extra: 8)
-                        shortcutKey(text: "Ctrl+A", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 0, extra: 8)
-                        // Alt+F4: close the active window (F4 CGKeyCode 0x76=118).
-                        shortcutKey(text: "Alt+F4", accessibility: IBLocale.Switcher.chordHideApp, keycode: 118, extra: 4)
-                        // Ctrl+Tab: next tab / window (Tab=48 + ⌘ bit).
-                        shortcutKey(text: "Ctrl+⇥", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 48, extra: 8)
-                    } else {
-                        // App / window switching — borrowed from WhisPrompt's
-                        // window wheel and the Codex Micro macropad's "jump to
-                        // app" keys, mapped onto macOS's native shortcuts.
-                        shortcutKey(text: "⌘⇥", accessibility: IBLocale.Switcher.chordAppSwitcher, keycode: 48, extra: 8)
-                        shortcutKey(text: "⌘`", accessibility: IBLocale.Switcher.chordCycleWindows, keycode: 50, extra: 8)
-                        shortcutKey(symbol: "rectangle.3.group", accessibility: IBLocale.Switcher.chordMissionControl, keycode: 126, extra: 2)
-                        shortcutKey(symbol: "square.on.square", accessibility: IBLocale.Switcher.chordAppExpose, keycode: 125, extra: 2)
-                        shortcutKey(text: "⌘H", accessibility: IBLocale.Switcher.chordHideApp, keycode: 4, extra: 8)
-                        shortcutKey(text: "⌘Q", accessibility: IBLocale.Switcher.chordQuitApp, keycode: 12, extra: 8)
+                    // different combos for the same intent, and the Windows
+                    // set names different *actions* too — so the whole row
+                    // is data in `ShortcutChords`, pairing each keycap with
+                    // the label VoiceOver reads. The two drifted apart when
+                    // the labels were written inline per branch.
+                    ForEach(ShortcutChords.chords(for: engine.peerPlatform)) { chord in
+                        shortcutKey(text: chord.text, symbol: chord.symbol,
+                                    accessibility: chord.accessibility,
+                                    keycode: chord.keycode, extra: chord.modifiers)
                     }
                 }
             }
@@ -286,7 +268,7 @@ struct KeyboardScreen: View {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
                     .font(.system(size: 13, weight: .semibold))
-                Text(engine.frontmostMacApp?.name ?? "Computer")
+                Text(engine.frontmostMacApp?.name ?? IBLocale.Mirror.computer)
                     .font(IBFont.caption.weight(.semibold))
                     .lineLimit(1)
             }

@@ -447,7 +447,7 @@ struct ScreenShareView: View {
                 .fill(.ultraThinMaterial)
         }
         .sheet(isPresented: $showFullGuide) {
-            TrackpadGuideView(surface: .mirror)
+            TrackpadGuideView(surface: .mirror, platform: platform)
         }
     }
 }

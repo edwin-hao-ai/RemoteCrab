@@ -165,7 +165,7 @@ struct TouchpadScreen: View {
                 // modifier bar inside it is platform-aware (⌘ vs Ctrl).
                 IBShortcutBar(activeModifiers: $modifiers,
                               platform: engine.peerPlatform,
-                              contextTitle: engine.frontmostMacApp?.name ?? "Computer",
+                              contextTitle: engine.frontmostMacApp?.name ?? IBLocale.Mirror.computer,
                               onContext: { engine.showContextSheet = true },
                               onKey: { engine.sendKey($0) },
                               onModifierKey: { code, down in
