@@ -334,3 +334,97 @@ so a cross-reference from another lesson still resolves.
     **Generalizable: "occasionally right, off by a varying distance" is a
     transform symptom, not a mapping symptom — and a symmetric error that
     scales with zoom is the signature of a wrong anchor, not a wrong box.**
+
+115. **A second platform turns "the shortcut set" into a per-platform
+    question, and the shortcut set is not the only thing that differs.**
+    The Windows handoff said the context sheet was "always empty" there and
+    proposed matching apps by name. Matching was necessary and nowhere near
+    sufficient, because `ContextAction.key` carries a **macOS virtual
+    keycode + modifier bitmask** and every action in all 19 suites was
+    menu-verified on a Mac. Three separate defects sat behind the one
+    symptom:
+
+    - `ContextSheetView.swift:42` rendered the console **system** grid
+      *unconditionally*, so every Windows user already saw 8 buttons — of
+      which **4 were wrong**: brightness (`system_keys.rs:33` returns
+      `false`, so the button does nothing), Lock Screen (⌃⌘Q collapses to
+      `Ctrl+Q` via `keymap.rs:147`'s `COMMAND | CONTROL`, i.e. **quit**),
+      and "Safari" (`ContextSheetView.swift:147` hardcoded `bing.com`, so a
+      button labelled Safari opened Bing).
+    - `keymap.rs:147` ORs ⌘ and ⌃ into **one indistinguishable Ctrl**, so
+      the agent suite's ⌃C "Interrupt" and ⌘C "Copy" became the same
+      keystroke — and in Windows Terminal Ctrl+C *is* interrupt, so the
+      Copy button interrupted.
+    - The handoff's "no protocol change needed for the Win key" is true
+      only for a bare ⊞ tap. The modifier mask defined just 1/2/4/8 and
+      `COMMAND` collapses to Ctrl, so ⊞E/⊞R/⊞D/⊞L were **unreachable**:
+      a chord needs a `META` bit (16, previously unused).
+
+    The generalizable shape: **when the peer OS changes, the *action set*
+    must be resolved per platform and must never fall back to the other
+    platform's set** (`windowsActions ?? []`, never `?? actions`) — because
+    a fallback does not yield a missing button, it yields a *wrong* button.
+    `ContextProfiles.appActions(for:platform:)` and
+    `testNoTwoWindowsActionsCollapseToTheSameKeystroke` exist to make that
+    class of collapse impossible to reintroduce. Two smaller rules from the
+    same session: a label and the argument it triggers must travel **in the
+    same value** (`.systemArg`), or they drift; and "this app has no
+    verified mapping" is a legitimate state that should fall through to a
+    working section, not be filled with a guess — PowerPoint and Windows
+    Terminal copy/paste were deliberately **cut**, and
+    `testPowerPointIsNotYetMapped` asserts the absence so the omission reads
+    as a decision.
+
+116. **A persisted format that will later carry untrusted input needs its
+    origin in the data, and the merge has to replace by `id`.**
+    `ContextProfiles` was already `Codable` with a comment about growing
+    into a marketplace, which made it easy to assume the format was ready.
+    It was not, for a reason that is only visible once you ask *who* writes
+    these files: a profile is **executable input** — it replays real key
+    events into a machine that already holds Accessibility permission — so a
+    downloaded one is not data, it is a trust decision. Two fields came out
+    of that: `schemaVersion` (a file claiming a newer version must be
+    *refused with a readable reason*, never half-read) and `source`
+    (`.builtin` / `.userFile` / `.remote`) so a button's origin is visible
+    in the sheet and disableable by whoever owns the machine. The merge
+    order (`userFile > remote > builtin`, **replacing** by id) is the other
+    half: the old lookup was first-match-wins over one flat list, so a
+    user-installed suite could never take effect — **installing a profile
+    changed nothing and said nothing**.
+
+    And the mechanical trap, which is the same shape as rule 2: adding
+    `schemaVersion: Int` non-optionally would make synthesized `Codable`
+    **throw** on every file written before this change, and this project's
+    loaders swallow decode errors. The hand-written `init(from:)` with
+    `decodeIfPresent` + a test that loads the **previous** format byte-for-
+    byte is not ceremony; it is the difference between "your suites
+    vanished" and a working upgrade.
+
+117. **The e2e assertion that failed on a correct run was describing the
+    fix, not the invariant — and only the component under test knows why.**
+    `scrolling never steals the cursor` went red on real hardware. The
+    injector's condition is `!hasPlacedCursor || !lastCursorInside(target)`,
+    so after the mirror switches window — or flips to the extended virtual
+    display, which the same run triggers on a timer — re-placing is
+    **correct**. The assertion counted placements globally, which is the
+    false verdict AGENTS.md already records as 跨目标切换计数. Two attempts to
+    infer the reason from the log's `origin/size` geometry **in bash** were
+    both wrong: BSD `sed` has no `\?`, so the pattern silently matched
+    nothing and *looked* like "no regression"; and "same target as the
+    click" is **not** "cursor was already inside the target", because a
+    prior scroll can leave the cursor on a different display entirely.
+
+    The fix was to make `CGEventInjector` state the reason in its own
+    marker line (`first scroll of session` / `target changed` / `STOLE:
+    cursor was already inside the target`) and have the assertion read
+    that. **Generalizable: when an assertion has to distinguish two
+    legitimate outcomes, the reason must come from the component that holds
+    the state — inferring it downstream re-derives the bug.** Two supporting
+    rules, both from the same fix: move an e2e assertion into its own
+    runnable script so it can be exercised against a **known** log in both
+    directions (it now passes the real run's shape *and* still fails on an
+    injected steal — an assertion only a live 30-second race can exercise is
+    one nobody can prove still catches anything), and note that requiring
+    positive evidence ("a scroll was left alone") is **unsatisfiable** when
+    two scripts race on one timeline — guard vacuity by requiring the
+    *precondition* (a click, ≥1 post-click scroll), not the outcome.
