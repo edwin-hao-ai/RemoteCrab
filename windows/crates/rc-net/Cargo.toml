@@ -13,6 +13,16 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
+# Target-gated, for exactly one thing: reading the machine GUID so the receiver's
+# identity survives an uninstall. Target-gated rather than plain because
+# `windows` pulls in `windows-future`, which does not build off Windows — this
+# crate's wire logic is meant to stay testable on the Mac.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+] }
+
 [dev-dependencies]
 # A fake iPhone on localhost, for the end-to-end tests in `tests/`. Dev-only:
 # as a normal dependency it would link a second copy of the sender — and its

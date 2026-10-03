@@ -42,16 +42,70 @@ pub struct VcamStream {
     state: AtomicI32,
 }
 
+/// How long to wait for the ring to declare a real geometry before advertising
+/// [`DEFAULT_W`]×[`DEFAULT_H`] instead.
+///
+/// The stream descriptor is built **once**, and the frame server negotiates
+/// against it. So the geometry we pick here is the geometry the consumer is
+/// stuck with for the whole session — there is no renegotiation. Picking the
+/// 720p default while the ring was merely *not ready yet* therefore locks a
+/// 1080×1920 phone stream to 720p, permanently, and the user sees a soft image
+/// with nothing in the log to explain it.
+///
+/// Bounded, because this runs on a Frame Server thread: an unbounded wait would
+/// stall activation for every other app on the machine. 1.2 s is long enough to
+/// cover the app decoding its first frame — which it does in tens of
+/// milliseconds when it is already streaming — and short enough to be invisible
+/// in the normal case where the ring is already there.
+const GEOMETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(1200);
+const GEOMETRY_POLL: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// A geometry worth advertising. A zero dimension means "not written yet", not
+/// "zero-sized camera".
+fn usable_geometry(w: u32, h: u32) -> bool {
+    w > 0 && h > 0
+}
+
+/// The geometry the ring currently claims, or `None` while it has none.
+///
+/// Pure, so the decision — which is the part that was wrong — is testable
+/// without a live ring or a sleeping test.
+fn geometry_from(hdr: Option<&rc_vcam::shm::Header>) -> Option<(u32, u32, u32)> {
+    let hdr = hdr?;
+    if !usable_geometry(hdr.width, hdr.height) {
+        return None;
+    }
+    Some((hdr.width, hdr.height, hdr.fps.max(1)))
+}
+
+/// Open the ring and read its geometry, waiting briefly for it to appear.
+///
+/// Returns the reader to keep using, plus the geometry to advertise. The reader
+/// is re-opened on each poll because the ring file may not exist yet at all, and
+/// a reader that failed to open cannot start succeeding on its own.
+fn open_ring_with_geometry() -> (Option<ring::RingReader>, (u32, u32, u32)) {
+    let deadline = std::time::Instant::now() + GEOMETRY_WAIT;
+    loop {
+        let reader = ring::RingReader::open();
+        if let Some(r) = reader.as_ref() {
+            if let Some(g) = geometry_from(r.header().as_ref()) {
+                return (reader, g);
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            // Nothing after the full wait. Advertise the default anyway: a camera
+            // that appears and shows black is more useful than one missing from
+            // the list, and this is the same answer the product gave before.
+            return (reader, (DEFAULT_W, DEFAULT_H, DEFAULT_FPS));
+        }
+        std::thread::sleep(GEOMETRY_POLL);
+    }
+}
+
 impl VcamStream {
     pub(crate) fn new(inner: Arc<Inner>, shared: Arc<SharedState>) -> Result<Self> {
         ensure_mf();
-        let reader = ring::RingReader::open();
-        let (w, h, fps) = reader
-            .as_ref()
-            .and_then(|r| r.header())
-            .filter(|hdr| hdr.width > 0 && hdr.height > 0)
-            .map(|hdr| (hdr.width, hdr.height, hdr.fps.max(1)))
-            .unwrap_or((DEFAULT_W, DEFAULT_H, DEFAULT_FPS));
+        let (reader, (w, h, fps)) = open_ring_with_geometry();
 
         // RGB32 only: the ring delivers BGRA and forcing one format avoids the
         // frame server negotiating NV12 and mis-rendering our samples.
@@ -289,4 +343,55 @@ impl IKsControl_Impl for VcamStream_Impl {
 /// unsupported KS properties.
 pub(crate) fn ks_not_found() -> Error {
     Error::from(windows::core::HRESULT::from_win32(ERROR_SET_NOT_FOUND.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{geometry_from, usable_geometry, DEFAULT_H, DEFAULT_W};
+    use rc_vcam::shm::Header;
+
+    fn hdr(w: u32, h: u32, fps: u32) -> Header {
+        Header {
+            version: 1,
+            width: w,
+            height: h,
+            fps,
+            stride: w * 4,
+            frame_seq: 1,
+            write_idx: 0,
+        }
+    }
+
+    /// The bug this file's wait exists for: a ring that has not been written
+    /// yet reports zero dimensions, and treating that as a real geometry is what
+    /// latched consumers to 720p for the rest of the session.
+    #[test]
+    fn a_ring_with_no_geometry_yields_none_not_a_default() {
+        assert_eq!(geometry_from(None), None);
+        assert_eq!(geometry_from(Some(&hdr(0, 0, 30))), None);
+        assert_eq!(geometry_from(Some(&hdr(1080, 0, 30))), None);
+        assert_eq!(geometry_from(Some(&hdr(0, 1920, 30))), None);
+    }
+
+    /// And the geometry that must survive is the phone's, not the default.
+    #[test]
+    fn a_ready_ring_reports_its_own_resolution() {
+        assert_eq!(geometry_from(Some(&hdr(1080, 1920, 30))), Some((1080, 1920, 30)));
+    }
+
+    /// A frame rate of zero would divide by zero downstream, so it is floored
+    /// rather than advertised.
+    #[test]
+    fn a_zero_frame_rate_is_floored_rather_than_advertised() {
+        assert_eq!(geometry_from(Some(&hdr(640, 480, 0))), Some((640, 480, 1)));
+    }
+
+    #[test]
+    fn usable_geometry_rejects_only_zero_dimensions() {
+        assert!(usable_geometry(1, 1));
+        assert!(usable_geometry(DEFAULT_W, DEFAULT_H));
+        assert!(!usable_geometry(0, DEFAULT_H));
+        assert!(!usable_geometry(DEFAULT_W, 0));
+        assert!(!usable_geometry(0, 0));
+    }
 }
