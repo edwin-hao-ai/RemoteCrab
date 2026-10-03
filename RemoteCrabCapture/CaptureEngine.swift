@@ -355,6 +355,11 @@ final class CaptureEngine: ObservableObject {
         installNotificationTapRouting()
         Self.forensic("startIfNeeded begin")
         Forensic.log("[e2e] startIfNeeded begin")
+        // E2E: measures whether the audio session can hand over between the
+        // mic's `.record` and a speaker's `.playback` — the question that
+        // decides if "use the iPhone as the computer's speaker" is possible.
+        // Inert unless REMOTECRAB_E2E_AUDIOSESSION=1.
+        AudioSessionProbe.runIfRequested()
 
         features.onChange = { [weak self] snapshot in
             self?.handleFeaturesChanged(snapshot)
