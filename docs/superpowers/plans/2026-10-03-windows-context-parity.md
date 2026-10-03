@@ -25,7 +25,7 @@
 
 | 文件 | 责任 |
 |---|---|
-| `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift` | `IBModifier.Modifier` 位掩码（加 `meta = 16`） |
+| `RemoteCrabCore/Sources/RemoteCrabCore/Networking/IBEvents.swift` | `TouchEvent.Modifier` 位掩码（加 `meta = 16`） |
 | `RemoteCrabCore/Sources/RemoteCrabCore/State/ContextProfiles.swift` | 纯数据 + 纯匹配/解析（**不碰磁盘**） |
 | `RemoteCrabCore/Sources/RemoteCrabCore/State/ContextProfileStore.swift` | **新建**。本地文件装载 + 校验 + 合并，唯一碰磁盘的地方 |
 | `RemoteCrabCore/Sources/RemoteCrabCore/Components/IBModifierBar.swift` | 修饰键 UI 枚举 + 按平台筛选/替换 |
@@ -49,7 +49,7 @@
 - Test: `windows/crates/rc-input/src/keymap.rs` (inline `mod tests`)
 
 **Interfaces:**
-- Produces: `IBModifier.Modifier.meta` (rawValue `16`), `rc_protocol::Modifier::META: u8 = 16`
+- Produces: `TouchEvent.Modifier.meta` (rawValue `16`), `rc_protocol::Modifier::META: u8 = 16`
 
 - [ ] **Step 1: 写失败的 Swift 测试**
 
@@ -61,28 +61,28 @@ import XCTest
 
 final class MetaModifierTests: XCTestCase {
     func testMetaBitIsSixteen() {
-        XCTAssertEqual(IBModifier.Modifier.meta.rawValue, 16)
+        XCTAssertEqual(TouchEvent.Modifier.meta.rawValue, 16)
     }
 
     /// 旧数据不含 16 这一位，解码必须仍然成功（规则 2）。
     func testMetaBitRoundTripsThroughTheWire() throws {
         let event = IBModifier(phase: .move, x: 0, y: 0, dx: 1, dy: 0,
-                               modifiers: IBModifier.Modifier.meta.rawValue)
+                               modifiers: TouchEvent.Modifier.meta.rawValue)
         let data = try JSONEncoder().encode(event)
         XCTAssertEqual(try JSONDecoder().decode(IBModifier.self, from: data).modifiers, 16)
     }
 
     /// meta 不得与既有四位重叠——重叠会让 Windows 端静默把 Win 当成 Ctrl。
     func testMetaDoesNotOverlapExistingBits() {
-        let existing: [IBModifier.Modifier] = [.shift, .control, .option, .command]
+        let existing: [TouchEvent.Modifier] = [.shift, .control, .option, .command]
         for m in existing {
-            XCTAssertEqual(m.rawValue & IBModifier.Modifier.meta.rawValue, 0, "\(m)")
+            XCTAssertEqual(m.rawValue & TouchEvent.Modifier.meta.rawValue, 0, "\(m)")
         }
     }
 }
 ```
 
-若 `IBModifier` 的实际 init 签名与此不同，读 `IBEvents.swift` 43-70 行对齐。
+位掩码枚举是 `TouchEvent.Modifier`（`IBEvents.swift:25-31`），不是 `IBModifier`——那个名字不存在。
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -464,10 +464,10 @@ Expected: FAIL — `platform:` / `merged` / `systemActions` 不存在
         .system(label: "Mute", symbol: "speaker.slash.fill", command: .volumeMute),
         .system(label: "Play / Pause", symbol: "playpause.fill", command: .mediaPlayPause),
         .key(label: "Lock Screen", symbol: "lock.fill", keycode: 37,
-             modifiers: IBModifier.Modifier.meta.rawValue),
+             modifiers: TouchEvent.Modifier.meta.rawValue),
         .system(label: "Browser", symbol: "safari.fill", command: .launchApp),
         .key(label: "Show Desktop", symbol: "macwindow.on.rectangle", keycode: 53,
-             modifiers: IBModifier.Modifier.meta.rawValue | 4),   // ⊞⌥D
+             modifiers: TouchEvent.Modifier.meta.rawValue | 4),   // ⊞⌥D
     ]
 ```
 
