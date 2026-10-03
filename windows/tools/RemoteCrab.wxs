@@ -66,13 +66,10 @@
       </Component>
 
       <!-- The MinGW C++ runtime, only if the build actually needs it. The MSVC
-           build does not, and shipping a second C++ runtime is how an app ends
-           up with a version conflict on someone else's machine. The preprocessor
-           condition keeps one manifest for both toolchains. -->
-      <!-- The MinGW C++ runtime, only if the build actually needs it. The MSVC
            build does not, and shipping a second C++ runtime on a machine that
            already has a newer one is how an app causes version conflicts in
-           software it has never heard of. -->
+           software it has never heard of. The preprocessor condition keeps one
+           manifest for both toolchains. -->
       <?ifndef var.define.MsvcBuild ?>
       <Component Id="PayloadRuntime" Guid="F1B63D09-7A24-4E85-9C70-2B48D6E9F3A5" Directory="INSTALLFOLDER">
         <File Id="libstdcxx" Source="@PAYLOAD@\libstdc++-6.dll" KeyPath="yes" />
