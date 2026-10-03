@@ -428,3 +428,22 @@ so a cross-reference from another lesson still resolves.
     positive evidence ("a scroll was left alone") is **unsatisfiable** when
     two scripts race on one timeline — guard vacuity by requiring the
     *precondition* (a click, ≥1 post-click scroll), not the outcome.
+
+118. **一个平台参数如果三个视图共用，其中一个漏传就是最难发现的那类 bug ——
+    而它的症状是「同一个 app 里不同界面的键不一样」。** `ab86efe`（今天早些时候）
+    把 ⊞ 行加到了**键盘**界面，`IBModifierBar.visibleModifiers(for:)` 是对的。
+    但修饰键行其实有**两个来源**：键盘界面自己画，而**触控板和投屏**共用
+    `IBShortcutBar`，后者调 `IBModifierBar(activeModifiers:onModifierKey:)`
+    **没传 `platform`**，于是走缺省 `.mac`。结果：Windows 用户在最常用的两个
+    界面上看到 `⌃⌥⌘⇧`，只有第三个界面对。
+    **文档里写过的落点救了它也差点害了它**：`WINDOWS-GAPS-2026-10-03.md` §3
+    明确点名「`KeyboardScreen.swift:345` 已经在用它」，于是实施者只改了那一处。
+    **点名一个文件等于替其他调用点背书。**
+    修法不是「记得传」，是**去掉默认值**：`IBModifierBar.init` /
+    `IBShortcutBar.init` / `ScreenShareView.platform` / `TrackpadGuideView`
+    四处现在都没有 `platform` 的缺省值，**编译器强制表态**。
+    一般化：**一个参数被 N 个调用点共用时，缺省值是「漏传」的隐式许可，
+    而类型系统比 code review 更擅长数调用点。**
+    验证方式值得抄：把真的 `IBShortcutBar` 塞进 `NSWindow` 截图
+    （`ImageRenderer` 不给 `ScrollView` 布局，会静默不画内容），
+    **双向确认**——改回旧代码渲染出 `⌃⌥⌘⇧`，改回来才出 `Ctrl Alt ⊞ Shift`。

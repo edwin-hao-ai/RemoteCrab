@@ -518,3 +518,25 @@ so a cross-reference from another lesson still resolves.
     race. **Generalizable: when a one-shot hint is also the only copy, either
     it is a hint or it is documentation — it cannot be both, and the fix is a
     link, not more text.**
+
+119. **「用户报了 A 就去修 A」漏掉的是同一个根因的另外三处，而这个产品里
+    键帽、朗读标签、说明文字是**三份独立实现**。** 用户报「连接 Windows 后
+    还是显示 Command」。查下来除修饰键行外还有：
+
+    - **手势说明页**（`TrackpadGuideView`）写死「Lock ⌃⌥⌘⇧」「Mission Control」
+      「the Mac」。它是**会话中被阅读**的说明，而两英寸之外的快捷键行已经显示
+      `Ctrl / Alt / ⊞ / Shift` 了。**一份描述了错误机器的说明，比一份短说明更糟，
+      因为读者无法判断哪几行可信。**
+    - **VoiceOver 朗读标签**。Windows 那排和弦键**复用了 Mac 那排的
+      accessibility label**，于是 `Ctrl+Z` 被念作「Mission Control」、`Ctrl+A`
+      被念作「App Exposé」。**键帽文字是对的，所以没有任何检查能发现** —— 只有
+      读屏用户听得到。修法是把整排抽成 `ShortcutChords` **数据**（键帽 + 朗读
+      配成一对），视图就再也没有「拿错的标签」可言，测试也才握得住这一对。
+    - **context chip 写死英文 `"Computer"`**，中文手机上和下面「按住说话」并排。
+      catalog 里**早就有** `Computer` → 电脑，是调用点用了字面量所以查表从没发生。
+      这条**只能靠看截图发现**（lesson 76 的纪律），在英文界面下它根本不存在。
+
+    抽数据时还发现一个**语义错误**：`extra` 不是「叠加在 ⌘ 之上」的增量，而是
+    **完整的修饰键掩码**（`modifierMask | extra`）。我的测试掩码漏了 bit 8
+    （command，正是变成 Ctrl 的那位），于是误报了。**掩码常量必须从
+    `TouchEvent.Modifier` 抄，不要手写。**

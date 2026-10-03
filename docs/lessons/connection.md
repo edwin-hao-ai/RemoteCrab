@@ -573,3 +573,52 @@ silent when they are.
 
     351 Core tests, both app targets, Windows suite. Everything above is
     device-verified on one phone and one Mac.
+
+120. **22 条 e2e 断言因为一个被拒绝的握手而全红，而根因是「手机上还连着
+    另一台电脑」—— 这是一个正确的产品行为。** 报的是「iOS 上还是显示 Command」，
+    跑 `e2e-device.sh` 却得到 22 个失败，连握手本身都缺。第一反应是自己改坏了，
+    但我的 diff **一行网络/配对代码都没有**。
+    真因在两处日志的**并集**里 —— 脚本把手机 forensic 日志也拼进了同一个文件：
+    - Mac：`sessionReply: busy owner=EDWIN`（每 16 秒重试一次）
+    - 手机：两个不同 id 交替到达，`ownerSet=false`，一个 `accepted` 一个 `busy`
+
+    读手机**持久化的 `seenComputers`** 一锤定音（别再从日志推断）：
+
+    ```
+    EDWIN   …-98db-0bce2018971c  streaming   ← 另一台机器
+    EDWIN   …-98db-023a844ff7a4  streaming   ← 同一台，旧身份
+    本机    ECBDD7BA-…           refusedBusy ← 被正确拒绝
+    ```
+
+    `…98db…` 两条 **node 相同、id 不同**。所以 e2e 的前置条件「一台 Mac + 一台手机」
+    在这台机器上**不成立**。**教训：先确认那台电脑没连着手机，再跑 e2e**，
+    否则一整轮的「红」会被误读成自己刚改的东西坏了（lesson 111）。
+    **附带一条**：偏好锁 (`preferredMacs.preferredId`) 指向的是那个**已经不存在
+    的旧 id**，而它 armed 的 10 分钟 TTL 是**按 id 判断**的 —— 我第一次重跑早了
+    46 秒（`14:51:52` 起跑，TTL 到 `14:52:38`），结果一模一样。
+    **时序断言要先算好时间。**
+
+121. **`seen` 只按 `id` 去重，于是「按 id 删」永远删不掉换过身份的机器，
+    而 `seenLimit = 20` 是唯一的上限。** Windows 接收端过去**每装一次换一个
+    `pc_id`**（存在应用数据目录里，卸载清理会删），所以每重装一次手机就多一行
+    同名条目 —— 用户报的「多个 Windows 设备」。`c9c0463` 修了接收端
+    （`MachineGuid`），但**手机上的旧行没有任何机制会消失**。
+    iOS 侧两条规则，都放在纯函数 `MacPairingStore.pruned` 里（`UserDefaults`
+    之外可测）：**同名合并**（同名只留 `lastSeen` 最近的）和**30 天过期**。
+    代价是两台真同名的机器会并成一行 —— 这是有意的选择，替代方案是一排
+    相同行、且选错哪一行**看不出来**。
+    **两条它绝不能做的事，各有一个测试替它说**：绝不碰 `paired`（token 在里面，
+    删了要重新批准）；清掉指向已删 id 的偏好（留着会让所有其他电脑一直收到
+    「使用中」）。
+
+    **一个自己踩的坑**：第一版 fixture 按**最旧→最新**排列，结果「最后写入胜出」
+    这个 bug 恰好和它一致，断言就**空过了**。真实 `seen` 是**最新在前**
+    （`noteSeen` 插在 index 0），那个顺序下「最后写入胜出」保留的是**最旧**的。
+    **把 fixture 排成它声称的顺序，否则你测的是另一个实现。**
+
+122. **同名合并 + 过期，兜底还要给「点得动」这件事一个理由。** 纯函数被输入顺序
+    坑了一次之后改成按 `lastSeen` 取最优、输出按 `lastSeen` 降序 —— 但
+    `testEqualTimestampsStillProduceADeterministicOrder` 仍然失败，因为
+    `seen(…, daysAgo: 0)` **每项各调一次 `Date()`**，所以「并列」其实差了几微秒。
+    **并列要用一个共享的时间戳构造，否则测试根本没测并列。**
+    顺带补了 `id` 作为 tiebreaker：不加的话行序（以及测试）会依赖哈希。
