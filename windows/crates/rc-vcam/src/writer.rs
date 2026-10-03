@@ -48,6 +48,79 @@ unsafe impl Send for FrameWriter {}
 /// Windows' `SECURITY_DESCRIPTOR_REVISION` (windows-rs does not export it).
 const SECURITY_DESCRIPTOR_REVISION: u32 = 1;
 
+/// Reduce the ring file to the four principals that genuinely need it.
+///
+/// # Why this exists
+///
+/// The file is *created* with a NULL DACL (`everyone_security_descriptor`),
+/// because the Windows Frame Server runs as `LocalService` in session 0 and has
+/// to open this section from another session, and no narrow ACL was written at
+/// creation time. A NULL DACL grants **full access to everyone**, so as it stood
+/// any process running as any user on the machine could:
+///
+/// - **write** frames into `RemoteCrab Camera` — injecting arbitrary video into
+///   Zoom, Teams, OBS and every browser that treats it as a real webcam;
+/// - **read** the ring — seeing whatever is being streamed through it.
+///
+/// So the permissions are tightened immediately after creation, leaving exactly:
+///
+/// | account | who |
+/// |---|---|
+/// | `SYSTEM` | the OS |
+/// | `Administrators` | for support and repair |
+/// | `LOCAL SERVICE` | **the Frame Server** — without this the camera silently stops |
+/// | `INTERACTIVE` | the person at the machine |
+///
+/// Everyone else is denied. `/inheritance:r` strips what the parent directory
+/// granted, so nothing widens it back.
+///
+/// # Why `icacls` and not `SetEntriesInAclW`
+///
+/// Building a DACL out of four SIDs means `CreateWellKnownSid` +
+/// `SetEntriesInAclW` + a self-relative descriptor whose buffer has to outlive
+/// two `Create*` calls — a hundred lines of `unsafe` whose failure mode is a
+/// camera that stops working on somebody else's machine. `icacls` is the tool
+/// Windows ships for exactly this, and it takes the account *names*, so there
+/// is no SID-encoding to get wrong. The cost is one subprocess per session.
+///
+/// # Failure
+///
+/// A failure here is reported and does **not** abort the camera: the file
+/// exists, it is the right size, and refusing to hand over a working camera
+/// because a permission *tightening* failed would be the worse outcome for the
+/// person using it. It is loud on stderr and in the log so it can be fixed,
+/// and the window in which the file is more open than intended is milliseconds
+/// on a path that already required local code execution to reach.
+fn lock_down_ring_permissions(path: &std::path::Path) -> Result<(), String> {
+    let out = std::process::Command::new("icacls")
+        .arg(path)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg("SYSTEM:(F)")
+        .arg("Administrators:(F)")
+        .arg("LOCAL SERVICE:(F)")
+        .arg("INTERACTIVE:(F)")
+        .output()
+        .map_err(|e| format!("icacls could not be started: {e}"))?;
+
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        let msg = msg.trim();
+        let msg = if msg.is_empty() {
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        } else {
+            msg.to_string()
+        };
+        eprintln!(
+            "vcam: could not restrict permissions on {}: {msg}\n\
+             vcam:     anyone on this machine can write to that file until it is fixed.",
+            path.display()
+        );
+        return Err(format!("icacls failed on {}: {msg}", path.display()));
+    }
+    Ok(())
+}
+
 /// A zeroed security descriptor with a NULL DACL (full access to everyone) so
 /// the Frame Server can open the section from another session.
 ///
@@ -56,6 +129,8 @@ const SECURITY_DESCRIPTOR_REVISION: u32 = 1;
 /// both `CreateFileW` and `CreateFileMappingW` — a dangling descriptor is
 /// validated as garbage by the kernel and comes back as
 /// `ERROR_INVALID_REVISION`.
+///
+/// Narrowed straight after creation by [`lock_down_ring_permissions`].
 fn everyone_security_descriptor() -> windows::core::Result<SECURITY_DESCRIPTOR> {
     let mut sd: SECURITY_DESCRIPTOR = unsafe { std::mem::zeroed() };
     unsafe {
@@ -121,6 +196,7 @@ impl FrameWriter {
         }
         .map_err(|e| format!("CreateFileW failed: {e}"))?;
         grow_to(file, size as i64)?;
+        lock_down_ring_permissions(&path)?;
 
         let mapping: HANDLE = unsafe {
             CreateFileMappingW(
