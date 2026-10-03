@@ -93,6 +93,10 @@ final class CaptureEngine: ObservableObject {
     /// True when the connected computer is Windows — i.e. the keyboard
     /// surface must show Ctrl/Alt/Shift and Windows shortcut chords.
     var connectedIsWindows: Bool { connectedPlatform.lowercased() == "windows" }
+    /// The peer as the shared package models it. The context sheet needs
+    /// this (not a Bool) because a whole action *set* differs per platform,
+    /// not just a few labels.
+    var peerPlatform: IBModifierBar.PeerPlatform { IBModifierBar.PeerPlatform(connectedPlatform) }
     /// Running apps on the Mac, for the app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
     /// Frontmost Mac app, from the latest pushed appList (0x0C).

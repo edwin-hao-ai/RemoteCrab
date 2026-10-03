@@ -12,7 +12,15 @@ struct ContextSheetView: View {
     @State private var voiceHeld = false
 
     private var profile: ContextProfile {
-        ContextProfiles.profile(for: engine.frontmostMacApp)
+        ContextProfiles.profile(for: engine.frontmostMacApp,
+                                platform: engine.peerPlatform)
+    }
+
+    /// Per-platform, because this grid is rendered unconditionally — so
+    /// a wrong entry here is the one a user sees without asking for it.
+    /// `console.gridActions` is the Mac list verbatim.
+    private var systemActions: [ContextAction] {
+        ContextProfiles.systemActions(for: engine.peerPlatform)
     }
 
     var body: some View {
@@ -39,7 +47,7 @@ struct ContextSheetView: View {
                     // System keys are ALWAYS present, below the app keys —
                     // so switching apps never takes away volume/brightness.
                     sectionLabel(IBLocale.Context.systemSection)
-                    grid(ContextProfiles.console.gridActions)
+                    grid(systemActions)
 
                     Text(IBLocale.Context.footer)
                         .font(IBFont.caption)
@@ -138,16 +146,13 @@ struct ContextSheetView: View {
             }
         case .system(let label, let symbol, let command):
             contextButton(label: label, symbol: symbol) {
-                // `launchApp` carries its launch argument: a Mac bundle id,
-                // or (on Windows, where that bundle id means nothing) a URL
-                // so the default browser opens. Everything else is
-                // argument-less.
-                var argument: String?
-                if command == .launchApp {
-                    argument = engine.connectedIsWindows
-                        ? "https://www.bing.com"
-                        : "com.apple.Safari"
-                }
+                engine.sendSystemCommand(IBSystemCommand(command: command))
+            }
+        case .systemArg(let label, let symbol, let command, let argument):
+            // The argument travels with the label. It used to be decided
+            // here in the view while the label lived in the data, which is
+            // how a button labelled "Safari" opened Bing.
+            contextButton(label: label, symbol: symbol) {
                 engine.sendSystemCommand(IBSystemCommand(command: command, argument: argument))
             }
         }
