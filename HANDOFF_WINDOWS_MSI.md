@@ -57,14 +57,27 @@
 
 ## Blocked — needs the user
 
-- [ ] **The uninstall half is still untested.** Everything above is the install
-      path. Work through `docs/WINDOWS_TODO.md`'s checklist — the
-      `%ProgramData%\RemoteCrab\vcam-ring.bin` line is the one most likely to
-      fail, because of the NULL DACL.
-- [ ] Still unverified: the tray's UAC row (now a fallback rather than the main
-      path, since the installer registers), and a human looking at the picture in
-      the Windows Camera app. `vcam_consume` only proves Media Foundation hands
-      over changing bytes.
+- [ ] **Still unverified: a human looking at the picture in the Windows Camera
+      app.** `vcam_consume` proves Media Foundation hands over changing bytes;
+      it does not prove the picture is the right way up.
+- [ ] The tray's UAC row is now a fallback rather than the main path (the
+      installer registers), so it is rarely exercised — worth one deliberate run.
+- [ ] Uninstall **idempotency** is still unticked: running `msiexec /x` twice, and
+      `--uninstall-vcam` twice, should both report success. The helper functions
+      treat "already gone" as done and there is a test for that, but no one has
+      watched the real installer do it twice.
+- [ ] `docs/WINDOWS-GAPS-2026-10-03.md` §5.6 is a checklist the Mac session left
+      for a real Windows machine — 10 items (⊞L really locks, ⊞E/⊞R, modifier
+      hints not crossing, Ctrl-C stays interrupt in Windows Terminal, the
+      brightness buttons are gone, the browser button's label matches, three
+      suites match and every button acts, `POWERPNT` falls through, a custom
+      profile JSON takes effect and a broken one does not affect the rest).
+      **Every one needs an iPhone running the new iOS build**, which needs a Mac
+      to build. `--doctor` currently finds no phone on the network either
+      (PC is 192.168.31.103, no route, no mDNS).
+      The Rust half that *can* be checked here does pass: `meta_maps_to_the_
+      windows_key_and_never_to_ctrl`, `meta_bit_is_the_unused_one`,
+      `meta_composes_with_shift_and_alt`, rc-input 43 green.
 
 ## Bugs found while testing — fixed in `9a0e742`
 
