@@ -22,6 +22,10 @@
 #   RC_CERT_PFX    path to the .pfx, if the cert is not in the user's store
 #   RC_CERT_PASS   password for that .pfx
 #   RC_VERSION     version to stamp; defaults to the workspace version
+#   RC_ALLOW_UNSIGNED   set to 1 to build an MSI with no signature. For exercising
+#                     the packaging path on a machine with no certificate, and
+#                     nothing else — `verify` still exits non-zero on an unsigned
+#                     artifact, which is the gate that matters.
 #
 #   RUSTUP_TOOLCHAIN   which toolchain builds this. Worth setting explicitly.
 #     `TARGET` below pins the *target* triple, but the toolchain that compiles
@@ -238,9 +242,32 @@ cmd_sign() {
 
 cmd_package() {
     require_windows
-    signing_available || die "set RC_CERT_SHA1 or RC_CERT_PFX — an unsigned installer is worse than no installer"
+    local allow_unsigned="${RC_ALLOW_UNSIGNED:-}"
+    if ! signing_available; then
+        if [[ -z "$allow_unsigned" ]]; then
+            die "set RC_CERT_SHA1 or RC_CERT_PFX — an unsigned installer is worse than no installer
+  (to build one anyway, for local testing only:  RC_ALLOW_UNSIGNED=1)"
+        fi
+        cat >&2 <<EOF
+
+================================================================================
+  RC_ALLOW_UNSIGNED is set: this MSI will NOT be signed.
+
+  Do not give it to anyone. Windows will warn on it, and — more to the point —
+  this product injects input into every process and writes HKLM, so antivirus
+  will quarantine an unsigned build of it with no message the user can act on.
+  This switch exists so the packaging path itself can be exercised on a machine
+  with no certificate, not so the result can be shipped.
+================================================================================
+
+EOF
+    fi
     cmd_build
-    cmd_sign
+    if signing_available; then
+        cmd_sign
+    else
+        note "skipping signing (RC_ALLOW_UNSIGNED)"
+    fi
     cmd_deps
 
     local v; v="$(version)"
@@ -251,11 +278,21 @@ cmd_package() {
     rm -rf "$stage"; mkdir -p "$stage"
     cp "$WIN/tools/RemoteCrab.wxs" "$stage/"
     # Substitute what the build knows and the manifest must agree on.
-    sed -i.bak \
-        -e "s/@VERSION@/$v/g" \
-        -e "s|@PAYLOAD@|$WIN/target/$TARGET/$PROFILE|g" \
-        "$stage/RemoteCrab.wxs"
-    rm -f "$stage/RemoteCrab.wxs.bak"
+    #
+    # Done in bash rather than `sed` for two reasons, both learned the hard way:
+    #
+    #   * `@PAYLOAD@` needs `cygpath` — `wix.exe` is a native Windows program and
+    #     cannot open `/e/RemoteCrab/…`, so an MSYS path fails with "Cannot find
+    #     the File" for files that demonstrably exist.
+    #   * `sed` treats backslashes in the *replacement* as escapes. Handing it
+    #     `E:\RemoteCrab\windows\target\x86_64-…` silently produced
+    #     `E:RemoteCrabwindows<TAB>arget?_64-…`, and the failure surfaced four
+    #     lines later as "Invalid character in the given encoding".
+    local payload_win; payload_win="$(win_path "$WIN/target/$TARGET/$PROFILE")"
+    local text; text="$(cat "$stage/RemoteCrab.wxs")"
+    text="${text//@VERSION@/$v}"
+    text="${text//@PAYLOAD@/$payload_win}"
+    printf '%s\n' "$text" > "$stage/RemoteCrab.wxs"
 
     # The install location is not cosmetic: `rc-vcam` resolves the DLL from
     # `current_exe()` and writes that **absolute path** into HKLM, then compares
@@ -273,7 +310,7 @@ cmd_package() {
     # install the version that does not provide it.
     if command -v wix >/dev/null 2>&1; then
         note "WiX v4 CLI"
-        wix build "$wxs" -o "$wmsi" -arch x64 || die "MSI build failed (wix v4)"
+        wix build "$wxs" -o "$wmsi" -arch x64 -d MsvcBuild=true || die "MSI build failed (wix v4)"
     elif command -v candle >/dev/null 2>&1 && command -v light >/dev/null 2>&1; then
         note "WiX v3 candle + light"
         local wobj; wobj="$(win_path "$stage/RemoteCrab.wixobj")"
@@ -285,8 +322,12 @@ cmd_package() {
     fi
     [[ -f "$msi" ]] || die "the MSI was not produced at $msi"
 
-    note "verifying the MSI is signed"
-    sign_one "$msi"
+    if signing_available; then
+        note "verifying the MSI is signed"
+        sign_one "$msi"
+    else
+        note "NOT signing the MSI (RC_ALLOW_UNSIGNED) — 'verify' will report it as UNSIGNED"
+    fi
 
     note "done: $msi"
     echo
