@@ -920,14 +920,29 @@ pub(crate) fn fallback_allowed(active: bool, suppress_auto: bool, has_target: bo
 /// row have found nothing.
 ///
 /// A sweep is 254 TCP connects. Running one every tick would be a small
-/// denial-of-service against the user's own LAN, so an empty LAN backs off to
-/// a 60 s heartbeat instead. Any success resets the count.
+/// denial-of-service against the user's own LAN, so an empty LAN backs off.
+///
+/// The cap used to be 60 s, and the comment said that was a "heartbeat". It is
+/// not: measured on this box with no phone present, a 60 s sweep of a /24 kept
+/// the process at **5.6% of one core indefinitely** — a tray app that runs all
+/// day on a laptop, burning a measurable slice of a core to look for something
+/// that is not there.
+///
+/// The backoff is now geometric up to 15 minutes. That keeps the two properties
+/// that matter: a phone that has just arrived is still found within seconds (the
+/// fast rungs and mDNS cover that), and a LAN that has been empty for a while
+/// stops costing anything. Any success resets the count to zero, so nothing
+/// here slows down discovery after a hit.
 pub(crate) fn sweep_interval(consecutive_misses: u32) -> Duration {
     const FIRST: Duration = Duration::from_secs(15);
-    const MAX: Duration = Duration::from_secs(60);
+    const MAX: Duration = Duration::from_secs(15 * 60);
     match consecutive_misses {
         0 => FIRST,
         1 => Duration::from_secs(30),
+        2 => Duration::from_secs(60),
+        3 => Duration::from_secs(180),
+        4 => Duration::from_secs(300),
+        n if n < 12 => Duration::from_secs(n as u64 * 60),
         _ => MAX,
     }
 }
@@ -1000,7 +1015,39 @@ mod tests {
         assert_eq!(sweep_interval(0), Duration::from_secs(15));
         assert_eq!(sweep_interval(1), Duration::from_secs(30));
         assert_eq!(sweep_interval(2), Duration::from_secs(60));
-        assert_eq!(sweep_interval(99), Duration::from_secs(60), "capped");
+        assert_eq!(sweep_interval(99), Duration::from_secs(15 * 60), "capped");
+    }
+
+    /// The property the 5.6%-of-a-core measurement demands: the wait has to
+    /// actually grow, or a tray app that runs all day keeps sweeping a /24 for
+    /// a phone that is simply not there. It also has to stay *bounded*, so a LAN
+    /// that empties for a week still finds a phone that comes back.
+    #[test]
+    fn an_absent_phone_stops_costing_anything_and_still_gets_found() {
+        // Monotonic: every miss waits at least as long as the one before.
+        let mut prev = sweep_interval(0);
+        for misses in 1..40 {
+            let now = sweep_interval(misses);
+            assert!(
+                now >= prev,
+                "backoff shrank at {misses}: {now:?} after {prev:?}"
+            );
+            prev = now;
+        }
+        // …and it settles rather than climbing forever.
+        assert_eq!(sweep_interval(11), Duration::from_secs(11 * 60));
+        assert_eq!(sweep_interval(12), Duration::from_secs(15 * 60), "capped");
+        assert_eq!(sweep_interval(u32::MAX), Duration::from_secs(15 * 60));
+        // A sweep still happens, so a phone that comes back is still found.
+        assert!(sweep_interval(u32::MAX) <= Duration::from_secs(15 * 60));
+    }
+
+    /// Any hit must put discovery straight back to its fast rung — otherwise
+    /// backing off harder would also delay reconnecting to a phone we already
+    /// know about.
+    #[test]
+    fn a_hit_resets_the_backoff_to_the_fastest_rung() {
+        assert_eq!(sweep_interval(0), Duration::from_secs(15));
     }
 
     /// The regression that made the 2026-09-29 bring-up fail: with Mihomo in

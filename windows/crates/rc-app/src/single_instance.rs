@@ -36,19 +36,34 @@ fn is_primary(already_taken: bool) -> bool {
 }
 
 /// Take the per-user instance mutex, or report that another copy owns it.
-///
-/// The name carries the user id so two people signed into the same PC do not
-/// collide — a named mutex is a machine-global object, not a per-session one.
 pub fn acquire() -> Instance {
+    acquire_named(&default_mutex_name())
+}
+
+/// The mutex a real receiver uses.
+///
+/// Carries the user id so two people signed into the same PC do not collide — a
+/// named mutex is a machine-global object, not a per-session one.
+fn default_mutex_name() -> String {
+    let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".into());
+    format!("Local\\RemoteCrab-{user}")
+}
+
+/// Acquire a named mutex rather than the production one.
+///
+/// Tests need this. Sharing the production name meant
+/// `exactly_one_acquisition_is_primary` failed whenever a receiver happened to be
+/// running on the machine — which is exactly when somebody is most likely to run
+/// the suite, so the one test guarding the single-instance rule was the one most
+/// likely to be reporting the environment instead of the code.
+fn acquire_named(name: &str) -> Instance {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
         use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
         use windows::Win32::System::Threading::CreateMutexW;
 
-        let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".into());
-        let name = format!("Local\\RemoteCrab-{user}");
-        let wide: Vec<u16> = std::ffi::OsStr::new(&name)
+        let wide: Vec<u16> = std::ffi::OsStr::new(name)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -104,8 +119,10 @@ mod tests {
     /// a process-local flag stands in, so the rule is still checked.
     #[test]
     fn exactly_one_acquisition_is_primary() {
-        let first = acquire();
-        let second = acquire();
+        // A name of its own — see `acquire_named`.
+        let name = format!("Local\\RemoteCrab-test-{}", std::process::id());
+        let first = acquire_named(&name);
+        let second = acquire_named(&name);
         assert!(first.is_primary(), "nothing else holds the mutex yet");
         assert!(
             !second.is_primary(),
