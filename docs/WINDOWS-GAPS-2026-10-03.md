@@ -290,11 +290,22 @@ Windows 的解析规则归一化，任何两个动作塌缩成同一个注入按
   （`testNoSessionSurfaceNamesAMac` 守着）。但 onboarding / 权限说明 /
   「Download for Mac」这些**产品级**文案还写着 Mac —— RemoteCrab 的 Mac 端
   是真实存在、要用户安装的东西，改它是另一个决定，不该顺手带上。
-- **手势教学页**（`TrackpadGuideView`）还有 `command` 图标和
-  「lock Control, Option, Command and Shift」这样的 Mac 措辞。
+- ~~**手势教学页**~~ —— **已在 `14045b3` 修掉**：5 行改为按平台分流，
+  `TrackpadGuideView` 的 `platform` 也去掉了默认值。当时它写死
+  「Lock ⌃⌥⌘⇧」「Mission Control」「the Mac」，而它是**会话中被阅读**的，
+  两英寸外的快捷键行已经显示 `Ctrl Alt ⊞ Shift` 了；顺带发现
+  `Coach.pinchZoom` 在 catalog 里**根本没有条目**，中文界面显示英文原文。
+  **同批还修了 VoiceOver 标签**（Windows 和弦键复用 Mac 的 label，于是
+  `Ctrl+Z` 被念作「Mission Control」）和 **context chip 的英文 `"Computer"`**
+  —— 后者只能靠看真机截图发现，英文界面下它不存在。
 - **Windows 系统区是 7 个**（Mac 是 8 个，多的两个是亮度，Windows 上
   `system_keys.rs` 对亮度直接 `return false`）。两列格子最后一行会空半格，
   这是**故意留的空**，没有第八个诚实的 Windows 系统控制项可填。
+- **13 个套件在 Windows 上没有映射**，落到系统控制区。这是**有据可依的取舍**
+  （`testPowerPointIsNotYetMapped` 明确断言它*没有*映射），不是漏。
+- **`CaptureEngine.setPreferredMac` 是死代码**（无调用者）。留着是因为
+  「换一个 Mac 偏好」将来可能需要它，但要注意：它接受任意 id，若接上线路
+  会让偏好指向一个从未敲门过的电脑 —— 所以 `pruneStale` 的清理改成了无条件。
 
 ### 顺便：Mac 上顺手能验的 Windows 侧结论
 

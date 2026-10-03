@@ -518,6 +518,49 @@ final class PairingTests: XCTestCase {
         XCTAssertNil(store.preferredId, "the armed preference named a computer that no longer exists")
     }
 
+    /// 「Forget」has to make the computer go away.
+    ///
+    /// The picker lists `seen`, not `paired`, so clearing only the approval
+    /// left the machine in "Choose a Computer" as a "not paired" row — and
+    /// the row itself is a button that arms a preference, not one that
+    /// deletes, so there was no way to remove it short of waiting out the
+    /// 30-day expiry.
+    func testForgettingAComputerAlsoRemovesItsPickerRow() {
+        let suite = "test.remotecrab.pairing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let store = MacPairingStore(defaults: defaults)
+        let hello = IBClientHello(name: "EDWIN", id: "pc-1", platform: "windows")
+        store.noteSeen(hello)
+        store.pair(hello)
+        store.setPreferred(id: "pc-1", name: "EDWIN")
+        XCTAssertEqual(store.paired.count, 1)
+        XCTAssertEqual(store.seen.count, 1)
+
+        store.forget(id: "pc-1")
+
+        XCTAssertTrue(store.paired.isEmpty, "approval survived")
+        XCTAssertTrue(store.seen.isEmpty, "still listed in the picker")
+        XCTAssertNil(store.preferredId, "preference survived")
+        XCTAssertNil(store.platform(for: "pc-1"))
+        // Persisted, not just in memory.
+        XCTAssertTrue(MacPairingStore(defaults: defaults).seen.isEmpty)
+    }
+
+    /// `pruneStale` must guarantee no preference names a missing computer —
+    /// even when the prune removed nothing. A preference for an id that was
+    /// never in `seen` (which `setPreferred` accepts: it takes any string)
+    /// would otherwise sit armed and answer every other machine "in use"
+    /// until the TTL ran out.
+    func testAPreferenceForAComputerThatWasNeverSeenIsCleared() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "Real PC", id: "real", platform: "windows"))
+        store.setPreferred(id: "never-seen", name: "Ghost PC")
+        XCTAssertEqual(store.seen.count, 1)
+        XCTAssertFalse(store.pruneStale(), "nothing was removed")
+        XCTAssertNil(store.preferredId, "the ghost preference survived a no-op prune")
+    }
+
     /// The one thing pruning must never do: touch the allow-list. An
     /// approval carries a token, and dropping it would force a re-approval
     /// for a machine that is still perfectly well paired.

@@ -270,10 +270,17 @@ public final class MacPairingStore {
     public func pruneStale(now: Date = Date()) -> Bool {
         let before = seen
         seen = Self.pruned(before, now: now)
-        if seen.count == before.count { return false }
+        // Unconditional, even when nothing was removed. The earlier version
+        // returned early on "count unchanged" — sound for *detecting* a
+        // removal, but it made the postcondition a lie: a preference could
+        // name an id that was never in `seen` at all (`setPreferred` takes
+        // any string, and `setPreferredMac` does exactly that) and would
+        // then sit armed for a computer with no row, answering every other
+        // machine "in use" until the TTL ran out. Cheap to guarantee.
         if let preferred = preferredId, !seen.contains(where: { $0.id == preferred }) {
             clearPreferred()
         }
+        guard seen.count != before.count else { return false }
         saveSeen()
         return true
     }
@@ -358,8 +365,22 @@ public final class MacPairingStore {
         return mac
     }
 
+    /// Drop a computer entirely: its approval, its picker row, and any
+    /// preference naming it.
+    ///
+    /// The picker lists `seen`, not `paired`, so forgetting only the
+    /// approval left the machine sitting in "Choose a Computer" as a
+    /// "not paired" row — a button labelled Forget that did not make the
+    /// computer go away. `forgetSeen` already existed for exactly this and
+    /// had no caller.
+    ///
+    /// Safe because nothing else depends on the row once the computer is
+    /// forgotten: `PairingPolicy` reads `paired` for tokens and `preferred`
+    /// for the door, and the only two readers of `seen` are the picker's own
+    /// icon/label. A forgotten computer has no icon and no name to show.
     public func forget(id: String) {
         paired.removeAll { $0.id == id }
+        forgetSeen(id: id)
         if preferredId == id { clearPreferred() }
         save()
     }
