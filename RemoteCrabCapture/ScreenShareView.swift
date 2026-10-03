@@ -41,6 +41,12 @@ struct ScreenShareView: View {
     let displayView: ScreenDisplayUIView
     /// Current mirror geometry; drives `ScreenZoomState.windowSize`.
     let info: IBScreenInfo?
+    /// Which OS owns the session — the shortcut bar's modifier row shows
+    /// Ctrl/Alt/⊞/Shift for a Windows peer instead of ⌃⌥⌘⇧. No default:
+    /// this view is the mirror's only route to that row, and an inherited
+    /// `.mac` is exactly how the mirror kept advertising a key that isn't
+    /// on the peer's keyboard.
+    let platform: IBModifierBar.PeerPlatform
     /// Called for every input the user performs on the mirror.
     var onInput: (IBScreenInput) -> Void
     /// False while the mirror is only a backdrop (e.g. behind the
@@ -231,6 +237,7 @@ struct ScreenShareView: View {
             VStack {
                 Spacer(minLength: 0)
                 IBShortcutBar(activeModifiers: $modifiers,
+                              platform: platform,
                               contextTitle: info?.appName ?? IBLocale.Mirror.computer,
                               onContext: onOpenContext,
                               onKey: { onKey?($0) },

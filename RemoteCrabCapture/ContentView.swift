@@ -549,6 +549,7 @@ struct ContentView: View {
         if let info = engine.screenInfo, info.status == .ok {
             ScreenShareView(displayView: engine.screenDisplayView,
                             info: info,
+                            platform: engine.peerPlatform,
                             onInput: { engine.sendScreenInput($0) },
                             inputEnabled: interactive,
                             onModifierKey: { code, down in

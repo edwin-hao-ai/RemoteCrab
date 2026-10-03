@@ -11,17 +11,27 @@ import SwiftUI
 public struct IBShortcutBar: View {
 
     @Binding private var activeModifiers: Set<IBModifierBar.Modifier>
+    /// Which OS owns the session. **Required, with no default**: this bar
+    /// is shared by the trackpad and the mirror, and when the parameter
+    /// was optional both call sites silently inherited `.mac` — so a
+    /// Windows peer saw ⌘⌥⌃⇧ on the two most-used surfaces while the
+    /// keyboard surface (which passes it) correctly showed Ctrl/Alt/⊞/
+    /// Shift. A default here is what let one surface be right and two be
+    /// wrong; the compiler now makes the question unskippable.
+    private let platform: IBModifierBar.PeerPlatform
     private let contextTitle: String?
     private let onContext: (() -> Void)?
     private let onKey: (KeyEvent) -> Void
     private let onModifierKey: ((UInt16, Bool) -> Void)?
 
     public init(activeModifiers: Binding<Set<IBModifierBar.Modifier>>,
+                platform: IBModifierBar.PeerPlatform,
                 contextTitle: String? = nil,
                 onContext: (() -> Void)? = nil,
                 onKey: @escaping (KeyEvent) -> Void,
                 onModifierKey: ((UInt16, Bool) -> Void)? = nil) {
         self._activeModifiers = activeModifiers
+        self.platform = platform
         self.contextTitle = contextTitle
         self.onContext = onContext
         self.onKey = onKey
@@ -44,7 +54,9 @@ public struct IBShortcutBar: View {
                     Rectangle()
                         .fill(IBColor.borderSubtle)
                         .frame(width: 1, height: 28)
-                    IBModifierBar(activeModifiers: $activeModifiers, onModifierKey: onModifierKey)
+                    IBModifierBar(activeModifiers: $activeModifiers,
+                                   platform: platform,
+                                   onModifierKey: onModifierKey)
                     key(text: ",", accessibility: IBLocale.A11y.commaKey, keycode: 43)
                     key(text: ".", accessibility: IBLocale.A11y.periodKey, keycode: 47)
                 }

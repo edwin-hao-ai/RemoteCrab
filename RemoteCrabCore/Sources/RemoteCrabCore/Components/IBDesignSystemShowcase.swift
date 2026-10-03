@@ -58,7 +58,11 @@ public struct IBDesignSystemShowcase: View {
                                 .font(IBFont.eyebrowMono)
                                 .foregroundStyle(IBColor.textTertiary)
                                 .ibEyebrowTracking()
-                            IBModifierBar(activeModifiers: $modifiers)
+                            // The showcase is the Mac product, so `.mac` is stated
+                            // rather than inherited — the parameter has no default,
+                            // which is the point: every row must know whose
+                            // keyboard it is drawing.
+                            IBModifierBar(activeModifiers: $modifiers, platform: .mac)
                                 .padding(.top, 8)
                         }
                     }

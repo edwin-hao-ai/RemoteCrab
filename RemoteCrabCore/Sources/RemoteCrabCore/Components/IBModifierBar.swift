@@ -102,7 +102,14 @@ public struct IBModifierBar: View {
     @Binding var activeModifiers: Set<Modifier>
 
     /// Which platform the peer runs — changes the labels only. Windows
-    /// shows Ctrl / Alt / Shift instead of ⌃ / ⌥ / ⌘ / ⇧.
+    /// shows Ctrl / Alt / ⊞ / Shift instead of ⌃ / ⌥ / ⌘ / ⇧.
+    ///
+    /// No default. A default is what let this row advertise ⌘ to a
+    /// Windows peer on two of the three surfaces that embed it: the
+    /// parameter was optional, the call sites that forgot it silently
+    /// inherited `.mac`, and the only symptom was a key that isn't on the
+    /// peer's keyboard. Making it required turns "did you pass the
+    /// platform?" from a review question into a compile error.
     public var platform: PeerPlatform
 
     /// Emits a REAL modifier key down/up. A physical keyboard's held ⌥ is
@@ -113,7 +120,7 @@ public struct IBModifierBar: View {
     public var onModifierKey: ((_ keycode: UInt16, _ isDown: Bool) -> Void)?
 
     public init(activeModifiers: Binding<Set<Modifier>>,
-                platform: PeerPlatform = .mac,
+                platform: PeerPlatform,
                 onModifierKey: ((UInt16, Bool) -> Void)? = nil) {
         self._activeModifiers = activeModifiers
         self.platform = platform
@@ -223,7 +230,7 @@ public struct IBModifierBar: View {
 
 #Preview {
     StatefulPreviewWrapper(Set<IBModifierBar.Modifier>([.command])) { binding in
-        IBModifierBar(activeModifiers: binding)
+        IBModifierBar(activeModifiers: binding, platform: .mac)
             .padding()
             .background(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
     }
