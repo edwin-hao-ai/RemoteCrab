@@ -74,9 +74,21 @@ pub fn remove_user_state() -> Removed {
 
 /// The machine-wide half that does not need `rc-vcam`. Needs elevation, because
 /// `%ProgramData%` is machine-wide.
+///
+/// The ring file *and* the directory holding it. Removing only the file leaves
+/// `C:\ProgramData\RemoteCrab\` sitting there empty, which reads to the next
+/// install as "something is still installed" and is exactly the kind of
+/// residue that makes people distrust an uninstaller.
 #[cfg(windows)]
 pub fn remove_machine_files() -> bool {
-    remove_file(&ring_path())
+    let file = remove_file(&ring_path());
+    let dir = ring_dir().map(|d| remove_dir(&d)).unwrap_or(true);
+    file && dir
+}
+
+/// The directory the ring file lives in, if its path has a parent.
+fn ring_dir() -> Option<std::path::PathBuf> {
+    ring_path().parent().map(|p| p.to_path_buf())
 }
 
 #[cfg(not(windows))]
@@ -129,6 +141,32 @@ mod tests {
         };
         assert!(done.is_complete());
         assert!(!done.needs_admin());
+    }
+
+    /// The ring file's directory has a parent, and that parent is what the
+    /// machine-wide cleanup now removes too. A regression here would put the
+    /// empty `%ProgramData%\RemoteCrab\` back, which reads to the next install
+    /// as "something is still here".
+    #[test]
+    fn the_ring_directory_is_removable_alongside_the_ring_file() {
+        assert_eq!(ring_dir(), ring_path().parent().map(|p| p.to_path_buf()));
+        // Both are inside ProgramData, not somewhere per-user — that is why the
+        // cleanup needs elevation and the per-user half does not.
+        let dir = ring_dir().expect("ring path has a parent");
+        assert!(
+            dir.to_string_lossy().to_lowercase().contains("programdata"),
+            "{dir:?}"
+        );
+    }
+
+    /// "Already gone" has to count as done, or a second uninstall reports
+    /// failure for having nothing to do — and a user who retries once learns to
+    /// distrust the whole thing.
+    #[test]
+    fn removing_what_is_already_absent_is_success() {
+        let ghost = std::env::temp_dir().join("remotecrab-does-not-exist-9f2a");
+        assert!(remove_file(&ghost));
+        assert!(remove_dir(&ghost));
     }
 
     /// "Needs admin" must name the machine-wide bits, not guess. Half-done is

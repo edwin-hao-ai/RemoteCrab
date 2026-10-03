@@ -27,7 +27,11 @@ pub struct Vcam {
 /// had no way forward. The whole point of the product is that nobody should have
 /// to know what an administrator prompt is.
 #[cfg(windows)]
-pub fn run_one_shot(install: bool, machine_only: bool) -> std::process::ExitCode {
+pub fn run_one_shot(
+    install: bool,
+    machine_only: bool,
+    user_only: bool,
+) -> std::process::ExitCode {
     if install {
         return match install_with_elevation() {
             // The elevated copy prints its own result; Windows reports no exit
@@ -58,6 +62,9 @@ pub fn run_one_shot(install: bool, machine_only: bool) -> std::process::ExitCode
     }
     if machine_only {
         return uninstall_machine_only();
+    }
+    if user_only {
+        return report_removal(&rc_os::uninstall::remove_user_state());
     }
     uninstall_with_elevation()
 }

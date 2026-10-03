@@ -209,7 +209,38 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!--
+      The per-user half, **impersonated**.
+
+      This one exists because of a measured failure, not a theory. Uninstalling
+      the MSI left behind:
+
+        * `HKCU\...\CurrentVersion\Run\RemoteCrab`, pointing at an exe that no
+          longer existed — the `RemoveRegistry` row for it was present in the
+          table and still did not fire;
+        * `%APPDATA%\RemoteCrab\`, containing `tokens.json` — the saved pairing
+          token — which nothing was cleaning at all.
+
+      The app has owned that cleanup the whole time (`remove_user_state`:
+      autostart + app data). The installer just never called it. An uninstall
+      that leaves a pairing token on disk is worse than one that leaves a log.
+
+      `Impersonate` is left at its default (yes) and that is the whole point: an
+      elevated install resolves `%APPDATA%` and `HKCU` to the *system profile*,
+      so the machine-only action below would clean the wrong hive and the real
+      user's data would survive every uninstall.
+    -->
+    <CustomAction Id="UninstallUserState"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='"[INSTALLFOLDER]remotecrab.exe" --uninstall-vcam-user'
+                  Execute="deferred"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
+      <!-- Both before RemoveFiles: the exe has to still be there to be run.
+           User state first — it needs no rights, so a failure there cannot
+           affect the machine-wide half that does. -->
+      <Custom Action="UninstallUserState" Before="RemoveFiles" />
       <Custom Action="UninstallMachineState" Before="RemoveFiles" />
     </InstallExecuteSequence>
   </Package>

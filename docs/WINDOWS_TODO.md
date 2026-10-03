@@ -346,13 +346,47 @@ remotecrab.exe --uninstall-vcam    # 需管理员
       （**注意**：安装清单 `RemoteCrab.wxs` 之前写的是 `{8B2C4D19-…}` —— 那个 GUID
       在整个产品里根本不存在，所以卸载清的是一个空键，真正的摄像头注册会留在原地。
       2026-10-02 已改为 `rc_vcam::win::SOURCE_CLSID`，两处同步）
-- [ ] **`%ProgramData%\RemoteCrab\vcam-ring.bin` 被删** ← 这条最容易失败
+- [x] **`%ProgramData%\RemoteCrab\vcam-ring.bin` 被删** ← 这条最容易失败
 - [ ] **跑第二次不算失败**（幂等）
 
 > **ring 文件为什么最容易漏**：它带 **NULL DACL**，这样 Frame Server（以
 > `LocalService` 运行）才能映射它。副作用是**普通用户删不掉它**。之前的卸载一个都不清，
 > 于是它留在系统里——一个任何人可写的缓冲区，而且下次安装会继承里面的内容。
 > 这是唯一能证明那段代码不是纸上谈兵的地方。
+
+#### ✅ 2026-10-03 在真机上跑通了（`6031a5f` 之后）
+
+上面 8 条**全部通过**，方式是 `msiexec /i` → 装完开一次自启（否则「Run 项被删」
+那条没东西可删）→ `msiexec /x` → 逐条查。
+
+**但第一次跑的时候挂了 2 条**，而且都不是清单猜的那个：
+
+| 失败项 | 真相 |
+|---|---|
+| `HKCU\...\Run\RemoteCrab` 没被删 | MSI 的 `RemoveRegistry` 表里**确实有**这一行（`CleanupMarker \| 1 \| …\Run \| RemoteCrab`），**但没生效**。结果是指着一个已不存在的 exe，每次开机都试图启动一个不存在的程序 |
+| `%APPDATA%\RemoteCrab\` 没被删 | 里面有 **`tokens.json` —— 配对令牌**。MSI **从来没清过**。卸载后把配对令牌留在磁盘上，比留个日志严重 |
+| （附带）`%ProgramData%\RemoteCrab\` 空目录残留 | ring 文件删掉了，目录没删。空目录让下次安装以为「还有东西没卸干净」 |
+
+根因是同一个：**per-user 清理逻辑写在 app 里（`rc_os::uninstall::remove_user_state`
+一直都在，自带测试），但安装器从来没调用它**，而是用一条 `RemoveRegistry` 行顶替，
+那条行不工作。
+
+修法不是把 `RemoveRegistry` 调对，是**让安装器调用产品自己的清理**——三个 flag：
+
+| flag | 谁调 | 清什么 | 提权 |
+|---|---|---|---|
+| `--uninstall-vcam-user` | MSI（**模拟用户**） | 自启项 + `%APPDATA%` | 不要 |
+| `--uninstall-vcam-machine` | MSI（SYSTEM） | CLSID + ring 文件 + ProgramData 目录 | 已经提权 |
+| `--uninstall-vcam` | 人 / 托盘 | 上面两半 | 需要就自己弹 |
+
+**模拟用户那一步是全部重点**：提权安装里 `%APPDATA%` 和 `HKCU` 指向**系统 profile**，
+在 SYSTEM 下跑完整卸载会清错 hive，用户的令牌每次卸载都留下来。已验证 MSI 里两个
+action 的 Type 位：`UninstallUserState` = 1122（**不含** `0x800` NoImpersonate）、
+`UninstallMachineState` = 3170（含该位）。
+
+**仍然保留**：`%LOCALAPPDATA%\RemoteCrab\RemoteCrab.log`。这是**有意的** —— 出问题后
+用户能直接把日志发出来。但它确实意味着「卸载 ≠ 磁盘上零字节」，如果将来要承诺完全
+清除，得显式处理，别让它是漏的。
 
 ### 3.4 通知中继（0x22）
 
