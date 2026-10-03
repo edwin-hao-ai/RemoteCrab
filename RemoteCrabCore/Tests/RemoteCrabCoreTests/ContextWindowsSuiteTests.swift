@@ -186,9 +186,133 @@ final class ContextWindowsSuiteTests: XCTestCase {
         }
     }
 
+    /// `opencode` has no verified Windows mapping, so on a PC it must not
+    /// render its own Mac hero — but it still gets ONE, because voice is
+    /// the button that works on every platform and the system grid below
+    /// it renders unconditionally. So the fallback is the console hero, and
+    /// the invariant is "not its own Mac set", not "nothing".
     func testVoiceHeroIsPerPlatformToo() {
         XCTAssertNotNil(ContextProfiles.voiceHero(for: ContextProfiles.agent, platform: .mac))
         XCTAssertNotNil(ContextProfiles.voiceHero(for: ContextProfiles.agent, platform: .windows))
-        XCTAssertNil(ContextProfiles.voiceHero(for: ContextProfiles.opencode, platform: .windows))
+        let opencodeWindows = ContextProfiles.voiceHero(for: ContextProfiles.opencode, platform: .windows)
+        let opencodeMac = ContextProfiles.voiceHero(for: ContextProfiles.opencode, platform: .mac)
+        XCTAssertNotEqual(opencodeWindows, opencodeMac,
+                          "opencode must not borrow its Mac-only hero on Windows")
+        XCTAssertNotNil(opencodeWindows, "voice is never withheld")
+        XCTAssertEqual(ContextProfiles.appActions(for: ContextProfiles.opencode, platform: .windows), [])
+    }
+
+    // MARK: - The Windows system grid
+    //
+    // `windowsSystemActions` is a standalone array, NOT a profile's
+    // `windowsActions`, so every `for profile in ContextProfiles.all`
+    // loop above silently skipped it — and `systemActions(for:)` renders
+    // it unconditionally. These are the tests it never had.
+
+    /// No platform's always-rendered system grid may carry a voice hero.
+    ///
+    /// The hero is a full-width capsule; in a two-column grid cell it is
+    /// the wrong shape, and `ContextSheetView` draws the hero above the
+    /// grid from `voiceHero(for:platform:)`. The Mac side was already
+    /// safe because `console.gridActions` filters it. Windows shipped the
+    /// hero *inside* the grid, so a matched suite rendered "Talk to
+    /// Computer" twice.
+    func testTheSystemGridNeverCarriesTheVoiceHero() {
+        for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+            for action in ContextProfiles.systemActions(for: platform) {
+                if case .voiceHero = action {
+                    XCTFail("\(platform): the system grid must not render a second voice hero")
+                }
+            }
+        }
+    }
+
+    /// The companion invariant: filtering the hero must not COST the user
+    /// one. A suite with no verified Windows mapping has no
+    /// `windowsActions`, so before the fallback it got no hero at all once
+    /// the grid stopped carrying one. Voice is the one button that works
+    /// everywhere, so it is never withheld.
+    func testEveryWindowsPeerGetsExactlyOneVoiceHero() {
+        let profiles = ContextProfiles.all + [ContextProfiles.console]
+        for profile in profiles {
+            for platform in [IBModifierBar.PeerPlatform.mac, .windows] {
+                XCTAssertNotNil(ContextProfiles.voiceHero(for: profile, platform: platform),
+                                "\(profile.id)/\(platform): no voice hero")
+                let inGrid = ContextProfiles.systemActions(for: platform)
+                    .filter { if case .voiceHero = $0 { return true }; return false }
+                XCTAssertTrue(inGrid.isEmpty, "\(profile.id)/\(platform): hero duplicated in the grid")
+            }
+        }
+    }
+
+    /// Every key action in the system grid must name a key it means.
+    ///
+    /// "Show Desktop" was authored as ⊞⌥D and sent keycode **53**, which
+    /// is Escape — `keymap.rs:105` maps 0x35 to `vk::ESCAPE` — so the
+    /// button did nothing at all. It now rides the same `showDesktop`
+    /// system command the switcher's Desktop card uses, which Windows
+    /// implements as a real minimise-all.
+    func testTheWindowsSystemGridSendsNoMislabelledShortcut() {
+        let system = ContextProfiles.systemActions(for: .windows)
+        for action in system {
+            guard case .key(let label, _, let kc, _) = action else { continue }
+            XCTAssertNotEqual(kc, 53,
+                              "\(label): keycode 53 is Escape, not the key this label names")
+            XCTAssertNotEqual(kc, 50,
+                              "\(label): keycode 50 is the macOS grave accent")
+        }
+        // Show Desktop must be the command, not a synthesised chord.
+        XCTAssertTrue(system.contains { action in
+            if case .system(let label, _, let command) = action {
+                return label == "Show Desktop" && command == .showDesktop
+            }
+            return false
+        }, "Show Desktop should ride IBSystemCommand.showDesktop")
+    }
+
+    /// A Windows user must never be shown an Apple-only glyph.
+    ///
+    /// `safari.fill` on the "Browser" button and `macwindow.on.rectangle`
+    /// on "Show Desktop" both shipped: the buttons worked (or didn't) but
+    /// the icons said "Mac", which is the whole "Windows has no Safari"
+    /// complaint. There is no Edge in SF Symbols and no reason to fake
+    /// one — `globe` describes what the button does.
+    func testTheWindowsSystemGridUsesNoAppleOnlySymbols() {
+        let banned = ["safari", "macwindow", "command.", "rectangle.3.group",
+                      "square.on.square", "dock.rectangle"]
+        for action in ContextProfiles.windowsSystemActions {
+            let symbol: String
+            switch action {
+            case .key(_, let s, _, _), .system(_, let s, _),
+                 .systemArg(_, let s, _, _), .voiceHero(_, let s):
+                symbol = s
+            }
+            for needle in banned {
+                XCTAssertFalse(symbol.contains(needle),
+                               "Windows system action uses the Apple-only symbol \(symbol)")
+            }
+        }
+    }
+
+    /// Seven grid cells, so the last row has one empty half. That gap is
+    /// deliberate and must not be "filled" the way the per-suite even-count
+    /// rule would suggest: a button here is either a receiver command that
+    /// verifiably works or a documented keybinding, and there is no
+    /// eighth honest Windows system control — brightness is the Mac's
+    /// eighth and tenth and is absent on purpose.
+    func testTheWindowsSystemGridIsSevenVerifiedActions() {
+        let grid = ContextProfiles.systemActions(for: .windows)
+        XCTAssertEqual(grid.count, 7)
+        let labels = grid.compactMap { action -> String? in
+            switch action {
+            case .key(let l, _, _, _), .system(let l, _, _), .systemArg(let l, _, _, _):
+                return l
+            case .voiceHero:
+                return nil
+            }
+        }
+        XCTAssertEqual(Set(labels), ["Volume Up", "Volume Down", "Mute",
+                                     "Play / Pause", "Lock Screen",
+                                     "Show Desktop", "Browser"])
     }
 }

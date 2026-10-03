@@ -95,6 +95,16 @@ final class LocalizationCatalogTests: XCTestCase {
                     labels.insert(label)
                 }
             }
+            // The hero is no longer IN the grid (it is a full-width
+            // capsule and rendering it twice was its own bug), so walking
+            // the grid alone stopped covering its label — which is how
+            // "Talk to Computer" would have quietly lost its zh-Hans.
+            // Walk what the sheet actually draws: hero + app + system.
+            for profile in ContextProfiles.all + [ContextProfiles.console] {
+                guard case .voiceHero(let label, _) =
+                        ContextProfiles.voiceHero(for: profile, platform: platform) else { continue }
+                labels.insert(label)
+            }
         }
         XCTAssertGreaterThan(labels.count, 50, "expected the full suite registry")
 
@@ -106,6 +116,58 @@ final class LocalizationCatalogTests: XCTestCase {
             return (zh?["value"] as? String)?.isEmpty != false
         }
         XCTAssertTrue(missing.isEmpty, "context labels with no zh-Hans translation: \(missing)")
+    }
+
+    /// Nothing reachable **inside a live session** may name a Mac.
+    ///
+    /// These surfaces are the ones a Windows user reads *while connected*,
+    /// and the session is already platform-aware (⌘ vs ⊞, per-platform
+    /// suites, a Windows launcher). Text that says "your Mac" in that same
+    /// moment contradicts everything around it. Product-level copy —
+    /// onboarding, permissions, "Download for Mac", the receiver itself —
+    /// is deliberately NOT in this list: RemoteCrab's Mac app is a real
+    /// thing users install, and rewriting that is a different decision.
+    ///
+    /// Asserted against the catalog **values**, not the keys: the keys
+    /// still read "…on the Mac." because that is what `IBL()` looks up,
+    /// while the `en` unit already reads "…on the computer." Asserting on
+    /// keys would fail on correct copy, and asserting on `IBL(...)` would
+    /// depend on the test host's locale.
+    func testNoSessionSurfaceNamesAMac() throws {
+        let keys = [
+            // App switcher
+            "No apps to switch to", "Switch to a running app on the Mac",
+            "Desktop", "Show Desktop", "Open App…", "Refresh",
+            "Pin", "Unpin", "Active", "Quit", "Force Quit", "Force Quit App?",
+            "This immediately ends the app on the Mac. Unsaved changes will be lost.",
+            "Showing app icons — allow Screen Recording on the Mac to see window previews.",
+            // App launcher
+            "Applications", "Search apps", "No apps listed yet",
+            "Apps reported by the connected computer",
+            "Asking your computer for its apps…",
+            "Your computer didn’t answer",
+            "Check that RemoteCrab Receiver is running and up to date, then try again.",
+            "Reconnect, then try again.",
+            // Context sheet + connection errors + mirror chrome
+            "Buttons send keyboard or system events to your Mac",
+            "Buttons send keyboard or system events to your computer",
+            "Not connected to your Mac right now.",
+            "App window mirror", "Follow frontmost app", "Computer",
+        ]
+        let strings = try catalog()
+        var leaks: [String] = []
+        for key in keys {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
+            let locs = try XCTUnwrap(entry["localizations"] as? [String: Any],
+                                      "no localizations: \(key)")
+            for (loc, unit) in locs {
+                let value = ((unit as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
+                if value.contains("Mac") || value.contains("macOS") {
+                    leaks.append("\(key) [\(loc)] -> \(value)")
+                }
+            }
+        }
+        XCTAssertTrue(leaks.isEmpty, "session text names a Mac: \(leaks)")
     }
 
     /// The launcher's waiting / no-answer states. They exist because the

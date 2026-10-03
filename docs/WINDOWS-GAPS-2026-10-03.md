@@ -143,13 +143,27 @@ B 还需要 iOS 重新构建 + 真机验证（profile 切换是否即时生效�
 ### 修法：不需要任何协议改动
 
 iOS 已经知道对面是什么系统 —— `hello.platform == "windows"`，
-`KeyboardScreen.swift:345` 已经在用它换修饰键标签（⌘ 显示成 Ctrl）。所以：
+`KeyboardScreen.swift` 已经在用它换修饰键标签（⌘ 显示成 Ctrl）。所以：
 
-- 电脑端是 Windows 时，键盘多出一行 **⊞**，和 ⌘ 并存；
+- 电脑端是 Windows 时，键盘多出一个 **⊞**；
 - ⌘ 继续发 Ctrl（保持肌肉记忆），⊞ 单独发 Meta。
 
 协议层面完全不用动：`KeyEvent` 已经能表达单个 Win 键（`0x37` → `LWIN` 已实现），
 缺的只是**手机 UI 上有没有这个键**。
+
+> **已实现，但和上面这段原计划不同**（2026-10-03，`ab86efe` + 本轮）：
+> ⊞ **顶替** ⌘ 而不是并存。`windowsLabel` 把 `.control` 和 `.command` 都渲染成
+> `"Ctrl"`，并存的结局是 Windows 用户看到两个一模一样、其中一个还不存在的键。
+> 行变成 `Ctrl Alt ⊞ Shift`。
+>
+> **本轮补上的洞**：`ab86efe` 只改了 `KeyboardScreen.swift`，而修饰键行还有
+> 第二个来源 —— `IBShortcutBar`（触控板 + 投屏共用）。它的 `IBModifierBar(...)`
+> **没传 `platform`**，于是走缺省 `.mac`：Windows 用户在**最常用的两个界面**
+> 上看到的还是 `⌃⌥⌘⇧`，只有键盘界面是对的。现在 `IBModifierBar.init` /
+> `IBShortcutBar.init` / `ScreenShareView.platform` 三处的 `platform`
+> **都没有默认值**，编译器强制每个调用点表态 —— 这类漏传不可能再静默发生。
+> 已用真实组件渲染双向验证：修之前 Windows 出 `⌃⌥⌘⇧`，修之后出
+> `Ctrl Alt ⊞ Shift`。
 
 ### 谁做
 
@@ -254,6 +268,33 @@ Windows 的解析规则归一化，任何两个动作塌缩成同一个注入按
 - [ ] 三个套件（agent / editor / browser）匹配正确，且每个按钮真的执行对应动作
 - [ ] `POWERPNT` 落到系统控制区（不是错误地匹配到 presentation）
 - [ ] 往 `Documents/RemoteCrab/Profiles/` 放一个 JSON 生效；放一个坏文件有可读报错且**不影响**其它套件
+- [ ] 「显示桌面」真的最小化全部窗口（本轮从 ⊞⌥D 改成走 `IBSystemCommand.showDesktop`）
+- [ ] 语音 hero 只出现**一次**（全宽那个），系统区不再重复一个
+
+### 5.7 本轮在 iOS 侧又查出的 Mac 残留（本轮已修 / 仍然存在）
+
+已修（都在 iOS，Windows 侧一行没动）：
+
+| 症状 | 根因 | 修法 |
+|---|---|---|
+| 触控板 + 投屏界面在 Windows 上仍显示 ⌘ | `IBShortcutBar` 调`IBModifierBar` 时没传 `platform`，走缺省 `.mac` | `platform` 三处全部去掉默认值，编译器强制表态 |
+| 「Show Desktop」按钮点了没反应 | 写的 ⊞⌥D，**keycode 53 是 Escape**（`keymap.rs:105` → `vk::ESCAPE`） | 改走切换应用界面已在用的 `IBSystemCommand.showDesktop`（Windows 侧是真最小化全部，不是 Win+D 那个 toggle） |
+| Windows 上看到 Safari 罗盘 | 「Browser」按钮沿用 `safari.fill` | 换 `globe`；SF Symbols 没有 Edge，也没有理由画一个 |
+| 语音按钮出现两次 | `windowsSystemActions` 里带着 `.voiceHero`，而 Mac 侧 `console.gridActions` 会过滤 | 系统宫格过滤掉hero（新增 `windowsSystemGridActions`），`voiceHero(for:)` 回退到 console 的 hero |
+| 系统区提示去开「屏幕录制」 | 那是 macOS 的 TCC 权限，Windows 根本没有 | Windows 上根本不渲染这个提示 |
+| 空状态图标是 Mac 窗口 | `macwindow.on.rectangle` | Windows 换 `rectangle.grid.2x2` |
+
+仍然存在（**故意留的**，不是漏）：
+
+- **Mac 文案**：会话内会读到的 26 条已经全是「the computer / 电脑」
+  （`testNoSessionSurfaceNamesAMac` 守着）。但 onboarding / 权限说明 /
+  「Download for Mac」这些**产品级**文案还写着 Mac —— RemoteCrab 的 Mac 端
+  是真实存在、要用户安装的东西，改它是另一个决定，不该顺手带上。
+- **手势教学页**（`TrackpadGuideView`）还有 `command` 图标和
+  「lock Control, Option, Command and Shift」这样的 Mac 措辞。
+- **Windows 系统区是 7 个**（Mac 是 8 个，多的两个是亮度，Windows 上
+  `system_keys.rs` 对亮度直接 `return false`）。两列格子最后一行会空半格，
+  这是**故意留的空**，没有第八个诚实的 Windows 系统控制项可填。
 
 ### 顺便：Mac 上顺手能验的 Windows 侧结论
 

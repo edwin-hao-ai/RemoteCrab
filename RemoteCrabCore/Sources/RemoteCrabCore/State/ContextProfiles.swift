@@ -490,6 +490,19 @@ public enum ContextProfiles {
     /// and a button that visibly does nothing is worse than no button.
     /// Lock is ⊞L because the Mac's ⌃⌘Q collapses to `Ctrl+Q` on Windows
     /// — a button labelled "Lock Screen" that quits your app.
+    ///
+    /// **Symbols are platform-neutral.** The first cut kept `safari.fill`
+    /// and `macwindow.on.rectangle`, so a Windows user was shown an Apple
+    /// compass for "Browser" and a Mac window for "Show Desktop" — the
+    /// exact "Windows has no Safari" complaint. SF Symbols has no Edge,
+    /// and there is no reason to draw one: `globe` is what the button
+    /// does (open the default browser).
+    ///
+    /// The hero lives here so the console fallback on Windows has one (the
+    /// console profile has no `windowsActions`); `systemActions(for:)`
+    /// filters it out of the grid so it renders once, full width, from
+    /// `voiceHero(for:platform:)` — which is what the Mac path already
+    /// did via `console.gridActions`.
     public static let windowsSystemActions: [ContextAction] = [
         .voiceHero(label: "Talk to Computer", symbol: "waveform"),
         .system(label: "Volume Up", symbol: "speaker.plus.fill", command: .volumeUp),
@@ -498,17 +511,31 @@ public enum ContextProfiles {
         .system(label: "Play / Pause", symbol: "playpause.fill", command: .mediaPlayPause),
         .key(label: "Lock Screen", symbol: "lock.fill", keycode: 37,
              modifiers: TouchEvent.Modifier.meta.rawValue),          // ⊞L
-        .key(label: "Show Desktop", symbol: "macwindow.on.rectangle", keycode: 53,
-             modifiers: TouchEvent.Modifier.meta.rawValue | 4),      // ⊞⌥D
-        .systemArg(label: "Browser", symbol: "safari.fill", command: .launchApp,
+        // Show Desktop rides the SAME system command the switcher's
+        // Desktop card uses, rather than a synthesised ⊞⌥D. That shortcut
+        // was keycode 53 — which is Escape, not D (`keymap.rs:105` maps
+        // 0x35 to `vk::ESCAPE`) — so the button sent ⊞⌥Esc and did
+        // nothing. `show_desktop()` on Windows is a real minimise-all, not
+        // the Win+D toggle, so it is both truthful and the stronger of the
+        // two. Windows only: the Mac reaches Mission Control from the
+        // trackpad, and the sheet has no business growing a Mac row here.
+        .system(label: "Show Desktop", symbol: "rectangle.on.rectangle",
+                command: .showDesktop),
+        .systemArg(label: "Browser", symbol: "globe", command: .launchApp,
                    argument: "https://www.bing.com"),
     ]
+
+    /// The grid half of `windowsSystemActions` — no hero, matching what
+    /// `console.gridActions` hands the Mac.
+    static let windowsSystemGridActions: [ContextAction] = {
+        windowsSystemActions.filter { if case .voiceHero = $0 { return false }; return true }
+    }()
 
     /// The system section is ALWAYS rendered (`ContextSheetView`), so it
     /// is the one place a wrong entry hurts a user who never asked for
     /// one. Hence per-platform rather than one shared list.
     public static func systemActions(for platform: IBModifierBar.PeerPlatform) -> [ContextAction] {
-        platform == .windows ? windowsSystemActions : console.gridActions
+        platform == .windows ? windowsSystemGridActions : console.gridActions
     }
 
     /// The app-specific section — empty for the console, since its keys
@@ -528,11 +555,18 @@ public enum ContextProfiles {
     }
 
     /// The push-to-talk hero for the peer's platform. A suite with no
-    /// verified Windows mapping has no hero either — the voice shortcut
-    /// is the one button that always works, so it is never withheld.
+    /// verified Windows mapping has no hero of its own — but it must still
+    /// get one, or a Windows user whose front app matches nothing would
+    /// have no voice button at all while the system grid below is fully
+    /// rendered. So the Windows path falls back to the console hero.
+    /// (That fallback is why `systemActions(for:)` filters its hero out:
+    /// before it did, a matched suite rendered "Talk to Computer" twice —
+    /// full width, then again as a clipped grid cell.)
     public static func voiceHero(for profile: ContextProfile,
                                  platform: IBModifierBar.PeerPlatform) -> ContextAction? {
-        let actions = platform == .windows ? (profile.windowsActions ?? []) : profile.actions
+        let actions = platform == .windows
+            ? (profile.windowsActions ?? windowsSystemActions)
+            : profile.actions
         return actions.first { if case .voiceHero = $0 { return true }; return false }
     }
 

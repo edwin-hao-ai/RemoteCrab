@@ -41,7 +41,14 @@ struct AppSwitcherView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !engine.windowsCanCapture && !engine.macWindows.isEmpty {
+            // macOS-only. Screen Recording is a TCC permission that does not
+            // exist on Windows, so on a PC this hint can only ever be wrong
+            // — it would tell the user to grant a permission their computer
+            // has no concept of. Windows reports `canCapture` honestly
+            // (`windows.rs`: it is true only once real thumbnails exist), so
+            // a false there means "no pixels yet", which the empty state
+            // already covers.
+            if !engine.connectedIsWindows && !engine.windowsCanCapture && !engine.macWindows.isEmpty {
                 permissionHint
                     .padding(.horizontal, IBSpace.l.pt)
                     .padding(.top, IBSpace.s.pt)
@@ -56,7 +63,11 @@ struct AppSwitcherView: View {
 
                     if orderedWindows.isEmpty {
                         ContentUnavailableView {
-                            Label(IBLocale.Switcher.empty, systemImage: "macwindow.on.rectangle")
+                            Label(IBLocale.Switcher.empty,
+                                  // `macwindow.on.rectangle` is a Mac window;
+                                  // a Windows user has no such thing.
+                                  systemImage: engine.connectedIsWindows
+                                      ? "rectangle.grid.2x2" : "macwindow.on.rectangle")
                         } description: {
                             Text(IBLocale.Switcher.hint)
                         }
