@@ -33,7 +33,7 @@ import Foundation
 
 enum AudioSessionProbe {
     private static let logTag = "[audiosession]"
-    private static var hasRun = false
+    nonisolated(unsafe) private static var hasRun = false
 
     /// True when the app declares `UIBackgroundModes: [audio]` — read from the
     /// real Info.plist rather than assumed, because it is the variable that
@@ -44,6 +44,18 @@ enum AudioSessionProbe {
     }
 
     static func runIfRequested() {
+        // Log unconditionally in DEBUG. This hook's first failure mode was
+        // completely silent — nothing in the log at all — which cannot tell
+        // "never called" apart from "called, flag missing" apart from "the
+        // Task never ran". One line decides between those three.
+        #if DEBUG
+        let seen = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUDIOSESSION"] ?? "<absent>"
+        let all = ProcessInfo.processInfo.environment
+            .filter { $0.key.hasPrefix("REMOTECRAB") }
+            .map { $0.key + "=" + $0.value }
+            .sorted().joined(separator: " ")
+        log("hook called flag=" + seen + " remotecrabEnv=[" + all + "]")
+        #endif
         guard ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUDIOSESSION"] == "1" else { return }
         guard !hasRun else { return }
         hasRun = true
@@ -66,7 +78,7 @@ enum AudioSessionProbe {
         let active = (try? s.isOtherAudioPlaying) ?? false
         return "cat=\(s.category.rawValue) mode=\(s.mode.rawValue) "
             + "rate=\(s.sampleRate) outCh=\(s.outputNumberOfChannels) "
-            + "outRoute=\(s.outputRoute.portName.rawValue) otherAudioPlaying=\(active)"
+            + "outPorts=\(s.currentRoute.outputs.count) otherAudioPlaying=\(active)"
     }
 
     private static func logState(_ name: String, _ s: AVAudioSession) {
@@ -149,7 +161,9 @@ enum AudioSessionProbe {
             for c in 0..<Int(format.channelCount) {
                 memset(silence.floatChannelData![c], 0, Int(silence.frameLength) * MemoryLayout<Float>.size)
             }
-            player.scheduleBuffer(silence, at: nil, options: .loops)
+            // The no-completion-handler overload resolves to an `async`
+            // variant on this SDK; name the callback form explicitly.
+            player.scheduleBuffer(silence, at: nil, options: .loops) { }
             player.play()
             try? await Task.sleep(for: .milliseconds(500))
             playerRunning = player.isPlaying

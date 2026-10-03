@@ -237,9 +237,10 @@ so a cross-reference from another lesson still resolves.
     it made `AVCaptureSession` manage the app's audio session and fight
     `MicrophoneEncoder`. Removed it and set
     `automaticallyConfiguresApplicationAudioSession = false`.
-    (b) The mic activated `.playAndRecord`; with the background mode
-    declared iOS rejects that activation. It now uses `.record` (the mic
-    only records; `VoiceRecognizer` always used `.record` too).
+    (b) The mic activated `.playAndRecord`; ~~with the background mode
+    declared iOS rejects that activation~~ **this half was WRONG — see
+    lesson 123.** It now uses `.record` (the mic only records;
+    `VoiceRecognizer` always used `.record` too).
     Isolation method that settled it: run the e2e with the keep-alive
     forced off, and with `UIBackgroundModes` removed, to separate the
     three variables. With the mode present the app is NOT suspended when
@@ -540,3 +541,43 @@ so a cross-reference from another lesson still resolves.
     **完整的修饰键掩码**（`modifierMask | extra`）。我的测试掩码漏了 bit 8
     （command，正是变成 Ctrl 的那位），于是误报了。**掩码常量必须从
     `TouchEvent.Modifier` 抄，不要手写。**
+
+123. **Lesson 50(b) was wrong: `UIBackgroundModes: [audio]` does NOT break
+     `.playAndRecord`. Measured on iPhone 14 / iOS 26, 2026-10-04 (lesson
+     123 supersedes 50(b)).** The `AudioSessionProbe` e2e hook
+     (`REMOTECRAB_E2E_AUDIOSESSION=1`) walks the session claims and reports
+     each `setCategory` / `setActive` separately, so a failure names WHICH
+     call failed. With the background mode **declared and read out of the
+     real Info.plist** (`bgAudioDeclared=true`):
+
+     ```
+     claim record-from-clean        setCat=ok setActive=ok
+     claim playback-from-record     setCat=ok setActive=ok   ← mic → speaker
+     player silent-loop isPlaying=true
+     claim record-from-playback     setCat=ok setActive=ok   ← speaker → mic
+     claim playAndRecord-from-clean setCat=ok setActive=ok   ← **works**
+     END steps=5 failures=0
+     ```
+
+     So the real cause of 561017449 was **(a) alone** —
+     `AVCaptureDeviceInput(audio)` making `AVCaptureSession` manage the app's
+     session — and (a) was already fixed with
+     `automaticallyConfiguresApplicationAudioSession = false`. The mic uses
+     `.record` because *the mic only records*, which is still the right
+     choice; but the **stated reason was wrong**, and it cost a real
+     decision: "mic and speaker cannot coexist" was believed to be an
+     audio-session impossibility when it is not. Coexistence's real obstacle
+     is **echo** (the phone mic hears the phone speaker), which wants
+     `setVoiceProcessingEnabled`, not a different category.
+
+     Two things generalise:
+     * **A/B'd fixes that ship together were never isolated.** 50's own
+       "isolation method" paragraph says the three variables were separated
+       by *removing* things — which shows (a) mattered, and says nothing
+       about (b). A conclusion needs a run where only (b) is present.
+     * **An API constraint nobody likes is still a constraint until measured.**
+       "iOS forbids this" was inherited as fact through several sessions.
+
+     What the probe does NOT yet prove: two live `AVAudioEngine`s (mic input +
+     speaker output) running at once under `.playAndRecord`, which is a
+     different test.
