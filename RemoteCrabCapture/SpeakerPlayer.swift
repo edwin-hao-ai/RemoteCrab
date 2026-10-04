@@ -74,11 +74,24 @@ final class SpeakerPlayer {
     private var energyCount: Int = 0
     private var diagnosticPackets = 0
 
+    /// **PLANAR**, and that is not a preference.
+    ///
+    /// This was declared `interleaved: true`, which is wrong twice over.
+    /// `AVAudioPlayerNode` renders in the planar layout natively and converts
+    /// from whatever it is handed, so an interleaved format bought nothing and
+    /// cost measurable latency — the device sat at `queued=9` (≈200 ms) with
+    /// `starved` still climbing. And it invited the bug this file's tests now
+    /// pin: on an interleaved buffer `int16ChannelData[0]` and
+    /// `int16ChannelData[1]` are 2 bytes apart, so the natural-looking
+    /// `planes[ch][frame]` write has each right-channel sample overwritten by
+    /// the next left-channel one — one channel at double speed, the other
+    /// gone. `SpeakerPCMWriter` handles either layout, so nothing here has to
+    /// remember which is which.
     init() {
         format = AVAudioFormat(commonFormat: .pcmFormatInt16,
                                sampleRate: Self.sampleRate,
                                channels: AVAudioChannelCount(Self.channels),
-                               interleaved: true)
+                               interleaved: false)
             ?? AVAudioFormat(standardFormatWithSampleRate: Self.sampleRate,
                              channels: AVAudioChannelCount(Self.channels))!
     }
@@ -126,6 +139,7 @@ final class SpeakerPlayer {
         player.play()
 
         resetRing()
+        lastVerifiedPair = nil
         packetsEnqueued = 0
         packetsScheduled = 0
         silencePacketsScheduled = 0
@@ -292,28 +306,42 @@ final class SpeakerPlayer {
     private func schedule(silence: Bool) {
         guard !ring.isEmpty,
               let buffer = AVAudioPCMBuffer(pcmFormat: format,
-                                           frameCapacity: AVAudioFrameCount(SpeakerPlayer.framesPerPacket)),
-              let dst = buffer.int16ChannelData else { return }
+                                           frameCapacity: AVAudioFrameCount(SpeakerPlayer.framesPerPacket))
+        else { return }
         buffer.frameLength = AVAudioFrameCount(SpeakerPlayer.framesPerPacket)
 
-        let channelCount = Int(format.channelCount)
         let frameCount = SpeakerPlayer.framesPerPacket
+        // The format is INTERLEAVED (see `init`), so `int16ChannelData[ch][f]`
+        // is the planar idiom and the two channel pointers sit 2 bytes apart:
+        // writing L and R through them overwrites one with the other. That
+        // was the sharp, thin, noisy sound — one channel at double speed and
+        // the other gone. `SpeakerPCMWriter` is layout-correct; this is the
+        // only place samples reach the player.
+        let interleaved = format.isInterleaved
 
         if silence || bufferedFrames < frameCount {
-            for channel in 0..<channelCount {
-                memset(dst[channel], 0, frameCount * MemoryLayout<Int16>.size)
-            }
+            SpeakerPCMWriter.silence(buffer, frames: frameCount, interleaved: interleaved)
             silencePacketsScheduled += 1
         } else {
             let available = min(bufferedFrames, frameCount)
-            for frame in 0..<frameCount {
+            var left = [Int16](repeating: 0, count: frameCount)
+            var right = [Int16](repeating: 0, count: frameCount)
+            for frame in 0..<available {
                 let ringFrame = Int((readFrame + frame) % capacityFrames)
-                let audible = frame < available
-                for channel in 0..<min(channelCount, SpeakerPlayer.channels) {
-                    dst[channel][frame] = audible
-                        ? ring[ringFrame * SpeakerPlayer.channels + channel]
-                        : 0
-                }
+                left[frame] = ring[ringFrame * SpeakerPlayer.channels]
+                right[frame] = ring[ringFrame * SpeakerPlayer.channels + 1]
+            }
+            SpeakerPCMWriter.fill(buffer, frames: frameCount,
+                                  interleaved: interleaved,
+                                  left: left, right: right)
+            // Read the first frame back out of the buffer we just filled. This
+            // is the check the receive-side energy counter cannot make: it
+            // proves the two channels landed in two places, in the layout the
+            // engine actually gave us, rather than one overwriting the other.
+            if let planes = buffer.int16ChannelData, available > 0 {
+                lastVerifiedPair = interleaved
+                    ? (planes[0][0], planes[0][1])
+                    : (planes[0][0], planes[1][0])
             }
             if available < frameCount { starvedDrops += 1 }
             readFrame += available
@@ -358,6 +386,29 @@ final class SpeakerPlayer {
         pump(SpeakerSchedule.onTick(bufferedFrames: bufferedFrames,
                                     pendingPlayback: pendingPlayback,
                                     framesPerPacket: SpeakerPlayer.framesPerPacket))
+    }
+
+    /// What the last packet put into the buffer, read back from the buffer.
+    ///
+    /// The receive-side `receivedRms` cannot see this class of bug: the
+    /// packets arriving from the Mac are correct interleaved stereo and the
+    /// corruption happened on the way into the audio buffer.
+    ///
+    /// Reading it back is enough, and it is done on the calling (main) thread
+    /// rather than through an `installTap` — a tap on the audio thread crashed
+    /// the app with SIGTRAP here, and a diagnostic that can take the feature
+    /// down has no business existing for a temporary measurement.
+    private var lastWrittenL: Int16 = 0
+    private var lastWrittenR: Int16 = 0
+    private var lastVerifiedPair: (Int16, Int16)?
+
+    /// A one-line, human-readable verdict on the channel layout actually used.
+    var playbackQualityText: String {
+        guard let pair = lastVerifiedPair else { return "outL=0 outR=0 skew=0.000 NOT-YET-WRITTEN" }
+        // A real source differs between channels; identical channels mean the
+        // "left at double speed, right discarded" shape, whatever the level.
+        let identical = pair.0 == pair.1 ? "MONO-OR-SCRAMBLED" : "STEREO-OK"
+        return "outL=\(Int(pair.0)) outR=\(Int(pair.1)) \(identical)"
     }
 
     /// Play a short two-tone confirmation through the phone's speaker.
