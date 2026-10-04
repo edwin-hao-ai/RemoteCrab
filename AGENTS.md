@@ -399,7 +399,7 @@ buffering. The parser refuses frames larger than 64 MiB
 
 ### Speaker mode — 用 iPhone 当音箱（WIP，协议就绪，声音还没出来）
 
-**状态：界面和数据都通了，但听到的是静音。** 缺陷已精确定位。
+**状态：已通，用户在 iPhone 上亲耳验收（`pcmRms=1965 pcmPeak=8856`）。**
 细节与 Windows 交接见 `docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md`。
 
 * **形态**：麦克风按钮点开是一个**两个独立开关**的下拉菜单（麦克风 / 扬声器，
@@ -413,10 +413,12 @@ buffering. The parser refuses frames larger than 64 MiB
   而且**零编解码延迟**。
 * **Mac 采集**：`SystemAudioTap`（CoreAudio process tap，不装驱动、不改默认输出
   设备、断开自愈）。实测抓到真实声音（rms=1989 peak=8856）。
-* **🔒 未解决**：`takePacket()` 从环形缓冲读出全零 → `speaker packet: rms=0` 与
-  `speaker tap level: rms=1989` 同一时刻并存。实时线程和 pump 线程都在写
-  `readIndex`（lesson 125）。**先在 Mac 上修对再写 Windows 版**，否则同一个 bug
-  会写两遍。
+* **踩过的坑（读的时候注意）**：我一度断定「包全是零」，因为手机的 `pcmRms` 一直打印 0 ——
+  **那个测量代码根本没在跑**（属性声明活着，喂它的代码被一次并发编辑覆盖掉了）。
+  属性还活着、代码没了，所以文件照样编译、看起来照样完整。lesson 126。
+* **`readIndex` 曾被两个线程同时写**（实时回调 + pump），已改成每个索引一个写者。
+  这个竞态是真的，**但无法证明它就是当时听不到声音的原因** —— 那时我看到的零本身就是
+  坏掉的测量。别把它当成已验证的修复。
 * **Windows**：协议已就绪，采集未实现；iOS 端故意隐藏入口。`echo` 关掉
   `speakerAvailable = !engine.connectedIsWindows` 即可打开。
 * **iOS 权限已实测通过**（iPhone 14 / iOS 26，5 步 0 失败）：麦克风↔扬声器交接

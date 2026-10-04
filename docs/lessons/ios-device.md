@@ -581,3 +581,35 @@ so a cross-reference from another lesson still resolves.
      What the probe does NOT yet prove: two live `AVAudioEngine`s (mic input +
      speaker output) running at once under `.playAndRecord`, which is a
      different test.
+
+126. **A property that outlived the code that fed it is worse than a missing
+     one: the file still compiles and still looks complete (2026-10-04).**
+     `SpeakerPlayer` had `receivedRms`, `receivedPeak` and an `envelope`
+     buffer declared, and an `enqueue` that measured **nothing** — it appended
+     the packet, incremented the counter and returned. A concurrent session's
+     edit had removed the body while leaving the declarations.
+
+     So every run printed `pcmRms=0` and an empty envelope, and I read that as
+     "the phone receives silence" — then spent a long time diagnosing the
+     codec, the transport and the ring buffer on the strength of it. The
+     feature had been working the whole time; the user proved it by listening
+     to it.
+
+     The tell was available the whole time and I misread it: **`enqueued` was
+     climbing while the envelope printed as an empty string**, and a property
+     that grows on every packet cannot print empty unless the code appending to
+     it is not executing. Two numbers disagreeing was evidence about the
+     *instrument*, not about the *signal*.
+
+     Rules this earned:
+     * **When two measurements contradict each other, suspect the
+       instrumentation before the data.** "The meter reads zero" and "the thing
+       is off" are different claims, and I took the second.
+     * **A declaration surviving an edit tells you nothing about the code
+       around it.** Swift will not warn that a `private(set) var` is never
+       assigned; it is only "unused" if nothing ever reads it either.
+     * **Concurrently edited files make every measurement suspect.** When
+       another session is committing in the same tree, a number that disagrees
+       with theory is more likely to be a stale or partial build than a bug —
+       and that is checkable: build into a dedicated derived-data path and
+       assert on a marker string only the current build contains.
