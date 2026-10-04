@@ -2893,7 +2893,7 @@ final class CaptureEngine: ObservableObject {
                     // 20 ms x 50 = every second. This is the line that proves
                     // audio actually moved, rather than the control merely
                     // reporting itself as on.
-                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops)")
+                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pcmPeak=\(self.speakerPlayer.receivedPeak)")
                 }
             }
         }

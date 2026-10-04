@@ -53,6 +53,14 @@ final class SpeakerPlayer {
     private(set) var packetsScheduled = 0
     private(set) var silencePacketsScheduled = 0
     private(set) var starvedDrops = 0
+    /// Signal energy of everything received, and the peak sample. Without
+    /// these, "packets arrived" and "audible sound arrived" look identical —
+    /// a run where the Mac's system output is digital silence passes every
+    /// packet-count assertion while the user hears nothing.
+    private(set) var receivedRms: Double = 0
+    private(set) var receivedPeak: Int = 0
+    private var energySum: Double = 0
+    private var energyCount: Int = 0
 
     init() {
         format = AVAudioFormat(commonFormat: .pcmFormatInt16,
@@ -104,6 +112,10 @@ final class SpeakerPlayer {
         packetsScheduled = 0
         silencePacketsScheduled = 0
         starvedDrops = 0
+        receivedRms = 0
+        receivedPeak = 0
+        energySum = 0
+        energyCount = 0
         isRunning = true
         os_log("speaker player started", Self.log)
     }
