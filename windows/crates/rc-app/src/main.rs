@@ -309,8 +309,10 @@ async fn main() -> ExitCode {
 
     // Video preview: decode in this task, blit from the window thread. The
     // virtual camera consumes the same decoded frames, so the decoder is also
-    // needed when only `--vcam` is on (e.g. `--no-preview --vcam`).
-    let mut preview: Option<rc_render::PreviewPipeline> = if args.preview || args.vcam {
+    // needed when only `--vcam` is on (e.g. `--no-preview --vcam`), and when
+    // only `--decode-only` is on. `Args::decode_pipeline_needed` owns that
+    // question so it cannot drift from the flag's meaning again.
+    let mut preview: Option<rc_render::PreviewPipeline> = if args.decode_pipeline_needed() {
         match rc_render::PreviewPipeline::new() {
             Ok(p) => Some(p),
             Err(e) => {
@@ -595,6 +597,23 @@ async fn main() -> ExitCode {
                                 }
                                 if let Some(p) = preview.as_mut() {
                                     if p.push(&nal) {
+                                        // `--decode-only` has no window and no
+                                        // virtual camera, so nothing else would
+                                        // ever say whether a single frame came
+                                        // out. This line is the entire point of
+                                        // the mode, and it carries numbers a
+                                        // harness can assert on rather than a
+                                        // "looks fine".
+                                        if args.decode_only
+                                            && p.frames_decoded().is_multiple_of(150)
+                                        {
+                                            println!(
+                                                "  decode: {} frames ({}x{})",
+                                                p.frames_decoded(),
+                                                p.latest().map_or(0, |f| f.width),
+                                                p.latest().map_or(0, |f| f.height)
+                                            );
+                                        }
                                         // One shared handle, two consumers. Both
                                         // of the `clone()`s this used to do were
                                         // deep copies of an 8.3 MB buffer, per

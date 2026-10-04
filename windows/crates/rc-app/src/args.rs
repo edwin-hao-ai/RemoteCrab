@@ -18,18 +18,19 @@ pub struct Args {
     pub vcam_selftest: bool,
     pub preview: bool,
     pub no_preview: bool,
+    /// Decode the H.264 stream and report frame counts, with no window.
+    ///
+    /// Exists because decoding and displaying were welded together: `main`
+    /// built the pipeline `if args.preview || args.vcam`, so there was no way
+    /// to run the media path on a machine that cannot open a window. That is
+    /// the macOS-hosted parity run — `minifb` cannot create a Cocoa window
+    /// there and aborts the whole process with "Rust cannot catch foreign
+    /// exceptions", which is exactly what it does.
+    pub decode_only: bool,
     pub scan: bool,
     pub unmute: bool,
     pub record: bool,
     pub version: bool,
-    /// One-shot: capture this PC's system audio for a couple of seconds and
-    /// report what arrived, then exit.
-    ///
-    /// NOT behind the `selftest` feature, deliberately: the question it answers
-    /// — "does WASAPI loopback actually hear anything on *this* machine" — can
-    /// only be answered by the shipping binary on the user's own hardware, and a
-    /// diagnostic you have to rebuild to run is a diagnostic nobody runs.
-    pub speaker_probe: bool,
     /// One-shot, elevated: register the virtual camera's COM source, exit.
     /// Reached two ways — the tray's `runas`, and typed by a user who self-elevates.
     pub install_vcam: bool,
@@ -77,6 +78,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--selftest" => args.selftest = true,
             "--preview-selftest" => args.preview_selftest = true,
             "--preview" => args.preview = true,
+            "--decode-only" => args.decode_only = true,
             "--no-preview" => args.no_preview = true,
             "--scan" => {
                 args.scan = true;
@@ -91,7 +93,6 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--version" | "-V" => args.version = true,
-            "--speaker-probe" => args.speaker_probe = true,
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
@@ -116,11 +117,30 @@ fn parse_args_from(raw: &[String]) -> Args {
         print_help();
         std::process::exit(0);
     }
-    // The preview window opens by default; `--no-preview` is the opt-out.
-    if !args.no_preview {
+// The preview window opens by default; `--no-preview` is the opt-out.
+// `--decode-only` is an opt-out too, and that is the whole point of it: a
+// mode called "decode only" that also opens a window is not decode-only, and
+// on a machine with no display the window is the thing that kills the
+// process. Passing `--decode-only --preview` explicitly still opens it —
+// an explicit request wins over a default.
+if !args.no_preview && !args.decode_only {
         args.preview = true;
     }
     args
+}
+
+impl Args {
+    /// Whether the H.264 decode pipeline should run.
+    ///
+    /// Deliberately separate from `preview`. Two consumers want decoded
+    /// frames — the preview window and the virtual camera — and now a third:
+    /// a headless run that only needs to know the frames decode. Deriving
+    /// this from `preview` is what made `--no-preview` also mean "do not
+    /// decode", which silently removed the media path from every
+    /// machine without a display.
+    pub fn decode_pipeline_needed(&self) -> bool {
+        self.preview || self.vcam || self.decode_only
+    }
 }
 
 #[cfg(test)]
@@ -142,6 +162,46 @@ mod arg_tests {
     fn the_preview_window_is_on_unless_opted_out() {
         assert!(args(&[]).preview, "preview is the default");
         assert!(!args(&["--no-preview"]).preview);
+    }
+
+    /// `--decode-only` exists because the decode pipeline and the preview
+    /// window were welded together: `main` built the pipeline
+    /// `if args.preview || args.vcam`, so there was no way to run the media
+    /// path on a machine that cannot open a window. That is exactly the
+    /// macOS-hosted parity run — `minifb` cannot create a Cocoa window
+    /// there and aborts the process with "Rust cannot catch foreign
+    /// exceptions", taking the whole receiver with it.
+    ///
+    /// The invariant these two tests carry: **decoding and displaying are
+    /// separate decisions.** A caller can verify frames decode without a
+    /// display, and asking for no display must not silently stop decoding.
+    #[test]
+    fn decode_only_decodes_without_opening_a_window() {
+        let a = args(&["--decode-only"]);
+        assert!(a.decode_only, "the flag is parsed");
+        assert!(!a.preview, "and it must NOT imply a window");
+        assert!(
+            Args::decode_pipeline_needed(&a),
+            "the decode pipeline is exactly what this mode is for"
+        );
+    }
+
+    /// The inverse must hold too, or `--decode-only` would be a
+    /// `--no-preview` in disguise and the two flags would be
+    /// indistinguishable at the call site.
+    #[test]
+    fn decode_only_is_not_the_same_thing_as_no_preview() {
+        let quiet = args(&["--no-preview"]);
+        assert!(!Args::decode_pipeline_needed(&quiet));
+        assert!(!quiet.decode_only);
+    }
+
+    #[test]
+    fn vcam_still_decodes_even_with_no_window() {
+        // Pre-existing behaviour, pinned: the virtual camera is the second
+        // consumer of decoded frames.
+        let a = args(&["--vcam", "--no-preview"]);
+        assert!(Args::decode_pipeline_needed(&a));
     }
 
     #[test]

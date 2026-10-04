@@ -142,9 +142,31 @@ impl Scenario {
     }
 }
 
+/// Opt the fake phone into streaming **real** H.264 (`rc_testkit::encode_test_video`
+/// uses OpenH264's encoder), which is what makes the receiver's decode path
+/// verifiable without a phone.
+///
+/// Both fields or neither: the stream branch is
+/// `cfg.stream_video && cfg.video_frames > 0`, so setting one alone produces no
+/// video and no error.
+fn with_video(mut c: rc_testkit::FakeIphoneConfig, video: Option<usize>) -> rc_testkit::FakeIphoneConfig {
+    match video {
+        Some(n) if n > 0 => {
+            c.stream_video = true;
+            c.video_frames = n;
+        }
+        _ => {}
+    }
+    c
+}
+
 struct Args {
     port: u16,
     scenario: Scenario,
+    /// NALs of real H.264 to stream. `None` = none, which is the default
+    /// because most of what this fake phone tests is the handshake and the
+    /// reconnect loop, not the codec.
+    video: Option<usize>,
     /// Stop after this many frames the receiver sent, so a run ends on its own
     /// instead of hanging until someone interrupts it.
     max_frames: Option<usize>,
@@ -155,6 +177,7 @@ fn parse_args() -> Result<Args, String> {
     let mut port = 8765u16;
     let mut scenario = Scenario::Normal;
     let mut max_frames = None;
+    let mut video = None;
     let mut seconds = None;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -173,6 +196,14 @@ fn parse_args() -> Result<Args, String> {
                         "unknown scenario {s:?} (normal/pending/denied/busy/silent/no-token/drop)"
                     )
                 })?;
+            }
+            "--video" => {
+                video = Some(
+                    it.next()
+                        .ok_or("--video needs a number")?
+                        .parse()
+                        .map_err(|_| "--video needs a number".to_string())?,
+                );
             }
             "--frames" => {
                 max_frames = Some(
@@ -193,7 +224,7 @@ fn parse_args() -> Result<Args, String> {
             "--help" | "-h" => {
                 println!(
                     "rc-phone-sim — a fake iPhone for testing the receiver\n\n\
-                     USAGE:\n    rc-phone-sim [--port N] [--scenario NAME] [--frames N] [--seconds N]\n\n\
+                     USAGE:\n    rc-phone-sim [--port N] [--scenario NAME] [--video N] [--frames N] [--seconds N]\n\n\
                      SCENARIOS:\n\
                        normal     accepts, sends metadata, echoes pings (default)\n\
                        pending    answers pending once, then accepted\n\
@@ -202,7 +233,7 @@ fn parse_args() -> Result<Args, String> {
                        silent     accepts, then sends nothing at all\n\
                        no-token   accepts but issues no pairing token\n\
                        drop       accepts, then hangs up mid-stream\n\n\
-                     NOTE: no scenario sends decodable video (the testkit emits synthetic\n    bytes, not H.264). For the real decode path use\n    `remotecrab.exe --vcam-selftest`, or a real phone.\n\n    THEN, in another shell:\n    remotecrab.exe --connect 127.0.0.1:{port}\n"
+                     NOTE: no scenario streams video by default -- not because the\n    testkit emits synthetic bytes (it emits REAL H.264 via OpenH264), but\n    because the default config leaves the stream branch off. Pass\n    `--video N` to switch it on, or use `remotecrab.exe --vcam-selftest`.\n\n    THEN, in another shell:\n    remotecrab.exe --connect 127.0.0.1:{port}\n"
                 );
                 std::process::exit(0);
             }
@@ -212,6 +243,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         port,
         scenario,
+        video,
         max_frames,
         seconds,
     })
@@ -238,7 +270,7 @@ fn main() {
     };
 
     runtime.block_on(async move {
-        let phone = FakeIphone::start_on(args.scenario.config(), args.port).await;
+        let phone = FakeIphone::start_on(with_video(args.scenario.config(), args.video), args.port).await;
         let mut phone: FakeIphone = match phone {
             Ok(p) => p,
             Err(e) => {
@@ -334,4 +366,56 @@ fn main() {
 
         println!("rc-phone-sim: {seen} frame(s) from the receiver, {pings} ping(s)");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The fake phone could not stream video at all: `Normal` sets
+    /// `stream_video: false, video_frames: 0`, and only `Drop` turned video on
+    /// (for 60 frames, dropping at 5). So the receiver's decode path could not
+    /// be exercised without a real phone — which is why `--decode-only` had no
+    /// way to be verified on the machine that runs the harness.
+    ///
+    /// `--video N` is the opt-in. It must set **both** fields: `video_frames`
+    /// alone is inert because the stream branch is guarded by
+    /// `cfg.stream_video && cfg.video_frames > 0`, and a half-set pair fails
+    /// silently — no video, no error, and a receiver that looks healthy.
+    #[test]
+    fn video_flag_turns_on_both_halves_of_the_pair() {
+        let c = with_video(FakeIphoneConfig::default(), Some(300));
+        assert!(c.stream_video, "the guard is `stream_video && video_frames > 0`");
+        assert_eq!(c.video_frames, 300);
+    }
+
+    #[test]
+    fn no_video_flag_streams_nothing() {
+        let c = with_video(FakeIphoneConfig::default(), None);
+        assert!(!c.stream_video);
+        assert_eq!(c.video_frames, 0);
+    }
+
+    /// `--video 0` is not "stream forever", it is the same as not asking:
+    /// `encode_test_video` is called up front and materialises every NAL in
+    /// memory, so an unbounded count is not free.
+    #[test]
+    fn zero_frames_is_the_same_as_not_asking() {
+        let c = with_video(FakeIphoneConfig::default(), Some(0));
+        assert!(!c.stream_video);
+        assert_eq!(c.video_frames, 0);
+    }
+
+    /// A scenario that already streams keeps its own count when `--video` is
+    /// absent — `Drop` depends on `drop_after_frames: Some(5)` matching inside
+    /// the video branch, so silently zeroing it would change what `Drop` tests.
+    #[test]
+    fn an_explicit_flag_overrides_a_scenario_that_already_streams() {
+        let drop = Scenario::Drop.config();
+        assert!(drop.stream_video, "precondition: Drop streams video");
+        let drop_after = drop.drop_after_frames;
+        let c = with_video(drop, Some(600));
+        assert_eq!(c.video_frames, 600);
+        assert_eq!(c.drop_after_frames, drop_after, "and leaves the rest alone");
+    }
 }
