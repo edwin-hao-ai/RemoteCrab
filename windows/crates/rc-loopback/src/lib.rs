@@ -216,6 +216,7 @@ pub struct LoopbackCapture {
     mute_broke_audio: bool,
 }
 
+#[cfg(windows)]
 impl LoopbackCapture {
     pub fn new() -> Self {
         Self {
@@ -391,6 +392,10 @@ impl LoopbackCapture {
     }
 }
 
+/// Windows-gated because the constructor is: on any other target this struct
+/// is the refusal stub above, which has no capture to construct. `Drop` is not
+/// gated — it only needs `stop`, which both impls have.
+#[cfg(windows)]
 impl Default for LoopbackCapture {
     fn default() -> Self {
         Self::new()
@@ -466,6 +471,14 @@ mod tests {
         assert!(MuteBehaviour::MuteLocal.is_muting());
     }
 
+    /// Windows-only, and that is the point: it asserts the state of a real
+    /// `LoopbackCapture` before `start`. Off Windows there is no capture
+    /// object to make that claim about — the stub refuses to start and has no
+    /// constructor — so running it there would assert against a fiction.
+    ///
+    /// What *is* platform-neutral and does run everywhere is the ring, the
+    /// sample conversion and the mute A/B, in the sibling modules.
+    #[cfg(windows)]
     #[test]
     fn a_capture_that_never_started_reports_no_audio_rather_than_a_zero() {
         let mut c = LoopbackCapture::new();
