@@ -1,12 +1,13 @@
-# Handoff: Windows MSI packaging + virtual camera
+# Handoff: Windows receiver — install, camera, and the unresolved corruption
 
-> Unrelated to the website handoff that used to be the only `HANDOFF.md`; that
-> one is kept as-is. This is the Windows release thread.
+> **Read this first.** Windows session, 2026-10-03 → 2026-10-04. Everything in
+> "Done" was measured on this machine. The corruption at the bottom is **not
+> solved** and the forensics probe that will solve it has never produced a
+> verdict, because the phone kept refusing the connection.
 
-- Repo: `E:\RemoteCrab`, branch `main`, no worktree
-- Last pushed: `792da15` — "The manifest had never been built. Six defects…"
-- Tree clean and in sync with origin at time of writing.
-- Date: 2026-10-03
+- Repo: `E:\RemoteCrab`, branch `main`
+- Last commit at handoff: `dd74571`, in sync with origin, tree clean
+- Windows: 34 test suites green, clippy `-D warnings` clean
 
 ## Done
 
@@ -46,7 +47,61 @@
 - [x] The MSI is **unsigned**, so `verify` still exits nonzero. That is correct,
       not a bug. See the SmartScreen note below.
 
-## Known remaining friction
+## ⛔ 未解决：预览窗口花屏（本次 session 的主要遗留）
+
+用户截图（`RemoteCrab Preview — 1080x1920`）：**沿高对比边缘的彩色噪点 + 周期性横向条带**，
+画面内容仍可辨认。这是**低码率 H.264** 的典型形态，不是渲染问题该有的样子。
+
+**根因尚未确定。** 已经**证实**的：
+
+- `CaptureEngine.bitrateFor` = 0.1 bit/pixel，线上实测 `6220 kbps`
+  （`1920×1080×30×0.1` 精确吻合，接收端独立打印过这个数）
+- 编码器延迟配置正确：`RealTime: true` + `AllowFrameReordering: false`
+- Windows 侧是 latest-wins 双缓冲、无队列，**不加延迟**
+
+**只是读代码排除的（不算定论）**：渲染竞争（`FrameSlot` 是 Mutex，拷贝原子）、
+stride 不匹配（用 openh264 自己的 `write_rgba8`）。
+
+**拿到判决的方法**（工具已写好，一次命令）：
+
+```sh
+cd windows
+cargo run --release -p rc-render --example vcam_forensics -- \
+    --connect 192.168.31.148:8765 --seconds 25
+```
+
+- `harsh horizontal > 8%` → 像素已坏 → 坏在上游（码率）
+- `harsh horizontal < 2%` → 像素健康 → **坏在渲染**，回来查
+  `rc-render/src/window.rs:81` 的 `update_with_buffer(&buffer, …)` 指针生命周期
+
+iOS 侧的改法已经写进 [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QUALITY.md)
+（`0.1 → 0.15` 系数 + `MaxKeyFrameInterval: fps → fps * 2`）。**不要在 Windows 侧改。**
+
+### 每次跑取证都失败的原因（不要重复踩）
+
+| 症状 | 真实原因 |
+|---|---|
+| `sessionReply: Busy` | **Mac 接收端占着手机**。它会自动重连抢回去，必须在 Mac 上**退出**应用而不只是"断开连接" |
+| `sessionReply: Pending` | 取证工具是**手工握手**，手机会把它当新电脑，要单独批准 |
+| `ping 通但 8765 无响应` | 手机在网内（ARP 有 `42-64-27-b1-92-be`）但 **iOS listener 没启动**。疑似 iOS 侧静默失败，见下 |
+
+### 顺带发现，尚未修（都不确定是否在你这里发生过）
+
+1. **iOS 侧 listener 静默不启动。** 手机 IP 正确、ping 通、二层可达，但 8765
+   无任何监听，且 iOS 侧似乎不报错。若确认，这是本 session 发现的**第五处
+   "声称做了但实际没做"**，应加进 `docs/HANDOFF-IOS-QUALITY.md`。
+2. **`Parser::try_parse_next` 静默丢弃整个缓冲区。** 一个坏长度值会
+   `self.buffer.clear()`，把已收的完整帧一起丢掉，**且不计数、不上报**
+   （`crates/rc-protocol/src/wire.rs`）。这会造成**画面卡死**而非花屏，日志里
+   什么都没有。修法应当是丢弃到该帧为止、保留之前的帧、记一次计数。
+3. **`rc-render/src/window.rs:81` 的指针生命周期。** `update_with_buffer(&buffer, …)`
+   传切片，minifb 异步持有指针；下一轮若因尺寸变化 `buffer = vec![…]` 重分配，
+   minifb 可能正在读已释放内存。1080x1920 恒定所以当前不触发，但切分辨率就会。
+
+## Blocked — needs the user
+
+- [ ] **iPhone 保持在同一 WiFi、App 前台打开、摄像头开启**，然后让 Mac 接收端
+      **完全退出**（菜单栏 → RemoteCrab → 退出）。这是上面所有真机验证的前提。
 
 - [ ] **SmartScreen, not UAC, is the real install-time complaint.** An unsigned
       exe triggers "Windows protected your PC", which needs *More info* →
@@ -54,6 +109,39 @@
       already expect, and it cannot be removed by any amount of installer work —
       only a code signing certificate (OV ≈ $150–300/yr) clears it. Decide
       whether to buy one before any public distribution.
+
+## Done — verified on this machine
+
+Install and uninstall are both proven, not assumed:
+
+- [x] **Install**: `msiexec /i` + one UAC click, then the camera works with **zero
+      manual steps**. The MSI registers the CLSID itself (it is perMachine, so it
+      is already elevated — spending that on copying files while telling users to
+      open an admin PowerShell was the original defect).
+- [x] **Full chain**: installed exe + real iPhone → `vcam_consume` reports
+      `PASS — 11 samples with 34560 changing bytes`.
+- [x] **Uninstall, 9/9 checks**: CLSID · Program Files · ring file ·
+      ProgramData directory · HKCU Run · HKCU markers · Start Menu entry ·
+      product registration · `%APPDATA%\RemoteCrab` (which held `tokens.json`).
+- [x] **`--uninstall-vcam` is idempotent**: twice in a row, both `exit 0` and
+      "已清理干净".
+- [x] **`msiexec /f` self-heals a wrong CLSID**: deliberately pointed the
+      registration at the dev build, ran repair, and it was rewritten to the
+      installed path. So a user who ends up misregistered recovers without help.
+- [x] **No second elevation after install**: a non-admin process creates files in
+      `%ProgramData%\RemoteCrab`, and the self-test that published frames was
+      itself non-elevated.
+- [x] **Two registration bugs found by running**, not reading: a `runas`
+      recursion that prompted forever, and a "fix" that made a mismatched
+      registration **permanent** (nothing could re-register, including the process
+      holding the rights). Both fixed, both verified by reproducing first.
+- [x] **UX audit** (`rc-phone-sim`, seven fault scenarios): the tray no longer
+      claims "streaming" with zero frames, and an unexpected disconnect is now
+      reported. `drop` never dropped — empty arm. The tool's own docs claimed to
+      prove "video decode" while emitting synthetic bytes no decoder accepts.
+- [x] **`0x24 SpeakerAudio`** cannot be mistaken for video in dispatch — pinned
+      by a test, because an unknown byte falls through to `Video` and hands a JSON
+      payload to the H.264 decoder.
 
 ## Blocked — needs the user
 
