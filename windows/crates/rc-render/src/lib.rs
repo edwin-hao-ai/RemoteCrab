@@ -6,10 +6,15 @@
 //! is a thin shell so the pipeline stays testable headlessly.
 
 pub mod decoder;
-#[cfg(not(test))]
+pub mod pixels;
+// Not `#[cfg(not(test))]`. Nothing in here opens a window — `run_preview_window`
+// is the only function that needs a display, and no test calls it — but the cfg
+// meant `FrameSlot`, the piece the whole preview path hands frames through, had
+// no test at all. A module excluded from its own test build cannot be verified.
 pub mod window;
 
 pub use decoder::{H264PreviewDecoder, RgbaFrame};
+pub use window::FrameSlot;
 
 use rc_protocol::{NalFrame, NalKind};
 
@@ -17,7 +22,7 @@ use rc_protocol::{NalFrame, NalKind};
 /// window can redraw at its own pace.
 pub struct PreviewPipeline {
     decoder: H264PreviewDecoder,
-    latest: Option<RgbaFrame>,
+    latest: Option<std::sync::Arc<RgbaFrame>>,
     frames: u64,
     /// How many NALs were refused by the time the first frame came out.
     ///
@@ -49,7 +54,7 @@ impl PreviewPipeline {
             if self.frames == 0 {
                 self.warmup_refused = self.decoder.refused();
             }
-            self.latest = Some(frame);
+            self.latest = Some(std::sync::Arc::new(frame));
             self.frames += 1;
             true
         } else {
@@ -57,8 +62,21 @@ impl PreviewPipeline {
         }
     }
 
+    /// Borrowed view of the newest frame. Convenient for measuring or encoding
+    /// it, where the frame is not outliving this call anyway.
     pub fn latest(&self) -> Option<&RgbaFrame> {
-        self.latest.as_ref()
+        self.latest.as_deref()
+    }
+
+    /// An owned handle to the newest frame, cheap to clone.
+    ///
+    /// This is the one the live path wants. Handing the frame to both the
+    /// preview window and the virtual camera used to mean two deep copies of a
+    /// `width * height * 4` buffer — 8.3 MB at 1080x1920, per frame, per
+    /// consumer. A `clone()` on the `Arc` is a refcount bump, so both consumers
+    /// read the exact buffer the decoder just produced and nothing is copied.
+    pub fn latest_shared(&self) -> Option<std::sync::Arc<RgbaFrame>> {
+        self.latest.clone()
     }
 
     pub fn frames_decoded(&self) -> u64 {

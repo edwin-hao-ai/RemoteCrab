@@ -30,12 +30,23 @@
 //! feature toggles, the reconnect loop, and every code path in the binary that
 //! only runs once bytes are flowing.
 //!
-//! **Does not prove: video decoding.** `encode_test_video` emits synthetic
-//! bytes, not real H.264, so a decoder refuses every frame. No scenario sends
-//! decodable video, and the `streaming: 1080p` line you see comes from the
-//! metadata frame alone. This line used to claim the opposite ("video decode"),
-//! which is worse than a gap: a green run looked like the decode path was
-//! covered. Use `--vcam-selftest`, or a real phone, for that.
+//! **Does not prove: video decoding.** Not because the encoder is fake — it is
+//! not. `rc_testkit::encode_test_video` drives OpenH264's real encoder, so it
+//! emits decodable H.264, and `--preview-selftest` decodes it. This tool simply
+//! never asks for any: its config sets `stream_video: true` but
+//! `video_frames: 0`, and `FakeIphone` streams nothing at all when the count is
+//! zero. So the `streaming: 1080p` line you see comes from the metadata frame
+//! alone, with zero video NALs behind it.
+//!
+//! The previous version of this note blamed `encode_test_video` for emitting
+//! "synthetic bytes", which is false and was worth fixing for a second reason:
+//! a reader who believed it would conclude the *shared* testkit encoder was
+//! fake too, and would keep looking for a video path that already existed.
+//!
+//! This line used to claim the opposite ("video decode"), which is worse than a
+//! gap — a green run looked like the decode path was covered. For video use
+//! `--preview-selftest`, which runs the real encode → decode → window path, or
+//! a real phone.
 //!
 //! **Also does not prove:** anything about a real iOS encoder, a real camera,
 //! real notifications, real WiFi discovery, or the real app's UI. Those still

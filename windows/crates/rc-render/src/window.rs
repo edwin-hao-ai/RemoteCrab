@@ -1,4 +1,4 @@
-//! A minimal preview window (`minifb`) that blits the latest decoded frame.
+﻿//! A minimal preview window (`minifb`) that blits the latest decoded frame.
 //!
 //! Runs on the calling thread and returns when the user closes it or the
 //! app signals shutdown — the session runs on another thread, so the UI
@@ -13,21 +13,33 @@ use minifb::{Key, Window, WindowOptions};
 use crate::decoder::RgbaFrame;
 
 /// A thread-safe slot holding the most recent frame.
+///
+/// The frame is held behind an [`Arc`] on purpose. A 1080x1920 frame is 8.3 MB,
+/// and this slot has two readers on two threads: the decode task writes it ~30
+/// times a second and the window loop reads it up to 60. Holding the `RgbaFrame`
+/// directly meant a deep copy on **both** sides — roughly 750 MB/s of memcpy at
+/// live resolution, growing to 2 GB/s at 4K. An `Arc` clone is a refcount bump,
+/// so the window redraws from the same buffer the decoder just wrote.
+///
+/// The alternative, a single-producer/single-consumer ring, is the better design
+/// but it needs a real change to the ownership contract; this is the small step
+/// that removes the copying without pretending the design is finished.
 #[derive(Clone, Default)]
-pub struct FrameSlot(Arc<Mutex<Option<RgbaFrame>>>);
+pub struct FrameSlot(Arc<Mutex<Option<Arc<RgbaFrame>>>>);
 
 impl FrameSlot {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn set(&self, frame: RgbaFrame) {
+    pub fn set(&self, frame: Arc<RgbaFrame>) {
         if let Ok(mut slot) = self.0.lock() {
             *slot = Some(frame);
         }
     }
 
-    pub fn get(&self) -> Option<RgbaFrame> {
+    /// Cheap: a refcount bump, never a copy.
+    pub fn get(&self) -> Option<Arc<RgbaFrame>> {
         self.0.lock().ok().and_then(|s| s.clone())
     }
 }
@@ -94,5 +106,96 @@ pub fn run_preview_window(
             break;
         }
         std::thread::sleep(Duration::from_millis(16));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FrameSlot;
+    use crate::decoder::RgbaFrame;
+    use std::sync::Arc;
+
+    fn frame(seed: u32) -> Arc<RgbaFrame> {
+        Arc::new(RgbaFrame {
+            width: 4,
+            height: 2,
+            pixels: vec![seed; 8],
+        })
+    }
+
+    /// The property that makes the slot worth having: reading it does not copy
+    /// the buffer.
+    ///
+    /// Asserted by allocation identity rather than by timing, because a
+    /// benchmark passes or fails with the machine's mood while this cannot.
+    /// Before the `Arc`, `get` deep-copied the whole buffer — 8.3 MB at
+    /// 1080x1920 — and the window loop did it up to 60 times a second.
+    #[test]
+    fn reading_the_slot_does_not_copy_the_frame() {
+        let slot = FrameSlot::new();
+        let original = frame(0xAB);
+        slot.set(original.clone());
+
+        let first = slot.get().expect("a frame was just set");
+        let second = slot.get().expect("still there");
+
+        assert!(
+            Arc::ptr_eq(&original, &first),
+            "get must hand back the very same allocation, not a copy"
+        );
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "two reads must share one allocation, not copy twice"
+        );
+    }
+
+    /// The newest frame wins.
+    #[test]
+    fn the_newest_frame_replaces_the_previous_one() {
+        let slot = FrameSlot::new();
+        slot.set(frame(1));
+        slot.set(frame(2));
+        assert_eq!(slot.get().expect("a frame").pixels[0], 2);
+    }
+
+    /// The window loop reads on its own thread while the decode task writes on
+    /// another. That is the whole reason this is an `Arc<Mutex<_>>`, so it gets
+    /// exercised with more than one reader.
+    #[test]
+    fn a_shared_slot_survives_concurrent_readers_and_a_writer() {
+        let slot = FrameSlot::new();
+        slot.set(frame(0));
+        let writer = {
+            let slot = slot.clone();
+            std::thread::spawn(move || {
+                for i in 1..200u32 {
+                    slot.set(frame(i));
+                }
+            })
+        };
+        for _ in 0..8 {
+            let reader = {
+                let slot = slot.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..500 {
+                        if let Some(f) = slot.get() {
+                            // Every pixel of a frame holds the same value, so a
+                            // torn read shows up as mixed values.
+                            assert!(
+                                f.pixels.iter().all(|&p| p == f.pixels[0]),
+                                "torn frame read"
+                            );
+                        }
+                    }
+                })
+            };
+            reader.join().expect("reader");
+        }
+        writer.join().expect("writer");
+    }
+
+    #[test]
+    fn an_empty_slot_reads_as_none() {
+        assert!(FrameSlot::new().get().is_none());
     }
 }

@@ -73,6 +73,29 @@ vars `REMOTECRAB_*`, and all scripts/docs.
    `/usr/bin/log stream --predicate 'subsystem == "com.remotecrab"'`, crash
    reports), state the cause in one sentence, *then* fix that cause. A fix
    without a cause is a guess; a guess that works is a coincidence.
+   Four refinements, each one learned by paying for its absence (lesson 113 in
+   [`docs/lessons/windows.md`](docs/lessons/windows.md)):
+   - **A number is not evidence until you know who measured it, on what input.**
+     The `6220 kbps` in the stream metadata turned out to be computed, never
+     measured — on iOS `Quality` overrides `AverageBitRate`, so asking for
+     6,220 and 9,331 gave byte-identical output. Before you build on a figure
+     from a doc, a log line, or another machine's handoff, find out whether
+     anything ever measured it. Inherited numbers are the most likely numbers
+     to be wrong, because nobody re-checks what they did not produce.
+   - **"Ruled out by reading the code" is not "ruled out."** Write it down as
+     *unexamined*, not *excluded*. Reading the same code twice and reaching the
+     same conclusion is not investigation — it is the feeling of investigation.
+   - **A diagnostic that prints a verdict is a product surface.** Its threshold
+     and its confidence are both claims. `vcam_forensics` declared "pixels are
+     corrupt" above 8% edge energy — a threshold measured on a *flat synthetic
+     pattern*, while a provably flawless 1080x1920 stream measures 12.31%. It
+     would have blamed the phone for a renderer bug that did not exist, in
+     capitals. A tool that outputs a verdict must be able to falsify its own
+     verdict with its own input.
+   - **Prefer a comparison that the scene cannot change.** Absolute thresholds
+     on image or stream statistics go wrong the moment the content changes.
+     Compare frames to *each other* (a few frames towering over this stream's
+     own median) rather than to a constant chosen on the wrong input.
 4. **Before editing, write down the impact surface.** Every touched function
    has callers and shared state — list them and say how the change affects
    each. (Recent example: adding viewport insets to `ScreenZoomState` for the

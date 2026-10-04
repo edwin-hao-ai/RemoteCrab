@@ -1,4 +1,4 @@
-//! Windows `SendInput` execution of the neutral actions from [`injector`].
+﻿//! Windows `SendInput` execution of the neutral actions from [`injector`].
 //!
 //! Only compiled on Windows. All the decision logic lives in the pure
 //! modules so this file stays a thin syscall layer.
@@ -38,13 +38,79 @@ pub fn virtual_screen_size() -> ScreenSize {
     }
 }
 
+/// Keys the trackpad is holding down on the user's behalf.
+///
+/// Split out of [`WindowsInjector`] so it can be tested without `SendInput`.
+/// The bookkeeping it replaces was previously only reachable by actually
+/// pressing a key on the machine running the tests, which is why it shipped
+/// unwritten: there was no way to write a test for it, and no test failed.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct HeldKeys(Vec<u16>);
+
+impl HeldKeys {
+    /// Fold one `MouseAction::ModifierKeys` transition into the held set.
+    ///
+    /// This is the seam that makes the safety net testable: it takes the
+    /// translator's own output, so a test can drive real actions through it.
+    /// Testing `press`/`release` in isolation was not enough — the original bug
+    /// was that nothing *called* them, and a test that never crosses that line
+    /// passes with the calls deleted (verified by removing them).
+    pub fn apply(&mut self, vks: &[u16], pressed: bool) {
+        for &vk in vks {
+            if pressed {
+                self.press(vk);
+            } else {
+                self.release(vk);
+            }
+        }
+    }
+
+    /// Note a key-down. Repeats are collapsed, because the translator already
+    /// diffs and a repeated press is not a second physical key-down.
+    pub fn press(&mut self, vk: u16) {
+        if !self.0.contains(&vk) {
+            self.0.push(vk);
+        }
+    }
+
+    /// Note a key-up.
+    pub fn release(&mut self, vk: u16) {
+        self.0.retain(|&k| k != vk);
+    }
+
+    /// Give up everything held and return it, so a caller can release the lot.
+    /// Draining is what makes `end_gesture` idempotent without a flag.
+    pub fn take_all(&mut self) -> Vec<u16> {
+        std::mem::take(&mut self.0)
+    }
+
+    pub fn is_held(&self, vk: u16) -> bool {
+        self.0.contains(&vk)
+    }
+
+    #[cfg(test)]
+    pub fn as_slice(&self) -> &[u16] {
+        &self.0
+    }
+}
+
+/// How a key event reaches Windows. A field so tests can watch what would be
+/// sent instead of pressing keys on the machine running them.
+///
+/// The bookkeeping that decides whether a stuck modifier can be released lives
+/// in `perform_mouse`, behind this call. With the calls hard-wired, that
+/// bookkeeping was unreachable from a test — which is how a three-part safety
+/// net shipped with its only moving part unwired and 45 tests green. A test
+/// that duplicates the wiring instead of exercising it is worse than no test,
+/// because it certifies a line nothing runs.
+type SendKey = fn(u16, bool);
+/// As above, for mouse events.
+type SendMouse = fn(MOUSE_EVENT_FLAGS, i32, i32, i32);
+
 /// The real Windows input injector. Owns an [`InputTranslator`] for the
 /// tracked cursor + drag/scroll state.
-#[derive(Default)]
 pub struct WindowsInjector {
     translator: InputTranslator,
-    /// Left button held (drag in progress) — a `Move` then becomes a drag.
-    left_down: bool,
     /// Fractional wheel travel, carried between events. See
     /// [`crate::injector::WheelAccumulator`]: posting `delta.round()` per event
     /// behind a `|d| >= 1.0` guard dropped slow scrolls entirely and turned
@@ -53,21 +119,54 @@ pub struct WindowsInjector {
     /// …and a separate one for pinch-zoom, which must not share a remainder
     /// with scrolling.
     ctrl_wheel: WheelAccumulator,
-    /// Set once `end_gesture` has run, so a second call is harmless.
-    released: bool,
-    /// Keys the translator is holding, so they can be released on a drop.
-    released_keys: Vec<u16>,
+    /// Keys the translator is currently holding down on the user's behalf, so
+    /// a dropped link can release them.
+    ///
+    /// This used to be declared and drained but never written: the
+    /// `ModifierKeys` arm said it "remembered what is down so a dropped link can
+    /// release it" and then only called `send_vk`. So `held_modifiers()`
+    /// always came back empty and the safety net it fed could not release
+    /// anything — a held Shift survived a disconnect as a genuinely stuck key,
+    /// invisible in every log. 45 tests passed over the top of that.
+    held_keys: HeldKeys,
     /// When the last scroll event arrived, so an end-of-scroll marker can be
     /// emitted after a quiet gap. The Mac does this with a 0.18 s
     /// `DispatchQueue` timer; comparing timestamps on the next event achieves
     /// the same thing without a thread per injector, and it cannot be missed
     /// because it does not depend on anything being scheduled.
     last_scroll: Option<std::time::Instant>,
+    send_key: SendKey,
+    send_mouse: SendMouse,
+}
+
+impl Default for WindowsInjector {
+    fn default() -> Self {
+        Self {
+            translator: InputTranslator::new(),
+            wheel: WheelAccumulator::default(),
+            ctrl_wheel: WheelAccumulator::default(),
+            held_keys: HeldKeys::default(),
+            last_scroll: None,
+            send_key: send_vk,
+            send_mouse,
+        }
+    }
 }
 
 impl WindowsInjector {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// An injector that records what it *would* send instead of sending it, so
+    /// the bookkeeping behind the `SendInput` calls can be tested.
+    #[cfg(test)]
+    pub fn recording() -> Self {
+        Self {
+            send_key: record_key,
+            send_mouse: record_mouse,
+            ..Self::default()
+        }
     }
 
     pub fn inject_touch(&mut self, event: &TouchEvent) {
@@ -107,25 +206,32 @@ impl WindowsInjector {
         }
     }
 
-    /// End of gesture: release the wheel accumulator's remainder and emit the
-    /// end-of-scroll markers. Called when the link drops or the user lifts a
-    /// finger after a pinch, where no further event would arrive to notice.
+    /// End of gesture: release the wheel accumulator's remainder, the
+    /// end-of-scroll markers, and any modifier the trackpad is still holding.
+    ///
+    /// Must be called when the link drops. Without it a `Shift` held for a
+    /// range-select stays physically down on the user's keyboard, because
+    /// `SendInput` posted a real key-down and nothing ever posts the key-up —
+    /// every later keystroke is shifted until they press and release it
+    /// themselves.
+    ///
+    /// Idempotent: `held_keys` is drained, so a second call has nothing to do.
     pub fn end_gesture(&mut self) {
         self.wheel.flush();
+        self.ctrl_wheel.flush();
         self.last_scroll = None;
         for action in self.translator.finish_scroll() {
             self.perform_mouse(action);
         }
         for vk in self.held_modifiers() {
-            send_vk(vk, false);
+            (self.send_key)(vk, false);
         }
-        self.released = true;
     }
 
-    /// Every modifier the translator is currently holding, so a dropped link
+    /// Every modifier still held on the user's behalf, so a dropped link
     /// cannot leave Shift stuck down on the user's keyboard.
     fn held_modifiers(&mut self) -> Vec<u16> {
-        std::mem::take(&mut self.released_keys)
+        self.held_keys.take_all()
     }
 
     pub fn inject_key(&self, event: &KeyEvent) {
@@ -206,27 +312,25 @@ impl WindowsInjector {
             MouseAction::Move { x, y } => {
                 // A move while the button is held IS a drag on Windows —
                 // `SendInput` reports it as such to the target window.
-                send_mouse(MOUSEEVENTF_MOVE, x, y, 0);
+                (self.send_mouse)(MOUSEEVENTF_MOVE, x, y, 0);
             }
             MouseAction::LeftDown { x, y } => {
-                self.left_down = true;
-                send_mouse(MOUSEEVENTF_LEFTDOWN, x, y, 0);
+                (self.send_mouse)(MOUSEEVENTF_LEFTDOWN, x, y, 0);
             }
             MouseAction::LeftUp { x, y } => {
-                self.left_down = false;
-                send_mouse(MOUSEEVENTF_LEFTUP, x, y, 0);
+                (self.send_mouse)(MOUSEEVENTF_LEFTUP, x, y, 0);
             }
-            MouseAction::RightDown { x, y } => send_mouse(MOUSEEVENTF_RIGHTDOWN, x, y, 0),
-            MouseAction::RightUp { x, y } => send_mouse(MOUSEEVENTF_RIGHTUP, x, y, 0),
-            MouseAction::MiddleDown { x, y } => send_mouse(MOUSEEVENTF_MIDDLEDOWN, x, y, 0),
-            MouseAction::MiddleUp { x, y } => send_mouse(MOUSEEVENTF_MIDDLEUP, x, y, 0),
+            MouseAction::RightDown { x, y } => (self.send_mouse)(MOUSEEVENTF_RIGHTDOWN, x, y, 0),
+            MouseAction::RightUp { x, y } => (self.send_mouse)(MOUSEEVENTF_RIGHTUP, x, y, 0),
+            MouseAction::MiddleDown { x, y } => (self.send_mouse)(MOUSEEVENTF_MIDDLEDOWN, x, y, 0),
+            MouseAction::MiddleUp { x, y } => (self.send_mouse)(MOUSEEVENTF_MIDDLEUP, x, y, 0),
             MouseAction::Wheel { dx, dy } => {
                 let (h, v) = self.wheel.take(dx, dy);
                 if v != 0 {
-                    send_mouse(MOUSEEVENTF_WHEEL, 0, 0, v);
+                    (self.send_mouse)(MOUSEEVENTF_WHEEL, 0, 0, v);
                 }
                 if h != 0 {
-                    send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, h);
+                    (self.send_mouse)(MOUSEEVENTF_HWHEEL, 0, 0, h);
                 }
             }
             MouseAction::CtrlWheel { dx, dy } => {
@@ -236,14 +340,14 @@ impl WindowsInjector {
                 // versa, for as long as the remainder survived.
                 let (h, v) = self.ctrl_wheel.take(dx, dy);
                 if v != 0 || h != 0 {
-                    send_vk(VK_CONTROL, true);
+                    (self.send_key)(VK_CONTROL, true);
                     if v != 0 {
-                        send_mouse(MOUSEEVENTF_WHEEL, 0, 0, v);
+                        (self.send_mouse)(MOUSEEVENTF_WHEEL, 0, 0, v);
                     }
                     if h != 0 {
-                        send_mouse(MOUSEEVENTF_HWHEEL, 0, 0, h);
+                        (self.send_mouse)(MOUSEEVENTF_HWHEEL, 0, 0, h);
                     }
-                    send_vk(VK_CONTROL, false);
+                    (self.send_key)(VK_CONTROL, false);
                 }
             }
             MouseAction::ModifierKeys { vks, pressed } => {
@@ -254,8 +358,9 @@ impl WindowsInjector {
                 // is a real key-down that has to be released later. The
                 // translator emits both transitions, diffed against the keys
                 // it already holds, so the key state matches the trackpad's.
+                self.held_keys.apply(&vks, pressed);
                 for vk in vks {
-                    send_vk(vk, pressed);
+                    (self.send_key)(vk, pressed);
                 }
             }
             MouseAction::ScrollPhase(_) => {
@@ -389,9 +494,220 @@ fn send_unicode(units: &[u16]) {
     }
 }
 
+/// Key events a recording injector swallowed, so a test can assert what would
+/// have reached the keyboard.
+#[cfg(test)]
+static SENT_KEYS: std::sync::Mutex<Vec<(u16, bool)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record_key(vk: u16, pressed: bool) {
+    SENT_KEYS.lock().expect("keys").push((vk, pressed));
+}
+
+#[cfg(test)]
+fn record_mouse(_flags: MOUSE_EVENT_FLAGS, _x: i32, _y: i32, _data: i32) {}
+
+#[cfg(test)]
+fn sent_keys() -> Vec<(u16, bool)> {
+    std::mem::take(&mut *SENT_KEYS.lock().expect("keys"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::normalize_axis;
+    use super::{normalize_axis, sent_keys, HeldKeys};
+    use crate::keymap::vk;
+    use rc_protocol::{Modifier, TouchEvent, TouchPhase};
+
+    fn touch(phase: TouchPhase, modifiers: u8) -> TouchEvent {
+        TouchEvent {
+            phase,
+            x: 0.0,
+            y: 0.0,
+            dx: 0.01,
+            dy: 0.0,
+            modifiers,
+            momentum: None,
+            timestamp_micros: 0,
+        }
+    }
+
+    /// The defect this whole change exists for, and the one 45 tests did not
+    /// catch: a Shift held for a range-select must be recoverable when the
+    /// link drops, or it stays physically down on the user's keyboard and every
+    /// later keystroke is shifted.
+    ///
+    /// `HeldKeys` is tested directly rather than through `WindowsInjector`
+    /// because the injector's only way to reach this state is a real
+    /// `SendInput`, which would press a key on the machine running the tests.
+    #[test]
+    fn a_held_modifier_is_handed_back_for_release() {
+        let mut held = HeldKeys::default();
+        held.press(vk::SHIFT);
+        held.press(vk::CONTROL);
+        assert!(held.is_held(vk::SHIFT));
+        assert!(held.is_held(vk::CONTROL));
+
+        // What `end_gesture` does: take everything and key-up each one.
+        let recovered = held.take_all();
+        assert_eq!(
+            recovered.len(),
+            2,
+            "both held modifiers must come back: {recovered:?}"
+        );
+        assert!(recovered.contains(&vk::SHIFT));
+        assert!(recovered.contains(&vk::CONTROL));
+    }
+
+    /// Why draining is load-bearing rather than a convenience: it is what makes
+    /// `end_gesture` idempotent, so the caller does not need a latch — and the
+    /// latch it used to carry was written and never read.
+    #[test]
+    fn releasing_twice_releases_once() {
+        let mut held = HeldKeys::default();
+        held.press(vk::SHIFT);
+        assert_eq!(held.take_all().len(), 1);
+        assert!(
+            held.take_all().is_empty(),
+            "a second end_gesture must have nothing left to do"
+        );
+    }
+
+    /// A modifier the user let go of must not be released twice — the second
+    /// key-up lands on whatever the user is actually typing next.
+    #[test]
+    fn a_released_modifier_is_not_offered_again() {
+        let mut held = HeldKeys::default();
+        held.press(vk::SHIFT);
+        held.release(vk::SHIFT);
+        assert!(!held.is_held(vk::SHIFT));
+        assert!(held.take_all().is_empty());
+    }
+
+    /// The translator already diffs, so a repeat press is not a second physical
+    /// key-down. Counting it twice would make one release look insufficient.
+    #[test]
+    fn a_repeated_press_is_one_key_down() {
+        let mut held = HeldKeys::default();
+        held.press(vk::CONTROL);
+        held.press(vk::CONTROL);
+        assert_eq!(held.take_all(), vec![vk::CONTROL]);
+    }
+
+    /// Sliding from one modifier to another mid-drag must not lose the pair:
+    /// ⌘ and ⌃ both map to Ctrl, so the *bits* change while the *key* does not.
+    #[test]
+    fn a_modifier_change_that_keeps_the_same_key_keeps_it_held() {
+        let mut held = HeldKeys::default();
+        held.press(vk::CONTROL);
+        // The translator emits no transition here, because Ctrl is still held.
+        assert!(held.is_held(vk::CONTROL));
+        assert_eq!(held.take_all(), vec![vk::CONTROL]);
+    }
+
+    /// The contract that was actually broken, tested where it was broken.
+    ///
+    /// The old bug was not `HeldKeys` behaving wrongly — it was that nothing
+    /// fed it. So this drives the **real** `WindowsInjector`, through the real
+    /// `inject_touch` → translator → `perform_mouse` path, which is the line the
+    /// previous version of this file left unwired.
+    ///
+    /// A test that rebuilt the wiring in its own body passed with the wiring
+    /// deleted; that was verified, not assumed.
+    #[test]
+    fn a_modifier_held_by_a_real_gesture_is_released_at_the_end() {
+        let _ = sent_keys(); // start from a clean slate
+        let mut inj = super::WindowsInjector::recording();
+
+        // Shift-drag: down, two moves, up. The translator emits the key-up.
+        inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Move, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Move, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Up, Modifier::NONE));
+
+        let sent = sent_keys();
+        assert!(
+            sent.contains(&(vk::SHIFT, true)),
+            "Shift must actually go down: {sent:?}"
+        );
+        assert!(
+            sent.contains(&(vk::SHIFT, false)),
+            "and must come back up: {sent:?}"
+        );
+        // Nothing stranded, so end_gesture has nothing left to do.
+        inj.end_gesture();
+        assert!(
+            !sent_keys().contains(&(vk::SHIFT, false)),
+            "a normally-ended gesture must not leave a duplicate key-up"
+        );
+    }
+
+    /// The actual user-visible failure: the phone vanishes mid-gesture, so the
+    /// translator never emits its key-up, and only `end_gesture` can rescue the
+    /// key. Without it Shift stays physically down and every later keystroke is
+    /// shifted, with nothing in any log.
+    #[test]
+    fn a_link_drop_mid_gesture_releases_the_held_modifier() {
+        let _ = sent_keys();
+        let mut inj = super::WindowsInjector::recording();
+
+        inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Move, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Move, Modifier::SHIFT));
+        assert!(
+            sent_keys().contains(&(vk::SHIFT, true)),
+            "precondition: Shift is down"
+        );
+
+        // The link dies. No `Up` ever arrives.
+        inj.end_gesture();
+
+        assert!(
+            sent_keys().contains(&(vk::SHIFT, false)),
+            "end_gesture must key the stranded Shift up — this is the whole bug"
+        );
+    }
+
+    /// A modifier the user let go of must not be released a second time: the
+    /// duplicate key-up lands on whatever the user is typing next.
+    #[test]
+    fn a_released_modifier_is_not_released_again() {
+        let _ = sent_keys();
+        let mut inj = super::WindowsInjector::recording();
+        inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT));
+        inj.inject_touch(&touch(TouchPhase::Up, Modifier::NONE));
+        assert_eq!(
+            sent_keys()
+                .iter()
+                .filter(|&&(_, pressed)| !pressed)
+                .count(),
+            1,
+            "exactly one key-up from the gesture"
+        );
+
+        inj.end_gesture();
+        assert!(
+            sent_keys().is_empty(),
+            "end_gesture must have nothing to release, or it double-taps the key"
+        );
+    }
+
+    /// Two held modifiers at once, dropped together.
+    #[test]
+    fn a_drop_releases_everything_that_was_held() {
+        let _ = sent_keys();
+        let mut inj = super::WindowsInjector::recording();
+        inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT | Modifier::CONTROL));
+        inj.inject_touch(&touch(TouchPhase::Move, Modifier::SHIFT | Modifier::CONTROL));
+        inj.end_gesture();
+
+        let sent = sent_keys();
+        for key in [vk::SHIFT, vk::CONTROL] {
+            assert!(
+                sent.contains(&(key, false)),
+                "{key:#x} must be released on a drop: {sent:?}"
+            );
+        }
+    }
 
     #[test]
     fn axis_normalization_covers_the_full_range() {

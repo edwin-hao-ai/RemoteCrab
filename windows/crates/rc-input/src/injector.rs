@@ -208,13 +208,14 @@ impl InputTranslator {
                 let (nx, ny) = self.clamp(self.last_cursor.0 + dx, self.last_cursor.1 + dy, screen);
                 self.last_cursor = (nx, ny);
                 let pos = (nx.round() as i32, ny.round() as i32);
-                if self.is_dragging {
-                    actions.push(MouseAction::Move { x: pos.0, y: pos.1 });
-                    // A drag posts a move with the left button held; the
-                    // Windows layer turns this into a left-drag.
-                } else {
-                    actions.push(MouseAction::Move { x: pos.0, y: pos.1 });
-                }
+                // No branch on `is_dragging` here: a move while the button is
+                // held IS a drag on Windows, because `DragStart` already posted
+                // a real LEFTDOWN and Windows still has it down. The two arms
+                // this replaced were byte-identical, with a comment claiming the
+                // else-branch did something else — so the next reader believed
+                // there was drag-specific handling here. There is none, and
+                // there does not need to be.
+                actions.push(MouseAction::Move { x: pos.0, y: pos.1 });
             }
             TouchPhase::DragStart => {
                 actions.push(MouseAction::LeftDown {
