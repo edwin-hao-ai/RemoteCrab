@@ -10215,6 +10215,23 @@
           }
         }
       }
+    },
+    "The mic button also plays your computer's sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mic button also plays your computer's sound"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风按钮也能播放电脑的声音"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

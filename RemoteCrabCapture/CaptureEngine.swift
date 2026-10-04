@@ -264,6 +264,14 @@ final class CaptureEngine: ObservableObject {
     private var speakerPlayer = SpeakerPlayer()
     private var speakerTickTask: Task<Void, Never>?
     private var speakerProgressTick = 0
+
+    /// Remembered across launches, like the camera and NOT like the mic.
+    /// The microphone deliberately does not persist (restoring `micOn`
+    /// would start recording the moment the app launches, which is a
+    /// privacy surprise); the speaker only starts the Mac sending audio, and
+    /// still requires a live session, so restoring it is a convenience with
+    /// no surprise attached.
+    private static let speakerHabitKey = "remotecrab.ios.speakerOn"
     /// Why the speaker is not playing, when it should be. Surfaced because a
     /// control that fails silently is worse than one that is not there.
     @Published private(set) var speakerStatus: String?
@@ -1490,8 +1498,14 @@ final class CaptureEngine: ObservableObject {
                 return
             }
         }
+        // `effectivePreferred`, not `preferred`: once the 30 s grace is spent
+        // this is nil, so the policy sees "no preference" and the door is open
+        // to every computer again. Aiming it at `preferred` here is what made
+        // one failed switch lock the phone out for ten minutes — the chosen
+        // computer was asleep or had been denied, and it still refused
+        // everyone else until the TTL ran out.
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
-                                            preferred: pairingStore.preferred)
+                                            preferred: pairingStore.effectivePreferred())
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
@@ -2758,6 +2772,7 @@ final class CaptureEngine: ObservableObject {
     /// computer, and leaving a stale `micOn` in there would show the mic as
     /// on in the computer's control panel while the phone plays audio.
     func setAudioMode(_ mode: AudioMode) {
+        UserDefaults.standard.set(mode == .speaker, forKey: Self.speakerHabitKey)
         switch mode {
         case .idle:
             features.set(feature: .speaker, enabled: false)
@@ -2789,6 +2804,10 @@ final class CaptureEngine: ObservableObject {
             return
         }
         speakerStatus = nil
+        // Prove the path works at the moment it turns on. Without this, a
+        // phone on silent produces: toggle says on, the Mac's own speakers
+        // go quiet (muteWhileTapped), and the user hears nothing at all.
+        speakerPlayer.playConfirmationTone()
         speakerTickTask?.cancel()
         speakerTickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {

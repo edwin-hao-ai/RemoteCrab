@@ -227,4 +227,42 @@ final class SpeakerPlayer {
         guard isRunning else { return }
         schedule(silence: true)
     }
+
+    /// Play a short two-tone confirmation through the phone's speaker.
+    ///
+    /// This exists because the most common way for this feature to look
+    /// broken is the phone being on silent or at zero volume: the toggle
+    /// says "on", the Mac has stopped playing through its own speakers
+    /// (`muteWhileTapped`), and the user hears NOTHING and concludes the
+    /// feature is dead. A confirmation tone both proves the path works and
+    /// nudges the volume up — the same reasoning as the volume-step sound
+    /// elsewhere in the system.
+    func playConfirmationTone() {
+        guard isRunning,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                           frameCapacity: AVAudioFrameCount(Self.toneFrames)),
+              let dst = buffer.int16ChannelData else { return }
+        let total = Self.toneFrames
+        buffer.frameLength = AVAudioFrameCount(total)
+
+        for channel in 0..<Int(format.channelCount) {
+            for frame in 0..<total {
+                // A rising two-tone chirp, short enough not to be intrusive
+                // and loud enough to hear over a room.
+                let t = Double(frame) / Self.sampleRate
+                let firstHalf = frame < total / 2
+                let frequency = firstHalf ? 880.0 : 1320.0
+                let localT = firstHalf ? t : t - (Double(total / 2) / Self.sampleRate)
+                let envelope = min(1.0, localT / 0.01) * min(1.0, (0.08 - localT) / 0.03)
+                let value = Double(Int16.max) * 0.35 * envelope
+                dst[channel][frame] = Int16(max(-32_768, min(32_767, value * sin(2 * .pi * frequency * t))))
+            }
+        }
+        // Inserted rather than appended: the confirmation should be heard
+        // now, not after whatever the Mac has already sent.
+        player.scheduleBuffer(buffer, at: nil) { }
+    }
+
+    /// 180 ms: two 90 ms tones.
+    private static let toneFrames = 8_640
 }

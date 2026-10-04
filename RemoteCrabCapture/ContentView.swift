@@ -788,6 +788,40 @@ struct ContentView: View {
             .accessibilityLabel(IBLocale.A11y.audioMode)
             .accessibilityValue(audioModeAccessibilityValue)
             .accessibilityHint(IBLocale.A11y.audioModeHint)
+            // The top bar carries no text labels at all, so a capability the
+            // user does not already know about is invisible. One line, shown
+            // only until they have opened this menu once — then it stops being
+            // in the way. Same pattern as the camera-off guidance in the
+            // placeholder.
+            .overlay(alignment: .top) {
+                // A real failure OUTRANKS the discoverability hint: rule 1 is
+                // that a state which is not "working" owes the user a reason,
+                // and a hint about a button that does not work is noise.
+                if let status = engine.speakerStatus {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.black.opacity(0.82)) }
+                        .offset(y: 52)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                } else if showAudioModeHint && !hasSeenAudioModeHint {
+                    Text(IBLocale.Speaker.discoverHint)
+                        .font(IBFont.eyebrowMono)
+                        .ibEyebrowTracking()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.black.opacity(0.72)) }
+                        .offset(y: 52)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                }
+            }
+            .onChange(of: showAudioModeHint) { _, _ in }
 
             // Mirror + Extended Display are two parallel SOURCES for the
             // same viewer, so they share one dropdown; the checkmark marks
@@ -898,6 +932,14 @@ struct ContentView: View {
                 screenshotError = IBLocale.Transfer.noScreenshot
             }
         }
+    }
+
+    /// The one-time "this button also plays your computer's sound" hint.
+    /// Gated on having connected once (so it never appears during onboarding)
+    /// and dismissed permanently the first time the menu is opened.
+    private var showAudioModeHint: Bool { engine.connectedMacId != nil }
+    private var hasSeenAudioModeHint: Bool {
+        UserDefaults.standard.bool(forKey: "remotecrab.ios.sawAudioModeHint")
     }
 
     /// Resolved once so the icon, the menu checkmark and the accessibility
