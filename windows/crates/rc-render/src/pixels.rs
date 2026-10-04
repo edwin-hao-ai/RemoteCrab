@@ -260,9 +260,12 @@ impl StreamHealth {
         if self.per_frame.is_empty() {
             return 0.0;
         }
-        let n = self.per_frame.len() as f64;
         let t = self.totals();
-        (100.0 * (t.harsh_h + t.harsh_v) as f64 / t.pixels.max(1) as f64) / n
+        // `sum(counts) / sum(pixels)` is already the pixel-weighted mean over
+        // every frame measured. Dividing by the frame count as well made the
+        // answer shrink with the length of the capture, so a long run of a
+        // genuinely textured scene read as featureless.
+        100.0 * (t.harsh_h + t.harsh_v) as f64 / t.pixels.max(1) as f64
     }
 
     /// Mean luma of the last frame measured, 0-255.
@@ -357,20 +360,25 @@ pub const SPIKE_MEDIAN_FLOOR: f64 = 0.4;
 /// Pooled edge energy below which a stream carries too little detail for
 /// "nothing stood out" to mean anything.
 ///
-/// The calibration is deliberate and it is measured, not guessed:
-/// `renderer_fidelity` runs a *provably flawless* 1080x1920 stream through this
-/// decoder and this exact measurement, with a scene built from hard edges, and
-/// reports **24.6%** pooled (12.31% horizontal + 0.00% vertical — the vertical
-/// axis is zero because that scene's stripes are vertical). A real desk scene
-/// measured against a live phone reads well under half that.
+/// The calibration is three measurements, not a preference:
 ///
-/// A live phone aimed at a dark wall read **0.04%**, three orders of magnitude
-/// below the calibration. So 1% is not a borderline: it is roughly twenty-five
-/// times below a stream that is provably fine and roughly four times above one
-/// that is visibly nothing. A run below it cannot speak about speckle either
-/// way, and saying "uniform, therefore healthy" there would be the exact
-/// mistake this module exists to stop.
-pub const DETAIL_FLOOR_PERCENT: f64 = 1.0;
+/// | input | `detail()` | where |
+/// |---|---|---|
+/// | provably flawless, hard-edged 1080x1920 | **12.31%** | `renderer_fidelity`, which also asserts it clears this floor |
+/// | real iPhone, textured high-contrast subject | **1.60%** | 348-NAL live capture |
+/// | real iPhone, blank wall | **0.04%** | 361-NAL live capture |
+///
+/// 0.25% sits about six times above the blank wall and about six times below
+/// the textured capture — the geometric midpoint of the two real-phone
+/// measurements, which is the only pair that matters for this decision.
+///
+/// It was 1.0% before, and that number was wrong twice over: it was
+/// calibrated against a `detail()` that divided by the frame count, so a
+/// 12-frame sample read 12.31/12 = 1.03% and only just cleared it, while a
+/// 309-frame capture of a genuinely textured scene read 1.60/309 = 0.005% and
+/// was rejected as featureless. A threshold derived from a broken measurement
+/// is worse than no threshold, because it then rejects real evidence.
+pub const DETAIL_FLOOR_PERCENT: f64 = 0.25;
 
 
 #[cfg(test)]
@@ -589,6 +597,66 @@ mod tests {
             blank.detail() < DETAIL_FLOOR_PERCENT,
             "a smooth ramp measured {}% must stay under the floor",
             blank.detail()
+        );
+    }
+
+    /// The bug this pins, and it is the reason the floor had to be recalibrated
+    /// downward: `detail()` divided the pooled fraction by the frame count *as
+    /// well*, so a 12-frame sample read 24.6/12 = 2.05% and cleared a 1% floor,
+    /// while a 309-frame capture of a genuinely textured scene read
+    /// 1.6/309 = 0.005% and was reported as "no detail, cannot judge".
+    ///
+    /// `Σharsh / Σpixels` is already the pixel-weighted mean, so the frame count
+    /// must not appear in it at all. Length of capture is not a property of the
+    /// content.
+    #[test]
+    fn detail_does_not_depend_on_how_many_frames_were_measured() {
+        let mut few = StreamHealth::new();
+        for _ in 0..10 {
+            few.add(&noise(48, 48, 11));
+        }
+        let mut many = StreamHealth::new();
+        for _ in 0..400 {
+            many.add(&noise(48, 48, 11));
+        }
+        assert_eq!(few.frames(), 10);
+        assert_eq!(many.frames(), 400);
+        assert!(
+            (few.detail() - many.detail()).abs() < 0.05,
+            "10 frames read {:.3}% but 400 read {:.3}% — length of capture is not a \
+             property of the content",
+            few.detail(),
+            many.detail()
+        );
+    }
+
+    /// And the value it reports has to mean what the calibration comment says it
+    /// means: the sum of the two axes, as a percentage of pixels.
+    #[test]
+    fn detail_is_the_sum_of_both_axes_as_a_percentage_of_pixels() {
+        let mut s = StreamHealth::new();
+        for _ in 0..6 {
+            s.add(&noise(32, 32, 5));
+        }
+        let t = s.totals();
+        let expected = 100.0 * (t.harsh_h + t.harsh_v) as f64 / t.pixels as f64;
+        assert!(
+            (s.detail() - expected).abs() < 1e-9,
+            "detail() = {} but the axes sum to {expected}",
+            s.detail()
+        );
+        // And that is the same thing as the per-frame fractions added together,
+        // which is how the floor was originally expressed.
+        let per_frame = s
+            .per_frame()
+            .iter()
+            .map(|f| harsh_h_percent(f) + harsh_v_percent(f))
+            .sum::<f64>()
+            / s.frames() as f64;
+        assert!(
+            (s.detail() - per_frame).abs() < 0.5,
+            "pooled {} vs mean-of-frames {per_frame} — these must agree",
+            s.detail()
         );
     }
 
