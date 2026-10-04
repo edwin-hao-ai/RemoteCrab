@@ -267,6 +267,37 @@ if [[ -n "$LINE" ]]; then
   else
     bad "4c. the received audio is digital silence (pcmRms=${RMS:-?}) — packets moved but no sound did"
   fi
+  # 4e. THE ONE THAT WAS MISSING.
+  #
+  # Everything above can pass while the feature is unusable, and did: the
+  # phone received real audio (4c) and played packets (4b) on every run of a
+  # build whose playback queue grew without bound. `tick` scheduled a silent
+  # packet on every 20 ms fire *on top of* the real audio `drain` was already
+  # scheduling, so the player was handed 100 packets a second and could
+  # consume 50. The backlog grew ~50 packets — one second of latency — every
+  # second: the stream sounded chopped and garbled and it kept sounding after
+  # it was switched off, because there was a backlog of it.
+  #
+  # So: while genuine audio is arriving, filler must be near zero, and the
+  # queue must stay shallow. Both are checked against the real numbers, not
+  # against "something was received".
+  SIL=$(echo "$LINE" | sed -E 's/.*silence=([0-9]+).*/\1/')
+  QUEUED=$(echo "$LINE" | sed -E 's/.*queued=([0-9]+).*/\1/')
+  if [[ -n "${SIL:-}" && -n "${QUEUED:-}" && "${ENQ:-0}" -gt 0 ]]; then
+    # Filler as a share of everything handed to the player. 20% is generous;
+    # a healthy stream is near zero.
+    PCT=$(( SIL * 100 / (ENQ + SIL) ))
+    if [[ "$PCT" -le 20 ]]; then
+      ok "4e. no filler on top of real audio (silence=$SIL = ${PCT}% of scheduled, queued=$QUEUED)"
+    else
+      bad "4e. ${PCT}% of what was played was FILLER (silence=$SIL of $((ENQ+SIL)), queued=$QUEUED) — the playback queue is growing, so the stream is fragmented and will not stop"
+    fi
+    if [[ "${QUEUED:-0}" -le 6 ]]; then
+      ok "4f. the playback queue is shallow (queued=$QUEUED packets = $((QUEUED*20))ms of latency)"
+    else
+      bad "4f. $QUEUED packets queued = $((QUEUED*20))ms of audio waiting to play — that is the audible lag"
+    fi
+  fi
   # 4d. The SHAPE — REPORTED, NOT ENFORCED.
   #
   # The intent: a complete piece arrives with visible bursts and gaps; a flat

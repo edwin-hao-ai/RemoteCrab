@@ -24,6 +24,7 @@
 
 import AVFoundation
 import Foundation
+import RemoteCrabCore
 import os.log
 
 @MainActor
@@ -83,6 +84,12 @@ final class SpeakerPlayer {
     }
 
     var running: Bool { isRunning }
+
+    /// Packets handed to the player and not yet played, for the diagnostics
+    /// that assert the queue stays shallow. A large value is audible latency
+    /// and it is the first thing to look at when the stream sounds fragmented
+    /// or will not stop.
+    var queuedPackets: Int { pendingPlayback }
     private var bufferedFrames: Int { writeFrame - readFrame }
 
     // MARK: - Session
@@ -140,6 +147,11 @@ final class SpeakerPlayer {
         ring = []
         writeFrame = 0
         readFrame = 0
+        // `player.stop()` drops everything already queued, so the completion
+        // callbacks for those buffers will never run — leaving this non-zero
+        // would make the next session think its queue was already full and
+        // refuse to schedule anything.
+        pendingPlayback = 0
         isRunning = false
         // Hand the session back rather than deactivating it: the keep-alive
         // may already want it, and a deactivate/reactivate in the same turn
@@ -242,8 +254,40 @@ final class SpeakerPlayer {
     /// engine audibly.
     private func drain() {
         guard isRunning, !ring.isEmpty else { return }
-        while bufferedFrames >= SpeakerPlayer.framesPerPacket * SpeakerPlayer.targetPackets {
+        pump()
+    }
+
+    /// How many packets have been handed to the player and not yet played.
+    ///
+    /// This is the number that was missing, and it is why the stream sounded
+    /// broken. `drain` played real audio as fast as it arrived, and `tick`
+    /// added a silent packet on every 20 ms fire *regardless*, so the player
+    /// was handed twice the audio it could consume and the queue grew by
+    /// ~50 packets — one second of latency — every second. The audio the user
+    /// heard was real samples interleaved with filler and increasingly stale,
+    /// and it kept playing after the feature was switched off because there
+    /// was a backlog of it.
+    ///
+    /// Written from both the caller (MainActor) and the player's completion
+    /// callback (an audio queue), hence `nonisolated(unsafe)`.
+    nonisolated(unsafe) private var pendingPlayback = 0
+
+    /// The single scheduling decision, shared by the timer and the ingest path
+    /// so they can never disagree.
+    ///
+    /// `SpeakerSchedule` holds the rule and its reasons; this is only the
+    /// plumbing.
+    private func pump() {
+        switch SpeakerSchedule.decide(bufferedFrames: bufferedFrames,
+                                      pendingPlayback: pendingPlayback,
+                                      framesPerPacket: SpeakerPlayer.framesPerPacket,
+                                      targetPackets: SpeakerPlayer.targetPackets) {
+        case .playAudio:
             schedule(silence: false)
+        case .scheduleSilence:
+            schedule(silence: true)
+        case .wait:
+            break
         }
     }
 
@@ -281,15 +325,31 @@ final class SpeakerPlayer {
         // NO options: `.interrupts` stops the player when the buffer ends,
         // which would make every 20 ms buffer cut the sound off. The loop is
         // driven by re-scheduling, not by `.loops`.
-        player.scheduleBuffer(buffer, at: nil) { }
+        //
+        // The completion callback is the ONLY way to learn the queue actually
+        // drained, and it is what keeps `pendingPlayback` honest. Without it
+        // the count could only ever grow, and the scheduling decision would
+        // have no way to tell "the player is backed up" from "nothing has
+        // been scheduled yet".
+        pendingPlayback += 1
+        player.scheduleBuffer(buffer, at: nil) { [weak self] in
+            // Runs on an audio-adjacent queue: touch the counter and nothing
+            // else.
+            self?.pendingPlayback -= 1
+        }
     }
 
     /// Called on a timer by the owner so silence keeps flowing while the
     /// network is quiet — without this the player graph is scheduled dry
     /// and the session can be reclaimed by the system.
+    ///
+    /// It routes through the same decision as the ingest path rather than
+    /// scheduling unconditionally. That used to add a silent packet on every
+    /// one of these fires, on top of the real audio `drain` was already
+    /// scheduling, which is what produced the runaway backlog.
     func tick() {
-        guard isRunning else { return }
-        schedule(silence: true)
+        guard isRunning, !ring.isEmpty else { return }
+        pump()
     }
 
     /// Play a short two-tone confirmation through the phone's speaker.
