@@ -154,7 +154,7 @@ RemoteCrab/
 ├── project-mac.yml               # xcodegen config for Mac app
 ├── RemoteCrabCore/                  # Swift Package — shared code
 │   ├── Package.swift             # iOS 26 / macOS 26
-│   ├── Tests/                    # 481 automated tests (see below)
+│   ├── Tests/                    # 487 automated tests (see below)
 │   └── Sources/RemoteCrabCore/
 │       ├── DesignSystem/         # Liquid Glass tokens + animations
 │       ├── Components/           # Reusable SwiftUI views (incl. IBModifierBar)
@@ -436,7 +436,7 @@ it. Now ownership is explicit:
 
 ## Tests
 
-481 tests in `RemoteCrabCore/Tests/`, all pass:
+487 tests in `RemoteCrabCore/Tests/`, all pass:
 
 ```
 RemoteCrabCore/Tests/RemoteCrabCoreTests/
@@ -605,7 +605,7 @@ For new event types:
 - **V0.3: K3 keyboard** — system IME (Chinese OK), shortcut bar, mini trackpad
 - **V0.3: hold-to-talk voice** — on-device speech recognition types into the Mac
 - **V0.3: labs** — air mouse + wheel scrolling (settings → Labs, default off)
-- 481 automated tests passing
+- 487 automated tests passing
 - 9 HTML design prototypes + 18 PNG mockups
 - Liquid Glass design system with 7 reusable components
 - iOS Onboarding (3 pages + permission flow incl. speech)
