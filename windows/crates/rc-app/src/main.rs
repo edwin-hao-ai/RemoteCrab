@@ -551,7 +551,12 @@ async fn main() -> ExitCode {
                                 }
                                 if let Some(p) = preview.as_mut() {
                                     if p.push(&nal) {
-                                        if let Some(frame) = p.latest() {
+                                        // One shared handle, two consumers. Both
+                                        // of the `clone()`s this used to do were
+                                        // deep copies of an 8.3 MB buffer, per
+                                        // frame — the preview window and the
+                                        // virtual camera each got their own.
+                                        if let Some(frame) = p.latest_shared() {
                                             frame_slot.set(frame.clone());
                                             #[cfg(windows)]
                                             if let Some(vc) = vcam.as_mut() {
@@ -559,7 +564,7 @@ async fn main() -> ExitCode {
                                                     .as_ref()
                                                     .map(|m| m.fps.max(1) as u32)
                                                     .unwrap_or(30);
-                                                vc.publish(frame, fps);
+                                                vc.publish(&frame, fps);
                                                 if vc.frames_written().is_multiple_of(150) {
                                                     println!(
                                                         "  vcam: {} frames published ({}x{})",

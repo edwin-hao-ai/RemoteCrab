@@ -133,9 +133,9 @@ pub async fn preview_selftest() -> ExitCode {
             tokio::time::timeout(Duration::from_millis(300), events.recv()).await
         {
             if pipeline.push(&nal) {
-                if let Some(frame) = pipeline.latest() {
-                    frame_slot.set(frame.clone());
-                }
+if let Some(frame) = pipeline.latest_shared() {
+                frame_slot.set(frame.clone());
+            }
             }
             let n = pipeline.frames_decoded();
             if n >= last_reported + 10 {
