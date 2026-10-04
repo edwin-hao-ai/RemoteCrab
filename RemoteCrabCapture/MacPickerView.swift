@@ -19,6 +19,9 @@ struct MacPickerView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let gaveUp = engine.preferredGaveUp {
+                    gaveUpSection(gaveUp)
+                }
                 if let preferred = engine.preferredMac {
                     preferredSection(preferred)
                 }
@@ -29,6 +32,19 @@ struct MacPickerView: View {
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
             .task {
+                // Wait out the preference's grace period so the "gave up"
+                // line appears on time. Without this the lapse is only
+                // noticed when something else triggers a refresh, and a
+                // phone sitting open on this screen would keep claiming it
+                // is waiting.
+                if let armed = engine.preferredArmedAt {
+                    let remaining = MacPairingStore.preferredGrace
+                        - Date().timeIntervalSince(armed)
+                    if remaining > 0 {
+                        try? await Task.sleep(for: .seconds(remaining))
+                    }
+                    engine.recheckPreferredMac()
+                }
                 // Opening the picker is the moment stale rows are visible,
                 // so it is also the moment to drop them: superseded
                 // identities (a receiver that changed id) and machines gone
@@ -60,12 +76,51 @@ struct MacPickerView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .foregroundStyle(Color.accentColor)
                 }
+                // WHY, not just advice. A denied computer will never retry on
+                // its own; a busy one retries every 15 s and needs nothing.
+                // Saying which one this is the difference between waiting and
+                // walking to another machine.
+                Text(reason(for: preferred))
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
+                Text(IBLocale.Pairing.preferredGraceWindow)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.tertiary)
                 Button(IBLocale.Pairing.cancelPreferred, role: .destructive) {
                     engine.clearPreferredMac()
                 }
                 .buttonStyle(.borderless)
             }
             .padding(.vertical, 4)
+        }
+    }
+
+    /// The chosen computer's last recorded attempt, turned into one line that
+    /// says what is happening and what to do about it.
+    private func reason(for preferred: PairedMac) -> String {
+        switch engine.preferredOutcome(for: preferred.id) {
+        case .denied: return IBLocale.Pairing.waitingReasonDenied(preferred.name)
+        case .refusedBusy: return IBLocale.Pairing.waitingReasonBusy(preferred.name)
+        case .waitingApproval: return IBLocale.Pairing.waitingReasonApproval(preferred.name)
+        case .streaming, .none: return IBLocale.Pairing.waitingReasonNotSeenYet
+        }
+    }
+
+    /// Once, after the grace is spent. Without it the waiting banner would
+    /// just vanish, which reads as a bug rather than as a decision.
+    private func gaveUpSection(_ gaveUp: PairedMac) -> some View {
+        Section {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "door.left.hand.open")
+                    .foregroundStyle(IBColor.textSecondary)
+                Text(IBLocale.Pairing.preferredGaveUp(gaveUp.name))
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button(IBLocale.Settings.done) { engine.clearPreferredGaveUp() }
+                    .buttonStyle(.borderless)
+            }
+            .padding(.vertical, 2)
         }
     }
 

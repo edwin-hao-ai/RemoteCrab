@@ -14,26 +14,26 @@ final class ContextProfilesTests: XCTestCase {
     // MARK: - Frontmost-app → profile
 
     func testKeynoteMatchesPresentation() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.iWork.Keynote")).id, "presentation")
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.microsoft.Powerpoint")).id, "presentation")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.iWork.Keynote"), platform: .mac).id, "presentation")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.microsoft.Powerpoint"), platform: .mac).id, "presentation")
     }
 
     func testTerminalsMatchAgent() {
         for id in ["com.apple.Terminal", "com.googlecode.iterm2",
                    "com.mitchellh.ghostty", "dev.warp.Warp-Stable"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "agent", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "agent", id)
         }
     }
 
     func testAgentClientsMatchAI() {
         for id in ["com.anthropic.claudefordesktop", "com.openai.chat",
                    "com.minimax.agent.cn", "com.workbuddy.workbuddy-ai"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "ai", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "ai", id)
         }
     }
 
     func testOpenCodeMatchesOpenCode() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("ai.opencode.desktop")).id, "opencode")
+        XCTAssertEqual(ContextProfiles.profile(for: app("ai.opencode.desktop"), platform: .mac).id, "opencode")
     }
 
     /// OpenCode's real shortcuts (read from its Electron keybind table):
@@ -51,81 +51,81 @@ final class ContextProfilesTests: XCTestCase {
     func testCodeEditorsMatchEditor() {
         for id in ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92",
                    "com.sublimetext.4", "com.panic.Nova", "dev.zed.Zed"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "editor", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "editor", id)
         }
     }
 
     func testXcodeMatchesXcode() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.dt.Xcode")).id, "xcode")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.dt.Xcode"), platform: .mac).id, "xcode")
     }
 
     func testRichTextMatchesText() {
         for id in ["com.apple.TextEdit", "com.apple.iWork.Pages",
                    "com.apple.iWork.Numbers", "com.microsoft.Word"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "text", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "text", id)
         }
     }
 
     func testMediaChatMeetingMatch() {
         for id in ["com.apple.Music", "com.spotify.client"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "media", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "media", id)
         }
         for id in ["com.hnc.Discord", "com.tinyspeck.slackmacgap",
                    "com.electron.lark", "com.tencent.xinWeChat", "org.telegram.desktop"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "chat", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "chat", id)
         }
         for id in ["us.zoom.xos", "com.microsoft.teams2", "com.tencent.meeting"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "meeting", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "meeting", id)
         }
     }
 
     func testImageAndNotebookMatch() {
         for id in ["com.apple.Preview", "com.apple.Photos", "com.apple.QuickTimePlayerX"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "image", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "image", id)
         }
         for id in ["md.obsidian", "notion.id", "net.shinyfrog.bear"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "notebook", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "notebook", id)
         }
     }
 
     func testFinderMatchesFinder() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.finder")).id, "finder")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.finder"), platform: .mac).id, "finder")
     }
 
     func testNotesMatchesNotes() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.Notes")).id, "notes")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.Notes"), platform: .mac).id, "notes")
     }
 
     func testBrowsersMatchBrowser() {
         for id in ["com.apple.Safari", "com.google.Chrome", "com.microsoft.edgemac",
                    "org.mozilla.firefox", "company.thebrowser.Browser", "com.brave.Browser"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "browser", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "browser", id)
         }
     }
 
     func testMailMatchesMail() {
         for id in ["com.apple.mail", "com.microsoft.Outlook"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "mail", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "mail", id)
         }
     }
 
     func testMessagesAndCalendar() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.MobileSMS")).id, "messages")
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.iCal")).id, "calendar")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.MobileSMS"), platform: .mac).id, "messages")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.iCal"), platform: .mac).id, "calendar")
     }
 
     func testEditorsMatchEditor() {
         for id in ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92"] {
-            XCTAssertEqual(ContextProfiles.profile(for: app(id)).id, "editor", id)
+            XCTAssertEqual(ContextProfiles.profile(for: app(id), platform: .mac).id, "editor", id)
         }
     }
 
     func testUnknownFallsBackToConsole() {
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.example.unknown")).id, "console")
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.example.unknown"), platform: .mac).id, "console")
     }
 
     func testNilFallsBackToConsole() {
-        XCTAssertEqual(ContextProfiles.profile(for: nil).id, "console")
+        XCTAssertEqual(ContextProfiles.profile(for: nil, platform: .mac).id, "console")
     }
 
     // MARK: - Structure invariants
@@ -257,7 +257,7 @@ final class ContextProfilesTests: XCTestCase {
     /// 核对过的，在 Windows 上 ⌘ 塌缩成 ⌃ —— 借过来得到的是「错按钮」，
     /// 包括一个会中断的「复制」和一个会退出程序的「锁定屏幕」。
     func testASuiteWithNoWindowsMappingResolvesToNoWindowsActions() {
-        let macOnly = ContextProfiles.profile(for: app("com.example.mac"), in: registry())
+        let macOnly = ContextProfiles.profile(for: app("com.example.mac"), platform: .mac, in: registry())
         XCTAssertNil(macOnly.windowsActions)
         // And the renderer is handed an empty list, never `actions`.
         let rendered = macOnly.windowsActions ?? []
@@ -361,7 +361,7 @@ final class ContextProfilesTests: XCTestCase {
             bundleIDs: ["com.apple.Terminal"],
             actions: [.voiceHero(label: "T", symbol: "waveform")])
         let merged = ContextProfiles.merged([override])
-        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.Terminal"), in: merged).id,
+        XCTAssertEqual(ContextProfiles.profile(for: app("com.apple.Terminal"), platform: .mac, in: merged).id,
                        "agent")
     }
 }

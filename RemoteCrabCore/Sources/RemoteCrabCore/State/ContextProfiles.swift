@@ -585,7 +585,7 @@ public enum ContextProfiles {
     /// identifies nothing. Matching it was the original reason the whole
     /// context sheet looked empty on Windows.
     public static func profile(for app: IBAppInfo?,
-                               platform: IBModifierBar.PeerPlatform = .mac,
+                               platform: IBModifierBar.PeerPlatform,
                                in registry: [ContextProfile] = all) -> ContextProfile {
         guard let app else { return console }
         if platform == .windows {

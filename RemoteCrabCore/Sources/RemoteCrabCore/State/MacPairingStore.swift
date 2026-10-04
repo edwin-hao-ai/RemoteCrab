@@ -285,6 +285,18 @@ public final class MacPairingStore {
         return true
     }
 
+    /// What the chosen computer's most recent attempt produced, so the
+    /// waiting banner can say **why** it is still waiting.
+    ///
+    /// The phone already recorded this for every computer (`SeenComputer
+    /// .lastOutcome`) and never used it here, which is why a switch to a
+    /// machine that was denied read exactly like a switch to one that is
+    /// merely asleep — when one of them will never arrive on its own and the
+    /// other will, in fifteen seconds.
+    public func lastOutcome(for id: String) -> AttemptOutcome? {
+        seen.first { $0.id == id }?.lastOutcome
+    }
+
     /// The platform we last saw for a given computer id.
     public func platform(for id: String) -> String? {
         seen.first(where: { $0.id == id })?.platform
@@ -299,6 +311,42 @@ public final class MacPairingStore {
     /// that the door opens again — the user may have changed their mind
     /// or the preferred Mac may simply be off.
     public static let preferredTTL: TimeInterval = 10 * 60
+
+    /// When the current preference was armed, ignoring `preferredTTL`.
+    /// The grace period below is measured from here.
+    public var preferredArmedAt: Date? {
+        defaults.object(forKey: preferredAtKey) as? Date
+    }
+
+    /// How long the door is held open for the chosen computer.
+    ///
+    /// The 10-minute `preferredTTL` answers "how long until this preference
+    /// is meaningless". This answers a different question: "how long should
+    /// one computer lock everyone else out while we wait for it?" Ten
+    /// minutes is the wrong number for that, because a computer that has not
+    /// dialled in after half a minute is not going to — it is asleep, on
+    /// another network, was denied, or has auto-reconnect switched off (all
+    /// four are real states on the Mac side). Holding the door for the full
+    /// TTL after such a computer means **nobody** can connect and the only
+    /// way out is a Cancel button the user has to know exists.
+    ///
+    /// 30 s comfortably covers a Mac in the `busy` state, whose only retry
+    /// is `scheduleSlowRetry` every 15 s — and a Mac that is actively trying
+    /// connects in a few seconds, so the window is rarely spent.
+    public static let preferredGrace: TimeInterval = 30
+
+    /// The preference that should actually hold the door — `nil` once the
+    /// grace period is spent, which reopens the door for every computer.
+    ///
+    /// This is the single point that turns a ten-minute self-inflicted
+    /// lockout into a thirty-second wait, and it is where the fix belongs:
+    /// `PairingPolicy.decide` already treats a `nil` preferred as "no
+    /// preference", so no rule inside the policy needs to know about time.
+    public func effectivePreferred(now: Date = Date()) -> PairedMac? {
+        guard let preferred else { return nil }
+        guard let armedAt = preferredArmedAt else { return preferred }
+        return now.timeIntervalSince(armedAt) < Self.preferredGrace ? preferred : nil
+    }
 
     /// The id of the Mac the user picked in the iOS Mac picker, if the
     /// preference is still fresh.
