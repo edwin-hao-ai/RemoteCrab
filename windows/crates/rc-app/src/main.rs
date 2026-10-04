@@ -380,6 +380,12 @@ async fn main() -> ExitCode {
 
     let mut last_label = String::new();
     let mut video_frames: u64 = 0;
+    // Portable per-capability counters, so each of the ten things a parity run
+    // checks has a marker on BOTH receivers. Rate-limited on the high-rate ones
+    // because 30 touches a second is noise, not evidence.
+    let mut touch_frames: u64 = 0;
+    let mut key_events: u64 = 0;
+    let mut audio_packets: u64 = 0;
     // While another computer owns the iPhone we retry quietly — printing a
     // line every 10 s would be noise. We only re-announce when something
     // actually changes.
@@ -687,6 +693,16 @@ async fn main() -> ExitCode {
                                 // the phone *asked* the cursor to go, which is the only
                                 // way to tell a dropped modifier from a stuck one.
                                 stats.record_touch(&t);
+                                // Portable marker. Receiving a touch is a fact about
+                                // the wire and holds on every platform; only the
+                                // *injection* needs Windows. Without this line the
+                                // capability has no cell at all in a parity run
+                                // hosted on a Mac, which reads as "not tested"
+                                // rather than "cannot be injected here".
+                                touch_frames += 1;
+                                if touch_frames.is_multiple_of(30) {
+                                    println!("  touch events received: {touch_frames}");
+                                }
                                 // TEMPORARY DIAGNOSTIC — inert unless
                                 // REMOTECRAB_E2E_TRACKPAD_DIR=1.
                                 //
@@ -732,6 +748,9 @@ async fn main() -> ExitCode {
                             }
                             Event::Key(k) => {
                                 stats.record_key(&k);
+                                // Same reasoning as the touch marker above.
+                                key_events += 1;
+                                println!("  key events received: {key_events}");
                                 #[cfg(windows)]
                         publish_stats(&stats);
                                 #[cfg(windows)]
@@ -743,6 +762,15 @@ async fn main() -> ExitCode {
                             }
                             Event::Audio(packet) => {
                                 audio.consume(&packet);
+                                // Portable marker, for the same reason. Also the one
+                                // place a parity run can prove the Opus encode path
+                                // end to end without a speaker: packets arriving and
+                                // being handed to the decoder is what is being
+                                // asserted, not that anything came out of it.
+                                audio_packets += 1;
+                                if audio_packets.is_multiple_of(100) {
+                                    println!("  audio packets received: {audio_packets}");
+                                }
                                 if let Some(rec) = recording.as_mut() {
                                     let pcm = console::decode_for_record(&mut rec.opus, &packet);
                                     if !pcm.is_empty() {
@@ -920,6 +948,11 @@ async fn main() -> ExitCode {
                                 session.send_frame(encode_installed_apps(&list).unwrap_or_default());
                             }
                             Event::ActivateApp(a) => {
+                                // Portable marker: the *request* arrived and names
+                                // this app. Whether it came to the front is the
+                                // injection half, and that is a separate question
+                                // with a separate answer on this platform.
+                                println!("  app switch requested: {}", a.id);
                                 #[cfg(windows)]
                                 {
                                     if args.no_input {
