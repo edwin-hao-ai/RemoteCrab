@@ -52,6 +52,23 @@ final class ReceiverSession: ObservableObject {
     /// send one — the UI must treat nil as "remote control unavailable").
     @Published private(set) var featureState: FeatureStateSnapshot?
 
+    /// Why the speaker path is not running, in words the user can act on.
+    /// `nil` means "not on, nothing to report" — a status surface that has
+    /// to distinguish "fine" from "broken" from "off" cannot be a Bool.
+    @Published private(set) var speakerStatus: String?
+
+    /// Live proof the tap is actually receiving audio, for the e2e run and
+    /// the test window. A feature that reports itself as on while capturing
+    /// silence is worse than one that fails.
+    @Published private(set) var speakerCapturedFrames: UInt64 = 0
+    @Published private(set) var speakerDroppedFrames: UInt64 = 0
+
+    /// The Mac is the SENDER for this feature, so it reacts to the phone's
+    /// `featureState` echo rather than to `featureControl` — the same
+    /// one-way loop the microphone already uses.
+    private let speakerTap = SystemAudioTap()
+    private var speakerPumpTask: Task<Void, Never>?
+
     /// Running regular apps published to the iPhone's app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
     /// Rasterized icon PNGs keyed by app id (bundle id or `pid:<n>`).
@@ -936,6 +953,78 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    // MARK: - Speaker path (the Mac captures, the phone plays)
+
+    /// Start capturing the Mac's audio and pumping it to the phone.
+    /// Idempotent, because the request can arrive from the phone's toggle,
+    /// from the Mac's own menu row, and from a `featureState` replay after
+    /// a reconnect — and each of those can fire twice.
+    func startSpeakerCapture(mute: SystemAudioTapMute = .muteWhileTapped) {
+        guard sessionGranted, let connection, connection.state == .ready else {
+            speakerStatus = "Not connected — the phone cannot play audio from a Mac that is not connected."
+            return
+        }
+        if speakerTap.running { return }
+
+        do {
+            try speakerTap.start(mute: mute)
+        } catch {
+            // Surface the reason AND the action. A switch that silently does
+            // nothing is the failure mode rule 1 exists to prevent.
+            speakerStatus = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            Self.log.error("speaker tap failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+
+        speakerStatus = nil
+        Self.log.info("speaker capture started (mute=\(mute.rawValue, privacy: .public))")
+
+        speakerPumpTask?.cancel()
+        speakerPumpTask = Task { [weak self] in
+            // 10 ms keeps the 500 ms ring comfortably drained without
+            // waking the CPU 100 times a second for nothing: the tap hands
+            // over 512 frames (10.67 ms) per callback, so this is one poll
+            // per incoming buffer.
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(10))
+                self?.pumpSpeakerAudio()
+            }
+        }
+    }
+
+    func stopSpeakerCapture() {
+        speakerPumpTask?.cancel()
+        speakerPumpTask = nil
+        guard speakerTap.running else { speakerStatus = nil; return }
+        speakerTap.stop()
+        speakerStatus = nil
+        Self.log.info("speaker capture stopped (captured \(self.speakerTap.capturedFrameCount, privacy: .public) frames)")
+    }
+
+    /// Drain whatever the tap has buffered and ship it. Sends nothing while
+    /// disconnected, and never blocks the realtime side.
+    private func pumpSpeakerAudio() {
+        guard speakerTap.running,
+              sessionGranted, let connection, connection.state == .ready else { return }
+        var sent = 0
+        while let pcm = speakerTap.takePacket() {
+            let packet = AudioPacket(
+                opusData: pcm,
+                sampleRate: Int(SystemAudioTap.sampleRate),
+                channels: SystemAudioTap.channels,
+                timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000),
+                codec: AudioPacket.codecPCM)
+            guard let data = try? IBWire.encode(speakerAudio: packet) else { break }
+            connection.send(content: data, completion: .contentProcessed { _ in })
+            sent += 1
+            if sent >= 20 { break }   // never let a backlog starve the rest of the link
+        }
+        if sent > 0 {
+            speakerCapturedFrames = speakerTap.capturedFrameCount
+            speakerDroppedFrames = speakerTap.droppedFrameCount
+        }
+    }
+
     /// Mac → iPhone: switch the streaming camera. No-op when disconnected.
     func switchCamera(to position: IBCameraPosition) {
         guard sessionGranted, let connection, connection.state == .ready else { return }
@@ -1498,6 +1587,11 @@ final class ReceiverSession: ObservableObject {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         featureState = nil
+        // The Mac must get its own sound back when the phone goes away —
+        // with `muteWhileTapped` the tap keeps the hardware silent for as
+        // long as it is read, so leaving it running would mute the Mac
+        // against a phone that is no longer there.
+        stopSpeakerCapture()
         teardownVirtualDisplay()
         screenStreamer?.stop()
         screenStreamer = nil
@@ -1664,8 +1758,11 @@ final class ReceiverSession: ObservableObject {
                 break
             case .featureState:
                 if let snap = try? IBWire.decodeFeatureState(frame) {
-                    Self.log.info("featureState: camera=\(snap.cameraOn) mic=\(snap.micOn) voice=\(snap.voiceOn) trackpad=\(snap.trackpadOn) keyboard=\(snap.keyboardOn)")
+                    Self.log.info("featureState: camera=\(snap.cameraOn) mic=\(snap.micOn) voice=\(snap.voiceOn) trackpad=\(snap.trackpadOn) keyboard=\(snap.keyboardOn) speaker=\(snap.speakerOn)")
                     featureState = snap
+                    // The phone owns this toggle, so the Mac follows the
+                    // echoed state rather than acting on the request twice.
+                    if snap.speakerOn { startSpeakerCapture() } else { stopSpeakerCapture() }
                 }
             case .ping:
                 guard frame.payload.count == 8 else {
