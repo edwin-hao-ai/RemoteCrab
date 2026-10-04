@@ -192,6 +192,11 @@ final class TouchSurfaceUIView: UIView {
             // to the Mac's long axis) — the "方向感不一致" complaint.
             let rawDX = Float(location.x - last.x) / Float(uniformReference)
             let rawDY = Float(location.y - last.y) / Float(uniformReference)
+            // The finger's own travel, kept for the `[dir]` diagnostic. Must
+            // be captured before `lastDragLocation` moves on, and before the
+            // gain is applied, so it can be compared against what was sent.
+            lastFingerDX = rawDX
+            lastFingerDY = rawDY
             lastDragLocation = location
             onTouch?(normalize(location), true)
             // Selection drags use the precision curve: low fixed gain,
@@ -563,6 +568,12 @@ final class TouchSurfaceUIView: UIView {
     /// Only read by the `[dir]` diagnostic.
     private var lastPointerSpeed: Float = 0
 
+    /// The finger's own travel for the most recent move, before any gain was
+    /// applied. Only read by the `[dir]` diagnostic, which compares it against
+    /// `out.dx` on the same line to decide which half of the chain to look at.
+    private var lastFingerDX: Float = 0
+    private var lastFingerDY: Float = 0
+
     private let motionManager = CMMotionManager()
     /// Attitude captured on the first motion frame after activation;
     /// subsequent frames emit .move deltas relative to it, so holding
@@ -820,15 +831,24 @@ final class TouchSurfaceUIView: UIView {
         //
         // Every 12th move, so a 30-second swipe is a readable table instead
         // of 600 lines. Delete once the direction is settled.
+        //
+        // `finger.dx` is the finger's own travel and `out.dx` is what went on
+        // the wire, on the SAME line — so one line is a complete judgement:
+        // same sign means this layer is consistent and any reversal is
+        // downstream, opposite signs means the bug is right here. An earlier
+        // version of this logged the previous touch x, but by the time
+        // `emit` runs, `lastDragLocation` has already been advanced to the
+        // current location, so it always equalled `fx` and said nothing.
         if TouchSurfaceUIView.trackpadDirDiag, phase == .move {
             TouchSurfaceUIView.trackpadDirCount &+= 1
             if TouchSurfaceUIView.trackpadDirCount % 12 == 1 {
                 var line = "[dir] n=\(TouchSurfaceUIView.trackpadDirCount)"
                 if let location {
                     line += " fx=\(String(format: "%.0f", location.x))"
-                    line += " prev=\(String(format: "%.0f", lastDragLocation?.x ?? 0))"
+                    line += " finger.dx=\(String(format: "%+.5f", lastFingerDX))"
+                    line += " finger.dy=\(String(format: "%+.5f", lastFingerDY))"
                 } else {
-                    line += " fx=nil"
+                    line += " fx=nil finger.dx=0 finger.dy=0"
                 }
                 line += " ref=\(Int(uniformReference))"
                 line += " out.dx=\(String(format: "%+.5f", dx))"
