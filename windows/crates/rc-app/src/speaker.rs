@@ -643,7 +643,6 @@ pub const TITLE: (&str, &str) = ("播放电脑声音", "Play computer sound");
 /// Deliberately NOT behind the `selftest` feature: the machines that need
 /// answering this are user machines running the release build, and a diagnostic
 /// that needs a rebuild is a diagnostic nobody runs.
-#[cfg(windows)]
 fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

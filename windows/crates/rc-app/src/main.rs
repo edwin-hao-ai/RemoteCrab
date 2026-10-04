@@ -403,6 +403,11 @@ async fn main() -> ExitCode {
     // Keyframe-request throttling. One request per interval is enough: the phone
     // answers with an IDR immediately, and a stream that needs more than that is
     // broken in a way one more IDR will not fix.
+    // Windows-gated with its only reader below. The declaration was ungated and
+    // the read was gated, so `cargo build -p rc-app` failed off Windows — the
+    // third variant of "a Windows-gated thing reached from shared code", and the
+    // one `scripts/test.sh`'s host-build step exists to catch.
+    #[cfg(windows)]
     let mut last_keyframe_ask_at = std::time::Instant::now() - KEYFRAME_REQUEST_INTERVAL;
     let mut last_keyframe_asked_at_refusals: u64 = 0;
     // Whether the trackpad currently believes it is connected, so the
