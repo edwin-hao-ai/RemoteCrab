@@ -6,6 +6,7 @@
 //! is a thin shell so the pipeline stays testable headlessly.
 
 pub mod decoder;
+pub mod pixels;
 #[cfg(not(test))]
 pub mod window;
 
