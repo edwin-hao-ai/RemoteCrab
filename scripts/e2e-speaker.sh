@@ -59,8 +59,12 @@ LAUNCH_PID=$!
 # The Mac must be logging while the feature turns on, otherwise "capture
 # started" can never be observed.
 say "watching the Mac receiver log (12 s)"
-( /usr/bin/log stream --predicate 'subsystem == "com.remotecrab" AND category == "speaker-tap"' \
-    --info --style compact > /tmp/e2e-speaker-mac.log 2>&1 ) &
+# The WHOLE subsystem, not one category: "speaker capture started" is logged
+# by ReceiverSession, so a category-scoped predicate silently watches a log
+# that can never contain the line the assertion looks for — an assertion that
+# cannot fail is worse than no assertion.
+( /usr/bin/log stream --predicate 'subsystem == "com.remotecrab"' \
+    --info --debug --style compact > /tmp/e2e-speaker-mac.log 2>&1 ) &
 LOG_PID=$!
 sleep 12
 kill "$LOG_PID" 2>/dev/null; wait "$LOG_PID" 2>/dev/null
@@ -73,6 +77,20 @@ xcrun devicectl device copy from --device "$PHONE_UDID" --domain-type appDataCon
 
 # --- assertions
 say "assertions"
+
+# The phone only streams to one computer at a time. If another Mac (or the
+# Windows receiver) already owns it, this Mac never gets a session and every
+# assertion below fails for a reason that has nothing to do with this feature.
+# Reported separately, because "the phone is busy" and "the speaker path is
+# broken" look identical otherwise.
+if grep -q "sessionReply: busy" /tmp/e2e-speaker-mac.log 2>/dev/null; then
+  OWNER=$(grep -o "sessionReply: busy owner=.*" /tmp/e2e-speaker-mac.log | tail -1)
+  echo "  [SKIP] the phone is held by another computer: \"$OWNER\""
+  echo "         That is correct behaviour, not a failure of this feature."
+  echo "         Disconnect the other computer (or pick this Mac on the phone),"
+  echo "         then re-run. Nothing below can be trusted until then."
+  exit 3
+fi
 grep -q "speaker mode requested" /tmp/e2e-speaker-phone.log 2>/dev/null \
   && ok "1. the phone entered speaker mode" \
   || bad "1. the phone never entered speaker mode"
