@@ -136,6 +136,11 @@ pub struct MenuState {
     /// the user asks, because the alternative is a product that ships reading
     /// your notifications before you have agreed to it.
     pub notify_relay: bool,
+    /// Whether the phone's feature state has arrived at all — which is this
+    /// receiver's definition of "connected" for the speaker row.
+    pub connected: bool,
+    /// Whether the phone is currently sending us its system audio (kind `0x24`).
+    pub speaker_on: bool,
     /// Whether the virtual camera's COM source is registered. `false` is the
     /// only state in which the user has something to do about it, so it is the
     /// only state that shows the install row.
@@ -210,6 +215,25 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
         Row::Item,
         ids::MICROPHONE,
         t("麦克风", "Microphone").to_string(),
+    );
+    // "Play computer sound" is a STATUS row, not a toggle, mirroring the Mac's
+    // `FeatureStatusRow` (`MenuBarMenu.swift`). The phone owns the decision — it
+    // plays the computer's audio out of itself — so a switch here would be a
+    // second place to look for the same decision, which is what made the feature
+    // read as "the Mac has to be set up first". The line names the state AND the
+    // place that changes it, because a row that only points elsewhere has not
+    // told the user anything about now.
+    //
+    // A `Row::Info` renders greyed and unclickable, which is exactly the Mac's
+    // `FeatureStatusRow`: a state word rather than a switch.
+    push(
+        Row::Info,
+        0,
+        format!(
+            "{}: {}",
+            t(crate::speaker::TITLE.0, crate::speaker::TITLE.1),
+            crate::speaker::status_line(state.connected, state.speaker_on)
+        ),
     );
     push(
         Row::Item,
@@ -844,6 +868,8 @@ mod sheet_order_tests {
             diagnosis: String::new(),
             details: vec![("延迟".to_string(), "5 ms".to_string())],
             notify_relay: false,
+            connected: true,
+            speaker_on: false,
             vcam_installed: true,
         }
     }

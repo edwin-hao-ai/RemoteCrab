@@ -499,6 +499,9 @@ fn pump(
         }
 
         let status = classify(&stats, mute_broke);
+        // Published for the tray, which is rebuilt on the Win32 thread and has no
+        // access to this loop's locals.
+        publish(status);
         if let Ok(mut v) = view.lock() {
             v.running = stats.running;
             v.captured_frames = stats.captured_frames;
@@ -532,12 +535,102 @@ fn pump(
     }
 }
 
-fn now_micros() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_micros() as u64)
-        .unwrap_or(0)
+/// What the pump last published, for surfaces that are not the select loop.
+///
+/// A module global rather than a value threaded through, and the reason is
+/// `notify_relay`: the tray menu is rebuilt on a Win32 thread that has no access
+/// to the select loop's locals, and the alternative — a channel, a handle, or a
+/// `static mut` — is worse. One writer (the pump), one reader (the tray), and a
+/// `Mutex` so the copy is atomic. The tray's own state comes from
+/// `FeatureStateSnapshot`, which it already receives.
+static PUBLISHED: Mutex<Option<Status>> = Mutex::new(None);
+
+/// Record the latest status for the tray. Called by the pump.
+pub fn publish(status: Option<Status>) {
+    if let Ok(mut slot) = PUBLISHED.lock() {
+        *slot = status;
+    }
 }
+
+/// The tray's line for this feature, mirroring the Mac's `FeatureStatusRow`
+/// (`MenuBarMenu.swift`, `speakerSubtitle`) exactly in shape:
+///
+/// | state | says |
+/// |---|---|
+/// | not connected | connect the phone first |
+/// | a failure the user can fix **here** | that failure, with its action |
+/// | on | where to turn it off |
+/// | off | where to turn it on |
+///
+/// It is a **status and not a control**, for the reason the Mac commit gives:
+/// this feature routes the computer's audio to the phone, so the phone is where
+/// the user decides, and a switch on the other machine is a second place to look
+/// for the same decision. A row that only points elsewhere has still told the
+/// user nothing about *now*, so both the state and the place are in one string.
+///
+/// # Why the wording is not copied verbatim from the Mac
+///
+/// The Mac's hint says the computer's own speakers go quiet while it is on. That
+/// is `CATapMuteBehavior.mutedWhenTapped` and the OS restores it. On Windows the
+/// default is the opposite — see [`default_behaviour`] — so the same sentence
+/// would be a lie, which is the exact failure the four-implementations trap
+/// produces.
+pub fn status_line(connected: bool, speaker_on: bool) -> String {
+    let (zh, en): (&str, String) = match published() {
+        // A failure the user can fix on this machine speaks for itself, because
+        // there is a control to go and use.
+        Some(status) => {
+            let (zh, en): (&str, String) = match status {
+                // Working: fall through to the state report below.
+                Status::Working => return state_sentence(connected, speaker_on),
+                Status::Failed(e) => {
+                    let (a, b) = e.message();
+                    (a, b.to_string())
+                }
+                Status::NoAudioYet => (
+                    "已连上，但默认输出设备一直没有声音 — 在「设置 → 系统 → 声音」里换一个默认输出设备",
+                    "connected, but the default output device has produced no audio - pick another default output in Settings > System > Sound".to_string(),
+                ),
+                Status::Dropping(n) => (
+                    "音频在丢帧 — 关掉其他占用音频的软件",
+                    format!("audio is being dropped ({n} frames) - close other audio apps"),
+                ),
+                Status::MuteBrokeTheAudio => (
+                    "静音本机会让采集也变静音，已自动取消静音",
+                    "muting this PC also silenced the capture, so the mute was undone".to_string(),
+                ),
+            };
+            (zh, en)
+        }
+        None => return state_sentence(connected, speaker_on),
+    };
+    crate::i18n::t(zh, &en).to_string()
+}
+
+fn state_sentence(connected: bool, speaker_on: bool) -> String {
+    let (zh, en): (&str, &str) = if !connected {
+        (
+            "先连接 iPhone 才能打开",
+            "Connect your iPhone to switch this on",
+        )
+    } else if speaker_on {
+        ("开 — 在 iPhone 上关掉它", "On — switch it off on your iPhone")
+    } else {
+        (
+            "关 — 在 iPhone 的声音菜单里打开",
+            "Off — switch it on from your iPhone's sound menu",
+        )
+    };
+    crate::i18n::t(zh, en).to_string()
+}
+
+fn published() -> Option<Status> {
+    PUBLISHED.lock().ok().and_then(|s| *s)
+}
+
+/// The row's title. Matches the Mac's `IBLocale.Speaker.title` so the two menus
+/// name the same feature the same way.
+pub const TITLE: (&str, &str) = ("播放电脑声音", "Play computer sound");
 
 /// Capture this PC's system audio for a few seconds and report what arrived.
 ///
@@ -550,6 +643,14 @@ fn now_micros() -> u64 {
 /// Deliberately NOT behind the `selftest` feature: the machines that need
 /// answering this are user machines running the release build, and a diagnostic
 /// that needs a rebuild is a diagnostic nobody runs.
+#[cfg(windows)]
+fn now_micros() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
+        .unwrap_or(0)
+}
+
 #[cfg(windows)]
 pub fn probe() -> std::process::ExitCode {
     use std::process::ExitCode;
@@ -941,9 +1042,83 @@ mod tests {
         assert_eq!(parse_mute_pref("keep"), MuteBehaviour::KeepLocal);
     }
 
-    /// The default is the one that cannot leave a user with a silent computer.
-    #[test]
-    fn the_default_never_touches_the_volume() {
+/// The default is the one that cannot leave a user with a silent computer.
+#[test]
+fn the_default_never_touches_the_volume() {
         assert!(!default_behaviour().is_muting());
+    }
+
+    // ---- the tray row, against the Mac's four cases
+    //
+    // `MenuBarMenu.swift`'s `speakerSubtitle` is the reference and this table is
+    // it: connect-first, a locally-fixable failure speaks for itself, and the two
+    // states each name where the user changes them. A Windows row that silently
+    // differs is how the two receivers end up describing one feature two ways.
+
+    #[test]
+    fn disconnected_names_the_one_thing_that_would_change_it() {
+        for on in [false, true] {
+            let line = status_line(false, on);
+            assert!(
+                line.contains("连接") || line.contains("Connect"),
+                "does not say the phone is the blocker: {line}"
+            );
+        }
+    }
+
+    /// A row that only says where to go elsewhere has told the user nothing
+    /// about *now*, so both the state and the place are in the one string.
+    #[test]
+    fn both_states_name_the_state_and_the_place_that_changes_it() {
+        let on = status_line(true, true);
+        let off = status_line(true, false);
+        assert_ne!(on, off, "the two states read identically");
+        for line in [&on, &off] {
+            assert!(
+                line.contains("iPhone"),
+                "does not say where the switch lives: {line}"
+            );
+        }
+    }
+
+    /// A failure the user CAN fix here outranks the state sentence, because
+    /// there is a control to go and use — the Mac's rule for `speakerStatus`.
+    #[test]
+    fn a_locally_fixable_failure_speaks_instead_of_the_state() {
+        publish(Some(Status::Failed(LoopbackError::NoOutputDevice(0))));
+        let line = status_line(true, true);
+        assert!(
+            !line.contains("iPhone"),
+            "the state sentence hid the failure: {line}"
+        );
+        assert!(line.contains("设置") || line.contains("Settings"), "{line}");
+        publish(None);
+    }
+
+    #[test]
+    fn a_working_capture_falls_back_to_the_state_sentence() {
+        publish(Some(Status::Working));
+        assert_eq!(status_line(true, true), state_sentence(true, true));
+        assert_eq!(status_line(true, false), state_sentence(true, false));
+        publish(None);
+    }
+
+    /// Publishing is how the tray learns, and it must be clearable — a stale
+    /// failure would keep speaking after the feature recovered.
+    #[test]
+    fn publishing_and_clearing_round_trip() {
+        assert_eq!(published(), None);
+        publish(Some(Status::Dropping(42)));
+        assert_eq!(published(), Some(Status::Dropping(42)));
+        publish(None);
+        assert_eq!(published(), None);
+    }
+
+    /// The row's title must match the Mac's, or the two menus name one feature
+    /// two ways and support answers "which one?".
+    #[test]
+    fn the_row_is_titled_like_the_macs() {
+        assert_eq!(TITLE.1, "Play computer sound");
+        assert_eq!(TITLE.0, "播放电脑声音");
     }
 }
