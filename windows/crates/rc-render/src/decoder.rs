@@ -30,17 +30,63 @@ pub struct H264PreviewDecoder {
     /// thing to debug here, so the reason is kept.
     last_error: Option<String>,
     refused: u64,
+    /// The most recent parameter sets, kept so they can be re-injected.
+    ///
+    /// This is not an optimisation. When OpenH264 hits a reference frame it
+    /// cannot satisfy it calls `ResetDecoder()`, which **discards the SPS**, and
+    /// then every following NAL fails with "no exist Sequence Parameter Sets
+    /// ahead of sequence" — one bad frame kills the stream permanently.
+    ///
+    /// Measured on `docs/demo/remotecrab-demo.mp4`, which ffmpeg decodes as 721
+    /// clean frames: OpenH264 refused 694 of its 728 NAL units, because the
+    /// SPS declares `iNumRefFrames: 4`. One `PrefetchPic ERROR` at the first
+    /// IDR, and the picture was dead for the rest of the file.
+    ///
+    /// Re-sending the parameter sets on the way back in turns that permanent
+    /// death into a per-frame failure the decoder can recover from at the next
+    /// keyframe. The phone only sends SPS/PPS once per session, so nothing
+    /// upstream has to change for this to work.
+    last_sps: Option<Vec<u8>>,
+    last_pps: Option<Vec<u8>>,
+    /// How many times the parameter sets have been re-sent, so a stream that
+    /// cannot be decoded at all is visible as a number instead of as a silence.
+    reinjected: u64,
 }
 
 impl H264PreviewDecoder {
     pub fn new() -> Result<Self, openh264::Error> {
+        Self::with_config(openh264::decoder::DecoderConfig::new())
+    }
+
+    /// Same decoder, but with OpenH264's own tracing switched on.
+    ///
+    /// Its error return is a bare `16`, which names nothing. The trace goes to
+    /// stderr from inside the C library and is the only thing that says *why*,
+    /// so this exists for the case where the numeric code is not actionable.
+    pub fn with_debug_tracing() -> Result<Self, openh264::Error> {
+        Self::with_config(openh264::decoder::DecoderConfig::new().debug(true))
+    }
+
+    pub fn with_config(config: openh264::decoder::DecoderConfig) -> Result<Self, openh264::Error> {
         Ok(H264PreviewDecoder {
-            decoder: Decoder::new()?,
+            decoder: Decoder::with_api_config(openh264::OpenH264API::from_source(), config)?,
             width: 0,
             height: 0,
             last_error: None,
             refused: 0,
+            last_sps: None,
+            last_pps: None,
+            reinjected: 0,
         })
+    }
+
+    /// The parameter sets, and how many times they have been re-sent.
+    ///
+    /// A non-zero count on a healthy stream means the decoder keeps losing its
+    /// SPS, which is the difference between "the picture has a glitch" and "the
+    /// picture died and never came back".
+    pub fn reinjections(&self) -> u64 {
+        self.reinjected
     }
 
     /// Feed one NAL unit and return a frame if one was produced.
@@ -48,6 +94,59 @@ impl H264PreviewDecoder {
     /// `nal` is the raw NAL payload (no length prefix, no start code). We
     /// wrap it in an Annex-B start code for OpenH264.
     pub fn feed_nal(&mut self, nal: &[u8]) -> Option<RgbaFrame> {
+        if nal.is_empty() {
+            self.last_error = Some("empty NAL".into());
+            return None;
+        }
+        // A NAL that begins with a 4-byte length is AVCC, not a raw unit.
+        // Prepending a start code to that hands OpenH264 a length field where it
+        // expects a NAL header, and it refuses every frame with no clue why.
+        if looks_length_prefixed(nal) {
+            self.refused += 1;
+            self.last_error = Some(format!(
+                "NAL is length-prefixed (AVCC), not a raw unit; first bytes {:02x?}",
+                &nal[..nal.len().min(8)]
+            ));
+            return None;
+        }
+
+        // Remember the parameter sets before trying to decode anything with
+        // them, so they survive a decoder reset.
+        match nal.first().map(|b| b & 0x1F) {
+            Some(7) => self.last_sps = Some(nal.to_vec()),
+            Some(8) => self.last_pps = Some(nal.to_vec()),
+            _ => {}
+        }
+
+        let frame = self.decode_one(nal);
+        if frame.is_none() {
+            // A refused slice leaves the decoder without an SPS, and it will
+            // then refuse everything that follows for the same reason. Put the
+            // parameter sets back and try once more — at the next keyframe this
+            // is the difference between recovering and staying dead.
+            if self.reinject_parameters() {
+                return self.decode_one(nal);
+            }
+        }
+        frame
+    }
+
+    /// Re-send the stored SPS and PPS. Returns whether anything was sent.
+    fn reinject_parameters(&mut self) -> bool {
+        let (Some(sps), Some(pps)) = (self.last_sps.clone(), self.last_pps.clone()) else {
+            return false;
+        };
+        // Best effort: these are parameter sets, not pictures, so neither should
+        // produce a frame. A failure here is not the caller's problem — the
+        // retry of the real slice is.
+        let _ = self.decode_one(&sps);
+        let _ = self.decode_one(&pps);
+        self.reinjected += 1;
+        true
+    }
+
+    /// Prepend an Annex-B start code and hand the NAL to OpenH264.
+    fn decode_one(&mut self, nal: &[u8]) -> Option<RgbaFrame> {
         if nal.is_empty() {
             self.last_error = Some("empty NAL".into());
             return None;

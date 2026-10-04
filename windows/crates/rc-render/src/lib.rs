@@ -45,6 +45,18 @@ impl PreviewPipeline {
         })
     }
 
+    /// As [`PreviewPipeline::new`], but OpenH264 traces its decisions to stderr.
+    /// For "the decoder refuses the NAL and the error is `16`", which is the
+    /// only situation where the number itself is not the answer.
+    pub fn with_debug_tracing() -> Result<Self, openh264::Error> {
+        Ok(PreviewPipeline {
+            decoder: H264PreviewDecoder::with_debug_tracing()?,
+            latest: None,
+            frames: 0,
+            warmup_refused: 0,
+        })
+    }
+
     /// Feed one video NAL. Returns true when a new frame was produced.
     pub fn push(&mut self, nal: &NalFrame) -> bool {
         match nal.kind {

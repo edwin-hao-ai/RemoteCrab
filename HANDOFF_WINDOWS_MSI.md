@@ -129,7 +129,117 @@ VERDICT:
 `docs/HANDOFF-IOS-QUALITY.md` §1 的 `0.1 → 0.15` 改法**是惰性的**，别再照着做；
 那边该文件的结论已被 `dd7022d` 推翻，正确的旋钮是 `Quality`。
 
-### 剩下的活假设：参考帧丢了（**但还没测到**）
+## 🔴 花屏根因：OpenH264 的 `DecodeFrameNoDelay` 解不了带 B 帧的流
+
+**这是本次最重要的结论，测出来的，不是读出来的。**
+
+### 决定性实验（本仓库自己的文件）
+
+`docs/demo/remotecrab-demo.mp4` —— **本产品录的** demo 视频。同一份字节：
+
+| 解码器 | 结果 |
+|---|---|
+| **ffmpeg** | **721 帧，零错误** |
+| **我们的管线**（OpenH264） | **27 帧，728 个 NAL 里 694 个被拒** |
+
+让 OpenH264 自己开口之后：
+
+```
+Error:DecodeCurrentAccessUnit()::::::PrefetchPic ERROR, pSps->iNumRefFrames:4.
+Warning:parse_nal(), no exist Sequence Parameter Sets ahead of sequence...
+Info:ResetDecoder(), context error code is 16384
+```
+
+**第一个 IDR 就失败 → `ResetDecoder()` 把 SPS 丢掉 → 之后每个 NAL 都报「没有
+SPS」→ 永久性死亡。**
+
+### 变量分离：触发条件是 **B 帧**，不是参考帧数
+
+同一画面重新编码，每次只改一个变量：
+
+| refs | B 帧 | 我们的解码器 |
+|---|---|---|
+| 4 | 2 | **27 帧**（原文件） |
+| 1 | 2 | **33 帧** ← 还是坏 |
+| **2** | **0** | **721 帧 全过** |
+| 1 | 0 | 721 帧 全过 |
+
+**是 B 帧。** 参考帧数降到 1 也没用，去掉 B 帧立刻全过。
+
+原因就在 API 名字里：`openh264::Decoder::decode()` 调的是
+**`DecodeFrameNoDelay`**——「no delay」就是**不做重排序**，因此**无法解码带 B 帧的流**。
+
+### 为什么 Mac 清楚、Windows 花
+
+同一台手机、同一个编码器、同一个 WiFi：
+
+- **Mac** 用 **VideoToolbox** 编解码 → 天然支持 B 帧重排序 → 清楚
+- **Windows** 用 **OpenH264** 解码 → 不重排序 → 花屏
+
+**这就是为什么「码率是不是太低」这个问题从一开始就是错的。** 手机没变过。
+
+### iOS 侧要做什么（需要 Mac / Xcode）
+
+`H264Encoder.swift:107` 已经有 `kVTCompressionPropertyKey_AllowFrameReordering: false`
++ Main profile，而 **Main profile 本身不允许 B 帧**，所以**当前构建理论上不该产生 B 帧**。
+但 `docs/demo/remotecrab-demo.mp4` 是 **High profile + `has_b_frames=2`**，
+说明**这份 demo 录自更早的构建**（那个 key 加入之前）。
+
+**所以还差一步验证**：抓一段**当前构建**的码流确认有没有 B 帧。
+
+```cmd
+remotecrab.exe --record --no-preview --no-tray --connect <ip>:8765
+remotecrab.exe        # 另一个窗口：输入 record 开始录制，quit 停止
+```
+
+```sh
+ffmpeg -i <录制>.mp4 -c copy -bsf:v h264_mp4toannexb -f h264 x.h264
+ffprobe -v error -select_streams v:0 -show_entries stream=has_b_frames,profile -of default=nw=1 x.h264
+```
+
+- `has_b_frames=0` → 当前构建没问题，**B 帧不是活跃病因，别急着改**，
+  回到下面「参考帧丢失」那条线
+- `has_b_frames > 0` → **确认**。iOS 侧修法是在 `AllowFrameReordering: false`
+  之外**显式**加 `kVTCompressionPropertyKey_NumberOfBFramesBetweenReferenceFrames: 0`
+  （iOS 15+ / iOS 26 SDK 都有，比 `AllowFrameReordering` 更明确），
+  并放进 `VideoEncodingPolicy` 加断言，和 `quality` / `keyframeIntervalSeconds`
+  一样被测试钉住
+
+⚠️ **不要在没验证 `has_b_frames` 之前就改 iOS。** 上表证明 B 帧**能**解释
+「解不出来」，但没说当前构建一定产生了它。
+
+### Windows 侧已经做完的（可验证，不需要手机）
+
+1. **新增 `decode_file` 工具**：任何 `.h264`（`.mp4` 先抽流）走**和线上完全相同**
+   的管线，输出 NAL 普查、拒绝计数、健康判决。这正是前三轮 session 缺的东西。
+
+   ```sh
+   cargo run --release -p rc-render --example decode_file -- file.h264
+   # --dump out.rgba  与 ffmpeg 输出逐字节对比
+   # --debug          打开 OpenH264 自己的 trace
+   ```
+
+   `demo.h264` 现在就是它的回归素材：27/694 → 一眼看出解码器坏了。
+
+2. **取证探针会主动点名这个故障**：关键帧到了但一个都没解出来时，它明确说
+   「不是网络的错，是解码器拒绝了自包含的画面」，给出 B 帧这条已知原因和上面
+   那条 `ffprobe` 命令。**以前的行为是永远显示一幅看起来合理的错误画面**——
+   这正是花屏花了三轮 session 说不清的原因。
+
+3. **SPS/PPS 重新注入**：`H264PreviewDecoder` 记住参数集并在失败时重送。
+   **对 B 帧无效**（OpenH264 是从根本上解不了，不是丢了 SPS），但它修另一个
+   真实故障：丢包导致的 SPS 丢失会让流**永久**死掉，而 OpenH264 自己的
+   issue #3448 确认丢包时它用灰/绿色填补丢失区域——**那正是「彩色噪点」的来源**。
+   `reinjections()` 计数可以观察它有没有在触发。
+
+### 还没排除的
+
+- **参考帧丢失**（下面那条线）仍然成立：若 `has_b_frames=0` 就回到它。
+- **WiFi 延迟**：median 97ms / max 641ms，代码侧只能降码率缓解。
+- **iOS 只发 4fps**（承诺 30）：`CaptureEngine.swift:1280`
+  `alwaysDiscardsLateVideoFrames = true` + 发送线程阻塞，机制已定位，需 Mac 改。
+
+### 剩下的活假设：参考帧丢了（**B 帧排除后才轮到它**）
 
 渲染层排除 + 码率解释排除之后，剩下能同时解释「彩色噪点沿高对比边缘」「内容仍可辨认」
 「**周期性**横向条带」的就是**帧丢失导致参考帧断链**。
