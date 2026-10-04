@@ -8,10 +8,60 @@
 > **Verification tooling that already exists** (do not rebuild it):
 > `cargo run -p rc-render --example vcam_forensics -- --connect <ip>:8765 --seconds 25`
 > — see §4. Run it before and after; it prints a verdict.
+>
+> **Verification tooling that needs no phone at all** (added 2026-10-04):
+> `cargo run --release -p rc-render --example renderer_fidelity` — exits nonzero
+> and names the stage if the Windows side ever stops being faithful.
+
+---
+
+## 0. ⚠️ §1 and §2 below were overtaken by `dd7022d`. Read this first.
+
+This document's original thesis was "the bitrate coefficient is too low, raise
+`0.1 → 0.15`". `dd7022d` measured the real encoder with
+`scripts/vt-bitrate-probe.swift` and found the request was **inert**:
+`H264Encoder` sets both `AverageBitRate` and `Quality`, and on iOS `Quality`
+wins outright. Asking for 6,220 bps and for 9,331 bps produced **byte-identical
+output** (3,442,273 bytes).
+
+So the `6220 kbps` this document treated as a confirmed measurement was a number
+the phone computed and published about itself, and nobody had ever measured it.
+The `0.1 → 0.15` change recommended in §1 would have gone green against the
+"must read ~9,300" acceptance criterion while the picture stayed exactly as
+soft.
+
+What is actually true now:
+
+| | value | measured |
+|---|---|---|
+| effective rate | **`quality 0.70 → 9,179 kbps`** (`0.75 → 10,886`) | yes, `vt-bitrate-probe.swift` |
+| advertised rate | 6,220 kbps (`0.1` bpp) | **never measured** |
+| dial that moves | `VideoEncodingPolicy.quality` | yes |
+| keyframe interval | `keyframeIntervalSeconds = 2` (was `fps`, i.e. 1s) | yes |
+
+Two consequences for the corruption hunt in
+[`HANDOFF_WINDOWS_MSI.md`](../HANDOFF_WINDOWS_MSI.md):
+
+1. **9.2 Mbps is a normal rate for 1080p30.** "The bitrate is too low" is no
+   longer available as an explanation for the speckle.
+2. **The keyframe interval is now 2 seconds, not 1.** If corruption turns out to
+   be reference-frame loss, the *period* of the banding doubles. Do not use the
+   period to identify which build you are looking at.
+
+§3's acceptance criterion "the kbps figure must read ≈9,300" is also void — that
+figure comes from the phone's own metadata and is not what the encoder does.
+
+The rest of this document is kept because §4's exclusions still hold and §5's
+Mac-side checklist is still unclaimed.
 
 ---
 
 ## 1. The bitrate is too low, and it is arithmetic rather than taste
+
+> ⚠️ **Superseded by §0.** The arithmetic below is correct and the conclusion is
+> inert — `bitsPerPixel` does not decide quality on iOS. Kept for the reasoning
+> and because `VideoEncodingPolicy.bitsPerPixel` is still the right target for
+> an encoder that does honour it.
 
 `RemoteCrabCapture/CaptureEngine.swift:1182`
 
@@ -103,7 +153,13 @@ cargo run --release -p rc-render --example vcam_forensics -- \
     --connect <iphone-ip>:8765 --seconds 25
 ```
 
-Healthy output looks like:
+> ⚠️ The sample outputs below are from the **old** version of this tool, kept so
+> you can recognise them if you find them pasted elsewhere. They are **wrong** —
+> the absolute cut-offs they quote are not achievable on real video. The current
+> tool prints the wire facts first and then a scene-independent pattern. Trust
+> the pattern, not a percentage.
+
+Old, superseded output:
 
 ```
   featureState: camera_on=true mic_on=false position=Back
@@ -115,16 +171,53 @@ Healthy output looks like:
   VERDICT           : pixels look healthy — the fault is in the renderer
 ```
 
-Corrupt output looks like:
-
 ```
   harsh horizontal  : 14.2%
   harsh vertical    : 11.8%
   VERDICT           : pixels are corrupt — the fault is upstream of the renderer
 ```
 
+A `renderer_fidelity` run on a **flawless** 1080x1920 stream reports
+`harsh horizontal: 12.31%`, which the first sample would have called healthy and
+the second would have called corrupt. Neither answer means anything.
+
+What the current tool reports instead, in the order that matters:
+
+```
+the wire:
+  video NALs received    : 731
+  of those, keyframes    : 24
+  keyframe every         : 1.02s on average
+  frames decoded         : 731  (29.2 fps, wall clock)
+  ...
+the pixels (absolute numbers, scene dependent — read the pattern below):
+  ...
+VERDICT:
+  a few frames are broken and their neighbours are fine.
+  outliers (1-based frame index): [57, 89, 118, …]
+  worst outlier is 7.3x this stream's own median.
+  of those, 0 came from a keyframe and 19 from a predicted frame.
+  Not one broken frame came from a keyframe. A keyframe is self-contained,
+  so it cannot be mispredicted — that rules out bitrate as the cause and
+  leaves a missing reference frame, which points upstream of the decoder.
+```
+
+The last block is the one that names a cause. If instead you see
+
+```
+VERDICT:
+  uniform. Every frame carries about the same amount of edge energy ...
+```
+
+then no individual frame is broken and the question is picture *quality*, not
+corruption — though check `video NAL(s) produced no picture after the stream had
+started` first, because a frame that never decoded cannot be judged.
+
 Note the probe's own handshake is a **manual** one, so the phone will ask for
-approval for it the first time. It needs the camera switch on.
+approval for it the first time. It needs the camera switch on. And if the phone
+answers `Connection refused`, that is not the tool: confirm the phone is still
+on the same WiFi with the app in the foreground.
+
 
 ### 3.3 The human check that neither of the above replaces
 
@@ -137,19 +230,45 @@ that is where the artefact was most visible.
 
 ## 4. What was ruled out, so nobody re-investigates it
 
-Measured on the Windows side, not reasoned about:
+Split by how the exclusion was obtained, because the difference has cost real
+time twice (AGENTS.md rule 3: "ruled out by reading the code" is not "ruled
+out").
+
+### Now measured — the whole Windows render path is faithful
+
+`cargo run --release -p rc-render --example renderer_fidelity` (2026-10-04,
+exits 0) pushes a **provably well-formed** 1080x1920 stream through
+`PreviewPipeline` and through the exact statements `window.rs` uses, and checks
+every stage: SPS parsing, `pixels.len() == w*h`, channel order per third,
+the blit including its resize branch, and the decoded picture's own
+frame-to-frame consistency. All pass.
 
 - **Not** a renderer race. `FrameSlot` is a `Mutex<Option<RgbaFrame>>` and the
-  copy into the draw buffer is atomic.
-- **Not** a stride mismatch. `rc-render/src/decoder.rs:89` uses openh264's own
-  `write_rgba8`, which handles the converter's strides. There is no hand-rolled
-  repack.
+  copy into the draw buffer is atomic — and now measured, not argued.
+- **Not** a stride mismatch or a channel swap. `decoder.rs:89` uses openh264's
+  own `write_rgba8`; the fidelity gate confirms the resulting RGBA→`0x00RRGGBB`
+  repack lands red on the red third, 12 frames out of 12.
 - **Not** the virtual-camera path. `vcam_consume` had already confirmed
   Media Foundation receives changing bytes; the artefact is upstream of that.
-- **Not** another receiver holding the phone — although that *did* happen twice
-  during this session and cost real time. If the probe prints
-  `sessionReply: Busy`, stop and fix that first; every measurement taken while
-  the phone is held is of nothing.
+- **Not** the bitrate. See §0 — the phone is producing ~9.2 Mbps, which is
+  normal for 1080p30, and the advertised figure was never a measurement.
+
+### Not ruled out — do not treat these as excluded
+
+- **Not** the pointer lifetime in `run_preview_window`. The handoff flagged
+  `update_with_buffer(&buffer, …)` as a latent hazard on a resolution change.
+  It is **unexamined**, not excluded: the fidelity gate reproduces the buffer
+  bookkeeping but cannot prove what minifb does with the pointer after the
+  call. At a fixed 1080x1920 it never triggers.
+- **Not** the `Parser::try_parse_next` buffer wipe. A bad length value clears
+  the whole buffer, discarding already-received complete frames, and counts
+  nothing. That produces a **freeze**, not speckle — but it is unfixed and it
+  is silent.
+- **Not** another receiver holding the phone — although that *did* happen
+  during three separate sessions and cost the most time of anything on this
+  list. If the probe prints `sessionReply: Busy`, stop and fix that first;
+  every measurement taken while the phone is held is of nothing.
+
 
 ---
 

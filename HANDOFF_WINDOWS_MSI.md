@@ -47,22 +47,60 @@
 - [x] The MSI is **unsigned**, so `verify` still exits nonzero. That is correct,
       not a bug. See the SmartScreen note below.
 
-## ⛔ 未解决：预览窗口花屏（本次 session 的主要遗留）
+## 预览窗口花屏 — 已排除一半，另一半需要手机
 
 用户截图（`RemoteCrab Preview — 1080x1920`）：**沿高对比边缘的彩色噪点 + 周期性横向条带**，
-画面内容仍可辨认。这是**低码率 H.264** 的典型形态，不是渲染问题该有的样子。
+画面内容仍可辨认。
 
-**根因尚未确定。** 已经**证实**的：
+### ⚠️ 下面这段判决规则是**错的**，不要照着它读
 
-- `CaptureEngine.bitrateFor` = 0.1 bit/pixel，线上实测 `6220 kbps`
-  （`1920×1080×30×0.1` 精确吻合，接收端独立打印过这个数）
-- 编码器延迟配置正确：`RealTime: true` + `AllowFrameReordering: false`
-- Windows 侧是 latest-wins 双缓冲、无队列，**不加延迟**
+本文件上一版写着「`harsh horizontal > 8%` → 像素已坏 → 坏在上游」。**那个 8% 是在
+一个平铺的合成测试图上量出来的阈值。** 同一批改动里的 `renderer_fidelity` 把一段
+**可证明完好**的 1080x1920 流推过同一个解码器和 `window.rs` 那一模一样的 blit，
+逐级确认无失真——它在**干净流上量到 12.31%**。真实高对比场景本来就有这么多边缘。
+旧规则会判它「像素已坏」，把责任推给手机，理由是渲染层有 bug，而那个 bug 不存在。
 
-**只是读代码排除的（不算定论）**：渲染竞争（`FrameSlot` 是 Mutex，拷贝原子）、
-stride 不匹配（用 openh264 自己的 `write_rgba8`）。
+### ✅ 已用证据排除的（这次是量出来的，不是读出来的）
 
-**拿到判决的方法**（工具已写好，一次命令）：
+`cargo run --release -p rc-render --example renderer_fidelity` — 退出码 0，
+逐级检查全部通过：
+
+| 阶段 | 检查 | 结果 |
+|---|---|---|
+| 1 解码 | 14 个 NAL → 12 帧，几何 1080x1920 | 通过（SPS 读取正确） |
+| 2 缓冲 | 每帧 `pixels.len() == w*h` | 0 帧不符 |
+| 3 通道序 | 逐 thirds 判定主通道（红\|绿\|蓝\|白块 场景） | 12/12 帧一致，`red\|green\|blue` |
+| 4 blit | 复刻 `window.rs` 三句话，含 resize 分支 | resize 1 次，0 帧被改动 |
+| 5 画面 | 逐帧对流自身中位数 | **uniform**，无离群帧 |
+
+**所以渲染层被证明是忠实的：它没法把一条正确的流变成一幅错误的画面。**
+花屏产生在解码器**之前**。
+
+### ❌ 码率这条线已经断了（不是被排除，是被证明从来没测过）
+
+`6220 kbps` 是手机**自己算出来写进 metadata** 的，从来没有任何东西量过它。
+`H264Encoder` 同时设 `AverageBitRate` 和 `Quality`，**iOS 上 `Quality` 直接覆盖前者**——
+要 6,220 和要 9,331 产出**逐字节相同**（见 `dd7022d`，
+`scripts/vt-bitrate-probe.swift` 实测 `quality 0.70 → 9,179 kbps`）。
+
+**9.2 Mbps 对 1080p30 是正常码率**，所以「码率不够」这个解释现在也站不住。
+`docs/HANDOFF-IOS-QUALITY.md` §1 的 `0.1 → 0.15` 改法**是惰性的**，别再照着做；
+那边该文件的结论已被 `dd7022d` 推翻，正确的旋钮是 `Quality`。
+
+### 剩下的唯一活假设：参考帧丢了
+
+渲染层排除 + 码率排除之后，剩下能同时解释「彩色噪点沿高对比边缘」「内容仍可辨认」
+「**周期性**横向条带」的就是**帧丢失导致参考帧断链**：P 帧丢了 → 解码器用错参考 →
+画垃圾 → 直到下一个 IDR 才恢复（`MaxKeyFrameInterval` 当时是 1 秒，**正好是周期**）。
+
+**它还是假设**，判决需要手机。`vcam_forensics` 已经重写，现在直接打印能定因的事实：
+
+- `video NALs received` vs `frames decoded`
+- **`video NAL(s) produced no picture after the stream had started`** ← 最直接的证据
+- `keyframe every Ns on average`
+- NAL 字节 min/max、实测 kbps
+- 离群帧里**有几个来自关键帧**。关键帧是自包含的，不可能被预测错；
+  **离群帧一个都不是关键帧 → 排除码率，只剩参考帧丢失。**
 
 ```sh
 cd windows
@@ -70,12 +108,9 @@ cargo run --release -p rc-render --example vcam_forensics -- \
     --connect 192.168.31.148:8765 --seconds 25
 ```
 
-- `harsh horizontal > 8%` → 像素已坏 → 坏在上游（码率）
-- `harsh horizontal < 2%` → 像素健康 → **坏在渲染**，回来查
-  `rc-render/src/window.rs:81` 的 `update_with_buffer(&buffer, …)` 指针生命周期
-
-iOS 侧的改法已经写进 [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QUALITY.md)
-（`0.1 → 0.15` 系数 + `MaxKeyFrameInterval: fps → fps * 2`）。**不要在 Windows 侧改。**
+它的判决不再是绝对阈值，而是「这一帧是不是这条流自己中位数的三倍」，所以换个
+真实场景也不会误判。（顺手修了它的 kind 标签错位：`0x10` 标成 `ping`，实际是 `0x09`；
+`0x13` 标成 `featureState`，实际是 `0x08`。）
 
 ### 每次跑取证都失败的原因（不要重复踩）
 
@@ -84,6 +119,7 @@ iOS 侧的改法已经写进 [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QU
 | `sessionReply: Busy` | **Mac 接收端占着手机**。它会自动重连抢回去，必须在 Mac 上**退出**应用而不只是"断开连接" |
 | `sessionReply: Pending` | 取证工具是**手工握手**，手机会把它当新电脑，要单独批准 |
 | `ping 通但 8765 无响应` | 手机在网内（ARP 有 `42-64-27-b1-92-be`）但 **iOS listener 没启动**。疑似 iOS 侧静默失败，见下 |
+| `Connection refused` | 本次新见：8765 先 200、`Pending`，几分钟后连 ping 都不通了。**手机离开网络了**（锁屏/换 AP/休眠），不是 listener 的问题 —— 先确认手机还在同一 WiFi 且 App 在前台 |
 
 ### 顺带发现，尚未修（都不确定是否在你这里发生过）
 
