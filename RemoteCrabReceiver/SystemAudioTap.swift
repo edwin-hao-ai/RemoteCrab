@@ -105,6 +105,16 @@ public final class SystemAudioTap: @unchecked Sendable {
     private var readIndex: UInt64 = 0
     private var droppedFrames: UInt64 = 0
     private var receivedFrames: UInt64 = 0
+    private var energySum: Double = 0
+    private var energyCount: Int = 0
+    private var peakSeen: Int = 0
+
+    /// Signal level of everything the tap has delivered. This is the only way
+    /// to tell "the tap is not running" from "the tap is running and the
+    /// system is silent" from "the tap is running and carrying audio" — three
+    /// states that look identical in the packet counts alone.
+    public private(set) var capturedRms: Double = 0
+    public private(set) var capturedPeak: Int = 0
 
     public init() {
         ring = .allocate(capacity: Self.ringFrames * Self.channels)
@@ -279,6 +289,11 @@ public final class SystemAudioTap: @unchecked Sendable {
         readIndex = 0
         droppedFrames = 0
         receivedFrames = 0
+        energySum = 0
+        energyCount = 0
+        peakSeen = 0
+        capturedRms = 0
+        capturedPeak = 0
         lock.unlock()
 
         os_log("tap started: mute=%{public}@ aggregate=%u", Self.log,
@@ -349,6 +364,24 @@ public final class SystemAudioTap: @unchecked Sendable {
         writeIndex = w
         receivedFrames &+= UInt64(i / 2 * 2)
 
+        // Realtime-safe: no allocation, no locks. Sum of squares over the
+        // window, reported by the drain.
+        var sum = 0.0
+        var peak = 0
+        var j = 0
+        while j + 1 < count {
+            let l = Self.clampToInt16(interleaved[j])
+            let r = Self.clampToInt16(interleaved[j + 1])
+            sum += Double(l) * Double(l) + Double(r) * Double(r)
+            let al = abs(Int(l)), ar = abs(Int(r))
+            if al > peak { peak = al }
+            if ar > peak { peak = ar }
+            j &+= 2
+        }
+        energySum += sum
+        energyCount += count
+        if peak > peakSeen { peakSeen = peak }
+
         var dropped: UInt64 = 0
 
         if w &- readIndex > capacity {
@@ -388,6 +421,8 @@ public final class SystemAudioTap: @unchecked Sendable {
             }
         }
         readIndex &+= UInt64(Self.framesPerPacket)
+        capturedRms = energyCount > 0 ? (energySum / Double(energyCount)).squareRoot() : 0
+        capturedPeak = peakSeen
         return samples.withUnsafeBytes { Data($0) }
     }
 }

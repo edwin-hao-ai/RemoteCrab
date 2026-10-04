@@ -68,6 +68,8 @@ final class ReceiverSession: ObservableObject {
     /// one-way loop the microphone already uses.
     private let speakerTap = SystemAudioTap()
     private var speakerPumpTask: Task<Void, Never>?
+    private var lastLevelReportAt: Double = -1
+    private var packetBytes = 0
 
     /// Running regular apps published to the iPhone's app switcher.
     @Published private(set) var macApps: [IBAppInfo] = []
@@ -993,6 +995,7 @@ final class ReceiverSession: ObservableObject {
         }
 
         speakerStatus = nil
+        lastLevelReportAt = -1
         Self.log.info("speaker capture started (mute=\(mute.rawValue, privacy: .public))")
 
         speakerPumpTask?.cancel()
@@ -1023,7 +1026,18 @@ final class ReceiverSession: ObservableObject {
         guard speakerTap.running,
               sessionGranted, let connection, connection.state == .ready else { return }
         var sent = 0
+        var packetRms = 0.0
+        var packetPeak = 0
         while let pcm = speakerTap.takePacket() {
+            // Measure the PACKET, not the tap. The tap can be loud while the
+            // packet is silent, and those are two completely different bugs.
+            pcm.withUnsafeBytes { raw in
+                let s = raw.bindMemory(to: Int16.self)
+                var sum = 0.0
+                for v in s { sum += Double(v) * Double(v) }
+                packetRms = s.isEmpty ? 0 : (sum / Double(s.count)).squareRoot()
+                for v in s { packetPeak = max(packetPeak, abs(Int(v))) }
+            }
             let packet = AudioPacket(
                 opusData: pcm,
                 sampleRate: Int(SystemAudioTap.sampleRate),
@@ -1033,11 +1047,23 @@ final class ReceiverSession: ObservableObject {
             guard let data = try? IBWire.encode(speakerAudio: packet) else { break }
             connection.send(content: data, completion: .contentProcessed { _ in })
             sent += 1
+            packetBytes = pcm.count
             if sent >= 20 { break }   // never let a backlog starve the rest of the link
         }
         if sent > 0 {
+            let bytesOut = packetBytes
+            Self.log.info("speaker packet: bytes=\(bytesOut) rms=\(Int(packetRms)) peak=\(packetPeak) sent=\(sent)")
             speakerCapturedFrames = speakerTap.capturedFrameCount
             speakerDroppedFrames = speakerTap.droppedFrameCount
+            // Once a second, and ONLY the level: this is the line that
+            // separates "the tap is dead" from "the Mac is not making any
+            // sound", which the packet counts cannot.
+            let tap = speakerTap
+            let seconds = Double(tap.capturedFrameCount) / 48_000
+            if sent == 1 || seconds - lastLevelReportAt > 1.0 {
+                lastLevelReportAt = seconds
+                Self.log.info("speaker tap level: rms=\(Int(tap.capturedRms)) peak=\(tap.capturedPeak) frames=\(tap.capturedFrameCount)")
+            }
         }
     }
 

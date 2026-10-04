@@ -805,31 +805,34 @@ struct ContentView: View {
                 // A real failure OUTRANKS the discoverability hint: rule 1 is
                 // that a state which is not "working" owes the user a reason,
                 // and a hint about a button that does not work is noise.
-                if let status = engine.speakerStatus {
-                    Text(status)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background { Capsule().fill(Color.black.opacity(0.82)) }
-                        .offset(y: 52)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                } else if showAudioModeHint && !hasSeenAudioModeHint {
-                    Text(IBLocale.Speaker.discoverHint)
-                        .font(IBFont.eyebrowMono)
-                        .ibEyebrowTracking()
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background { Capsule().fill(Color.black.opacity(0.72)) }
-                        .offset(y: 52)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
+                //
+                // The WIDTH MUST be constrained. An overlay is offered its
+                // parent's width, and `fixedSize(horizontal: false)` then
+                // lets the text take the width it wants — which for a `Text`
+                // inside an unbounded overlay is one character. The result was
+                // a vertical column of characters hanging under the button.
+                // A fixed frame is the whole fix.
+                Group {
+                    if let status = engine.speakerStatus {
+                        Text(status)
+                    } else if showAudioModeHint && !hasSeenAudioModeHint {
+                        Text(IBLocale.Speaker.discoverHint)
+                    } else {
+                        EmptyView()
+                    }
                 }
+                .font(.system(size: 11))
+                .multilineTextAlignment(.leading)
+                .foregroundStyle(.white)
+                .lineLimit(3)
+                .frame(width: 236, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background { RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.82)) }
+                .offset(y: 54)
+                .transition(.opacity)
+                .allowsHitTesting(false)
             }
-            .onChange(of: showAudioModeHint) { _, _ in }
 
             // Mirror + Extended Display are two parallel SOURCES for the
             // same viewer, so they share one dropdown; the checkmark marks
