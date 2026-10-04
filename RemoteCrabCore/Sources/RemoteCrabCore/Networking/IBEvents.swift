@@ -198,6 +198,12 @@ public enum IBFeature: String, Codable, Sendable, CaseIterable {
     case keyboard
     /// Mac app-window mirror (`screenControl` / `screenInput` / `screenInfo`).
     case screen
+    /// The computer's audio plays out of the iPhone speaker. Mutually
+    /// exclusive with `.microphone`: both claim the one `AVAudioSession`,
+    /// in opposite directions. A phone cannot stream its mic to the
+    /// computer and play the computer back at the same time, and pretending
+    /// otherwise with two independent toggles would be a control that lies.
+    case speaker
 }
 
 /// Mac → iPhone: toggle a feature remotely (kind 0x07).
@@ -250,6 +256,12 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
     /// Whether the Mac app-window mirror is live. Defaults to false for
     /// snapshots from older builds.
     public let screenOn: Bool
+    /// Whether the computer's audio is playing on the phone speaker.
+    /// Defaults to false for snapshots from older builds — WITHOUT this
+    /// default a snapshot from a peer that predates the feature throws in
+    /// `init(from:)` below, and both ends swallow decode errors, so every
+    /// paired phone would silently lose its whole feature state.
+    public let speakerOn: Bool
     public let activeSurface: Surface
     /// Which camera is streaming. Defaults to `.back` when absent so
     /// snapshots from older builds still decode.
@@ -264,6 +276,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         keyboardOn: Bool,
         activeSurface: Surface,
         screenOn: Bool = false,
+        speakerOn: Bool = false,
         cameraPosition: IBCameraPosition = .back,
         timestampMicros: UInt64
     ) {
@@ -273,6 +286,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         self.trackpadOn = trackpadOn
         self.keyboardOn = keyboardOn
         self.screenOn = screenOn
+        self.speakerOn = speakerOn
         self.activeSurface = activeSurface
         self.cameraPosition = cameraPosition
         self.timestampMicros = timestampMicros
@@ -286,6 +300,7 @@ public struct FeatureStateSnapshot: Codable, Sendable, Equatable {
         trackpadOn = try c.decode(Bool.self, forKey: .trackpadOn)
         keyboardOn = try c.decode(Bool.self, forKey: .keyboardOn)
         screenOn = try c.decodeIfPresent(Bool.self, forKey: .screenOn) ?? false
+        speakerOn = try c.decodeIfPresent(Bool.self, forKey: .speakerOn) ?? false
         activeSurface = try c.decode(Surface.self, forKey: .activeSurface)
         cameraPosition = try c.decodeIfPresent(IBCameraPosition.self, forKey: .cameraPosition) ?? .back
         timestampMicros = try c.decode(UInt64.self, forKey: .timestampMicros)

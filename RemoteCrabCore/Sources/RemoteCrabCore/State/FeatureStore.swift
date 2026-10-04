@@ -24,6 +24,10 @@ public final class FeatureStore {
     /// Mac app-window mirror. Off by default; turning it on starts the
     /// Mac-side capture (the engine sends `screenControl.start`).
     public private(set) var screenOn = false
+    /// The computer's audio playing on the phone speaker. Off by default:
+    /// turning it on starts the receiver capturing system audio, so it is a
+    /// deliberate act rather than something a relaunch silently resumes.
+    public private(set) var speakerOn = false
 
     /// Which physical camera is streaming (front/back).
     public private(set) var cameraPosition: IBCameraPosition = .back
@@ -58,6 +62,8 @@ public final class FeatureStore {
             changed = keyboardOn != enabled; keyboardOn = enabled
         case .screen:
             changed = screenOn != enabled; screenOn = enabled
+        case .speaker:
+            changed = speakerOn != enabled; speakerOn = enabled
         }
         if changed { notify() }
     }
@@ -83,6 +89,7 @@ public final class FeatureStore {
             keyboardOn: keyboardOn,
             activeSurface: activeSurface,
             screenOn: screenOn,
+            speakerOn: speakerOn,
             cameraPosition: cameraPosition,
             timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000)
         )
