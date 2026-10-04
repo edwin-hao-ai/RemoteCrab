@@ -260,25 +260,14 @@ public final class SystemAudioTap: @unchecked Sendable {
             guard let clientData else { return noErr }
             let tap = Unmanaged<SystemAudioTap>.fromOpaque(clientData).takeUnretainedValue()
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData))
-            // REALTIME-SAFE DIAGNOSTIC. The realtime thread must not log, so
-            // the layout is recorded into plain fields and reported by the
-            // drain instead.
-            //
-            // This is the measurement that decides the layout question:
             // `ingest` treats every buffer as INTERLEAVED stereo (it reads
-            // (L,R) pairs), but CoreAudio is free to hand back one
-            // interleaved 2-channel buffer or two planar 1-channel buffers,
-            // and which one it does is not guaranteed by the format flags.
-            // If it is planar, reading pairs out of the left-channel buffer
-            // plays that channel at twice its rate: pitch up, i.e. the
-            // "shrill, garbled" report. Nothing else in the file would notice
-            // — the packet is still exactly 3840 bytes and the ring still
-            // drains on time.
-            if let first = buffers.first {
-                tap.observedBufferCount = UInt32(buffers.count)
-                tap.observedChannelsPerBuffer = first.mNumberChannels
-                tap.observedBytesPerBuffer = first.mDataByteSize
-            }
+            // (L,R) pairs). A live tap was measured doing exactly that — one
+            // 2-channel interleaved buffer — and CoreAudio holds to it, but
+            // if it ever hands back two planar 1-channel buffers, pairs read
+            // out of the left buffer play that channel at twice its rate. The
+            // packet would still be exactly 3840 bytes and the ring would
+            // still drain on time, so nothing else here would notice; the
+            // symptom would be pitch, on the phone, with a clean log.
             for buffer in buffers {
                 guard let data = buffer.mData else { continue }
                 let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
@@ -375,6 +364,15 @@ public final class SystemAudioTap: @unchecked Sendable {
         // silently downmix stereo to mono, which is the exact defect this
         // feature exists to avoid — so a short (odd) buffer is handled as
         // mono explicitly and visibly, not smeared across both channels.
+        //
+        // MEASURED, not assumed: a standalone probe of a live tap (asking for
+        // exactly the format above) reported `buffers=1 channels=2 flags=0x9`
+        // — one interleaved 2-channel buffer, `IsNonInterleaved` clear — and
+        // 48,213 frames/s against a wanted 48,000, unchanged while playing
+        // both 44.1 kHz and 48 kHz sources. CoreAudio resamples to the
+        // requested rate, so this pairing holds whatever the system output
+        // is doing. A planar reply would read the left channel at twice its
+        // rate here, which is the symptom the phone side had instead.
         while i + 1 < count {
             let slot = Int(w % capacity) * Self.channels
             ring[slot] = Self.clampToInt16(interleaved[i])
@@ -436,57 +434,11 @@ public final class SystemAudioTap: @unchecked Sendable {
         return Int16(value * 32_767)
     }
 
-    // MARK: - Layout diagnostic
-
-    /// Written only by the realtime thread, read only by the drain. Plain
-    /// fields, no atomics: a torn read costs one stale line of diagnostics
-    /// and nothing else.
-    fileprivate var observedBufferCount: UInt32 = 0
-    fileprivate var observedChannelsPerBuffer: UInt32 = 0
-    fileprivate var observedBytesPerBuffer: UInt32 = 0
-
-    /// Frames the realtime thread has actually written since the last report.
-    private var reportStart = Date()
-    private var lastReportedFrames: UInt64 = 0
-
-    /// Once a second, report the layout CoreAudio actually used and the frame
-    /// rate it actually delivered.
-    ///
-    /// The frame rate is the decisive number. `ingest` advances the write
-    /// index once per (L,R) pair it finds, so if the buffer was planar the
-    /// packet is still exactly 3840 bytes and the ring still drains on time —
-    /// the only symptom is the pitch. `receivedFrames / elapsed` compared
-    /// against `Self.sampleRate` catches it in one line.
-    private func reportLayoutIfDue() {
-        let now = Date()
-        let elapsed = now.timeIntervalSince(reportStart)
-        guard elapsed >= 1 else { return }
-        let frames = receivedFrames &- lastReportedFrames
-        lastReportedFrames = receivedFrames
-        reportStart = now
-        let actualRate = Double(frames) / elapsed
-        let expected = Self.sampleRate
-        // One interleaved 2-channel buffer is what `ingest` assumes; two
-        // 1-channel buffers is the case it gets wrong.
-        let layout = observedBufferCount == 1 && observedChannelsPerBuffer == Self.channels
-            ? "interleaved" : "PLANAR?"
-        os_log("""
-        [speaker-tap] layout=%{public}@ buffers=%{public}u channels=%{public}u \
-        bytes=%{public}u rate=%{public}.0f (want %{public}.0f) rms=%{public}.0f \
-        peak=%{public}d available=%{public}llu
-        """, type: .info, Self.log,
-              layout, observedBufferCount, observedChannelsPerBuffer,
-              observedBytesPerBuffer, actualRate, expected,
-              capturedRms, capturedPeak,
-              UInt64(lastAvailableFrames))
-    }
-
     // MARK: - Drain (not realtime)
 
     /// Pull one 20 ms stereo Int16 packet, or nil if not enough audio has
     /// arrived yet. Returns the raw PCM for `IBWire.encode(speakerAudio:)`.
     public func takePacket() -> Data? {
-        reportLayoutIfDue()
         lock.lock()
         let running = isRunning
         lock.unlock()

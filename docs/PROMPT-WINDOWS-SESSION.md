@@ -468,3 +468,80 @@ status::no_video_tests::a_latency_reading_never_replaces_the_waiting_notice
 复现了**完全相同**的失败，所以**与本轮无关**，是既有缺陷。
 `./scripts/test.sh` 只跑 `rc-net` 那些 crate，所以一直没暴露。
 这条归你：要么让 `i18n::t` 在测试里可确定化，要么断言用 `i18n::t` 自己取文案。
+
+---
+
+## 2026-10-04 追加（本轮总结 + speaker 实现交接）
+
+### 触控板方向：iOS 侧已排除，**只剩一个环境变量**
+
+真机滑动日志拿到了，结论是**手机没问题**：
+
+```
+n=1  fx=230 finger.dx=+0.02844 out.dx=+0.08221 speed=0.979
+n=25 fx=211 finger.dx=-0.00474 out.dx=-0.00865 speed=0.323
+n=85 fx=259 finger.dx=+0.01738 out.dx=+0.04753 speed=0.883
+```
+
+`out.dx` **每一行都和手指同号**，而 `fx` 从 230→211→197（往左）时符号为负；
+增益精确对得上 `TrackpadMath`（speed 0.979 → 2.89 = 1.3 base × 2.22 boost）。
+**手机发的方向和幅度都是对的。**
+
+Windows 侧的代码路径也全部测过了：`rc-input` 的 Move 有了配对断言
+（`a_move_preserves_the_sign_of_its_delta` / `..._vertical_delta`），
+`normalize_axis` 对坐标单调，多显示器 origin 也对。
+**所以两侧代码都是对的，反转如果真实存在，只能在 `SendInput` 之下那层。**
+
+`rc-app` 已经加好 `REMOTECRAB_E2E_TRACKPAD_DIR=1`：
+
+```
+[dir] n=25 in.dx=-0.00474 cursor_dx=-16.4 cursor_dy=-8.2 at=(413,271)
+```
+
+**一行定案**：`in.dx` 与 `cursor_dx` 同号 → 这层也对，往下查（驱动/多屏）；
+反号 → 就在 `rc-input`，把那行发我。
+
+⚠️ 一个已知空白：`send_mouse` 走 `MOUSEEVENTF_ABSOLUTE|VIRTUALDESK` +
+`normalize_axis` 归一化到 0–65535，多显示器依赖 `virtual_screen_size()` 的
+`origin_x/origin_y`，**这块没有测试**。单屏看不出问题，双屏 + 单屏测试都正常时
+优先怀疑这里。
+
+### 🔴 Speaker（用 iPhone 当音箱）：Windows 端可以开始了
+
+Mac 端**已修好并经用户亲耳验收**（"现在好多了，基本上没啥问题了"）。
+Windows 端协议早就绪，只差「采集系统声音」。
+
+**动手之前先读 [`docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md`](WINDOWS-SPEAKER-HANDOFF-2026-10-04.md)
+第 6 节**，那是我自己踩的三个坑，和平台无关：
+
+1. **定时器不是调度器** —— 一个 20 ms 定时器无条件补静音（为了保活
+   `isPlaying`，故意的）+ 来包时播真实音频 = 每秒喂 100 包给只能消费 50 包的
+   播放器 = 每秒积压 50 包。表现为「乱 + 关不掉 + e2e 全绿（没检查填充比例）」。
+   而且即使只让定时器喂音频也不行：`Task.sleep(20 ms)` 实测 ~30 ms，
+   `played=33 包/秒` 而到达 46。**真实音频必须由数据到达驱动，队列深度当反馈项。**
+2. **buffer 布局声明和写法必须是同一个** —— `interleaved: true` 配平面写法，
+   两个 channel 指针差 **2 字节**，右声道被下一个左声道覆盖 →
+   尖锐 + 不清晰 + 梳状滤波杂音。**测地址差，不要猜。**
+3. **别用 tap 做诊断** —— 我加的 `installTap` 把 app 打成 signal 5，
+   而且坏的时候报「静音」，看起来像功能坏了。
+
+**可直接照抄的跨平台部分**（纯函数 + 测试）：
+`RemoteCrabCore/Sources/RemoteCrabCore/Audio/SpeakerSchedule.swift`、
+`SpeakerPCMWriter.swift` 及对应测试。**只有采集部分（CoreAudio tap →
+WASMAPI loopback）要你自己写。**
+
+iOS 端入口在 `speakerAvailable = !engine.connectedIsWindows`，实现完删掉 `!` 即可。
+
+### 码率：那条建议作废，别照做
+
+见上面 2026-10-04 的两节。核心：**`Quality` 覆盖 `AverageBitRate`，
+你之前测到的 6220 kbps 是手机的请求值不是链路测量值**，
+所以「改成 0.15 → 打印 ≈9300 → 验收通过」会是**验收空过而画面不变**。
+实际改的是 `Quality 0.70 → 0.75`。验收请量像素，不要读对端打印的数字。
+
+### 本机不可能验、留给你的
+
+* `rc-app` 有 **1 条既有测试失败**（locale 相关，非本轮引入，
+  在 `7f0d646` 上同样失败）
+* `speaker` 采集（见上）
+* `virtual_screen_size()` 多显示器 origin 无测试

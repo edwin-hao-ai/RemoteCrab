@@ -72,7 +72,6 @@ final class SpeakerPlayer {
     private(set) var receivedPeak: Int = 0
     private var energySum: Double = 0
     private var energyCount: Int = 0
-    private var diagnosticPackets = 0
 
     /// **PLANAR**, and that is not a preference.
     ///
@@ -213,19 +212,6 @@ final class SpeakerPlayer {
                 if a > peak { peak = a }
             }
         }
-        // The first packets in full. Every counter between here and the
-        // speaker has already said "fine", so when it comes out silent these
-        // are the only numbers that locate it.
-        if diagnosticPackets < 2 {
-            diagnosticPackets += 1
-            var head: [Int] = []
-            pcm.withUnsafeBytes { raw in
-                let b = raw.bindMemory(to: Int16.self)
-                for i in 0..<min(6, b.count) { head.append(Int(b[i])) }
-            }
-            Forensic.log("[speaker-diag] bytes=\(pcm.count) head=\(head) sumsq=\(Int(sum)) n=\(count)")
-        }
-
         energySum += sum
         energyCount += count
         if peak > receivedPeak { receivedPeak = peak }
