@@ -355,6 +355,36 @@ async fn a_phone_that_hangs_up_does_not_leave_us_claiming_to_stream() {
 }
 
 #[tokio::test]
+async fn an_unreachable_phone_is_not_reported_as_a_lost_connection() {
+    // The wording regression this pins. Reporting "the connection was lost" for
+    // a phone that was never reachable sends the user to check their WiFi, their
+    // router and their firewall — none of which is the problem — while the actual
+    // answer is "the iPhone is not on this network, or is not running".
+    //
+    // Nothing is listening on this port, so the TCP connect fails and we never
+    // reach `Streaming`.
+    let session = Session::spawn(test_config());
+    session.connect_manual("127.0.0.1", 9);
+    let state = wait_for_state(
+        &session,
+        |s| matches!(s, State::Error(_)),
+        Duration::from_secs(8),
+    )
+    .await;
+    let Some(State::Error(why)) = state else {
+        panic!("expected an error for an unreachable phone");
+    };
+    assert!(
+        why.contains("Could not reach") || why.contains("not reach"),
+        "an unreachable phone must not be described as a lost connection: {why}"
+    );
+    assert!(
+        !why.contains("lost"),
+        "says 'lost' about a connection that never existed: {why}"
+    );
+}
+
+#[tokio::test]
 async fn link_loss_reconnects_on_its_own() {
     // A phone that completes the handshake and then immediately hangs up.
     //

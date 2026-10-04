@@ -9,3 +9,8 @@ license.workspace = true
 rc-protocol.workspace = true
 openh264 = "0.9"
 minifb = "0.28"
+
+# Dev-only: the forensics probe talks to a real phone. Not a normal dependency,
+# because nothing that links `rc-render` should drag in a TCP client.
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }

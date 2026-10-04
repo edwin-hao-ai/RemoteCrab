@@ -100,6 +100,18 @@ pub(crate) async fn supervisor(
     // the address is not going to work, and the fallbacks must be allowed to
     // rotate to a different one.
     let mut failed_target: Option<Target> = None;
+    // Whether the connection currently being driven ever reached `Streaming`.
+    //
+    // A `Cell`, because the handshake runs in an inner loop that also owns the
+    // `set_state(Streaming)` call, and the `Lost` branch that needs to read this
+    // is in the outer loop. Sharing one cell is clearer than threading a `&mut`
+    // through two nested loops that already borrow half the supervisor.
+    //
+    // It exists because "the connection was lost" and "could not reach the
+    // iPhone" are different problems with different fixes, and the current state
+    // cannot tell them apart: `active` is already cleared by the time the `Lost`
+    // branch runs.
+    let ever_streamed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     if let Some(h) = tokens.last_phone_host() {
         let port = tokens.last_phone_port().unwrap_or(config.default_port);
         last_endpoint = Some(format!("{h}:{port}"));
@@ -284,9 +296,17 @@ pub(crate) async fn supervisor(
                 port,
                 token,
                 key,
-            }) => {
-                tokens.remember_endpoint(&host, port);
-                last_endpoint = Some(format!("{host}:{port}"));
+}) => {
+                  tokens.remember_endpoint(&host, port);
+                  last_endpoint = Some(format!("{host}:{port}"));
+                  // The handshake completed, so this connection *did* stream.
+                  // `ConnMsg::End` arrives with no such news, and by then the
+                  // state has been cleared — so this is the only place the
+                  // supervisor can learn "it dropped" as opposed to "it never
+                  // answered". Those need different words and different user
+                  // actions, and one message for both is how you end up telling
+                  // someone to check their WiFi when the phone was never there.
+                  ever_streamed.store(true, std::sync::atomic::Ordering::Relaxed);
                 if let Some(token) = token {
                     if !key.is_empty() && !token.is_empty() {
                         tokens.set_token(&key, &token);
@@ -299,6 +319,14 @@ pub(crate) async fn supervisor(
             }
             Action::Conn(ConnMsg::End(kind)) => {
                 active = None;
+                // Read before clearing: this branch needs to know whether the
+                // connection that just ended had reached `Streaming`.
+                let reason = if ever_streamed.load(std::sync::atomic::Ordering::Relaxed) {
+                    "The connection was lost"
+                } else {
+                    "Could not reach the iPhone"
+                };
+                ever_streamed.store(false, std::sync::atomic::Ordering::Relaxed);
                 match kind {
                     ConnEndKind::Lost | ConnEndKind::HandshakeTimeout => {
                         // First failure of this address: keep it, so the
@@ -321,10 +349,10 @@ pub(crate) async fn supervisor(
                             target = None;
                         }
                         failed_target = target.clone().or(failed_target);
-                        // The session is over, so whatever the state said a moment ago is
+// The session is over, so whatever the state said a moment ago is
                         // now false. `Streaming` is a claim rather than a
-                        // description, and leaving it there means the tray
-                        // says "streaming" forever: no error, nothing to act on.
+                        // description, and leaving it there means the tray says
+                        // "streaming" forever: no error, nothing to act on.
                         //
                         // Unconditional on purpose. The retry below may be about
                         // to overwrite this with `Connecting`, which is fine and
@@ -332,11 +360,7 @@ pub(crate) async fn supervisor(
                         // target was just cleared, and with `--connect` there is
                         // no discovery to find another one. `rc-phone-sim
                         // --scenario drop` reproduces exactly that.
-                        set_state(
-                            &state_tx,
-                            &events_tx,
-                            State::Error("The connection was lost".to_string()),
-                        );
+                        set_state(&state_tx, &events_tx, State::Error(reason.to_string()));
                         if !suppress_auto {
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }
@@ -580,14 +604,23 @@ pub(crate) fn start_connection(
     let token_key = tokens.resolve_key(&next.token_key(), next.ip());
     let config = config.clone();
     let events_tx = events_tx.clone();
-    let state_tx = state_tx.clone();
+let state_tx = state_tx.clone();
 
-    tokio::spawn(async move {
+      tokio::spawn(async move {
         let kind = run_connection(
-            config, next, token, token_key, pc_id, pc_name, out_rx, &events_tx, &state_tx, &msg_tx,
-        )
-        .await;
-        let _ = msg_tx.send(ConnMsg::End(kind));
+            config,
+            next,
+            token,
+            token_key,
+            pc_id,
+            pc_name,
+            out_rx,
+            &events_tx,
+            &state_tx,
+&msg_tx,
+          )
+          .await;
+          let _ = msg_tx.send(ConnMsg::End(kind));
     });
 }
 
@@ -634,10 +667,10 @@ pub(crate) async fn run_connection(
     pc_id: String,
     pc_name: String,
     mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    events_tx: &broadcast::Sender<Event>,
-    state_tx: &watch::Sender<State>,
-    msg_tx: &mpsc::UnboundedSender<ConnMsg>,
-) -> ConnEndKind {
+events_tx: &broadcast::Sender<Event>,
+      state_tx: &watch::Sender<State>,
+      msg_tx: &mpsc::UnboundedSender<ConnMsg>,
+  ) -> ConnEndKind {
     let name = target.name();
     let Some((host, port)) = target.host_port() else {
         // No resolved address yet (mDNS still resolving) — retry shortly.
@@ -807,10 +840,10 @@ pub(crate) async fn run_connection(
         State::Streaming {
             name: name.clone(),
             latency_ms: 0,
-        },
-    );
+},
+      );
 
-    // Any frames already buffered from the handshake read (the iPhone
+      // Any frames already buffered from the handshake read (the iPhone
     // typically packs `metadata` + `featureState` right behind the
     // `sessionReply`) must be dispatched before we wait on new bytes.
     while let Some(f) = queue.pop_front() {

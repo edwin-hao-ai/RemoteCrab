@@ -272,5 +272,45 @@ mod screen_dispatch_tests {
             other => panic!("expected ScreenInput, got {other:?}"),
         }
     }
-}
 
+    /// The failure mode the protocol module keeps warning about, pinned where
+    /// it actually bites.
+    ///
+    /// `Kind::from_u8_or_video` maps an unrecognised byte to `Video`. That is a
+    /// good default for forward compatibility and a terrible one for a JSON
+    /// payload: the H.264 decoder would be handed `{"codec":"pcm",...}` and the
+    /// symptom would be a corrupted camera preview with nothing in the log. The
+    /// enum arm is what prevents it, and this test is what notices if someone
+    /// later widens the catch-all above it.
+    ///
+    /// 0x24 arrived with a comment saying the Windows receiver "MUST recognise
+    /// the kind even before" it can send any — meaning it must at least refuse to
+    /// misroute it. This is that refusal, asserted.
+    #[test]
+    fn speaker_audio_is_never_mistaken_for_video() {
+        use rc_protocol::{encode_speaker_audio, AudioPacket};
+        assert_eq!(
+            rc_protocol::Kind::from_u8_or_video(0x24),
+            rc_protocol::Kind::SpeakerAudio,
+            "0x24 must resolve to its own kind or it becomes an H.264 frame"
+        );
+        assert_ne!(rc_protocol::Kind::SpeakerAudio, rc_protocol::Kind::Video);
+
+        let audio = AudioPacket {
+            codec: "pcm_s16le".into(),
+            opus_data: b"not an NAL unit".to_vec(),
+            sample_rate: 48_000,
+            channels: 2,
+            timestamp_micros: 0,
+        };
+        let (tx, mut rx) = broadcast::channel(16);
+        dispatch_frame(&parse_one(encode_speaker_audio(&audio).unwrap()), &tx);
+
+        // The only acceptable outcome is silence. Anything else means the payload
+        // reached a decoder.
+        match rx.try_recv() {
+            Err(broadcast::error::TryRecvError::Empty) => {}
+            other => panic!("0x24 reached the wrong place: {other:?}"),
+        }
+    }
+}
