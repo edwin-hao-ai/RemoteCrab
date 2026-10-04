@@ -98,35 +98,33 @@ say "building for the phone"
 # match" is a coin flip and routinely picks a build from before the feature
 # existed. A timestamp taken before the build is the only reliable selector.
 touch /tmp/e2e-speaker-build-start
+# A DEDICATED derived-data path. This project has four Default DerivedData
+# directories from past builds, and "find the app" across all of them can
+# silently pick a months-old one — which is exactly what happened: the app on
+# the phone was missing a diagnostic line that had just been added, while a
+# marker string from an older build still matched and the check passed.
 ( cd "$ROOT" && xcodebuild -project RemoteCrabCapture.xcodeproj -scheme RemoteCrabCapture \
-    -destination "id=$PHONE_UDID" -configuration Debug build \
+    -destination "id=$PHONE_UDID" -configuration Debug \
+    -derivedDataPath build/e2e-derived \
     CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-5XNDF727Y6}" ) \
   > /tmp/e2e-speaker-build.log 2>&1
 if ! grep -q "\*\* BUILD SUCCEEDED" /tmp/e2e-speaker-build.log; then
   bad "build failed — see /tmp/e2e-speaker-build.log"
   exit 4
 fi
-APP=$(find ~/Library/Developer/Xcode/DerivedData -name "RemoteCrabCapture.app" \
-        -path "*Debug-iphoneos*" -newer /tmp/e2e-speaker-build-start 2>/dev/null | head -1)
-if [[ -z "$APP" ]]; then
-  # xcodebuild considered it up to date and wrote nothing; fall back to the
-  # newest product, then let the marker check below decide.
-  APP=$(find ~/Library/Developer/Xcode/DerivedData -name "RemoteCrabCapture.app" \
-          -path "*Debug-iphoneos*" 2>/dev/null | xargs -I{} stat -f "%m {}" {} 2>/dev/null \
-        | sort -rn | head -1 | cut -d' ' -f2-)
-fi
+APP="$ROOT/build/e2e-derived/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
 if [[ -z "$APP" ]]; then bad "no RemoteCrabCapture.app produced"; exit 4; fi
 # The Debug build's real code lives in the .debug.dylib, so the main binary
 # is ~92 KB and a marker string will not be found in it.
 # NOT `strings | grep -q`: under `pipefail`, grep -q exits early, `strings`
 # takes SIGPIPE, and the pipeline reports failure even though grep matched —
 # which reads as "the code is missing" for a build that has it. Count instead.
-MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker audio enqueued" || true)
+MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker-diag" || true)
 if [[ "${MARKERS:-0}" -lt 1 ]]; then
   bad "the built app does not contain the speaker code — wrong DerivedData picked up"
   exit 4
 fi
-ok "built an app that actually contains the speaker code"
+ok "built an app from this run (contains a marker only this build has)"
 xcrun devicectl device install app --device "$PHONE_UDID" "$APP" >/dev/null 2>&1 \
   && ok "installed" || { bad "install failed"; exit 4; }
 
