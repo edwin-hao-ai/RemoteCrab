@@ -390,6 +390,21 @@ async fn main() -> ExitCode {
     // line every 10 s would be noise. We only re-announce when something
     // actually changes.
     let mut stuck_owner: Option<String> = None;
+    // What the phone *claims* it is sending, from its metadata. Kept so the
+    // periodic readout can print it next to what actually arrives — on iOS the
+    // claim is computed from a bitrate property that `Quality` overrides, so it
+    // is not a measurement of anything.
+    let mut claimed_fps: Option<u32> = None;
+    let mut claimed_kbps: Option<f64> = None;
+    // Total video bytes, so the achieved rate can be measured rather than taken
+    // on trust.
+    let mut video_bytes: u64 = 0;
+    let mut stream_started: Option<std::time::Instant> = None;
+    // Keyframe-request throttling. One request per interval is enough: the phone
+    // answers with an IDR immediately, and a stream that needs more than that is
+    // broken in a way one more IDR will not fix.
+    let mut last_keyframe_ask_at = std::time::Instant::now() - KEYFRAME_REQUEST_INTERVAL;
+    let mut last_keyframe_asked_at_refusals: u64 = 0;
     // Whether the trackpad currently believes it is connected, so the
     // streaming→not transition can be caught exactly once per link.
     let mut trackpad_was_connected = false;
@@ -563,8 +578,10 @@ async fn main() -> ExitCode {
                             }
                             Event::Metadata(m) => {
                                 stats.record_metadata(&m);
+                                claimed_fps = Some(m.fps.max(0) as u32);
+                                claimed_kbps = Some(m.bitrate_bps.max(0) as f64 / 1000.0);
                                 println!(
-                                    "  → streaming: {} {}x{} @ {}fps ({} kbps)",
+                                    "  → streaming: {} {}x{} @ {}fps ({} kbps) — claimed by the phone",
                                     m.resolution_label(),
                                     m.width,
                                     m.height,
@@ -583,6 +600,12 @@ async fn main() -> ExitCode {
                             }
                             Event::Video(nal) => {
                                 video_frames += 1;
+                                if stream_started.is_none() {
+                                    stream_started = Some(std::time::Instant::now());
+                                }
+                                if nal.kind == rc_protocol::NalKind::Video {
+                                    video_bytes += nal.data.len() as u64;
+                                }
                                 // The NAL's byte count is the only real bitrate
                                 // measurement available: the phone's metadata
                                 // number is a *request*, and on iOS it is inert.
@@ -673,6 +696,41 @@ async fn main() -> ExitCode {
                                             ),
                                             (_, n) => format!("  ({n} refused since the first frame)"),
                                         };
+
+                                        // Ask for a keyframe when the decoder is
+                                        // refusing slices.
+                                        //
+                                        // A refused P-slice usually means the
+                                        // reference is gone, and the only
+                                        // recovery is a fresh IDR — which,
+                                        // without this, happens whenever the
+                                        // phone's keyframe interval next
+                                        // elapses. OpenH264's own issue tracker
+                                        // recommends exactly this
+                                        // (#1998, #1163). Rate-limited, because
+                                        // a phone that cannot satisfy it must
+                                        // not be asked on every slice.
+                                        #[cfg(windows)]
+                                        if p.refusals_after_start()
+                                            > last_keyframe_asked_at_refusals
+                                        {
+                                            last_keyframe_asked_at_refusals =
+                                                p.refusals_after_start();
+                                            if last_keyframe_ask_at
+                                                .elapsed()
+                                                >= KEYFRAME_REQUEST_INTERVAL
+                                            {
+                                                last_keyframe_ask_at =
+                                                    std::time::Instant::now();
+                                                session.send_frame(
+                                                    rc_protocol::wire::encode_request_keyframe(),
+                                                );
+                                                println!(
+                                                    "     asking the phone for a keyframe ({} refusals so far)",
+                                                    p.refusals_after_start()
+                                                );
+                                            }
+                                        }
                                         println!(
                                             "  video: {} decoded / {} received ({}x{}){}",
                                             p.frames_decoded(),
@@ -683,6 +741,40 @@ async fn main() -> ExitCode {
                                                 .map(|e| format!("  last: {e}"))
                                                 .unwrap_or(tail)
                                         );
+                                        // What the phone *claims* against what is
+                                        // actually arriving.
+                                        //
+                                        // The claim is metadata, and on iOS it is
+                                        // computed rather than measured — the
+                                        // AverageBitRate that produced it is
+                                        // overridden by `Quality` and does nothing.
+                                        // So a receiver that only prints the claim
+                                        // reports success for a stream that may be
+                                        // delivering an eighth of it. Measured on a
+                                        // real iPhone: promised 30 fps and 9331 kbps,
+                                        // delivered 3.5 fps and 1878 kbps, while the
+                                        // status line read "streaming @ 30fps".
+                                        if let (Some(cfps), Some(ckbps), Some(t0)) =
+                                            (claimed_fps, claimed_kbps, stream_started)
+                                        {
+                                            let secs = t0.elapsed().as_secs_f64().max(0.001);
+                                            let got_fps = video_frames as f64 / secs;
+                                            let got_kbps = video_bytes as f64 * 8.0 / 1000.0 / secs;
+                                            if let Some(line) = crate::status::stream_shortfall(
+                                                cfps as f64,
+                                                ckbps,
+                                                got_fps,
+                                                got_kbps,
+                                            ) {
+                                                println!("     ⚠ {line}");
+                                                println!(
+                                                    "       the phone is not sending what it says. This is an encoder or"
+                                                );
+                                                println!(
+                                                    "       transport fault on the phone, not something the receiver can fix."
+                                                );
+                                            }
+                                        }
                                     }
                                 } else if video_frames.is_multiple_of(150) {
                                     println!("  video: {video_frames} NALs received");
@@ -1364,6 +1456,15 @@ fn open_self_check() {
 #[cfg(windows)]
 static STATS: std::sync::OnceLock<std::sync::Mutex<stream_stats::StreamStats>> =
     std::sync::OnceLock::new();
+
+/// How often the receiver may ask the phone for a keyframe.
+///
+/// Generous, because the phone answers immediately and a stream that needs
+/// asking more often than this is not going to be fixed by asking again. Also
+/// keeps a phone that cannot satisfy the request from being asked on every
+/// single slice, which would be its own kind of traffic problem.
+#[cfg(windows)]
+const KEYFRAME_REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The live stats, shared with the self-check panel.
 ///

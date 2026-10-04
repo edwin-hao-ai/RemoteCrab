@@ -1,4 +1,4 @@
-//! Forensic probe: is the corruption in the *pixels* or upstream of them?
+﻿//! Forensic probe: is the corruption in the *pixels* or upstream of them?
 //!
 //! The preview window showed heavy coloured speckle and horizontal streaks on a
 //! 1080x1920 stream. Two very different bugs produce that picture:
@@ -58,6 +58,10 @@ struct Wire {
     sps: u64,
     pps: u64,
     idr_nals: u64,
+    /// True once a keyframe has actually produced a picture. Its absence, when
+    /// keyframes did arrive, is the one decoder fault that is not the network's.
+    any_idr_decoded: bool,
+    /// True once a keyframe has actually produced a picture.
     /// Video NALs the decoder produced no picture from, *after* the stream had
     /// already produced one. A decoder fed a P-slice with no reference behaves
     /// exactly this way, and it is the single most direct evidence of frame
@@ -293,7 +297,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if pushed {
                         if let Some(frame) = pipeline.latest() {
                             health.add(frame);
-                            frame_source.push(f.payload.first().map(|b| b & 0x1F).unwrap_or(0));
+                            let nal_type = f.payload.first().map(|b| b & 0x1F).unwrap_or(0);
+                            frame_source.push(nal_type);
+                            if nal_type == NAL_IDR {
+                                wire.any_idr_decoded = true;
+                            }
                         }
                         started = true;
                     } else if started && kind == rc_protocol::NalKind::Video {
@@ -442,6 +450,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("     The decoder had no reference for them. That is frame loss, and it");
         println!("     cannot be a rendering problem: nothing was rendered.");
+    }
+
+    // The failure that cost three sessions, now nameable. When a keyframe itself
+    // is refused the decoder has no picture to blame on the network, and it used
+    // to show a plausible-looking wrong picture forever instead of saying so.
+    if !wire.any_idr_decoded && wire.idr_nals > 0 {
+        println!();
+        println!("  ** NOT ONE KEYFRAME DECODED. Nothing about the network is at fault.");
+        println!("     The decoder refused the self-contained pictures, so it could never");
+        println!("     have produced a correct frame.");
+        println!();
+        println!("     The known cause is B-frames in the stream. This decoder calls");
+        println!("     OpenH264's DecodeFrameNoDelay — \"no delay\" means no reordering — and a");
+        println!("     stream carrying B-frames cannot be decoded that way. Measured on this");
+        println!("     repo's own docs/demo/remotecrab-demo.mp4, which ffmpeg reads as 721 clean");
+        println!("     frames: OpenH264 refused 694 of its 728 NALs. Re-encoding the same");
+        println!("     picture with B-frames removed decoded 721/721, and with B-frames kept");
+        println!("     but references reduced to 1 it still failed (33 frames). So it is the");
+        println!("     B-frames, not the reference count.");
+        println!();
+        println!("     To confirm on a capture of this stream:");
+        println!("       ffmpeg -i <capture>.mp4 -c copy -bsf:v h264_mp4toannexb -f h264 x.h264");
+        println!("       ffprobe -v error -select_streams v:0 -show_entries \\");
+        println!("         stream=has_b_frames,profile -of default=nw=1 x.h264");
+        println!("     Anything other than has_b_frames=0 is the cause.");
+        println!();
+        println!("     The iOS encoder sets AllowFrameReordering:false and Main profile, which");
+        println!("     should exclude B-frames, so if a live capture shows them the sender's");
+        println!("     configuration is not taking effect. See docs/HANDOFF-WINDOWS-MSI.md.");
     }
 
     println!();

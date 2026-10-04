@@ -840,9 +840,15 @@ Full detail: `docs/CMIO_SESSION_HANDOFF_2026-09-14.md`.
 |---|---|---|---|
 | Mac → Windows | [`docs/PROMPT-WINDOWS-SESSION.md`](docs/PROMPT-WINDOWS-SESSION.md) | Mac session | iOS 侧改动说明 + 需要 Windows 真机打勾的清单 |
 | Windows → Mac | [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QUALITY.md) | Windows session | 在 Windows 真机上**量到数字**的 iOS 侧问题 + 验收方法 |
+| **Windows → Mac（新）** | **[`docs/HANDOFF-MAC-SIDE-2026-10-04.md`](docs/HANDOFF-MAC-SIDE-2026-10-04.md)** | Windows session | **预览花屏的根因（OpenH264 `DecodeFrameNoDelay` 解不了 B 帧）、iOS 只发 4fps 的机制、新协议 `0x25 requestKeyframe` 的实现要求。Mac session 从这份开始读——它推翻了上一行的结论** |
 | Windows 待办 | [`docs/WINDOWS_TODO.md`](docs/WINDOWS_TODO.md) · [`HANDOFF_WINDOWS_MSI.md`](HANDOFF_WINDOWS_MSI.md) | Windows session | 安装/发布/虚拟摄像头的验证结果 |
 
 **规矩（两端都适用）**：
+
+0. **交接文档里的「已实现」是最强的断言，因为它别人无法验证。** 2026-10-04 的
+   Windows session 在交接里写了「已加协议定义和发送逻辑」，写的时候还没加。对方会
+   照着它相信已经做好了。**写完成声明之前回去确认那行代码真的存在**；不确定就写
+   「准备做」，那便宜得多。（lesson 117）
 
 1. **交接文件必须带数字。** 「画面有点花」不是交接，「1080x1920@30 下实测 6220 kbps，
    等于 0.1 bit/pixel，截图里是沿边缘的彩色噪点 + 横向条带」才是。对面要能

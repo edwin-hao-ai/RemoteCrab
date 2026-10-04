@@ -426,6 +426,13 @@ mod win32 {
             // a cached "no" would keep offering an action that no longer does
             // anything.
             notify_relay: crate::notify_relay::is_enabled(),
+            // Read from the phone's own snapshot rather than from the capture, so
+            // the row reports what the user ASKED for and not what this machine
+            // managed to start — a capture that failed still says "off, turn it
+            // on from your phone", and the failure itself is spoken by
+            // `speaker::status_line` instead.
+            connected: features.is_some(),
+            speaker_on: features.as_ref().is_some_and(|f| f.speaker_on),
             vcam_installed: cfg!(windows)
                 .then(crate::vcam::is_registered)
                 .unwrap_or(true),
