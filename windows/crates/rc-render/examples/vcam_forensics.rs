@@ -45,6 +45,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// ones this tool does not act on would only invite someone to act on them.
 const NAL_IDR: u8 = 5;
 
+/// How many times to retry a refused TCP connection before giving up. The
+/// phone's listener comes and goes; 15 tries at two seconds covers a couple of
+/// minutes of it being in the wrong state.
+const CONNECT_ATTEMPTS: u32 = 15;
+
 /// What arrived, counted as the receiver saw it. Every field here is a fact
 /// about the wire; none of them is an inference.
 #[derive(Default)]
@@ -64,6 +69,9 @@ struct Wire {
     bytes_largest: u64,
     /// Every video NAL size, for the distribution.
     sizes: Vec<u64>,
+    /// Seconds actually observed, kept so the keyframe gap can be reported
+    /// without re-deriving it from a possibly different elapsed time.
+    gap_secs: f64,
 }
 
 impl Wire {
@@ -86,6 +94,15 @@ impl Wire {
             return 0.0;
         }
         self.bytes_total as f64 * 8.0 / 1000.0 / seconds
+    }
+
+    /// Average seconds between keyframes, which the phone sets as
+    /// `MaxKeyFrameInterval`.
+    fn keyframe_gap_secs(&self) -> f64 {
+        if self.idr_nals == 0 {
+            return f64::INFINITY;
+        }
+        self.gap_secs / self.idr_nals as f64
     }
 }
 
@@ -130,8 +147,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("rc-vcam-forensics — connecting to {addr}");
-    let mut stream = tokio::net::TcpStream::connect(&addr).await?;
-    let (mut rd, mut wr) = stream.split();
+    // The phone's listener is intermittent: measured on a real iPhone it
+    // refused, accepted, then refused again within a minute. A tool that exits
+    // on the first refusal turns a two-second retry into twenty minutes of
+    // re-typing the command, and the failure looks like the tool is broken
+    // rather than like the phone is between states.
+    let mut stream = None;
+    for attempt in 1..=CONNECT_ATTEMPTS {
+        match tokio::net::TcpStream::connect(&addr).await {
+            Ok(s) => {
+                if attempt > 1 {
+                    println!("  connected on attempt {attempt}");
+                }
+                stream = Some(s);
+                break;
+            }
+            Err(e) => {
+                if attempt == CONNECT_ATTEMPTS {
+                    eprintln!(
+                        "could not connect to {addr} after {attempt} attempts: {e}\n\
+                         Is the app in the foreground on the same WiFi? The listener only runs \
+                         while it is streaming."
+                    );
+                    std::process::exit(1);
+                }
+                println!("  attempt {attempt} refused ({e}); retrying");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
+    }
+    // `into_split`, not `split`: the latter resolves to `tokio::io::split`, whose
+    // halves borrow the stream and so cannot outlive this binding.
+    let s = stream.expect("connected above");
+    let (mut rd, mut wr) = s.into_split();
 
     // The framing is `[4-byte BE length][1-byte kind][payload]` and the handshake
     // payload is JSON with required fields — hand-rolling either produces a frame
@@ -161,6 +209,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // and nothing else looks like that.
     let mut frame_source: Vec<u8> = Vec::new();
     let mut camera_on = None;
+    // Kept for the no-frames verdict, which has to name the blocker rather than
+    // describe the symptom.
+    let mut session_reply: Option<rc_protocol::SessionReplyResult> = None;
+    // The phone already names the computer holding the stream. Discarding it is
+    // why this has been so expensive: the symptom is one word, `busy`, and the
+    // only way to tell *which* machine to go and quit was to already know.
+    let mut session_owner: Option<String> = None;
+    // (width, height, fps) as advertised in the stream metadata.
+    let mut advertised: Option<(u32, u32, u32)> = None;
+    let mut advertised_kbps: Option<f64> = None;
     let mut started = false;
 
     let t0 = Instant::now();
@@ -185,7 +243,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // phone is waiting for you to tap Allow" wastes the reader's
                 // time instead of theirs.
                 Kind::SessionReply => match rc_protocol::wire::decode_session_reply(&f) {
-                    Ok(r) => println!("  sessionReply: {:?}", r.result),
+                    Ok(r) => {
+                        println!("  sessionReply: {:?}", r.result);
+                        if let Some(owner) = &r.owner_name {
+                            println!("    held by: {owner}");
+                            session_owner = Some(owner.clone());
+                        }
+                        session_reply = Some(r.result);
+                    }
                     Err(e) => println!("  sessionReply arrived but would not decode: {e}"),
                 },
                 Kind::FeatureState => {
@@ -235,6 +300,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         wire.no_output_after_start += 1;
                     }
                 }
+                Kind::Metadata => {
+                    // What the phone *promised*. Held so the wire facts can be
+                    // checked against it: a stream can decode cleanly and still
+                    // be a small fraction of the one that was requested, which
+                    // is a separate fault from a corrupt picture.
+                    if let Ok(m) = rc_protocol::wire::decode_metadata(&f) {
+                        println!(
+                            "  metadata: {}x{} @ {}fps, claims {} kbps, codec {}",
+                            m.width,
+                            m.height,
+                            m.fps,
+                            m.bitrate_bps / 1000,
+                            m.codec
+                        );
+                        advertised = Some((
+                            m.width.max(0) as u32,
+                            m.height.max(0) as u32,
+                            m.fps.max(0) as u32,
+                        ));
+                        advertised_kbps = Some(m.bitrate_bps as f64 / 1000.0);
+                    }
+                }
                 _ => {
                     let _ = f;
                 }
@@ -243,6 +330,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let elapsed = t0.elapsed().as_secs_f64().max(0.001);
+    wire.gap_secs = elapsed;
     let decoded = pipeline.frames_decoded();
 
     println!("\nframes seen by kind:");
@@ -285,10 +373,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if decoded == 0 {
         println!("\nVERDICT: nothing decoded — there is no picture to judge.");
+        // Name the blocker rather than the symptom. "Busy" is the single most common
+        // reason this probe produces nothing, it has cost more time than any
+        // actual bug in this file, and it is invisible from the outside: the
+        // phone is streaming happily to a *different* client.
+        //
+        // A fact the probe actually observed outranks the handshake status, so
+        // `camera_on=false` is reported as itself rather than as "accepted,
+        // then nothing, check the camera switch".
         if camera_on == Some(false) {
-            println!("The phone reports the camera is OFF. Turn it on; the rest of this is moot.");
-        } else if camera_on.is_none() {
-            println!("No featureState arrived either. The app is probably not streaming.");
+            println!();
+            println!("  THE CAMERA IS OFF ON THE PHONE — this is the whole answer.");
+            println!("  The phone sends sps/pps and heartbeats anyway, so it looks like a");
+            println!("  stream: metadata, one sps, one pps, pings, touches, and no video.");
+            println!("  Turn the camera on in the app and re-run. Nothing about the decoder,");
+            println!("  the renderer or the network can be judged until it is.");
+            return Ok(());
+        }
+        match session_reply {
+            Some(rc_protocol::SessionReplyResult::Busy) => {
+                println!();
+                println!("  THE PHONE IS HELD BY ANOTHER COMPUTER.");
+                match &session_owner {
+                    Some(name) => println!("  The phone says the owner is: {name}"),
+                    None => println!(
+                        "  The phone did not say who. Open the pairing list on the phone — it\n  \
+                         shows the same thing."
+                    ),
+                }
+                println!("  Go and QUIT RemoteCrab on that machine. Do not just disconnect it:");
+                println!("  it reconnects and takes the phone back within seconds, which is how");
+                println!("  three separate sessions lost this measurement. Every reading taken");
+                println!("  while the phone is held is of nothing, including this one.");
+            }
+            Some(rc_protocol::SessionReplyResult::Pending) => {
+                println!();
+                println!("  The phone is waiting for you to approve this probe. It treats it as a");
+                println!("  new computer, so tap Allow on the phone, then re-run.");
+            }
+            Some(rc_protocol::SessionReplyResult::Denied) => {
+                println!();
+                println!("  The phone refused this probe. Remove it from the paired computers on");
+                println!("  the phone and try again.");
+            }
+            Some(rc_protocol::SessionReplyResult::Accepted) => {
+                println!();
+                println!("  The phone accepted this probe, then sent no video. That is a different");
+                println!("  fault from being refused: check the camera switch, and check whether");
+                println!("  the app is actually streaming rather than sitting on the home screen.");
+            }
+            None => {
+                if camera_on.is_none() {
+                    println!();
+                    println!("  No handshake reply and no featureState arrived at all. The app is");
+                    println!("  probably not streaming — check it is in the foreground.");
+                }
+            }
         }
         return Ok(());
     }
@@ -324,10 +464,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         100.0 * b as f64 / sum as f64
     );
 
-    println!("\nVERDICT:");
+    // The wire facts are checked against what the phone *promised*, because a
+    // stream can decode perfectly and still be nothing like the one that was
+    // asked for. On 2026-10-04 this reported a healthy 307 frames and missed,
+    // in the same breath, that the phone was sending 4 fps of a promised 30 at
+    // an eighth of the promised rate. "The pixels are fine" is not the same
+    // statement as "the stream is right".
+    println!();
+    if let Some((_, _, fps)) = advertised {
+        let got = decoded as f64 / elapsed;
+        let kbps = wire.kbps(elapsed);
+        let mut flagged = false;
+        if got < (fps as f64) / 2.0 {
+            println!(
+                "  ** the phone promised {fps} fps and delivered {got:.1} ({:.0}% of it)",
+                100.0 * got / fps as f64
+            );
+            flagged = true;
+        }
+        if let Some(want_kbps) = advertised_kbps {
+            if kbps > 0.0 && kbps < want_kbps * 0.5 {
+                println!("  ** the phone advertised {want_kbps:.0} kbps and delivered {kbps:.0}");
+                flagged = true;
+            }
+        }
+        let gap = wire.keyframe_gap_secs();
+        if gap < f64::INFINITY && gap > (fps as f64) * 2.5 {
+            println!("  ** keyframes every {gap:.1}s, against a promised {fps} fps (one per second)");
+            flagged = true;
+        }
+        if flagged {
+            println!("     The pixels decoded, but the stream is not what was asked for. That is");
+            println!("     an encoder or transport fault on the phone, and it is a different");
+            println!("     problem from the picture being corrupt — report both, separately.");
+        }
+    }
+
+    println!();
+    println!("VERDICT:");
+    let floor = rc_render::pixels::DETAIL_FLOOR_PERCENT;
     match health.pattern() {
         Pattern::TooFewFrames { seen } => {
             println!("  only {seen} frame(s) — too few to judge. Re-run with --seconds 30.");
+        }
+        Pattern::TooLittleDetail {
+            edge_percent,
+            mean_luma,
+        } => {
+            println!("  TOO LITTLE DETAIL TO JUDGE — and that is not a pass.");
+            println!("  Edge energy is {edge_percent:.2}% of pixels, under the {floor:.0}% floor, and mean");
+            println!("  luma is {mean_luma:.0}/255.");
+            if mean_luma < 12.0 {
+                println!("  The picture is essentially black, so the camera is delivering nothing or");
+                println!("  is covered. Nothing downstream can be judged at all.");
+            } else {
+                println!("  The picture is bright but featureless — a blank wall, a closed lens, or");
+                println!("  the camera aimed at nothing. A decoder cannot visibly corrupt an input");
+                println!("  this smooth, so \"no frame stood out\" here says nothing about it.");
+            }
+            println!();
+            println!("  Point the camera at something textured and high-contrast — a hand against");
+            println!("  a desk, or a screen full of text — and re-run. That is the measurement that");
+            println!("  can actually reproduce the artefact.");
         }
         Pattern::Uniform {
             median_harsh_h,

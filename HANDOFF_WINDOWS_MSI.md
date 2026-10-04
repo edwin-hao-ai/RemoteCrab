@@ -69,12 +69,54 @@
 |---|---|---|
 | 1 解码 | 14 个 NAL → 12 帧，几何 1080x1920 | 通过（SPS 读取正确） |
 | 2 缓冲 | 每帧 `pixels.len() == w*h` | 0 帧不符 |
-| 3 通道序 | 逐 thirds 判定主通道（红\|绿\|蓝\|白块 场景） | 12/12 帧一致，`red\|green\|blue` |
+| 3 通道序 | 逐 thirds 判定主通道（红\|绿\|蓝 场景） | 12/12 帧一致，`red\|green\|blue` |
 | 4 blit | 复刻 `window.rs` 三句话，含 resize 分支 | resize 1 次，0 帧被改动 |
 | 5 画面 | 逐帧对流自身中位数 | **uniform**，无离群帧 |
 
 **所以渲染层被证明是忠实的：它没法把一条正确的流变成一幅错误的画面。**
 花屏产生在解码器**之前**。
+
+### ✅ 真机活流也拿到了判决（这次是第一次真的跑通）
+
+`vcam_forensics` 连上真 iPhone 跑了 180 秒（`Accepted`，`camera_on=true`）：
+
+```
+  video NALs received    : 361
+  of those, keyframes    : 6
+  frames decoded         : 307  (3.6 fps, wall clock)
+  NALs refused           : 54
+  saturated pixels       : 0.35%
+  harsh horizontal       : 0.02%
+  harsh vertical         : 0.02%
+VERDICT:
+  uniform. Every frame carries about the same amount of edge energy ...
+```
+
+**像素是健康的**，没有任何一帧离群。渲染层第二次被排除，这次是对着真手机。
+
+**但这次测量有个必须说清楚的弱点**：`harsh horizontal 0.02%` 意味着**画面几乎没有细节**
+（0.04% pooled，对比 `renderer_fidelity` 那段可证明完好的流是 24.6%）——
+拍的时候镜头没对着有纹理的东西。**这种输入本来就不可能显出花屏**，
+所以"没发现异常"在这一次**不能**证明解码器没问题。
+
+工具现在会把这种情况单独报成 `TOO LITTLE DETAIL TO JUDGE — and that is not a pass`
+并告诉你把镜头对准有纹理的高对比物体再跑。**那一次才是能真正复现花屏的测量，还没做。**
+
+### 🔴 同时查出来一个更严重的问题：码流本身是坏的
+
+| | 实测 | 声称 |
+|---|---|---|
+| 帧率 | **~4 fps** | 30 |
+| 码率 | **820 kbps** | metadata 说 6220 |
+| 关键帧间隔 | **14.1s** | 1s（现在是 2s） |
+| 解码器拒绝的 NAL | **54** | 0 |
+
+`harsh vertical 0.00%` + `keyframe every 14.11s` + 一堆 1.2 KB 的 NAL，
+和 `H264Encoder` 里那个 `lumaProbe` 注释描述的"相机在送黑帧"是同一类症状。
+**这是 iOS 侧的 encoder/transport 问题，和"花屏"是两个独立的问题，别混在一起报。**
+
+探针现在会把这些直接标出来（`** the phone promised 30 fps and delivered 4.2`），
+不会再出现"像素正常"掩盖"码流根本不对"。
 
 ### ❌ 码率这条线已经断了（不是被排除，是被证明从来没测过）
 
@@ -87,39 +129,93 @@
 `docs/HANDOFF-IOS-QUALITY.md` §1 的 `0.1 → 0.15` 改法**是惰性的**，别再照着做；
 那边该文件的结论已被 `dd7022d` 推翻，正确的旋钮是 `Quality`。
 
-### 剩下的唯一活假设：参考帧丢了
+### 剩下的活假设：参考帧丢了（**但还没测到**）
 
-渲染层排除 + 码率排除之后，剩下能同时解释「彩色噪点沿高对比边缘」「内容仍可辨认」
-「**周期性**横向条带」的就是**帧丢失导致参考帧断链**：P 帧丢了 → 解码器用错参考 →
-画垃圾 → 直到下一个 IDR 才恢复（`MaxKeyFrameInterval` 当时是 1 秒，**正好是周期**）。
+渲染层排除 + 码率解释排除之后，剩下能同时解释「彩色噪点沿高对比边缘」「内容仍可辨认」
+「**周期性**横向条带」的就是**帧丢失导致参考帧断链**。
 
-**它还是假设**，判决需要手机。`vcam_forensics` 已经重写，现在直接打印能定因的事实：
+`NALs refused: 54` 和 `keyframe every 14.11s` 都和这个方向一致，但**都不算证据**。
 
-- `video NALs received` vs `frames decoded`
-- **`video NAL(s) produced no picture after the stream had started`** ← 最直接的证据
-- `keyframe every Ns on average`
-- NAL 字节 min/max、实测 kbps
-- 离群帧里**有几个来自关键帧**。关键帧是自包含的，不可能被预测错；
-  **离群帧一个都不是关键帧 → 排除码率，只剩参考帧丢失。**
+**判决需要手机，而且需要把镜头对准有纹理的东西。** 下一次要跑的：
 
 ```sh
 cd windows
 cargo run --release -p rc-render --example vcam_forensics -- \
-    --connect 192.168.31.148:8765 --seconds 25
+    --connect 192.168.31.148:8765 --seconds 180
 ```
 
-它的判决不再是绝对阈值，而是「这一帧是不是这条流自己中位数的三倍」，所以换个
-真实场景也不会误判。（顺手修了它的 kind 标签错位：`0x10` 标成 `ping`，实际是 `0x09`；
-`0x13` 标成 `featureState`，实际是 `0x08`。）
+- 确认输出里不是 `TOO LITTLE DETAIL`（把镜头对准桌面上的手、或一屏文字）
+- 看 `VERDICT` 是 `uniform` 还是 `a few frames are broken`
+- 如果是后者，看 **`of those, N came from a keyframe`**：关键帧自包含，不可能被预测错，
+  **离群帧一个都不是关键帧 → 排除码率，只剩参考帧丢失**
+- 同时看 `** the phone promised 30 fps and delivered ...` 那几行，它们是独立的一个问题
+
+（新版探针会自动重试 refused 的连接，所以 listener 闪断不会再让你重敲命令。）
 
 ### 每次跑取证都失败的原因（不要重复踩）
 
 | 症状 | 真实原因 |
 |---|---|
-| `sessionReply: Busy` | **Mac 接收端占着手机**。它会自动重连抢回去，必须在 Mac 上**退出**应用而不只是"断开连接" |
+| `sessionReply: Busy` + `held by: <某个名字>` | **看那个名字。** 新版探针会打印手机给出的 `ownerName` |
+| `held by: forensics`（或任何已经退出的客户端） | **不是 Mac。** 手机上有一个**过期的 pending 连接**在占位，它会拒绝所有电脑并报出死掉那台的名字。见下面「已定位的 iOS bug」 |
+| `held by: <一台确实在跑的机器>` | 那台机器占着手机。必须**退出应用**，"断开连接"没用，它几秒内会抢回来 |
 | `sessionReply: Pending` | 取证工具是**手工握手**，手机会把它当新电脑，要单独批准 |
-| `ping 通但 8765 无响应` | 手机在网内（ARP 有 `42-64-27-b1-92-be`）但 **iOS listener 没启动**。疑似 iOS 侧静默失败，见下 |
-| `Connection refused` | 本次新见：8765 先 200、`Pending`，几分钟后连 ping 都不通了。**手机离开网络了**（锁屏/换 AP/休眠），不是 listener 的问题 —— 先确认手机还在同一 WiFi 且 App 在前台 |
+| `ping 通但 8765 无响应` | 手机在网内但 **iOS listener 没启动**。实测 listener 会**闪断**（连续 13 次 refused，中间成功过一次），探针现在会自动重试 15 次 |
+| `Connection refused` 一直不变 | 手机离开网络了（锁屏/换 AP/休眠），不是 listener 的问题 |
+
+### 🔴 已定位的 iOS bug：一个死掉的 pending 连接会把手机锁死
+
+这个不是假设，是读代码定位 + 探针输出对上了。
+
+`CaptureEngine.swift:1883`：
+
+```swift
+case .failed, .cancelled:
+    handshakeTask?.cancel()
+    candidate = nil            // ← 1888 先置 nil
+    candidateParser = nil
+    if pendingConnection === candidate {   // ← 1890 于是变成 pendingConnection == nil
+        pendingConnection = nil            // ← 这三行永远进不去
+        pendingHello = nil
+        pendingMacName = nil
+    }
+```
+
+`candidate` 在 1890 行已经是 `nil`，所以判断**只可能在 `pendingConnection` 本来就是 nil 时成立**，
+而那种情况下面三行本来就没东西可清。**清理 pending 槽位的代码是死代码。**
+
+再叠加两件事：
+- **`pending` 槽位没有 watchdog。** `checkOwnerLiveness()`（`CaptureEngine.swift:2532`）
+  的守卫是 `connection != nil || ownerMac != nil`，只管**已授权的 owner**。
+- `CaptureEngine.swift:1492-1513`：只要 `pendingConnection` 还挂着，
+  **任何**电脑连进来都拿到 `replyBusy(ownerName: pendingMacName)` —— 报的是那个
+  已经死掉的连接的名字。
+
+**完整失效链**：某个接收端连上来 → 手机弹批准框、`pendingConnection` 挂上 →
+那个进程在批准前退出（我那次的 25 秒探针窗口到点退出就是这样）→
+`.cancelled` 触发但因为上面那个 bug 清不掉 → **手机从此对所有电脑说 Busy，
+并报出一个根本没在运行的名字**，直到 App 重启。
+
+**这解释了前面三个 session 里最贵的那个 `Busy`。** 它从来不是 Mac 抢手机。
+交接文档里那张表的 `Busy` 一行是错的。
+
+**修法**（一行，需要 Mac / Xcode 才能验证，**我没动 iOS 代码**）：
+
+```swift
+case .failed, .cancelled:
+    handshakeTask?.cancel()
+    let dying = candidate      // 先抓住正在死掉的那个连接
+    candidate = nil
+    candidateParser = nil
+    if pendingConnection === dying {   // 再比较
+        pendingConnection = nil
+        pendingHello = nil
+        pendingMacName = nil
+    }
+```
+
+配套建议给 `pending` 槽位加一个和 owner 同款的 watchdog，别只依赖 socket 事件——
+`NWConnection` 的 `.cancelled` 并非在所有退出路径上都会到达。
 
 ### 顺带发现，尚未修（都不确定是否在你这里发生过）
 

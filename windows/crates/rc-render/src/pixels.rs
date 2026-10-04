@@ -159,6 +159,17 @@ pub fn measure(frame: &RgbaFrame) -> FrameHealth {
 pub enum Pattern {
     /// Too few frames to compare anything.
     TooFewFrames { seen: u64 },
+    /// The stream carries almost no detail, so it cannot confirm *or* refute a
+    /// claim about speckle. See [`StreamHealth::detail`].
+    ///
+    /// This exists because "no frame stood out" reads exactly like "all good",
+    /// and on a nearly featureless picture those are the same statement. A
+    /// camera pointed at a dark wall, a lens cap, or a blank wall produces a
+    /// stream with essentially zero edge energy; a decoder given that input
+    /// cannot corrupt it visibly, so the absence of corruption proves nothing
+    /// about the decoder. Reporting this as a pass is the failure mode of every
+    /// version of this tool that only printed percentages.
+    TooLittleDetail { edge_percent: f64, mean_luma: f64 },
     /// Every frame has about the same edge energy. Whatever the picture looks
     /// like, it looks like it *consistently* — the signature of a uniformly
     /// weak encode (too low a bitrate), not of lost reference frames.
@@ -177,6 +188,21 @@ pub enum Pattern {
         worst_ratio: f64,
         median_harsh_h: f64,
     },
+}
+
+/// Mean luma (BT.601, 0-255) across a frame's pixels.
+pub fn mean_luma(pixels: &[u32]) -> f64 {
+    if pixels.is_empty() {
+        return 0.0;
+    }
+    let sum: u64 = pixels
+        .iter()
+        .map(|&p| {
+            let (r, g, b) = channels(p);
+            ((77 * r + 150 * g + 29 * b) >> 8).max(0) as u64
+        })
+        .sum();
+    sum as f64 / pixels.len() as f64
 }
 
 /// Accumulated measurements over a stream, and the comparison that turns them
@@ -228,10 +254,46 @@ impl StreamHealth {
         t
     }
 
+    /// Pooled edge energy of the whole stream, in percent of pixels, counting
+    /// both axes.
+    pub fn detail(&self) -> f64 {
+        if self.per_frame.is_empty() {
+            return 0.0;
+        }
+        let n = self.per_frame.len() as f64;
+        let t = self.totals();
+        (100.0 * (t.harsh_h + t.harsh_v) as f64 / t.pixels.max(1) as f64) / n
+    }
+
+    /// Mean luma of the last frame measured, 0-255.
+    pub fn luma(&self) -> f64 {
+        match self.per_frame.last() {
+            // FrameHealth keeps sums but not pixels, so this is reconstructed
+            // from the channel balance rather than kept per frame: a cheap and
+            // sufficient "is the picture dark or bright" figure.
+            Some(f) => {
+                let n = (f.pixels.max(1)) as f64;
+                (0.299 * f.sum_r as f64 + 0.587 * f.sum_g as f64 + 0.114 * f.sum_b as f64) / n
+            }
+            None => 0.0,
+        }
+    }
+
     pub fn pattern(&self) -> Pattern {
         if self.per_frame.len() < 5 {
             return Pattern::TooFewFrames {
                 seen: self.per_frame.len() as u64,
+            };
+        }
+        // Checked before the median comparison, because on a featureless stream
+        // the median is ~0 and every moving frame becomes an infinite multiple
+        // of it — which would be reported as corruption and would be nothing of
+        // the kind.
+        let edge = self.detail();
+        if edge < DETAIL_FLOOR_PERCENT {
+            return Pattern::TooLittleDetail {
+                edge_percent: edge,
+                mean_luma: self.luma(),
             };
         }
         let mut hs: Vec<f64> = self
@@ -291,6 +353,25 @@ pub const SPIKE_RATIO: f64 = 3.0;
 /// Median edge energy below which the ratio test is meaningless. Roughly 0.2%
 /// of pixels on each axis, i.e. an almost perfectly flat picture.
 pub const SPIKE_MEDIAN_FLOOR: f64 = 0.4;
+
+/// Pooled edge energy below which a stream carries too little detail for
+/// "nothing stood out" to mean anything.
+///
+/// The calibration is deliberate and it is measured, not guessed:
+/// `renderer_fidelity` runs a *provably flawless* 1080x1920 stream through this
+/// decoder and this exact measurement, with a scene built from hard edges, and
+/// reports **24.6%** pooled (12.31% horizontal + 0.00% vertical — the vertical
+/// axis is zero because that scene's stripes are vertical). A real desk scene
+/// measured against a live phone reads well under half that.
+///
+/// A live phone aimed at a dark wall read **0.04%**, three orders of magnitude
+/// below the calibration. So 1% is not a borderline: it is roughly twenty-five
+/// times below a stream that is provably fine and roughly four times above one
+/// that is visibly nothing. A run below it cannot speak about speckle either
+/// way, and saying "uniform, therefore healthy" there would be the exact
+/// mistake this module exists to stop.
+pub const DETAIL_FLOOR_PERCENT: f64 = 1.0;
+
 
 #[cfg(test)]
 mod tests {
@@ -392,20 +473,28 @@ mod tests {
         assert_eq!(harsh_v_percent(&m), 0.0);
     }
 
+    /// The verdict the module exists to produce: most frames fine, a couple
+    /// broken.
+    /// Busy, detailed, and identical from frame to frame: whatever it looks like,
+    /// it looks like it consistently. Ordinary camera motion must not read as
+    /// spikes, and a fixed threshold here would have called it corrupt.
     #[test]
-    fn a_uniform_stream_is_reported_as_uniform() {
+    fn a_uniform_detailed_stream_is_reported_as_uniform() {
         let mut s = StreamHealth::new();
-        for i in 0..12 {
-            s.add(&ramp(32, 32, i * 2));
+        for _ in 0..12 {
+            s.add(&noise(32, 32, 7));
         }
+        assert!(
+            s.detail() > DETAIL_FLOOR_PERCENT,
+            "fixture must clear the detail floor, measured {}%",
+            s.detail()
+        );
         match s.pattern() {
             Pattern::Uniform { .. } => {}
-            other => panic!("a smooth ramp drifting 2px must not read as spikes: {other:?}"),
+            other => panic!("identical busy frames are not outliers: {other:?}"),
         }
     }
 
-    /// The verdict the module exists to produce: most frames fine, a couple
-    /// broken.
     #[test]
     fn a_few_broken_frames_among_good_ones_are_reported_as_spikes() {
         let mut s = StreamHealth::new();
@@ -451,6 +540,63 @@ mod tests {
         s.add(&ramp(8, 8, 0));
         s.add(&noise(8, 8, 1));
         assert_eq!(s.pattern(), Pattern::TooFewFrames { seen: 2 });
+    }
+
+    /// The false comfort this module must not give. A featureless stream is
+    /// trivially free of corruption, so reporting "uniform, therefore healthy"
+    /// would be a pass that proves nothing — and it is what every earlier
+    /// version of this tool did.
+    #[test]
+    fn a_featureless_stream_is_not_reported_as_healthy() {
+        let mut s = StreamHealth::new();
+        for _ in 0..12 {
+            s.add(&frame(64, 64, |_, _| flat(24))); // near-black, no detail
+        }
+        match s.pattern() {
+            Pattern::TooLittleDetail {
+                edge_percent,
+                mean_luma,
+            } => {
+                assert!(edge_percent < DETAIL_FLOOR_PERCENT);
+                assert!(
+                    (mean_luma - 24.0).abs() < 1.0,
+                    "mean luma should read ~24, got {mean_luma}"
+                );
+            }
+            other => panic!("a black stream must not be called uniform: {other:?}"),
+        }
+    }
+
+    /// The calibration, pinned so the floor cannot be quietly moved. A provably
+    /// flawless high-detail stream must clear it; a flat one must not.
+    #[test]
+    fn the_detail_floor_sits_between_a_blank_wall_and_a_real_scene() {
+        let mut busy = StreamHealth::new();
+        for _ in 0..12 {
+            busy.add(&noise(64, 64, 3));
+        }
+        assert!(
+            busy.detail() > DETAIL_FLOOR_PERCENT,
+            "a busy scene measured {}% must clear the {DETAIL_FLOOR_PERCENT}% floor",
+            busy.detail()
+        );
+
+        let mut blank = StreamHealth::new();
+        for _ in 0..12 {
+            blank.add(&ramp(64, 64, 0));
+        }
+        assert!(
+            blank.detail() < DETAIL_FLOOR_PERCENT,
+            "a smooth ramp measured {}% must stay under the floor",
+            blank.detail()
+        );
+    }
+
+    #[test]
+    fn mean_luma_reads_a_mid_grey_picture_correctly() {
+        assert!((mean_luma(&[0x00808080; 64]) - 128.0).abs() < 1.0);
+        assert!(mean_luma(&[0x00FF_FFFF; 64]) > 240.0);
+        assert_eq!(mean_luma(&[]), 0.0);
     }
 
     #[test]

@@ -212,6 +212,21 @@ fn main() {
                 health.frames()
             ));
         }
+        Pattern::TooLittleDetail {
+            edge_percent,
+            mean_luma,
+        } => {
+            // This gate's own scene is built from hard edges and measures ~25%
+            // pooled, so landing here means the measurement is no longer seeing
+            // its input. A gate that quietly stops testing must fail loudly, not
+            // print PASS.
+            failures.push(format!(
+                "the reference scene measured {edge_percent:.2}% edge energy (mean luma \
+                 {mean_luma:.0}/255), under the {:.0}% floor — this gate is no longer measuring \
+                 anything, so a PASS from it would be meaningless",
+                rc_render::pixels::DETAIL_FLOOR_PERCENT
+            ));
+        }
         Pattern::Uniform { median_harsh_h, .. } => {
             println!("    frame-to-frame pattern: uniform, median harsh horizontal {median_harsh_h:.2}%");
             println!("                         every frame carries about the same edge");
