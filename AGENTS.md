@@ -397,6 +397,33 @@ buffering. The parser refuses frames larger than 64 MiB
 | **Settings (V1.1)** | `PreferencesView.swift`, `ReceiverSession.swift`, `BonjourBrowser.swift` | launchAtLogin wired to `SMAppService.mainApp` (was a dead toggle); autoReconnect gate now actually gates the reconnect loop (`remotecrab.autoReconnect`); AWDL peer-to-peer toggle `remotecrab.mac.peerToPeer` (default true) feeds `includePeerToPeer` on both the browser and outbound dials (`tcpParameters()`) |
 | **Auto-update (V1.6)** | `UpdaterController.swift`, `RemoteCrabCore/State/UpdateInstallGate.swift`, `scripts/make-appcast.sh` | Sparkle 2, silent + idle-gated (no owned session/recording, 30 s dwell); menu-bar "Check for Updates…"/pending-only "Restart to Update" + Preferences toggle; Info.plist `SUFeedURL`/`SUPublicEDKey` (+ `SUEnableAutomaticChecks`/`SUAutomaticallyUpdate`); `REMOTECRAB_UPDATE_FEED` overrides the feed for tests. See lesson 74 |
 
+### Speaker mode — 用 iPhone 当音箱（WIP，协议就绪，声音还没出来）
+
+**状态：界面和数据都通了，但听到的是静音。** 缺陷已精确定位。
+细节与 Windows 交接见 `docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md`。
+
+* **形态**：麦克风按钮点开是一个**两个独立开关**的下拉菜单（麦克风 / 扬声器，
+  各自打勾），完全照抄镜像菜单的写法（`ContentView.swift:752`）——不是三选一。
+  图标本身反映当前状态。互斥在 `AudioModeArbiter` 里，不在 UI 里。
+* **协议**：新 kind `0x24` + 复用 `AudioPacket`（`codec:"pcm"`, `channels:2`,
+  3840 字节/包）。**两端都登记**（Rust 的 `from_u8_or_video` 不加分支会把 JSON
+  当 H.264 NAL 喂进解码器）。
+* **传输用 PCM 不用 Opus**：立体声 Opus 在 `AudioConverter` 上会解码成单声道且
+  幅度只剩三分之一（lesson 124）。PCM 是 1.5 Mbps，相对同链路的 H.264 可忽略，
+  而且**零编解码延迟**。
+* **Mac 采集**：`SystemAudioTap`（CoreAudio process tap，不装驱动、不改默认输出
+  设备、断开自愈）。实测抓到真实声音（rms=1989 peak=8856）。
+* **🔒 未解决**：`takePacket()` 从环形缓冲读出全零 → `speaker packet: rms=0` 与
+  `speaker tap level: rms=1989` 同一时刻并存。实时线程和 pump 线程都在写
+  `readIndex`（lesson 125）。**先在 Mac 上修对再写 Windows 版**，否则同一个 bug
+  会写两遍。
+* **Windows**：协议已就绪，采集未实现；iOS 端故意隐藏入口。`echo` 关掉
+  `speakerAvailable = !engine.connectedIsWindows` 即可打开。
+* **iOS 权限已实测通过**（iPhone 14 / iOS 26，5 步 0 失败）：麦克风↔扬声器交接
+  两个方向都成功，播放图能跑，且**不需要任何新权限**。
+* **e2e**：`./scripts/e2e-speaker.sh`。它自带编译/安装/标记校验/重启接收器，
+  并断言「不是数字静音」和「包络有形状」——前五次假判决全在 harness 里。
+
 ### Multi-Mac pairing (V0.4, 2026-09-12)
 
 One iPhone used to accept whichever Mac connected last (the old `accept`
@@ -858,6 +885,9 @@ cross-references rather than the file order.
 | 115 | A second platform makes the shortcut set per-platform — and it must never fall back to the other platform's | [`protocol`](docs/lessons/protocol.md) |
 | 116 | A format that will carry untrusted input needs `schemaVersion` + `source`, and merging must replace by id | [`protocol`](docs/lessons/protocol.md) |
 | 117 | An assertion describing the fix instead of the invariant — and only the component under test knows why | [`protocol`](docs/lessons/protocol.md) |
+| 123 | **Lesson 50(b) was wrong: `UIBackgroundModes: [audio]` does NOT break `.playAndRecord`** (measured on iPhone 14 / iOS 26; an A/B'd fix whose two causes were never isolated) | [`ios-device`](docs/lessons/ios-device.md) |
+| 124 | Apple's Opus does not round-trip **stereo** through `AudioConverter` on macOS 26 — it decodes to mono at a third of the amplitude, while `afconvert` proves the platform is fine | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 125 | A ring buffer read from another thread than its writer: **two writers to one index**, and why **no counter can find it** — log the level on BOTH sides of the suspect boundary | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via
