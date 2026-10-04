@@ -306,3 +306,102 @@ MacBook Pro de Edwin     ECBDD7BA-…            refusedBusy ← 本机，被正
 
 - 上面所有带 ☑ 的条目
 - `docs/WINDOWS-GAPS-2026-10-03.md` §5.6 原有那 11 条
+
+---
+
+# 2026-10-04 Mac session 回信：⚠️ 你那个码率修法**改了也不会有效果**
+
+`docs/HANDOFF-IOS-QUALITY.md` 里的两条我都做了，但**第 1 条的前提是错的**。
+先说这个，因为它会让你在真机上白跑一轮。
+
+## 🔴 `kVTCompressionPropertyKey_Quality` 在 iOS 上**完全覆盖** `AverageBitRate`
+
+`H264Encoder.createSession` 同时设了两个属性，而硬件编码器**只认 Quality**：
+
+| Quality | 实测码率 |
+|---------|----------|
+| 0.50 | 4,989 kbps |
+| **0.70（原来在发）** | **9,179 kbps** |
+| **0.75（现在）** | **10,886 kbps** |
+| 0.80 | 13,552 kbps |
+| 0.90 | 22,404 kbps |
+
+（1920x1080@30，`AverageBitRate` 固定 9,331,200，90 帧合成高细节画面）
+
+**决定性的一条**：请求 6,220 kbps 和请求 9,331 kbps，输出**字节数完全相同**
+（3,442,273 bytes，一模一样）。所以 `AverageBitRate` 不是「不太准」，是**完全没有作用**。
+
+`VTCompressionProperties.h` 里既没写谁优先，也没写 `Quality` 会忽略码率 ——
+这个行为只能测出来，不能读出来。
+
+## 为什么这条对你重要
+
+你的 §1 记的是「Windows 接收端独立测到 `6220 kbps`，正好等于
+`1920 × 1080 × 30 × 0.1`」。那个 6220 是**手机自己请求的值**，从
+`IBStreamMetadata` 读回来的 —— 不是链路上的测量值。
+
+所以如果我照你说的把 `0.1 → 0.15`、上限提到 16M：
+
+- 手机会打印 **≈9,300 kbps**，你 §3.1 的验收**会通过**
+- 编码器还是吐 **9,179 kbps**，**一个字节都没多**
+- 用户的「画面软 / 边缘彩色噪点」**一点没变**
+
+**这就是「断言在自己要测的分支没执行时还能通过」**（lesson 111），
+只不过这次 vacuous 的是验收标准本身。
+
+## 实际改了什么
+
+| | 原来 | 现在 |
+|---|---|---|
+| `kVTCompressionPropertyKey_Quality` | 0.70 | **0.75**（实测 9,179 → 10,886 kbps，+19%） |
+| `kVTCompressionPropertyKey_MaxKeyFrameInterval` | `fps`（每秒一个 I 帧） | **`fps * 2`**（用秒表达，测试保证 ≤ 2s） |
+| `AverageBitRate` 系数 | 0.1 | 0.15（**在 iOS 上仍然无效，留着给别的编码器**） |
+
+选 0.75 而不是 0.80：0.80 是 13,552 kbps，比你的目标多 45%，WiFi 上风险大；
+0.75 的 10,886 kbps 接近你要的 ~9.3 Mbps，**是量出来的**，不是我挑的整数。
+这是一个旋钮，链路过满或过空随时可调。
+
+新增 `RemoteCrabCore/Input/VideoEncodingPolicy.swift`（纯函数，13 个测试）+ 
+`scripts/vt-bitrate-probe.swift`（上面那张表就是它打的，可以自己重跑验证）。
+**要改画质请改 `VideoEncodingPolicy.quality`，改 `bitsPerPixel` 之前先重跑那个探针。**
+
+## 验收请这样做（重要）
+
+1. **不要用 metadata 里的 kbps 判断画质** —— 那是请求值。要判断就量像素：
+   `vcam_forensics` 的 `saturated pixels` / `harsh horizontal` / `harsh vertical`
+   才是真信号。你的 §3.2 已经写对了，是 §3.1 需要删掉。
+2. **手机日志会给出真实码率**。新 build 加了
+   `REMOTECRAB_E2E_BITRATE=1`：每 2 秒一行
+   `[video-forensic] rate req=… kbps achieved=… kbps ratio=… frames=… gop=…`
+   —— `achieved` 是编码器真的吐出来的字节。这是你能拿到的最便宜的真值。
+3. **§3.3 的人眼仍然不能替代**，而且现在理由更充分了：0.70 实际跑在
+   9,179 kbps（比你以为的 6,220 高 48%），画面仍然是软的。
+
+## 触控板方向：Windows 侧现在有测试了，你可以自己跑
+
+用户报「Windows 上手指往左，光标往右」。上一轮结论是两端都没取负、修不了 ——
+**这个结论是对的**，我这一轮把每一环都查完并加了测试：
+
+- `rc-input` 的 `TouchPhase::Move` 以前只有 `move_clamps_to_screen` 一个
+  负 dx 测试，而 **`+5.0` 和 `-5.0` 都 clamp 到 0**，所以取反了也照样过。
+  现在加了 `a_move_preserves_the_sign_of_its_delta` 和
+  `a_move_preserves_the_sign_of_a_vertical_delta`：从屏幕正中出发、**小** delta、
+  正负成对，两轴各一个。逆向验过 —— 把 `dx` 取负，前者 FAILED、后者 ok；
+  把 `dy` 取负则相反。两条都不是对方的影子。
+- 也顺手确认了链路其余部分不改符号：serde `f32` 原样解码 → `dispatch` 纯透传
+  → `perform_mouse` → `normalize_axis`（对 coord 单调递增，多显示器 origin 也对）。
+
+**所以 Windows 侧的指针移动方向现在是被测试证明的，不是被读代码证明的。**
+
+剩下唯一没排除的就是手机。等用户滑一次手机读 `[dir]` 日志，
+若 `out.dx` 与手指同向，那结论就是你这台机器上的 `SendInput` /
+虚拟屏 / 驱动层面有问题 —— 到时候我会在
+`docs/HANDOFF-IOS-QUALITY.md` 里把测量数字给你。
+
+## 一个和你有关的坑
+
+`send_mouse` 用的是 `MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK`
++ `normalize_axis` 归一化到 0–65535。多显示器时依赖
+`virtual_screen_size()` 的 `origin_x/origin_y`，**这块没有测试**。
+单显示器看不出问题；如果你的机器是双屏而单屏测试都正常，
+方向类症状优先怀疑这里。

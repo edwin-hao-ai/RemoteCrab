@@ -923,6 +923,7 @@ cross-references rather than the file order.
 | 134 | A parallel session commits your **in-flight** code under its own message; the code is fine and HEAD is green, so only the history lies |
 | 135 | Filtering a list by **name** instead of id: with two computers sharing a hostname the list showed **nothing at all** — not one machine missing, every machine gone |
 | 136 | "What the state says" and "what the state lets you do" are two separate wires; missing one leaves the user stuck even though the mechanism works |
+| 137 | A property can be documented as one thing and behave as another — **`kVTCompressionPropertyKey_Quality` makes `AverageBitRate` inert**, so the phone was reporting an invented number; and a clamping test (`-5.0` → 0) passes on a **negated** axis, so only a paired mid-screen assertion detects inversion | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via

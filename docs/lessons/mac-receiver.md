@@ -763,3 +763,67 @@ so a cross-reference from another lesson still resolves.
      Generalisable, and it is the second time this session: **a test that
      counts things cannot see a value problem.** "492 packets arrived" and "the
      sound arrived" are different claims, and only one of them was true.
+
+## 137
+
+**A property can be documented as one thing and behave as another — and
+`VideoToolbox`'s `Quality` silently makes `AverageBitRate` a no-op.**
+
+A Windows session with a real iPhone measured a soft, speckly preview, read
+`streaming: 1080x1920 @ 30fps (6220 kbps)` off the phone's metadata, noticed
+that 6220 was exactly `1920 × 1080 × 30 × 0.1`, and concluded correctly from
+arithmetic that the bitrate coefficient was the lever. It shipped a precise,
+well-argued recommendation: `0.1 → 0.15`.
+
+`H264Encoder.createSession` set **both** properties:
+
+```swift
+kVTCompressionPropertyKey_AverageBitRate: bitrate,
+kVTCompressionPropertyKey_Quality:         0.7,
+```
+
+`VTCompressionProperties.h` documents neither as taking precedence. So this
+could only be settled by measurement, and measurement was unambiguous —
+`scripts/vt-bitrate-probe.swift`, 1920x1080@30, `AverageBitRate` held at
+9,331,200:
+
+| Quality | achieved |
+|---------|----------|
+| 0.50 | 4,989 kbps |
+| 0.70 | 9,179 kbps |
+| 0.75 | 10,886 kbps |
+| 0.80 | 13,552 kbps |
+| 0.90 | 22,404 kbps |
+
+The decisive detail is not that the ratios were off — it is that asking for
+6,220 and for 9,331 produced **byte-identical output** (3,442,273 bytes). Not
+imprecise: inert. So the phone had been reporting an invented number since the
+property list was written, and **every peer that trusted it was measuring the
+request, not the stream.**
+
+Two lessons, and the second is the one that would have cost the day:
+
+1. **A self-reported number is not a measurement.** `IBStreamMetadata.bitrateBps`
+   is what the phone *asked for*. An acceptance criterion built on it —
+   "the kbps figure must read ≈9,300" — would have gone **green** while the
+   picture stayed exactly as soft, because the only thing that changed was the
+   request. That is lesson 111 again, one level up: not an assertion that fails
+   to run, but an acceptance test that cannot fail.
+2. **"Both are set, so the numbers look reasonable" is not evidence.** Two
+   plausible properties, one inert, and the code reads correctly at every
+   line. When a knob's effect is *reported* rather than *observed*, the
+   experiment is the only instrument.
+
+The generalisable form: **when a symptom is "the quality is too low", verify
+that the knob you are about to turn is connected to the thing you are about to
+measure.** It cost a full round-trip between two machines, and the fix that
+shipped (`quality: 0.70 → 0.75`, measured 9,179 → 10,886 kbps) is a different
+property from the one the recommendation named.
+
+Corollary that cost an hour: the *inverse* of this is the trap in the touchpad
+direction hunt. There, `move_clamps_to_screen` asserted that a `-5.0` delta
+lands at `(0, 0)` — which a **negated** axis satisfies just as happily, so the
+suite was green and the direction was untested. Clamping tests cannot detect
+inversion; only a **paired** assertion from mid-screen can
+(`a_move_preserves_the_sign_of_its_delta`, added 2026-10-04, reverse-verified
+by negating `dx` and watching exactly one of the two axis tests fail).

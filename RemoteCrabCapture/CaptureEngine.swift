@@ -428,7 +428,7 @@ final class CaptureEngine: ObservableObject {
             // — passing nil silently drops every frame.
             let newEncoder = H264Encoder(width: Int32(dims.width), height: Int32(dims.height),
                                          fps: currentFps,
-                                         bitrate: bitrateFor(width: dims.width, height: dims.height, fps: currentFps))
+                                         bitrate: VideoEncodingPolicy.bitrate(width: dims.width, height: dims.height, fps: currentFps))
             encoder = newEncoder
             // commitConfiguration + addInput block for several hundred ms —
             // run the whole configuration on the capture queue so the
@@ -457,7 +457,7 @@ final class CaptureEngine: ObservableObject {
             metadata = IBStreamMetadata(deviceName: UIDevice.current.name,
                                         width: dims.width, height: dims.height,
                                         fps: currentFps,
-                                        bitrateBps: bitrateFor(width: dims.width, height: dims.height, fps: currentFps))
+                                        bitrateBps: VideoEncodingPolicy.bitrate(width: dims.width, height: dims.height, fps: currentFps))
             observeCaptureInterruptions()
             observeDeviceOrientation()
             try await newEncoder.start { [weak self] frame in
@@ -1084,7 +1084,7 @@ final class CaptureEngine: ObservableObject {
 
         let newEncoder = H264Encoder(width: Int32(config.width), height: Int32(config.height),
                                      fps: currentFps,
-                                     bitrate: bitrateFor(width: config.width, height: config.height, fps: currentFps))
+                                     bitrate: VideoEncodingPolicy.bitrate(width: config.width, height: config.height, fps: currentFps))
         do {
             try await newEncoder.start { [weak self] frame in
                 Task { @MainActor in self?.handleEncodedFrame(frame) }
@@ -1103,7 +1103,7 @@ final class CaptureEngine: ObservableObject {
             metadata = IBStreamMetadata(deviceName: UIDevice.current.name,
                                         width: config.width, height: config.height,
                                         fps: currentFps,
-                                        bitrateBps: bitrateFor(width: config.width, height: config.height, fps: currentFps))
+                                        bitrateBps: VideoEncodingPolicy.bitrate(width: config.width, height: config.height, fps: currentFps))
             if let connection, connection.state == .ready {
                 sendMetadata(on: connection)
             }
@@ -1219,12 +1219,6 @@ final class CaptureEngine: ObservableObject {
            connection.isVideoRotationAngleSupported(currentRotationAngle) {
             connection.videoRotationAngle = currentRotationAngle
         }
-    }
-
-    /// ~0.1 bpp real-time talk-band heuristic, clamped to [1, 12] Mbps.
-    private func bitrateFor(width: Int, height: Int, fps: Int) -> Int {
-        let raw = Int(Double(width * height * fps) * 0.1)
-        return min(max(raw, 1_000_000), 12_000_000)
     }
 
     // MARK: - Setup

@@ -93,14 +93,23 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
 
         // Configure the session for real-time, low-latency H.264.
         // iOS 26 SDK: hardware encoding is the default.
+        //
+        // `Quality` and `AverageBitRate` are both set, and on iOS **Quality
+        // wins outright**: asking for 6.2 Mbps and for 9.3 Mbps produced
+        // byte-identical output until Quality was removed. So the bitrate
+        // below is the phone's *request* — it is what `IBStreamMetadata`
+        // reports and what a peer will print — while `Quality` is what
+        // decides the picture. Change `VideoEncodingPolicy.quality` to
+        // change sharpness; change `bitsPerPixel` only after re-measuring
+        // with `scripts/vt-bitrate-probe.swift`.
         let props: [CFString: Any] = [
             kVTCompressionPropertyKey_RealTime:                true,
             kVTCompressionPropertyKey_AllowFrameReordering:    false,
             kVTCompressionPropertyKey_ProfileLevel:            kVTProfileLevel_H264_Main_AutoLevel,
             kVTCompressionPropertyKey_AverageBitRate:          bitrate,
             kVTCompressionPropertyKey_ExpectedFrameRate:       fps,
-            kVTCompressionPropertyKey_MaxKeyFrameInterval:     fps,
-            kVTCompressionPropertyKey_Quality:                 0.7
+            kVTCompressionPropertyKey_MaxKeyFrameInterval:     VideoEncodingPolicy.maxKeyFrameInterval(fps: fps),
+            kVTCompressionPropertyKey_Quality:                 VideoEncodingPolicy.quality
         ]
 
         let setStatus = VTSessionSetProperties(session, propertyDictionary: props as CFDictionary)
@@ -341,6 +350,7 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
                 onFrame?(IBNalFrame(kind: .pps, data: Data(nalSlice), timestampMicros: micros))
             } else if nalUnitType == 1 || nalUnitType == 5 {
                 encodeOutCount += 1
+                recordRateProbe(bytes: nalEnd - nalStart)
                 if encodeOutCount % 300 == 0 {
                     Self.forensic("encoded frames OUT: \(encodeOutCount) (in=\(captureInCount) err=\(encodeErrorCount))")
                 }
@@ -352,6 +362,41 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
 
             offset = nalEnd
         }
+    }
+
+    // TEMPORARY DIAGNOSTIC — inert unless REMOTECRAB_E2E_BITRATE=1.
+    //
+    // The phone advertises the bitrate it *asked for* in `IBStreamMetadata`,
+    // so a bigger number there is not evidence of a sharper picture — it is
+    // evidence that the phone asked for more. `kVTCompressionPropertyKey_AverageBitRate`
+    // and `kVTCompressionPropertyKey_Quality` are both set on this session and
+    // the SDK header does not say which one wins, so the only way to tell
+    // whether the coefficient decides quality is to count the bytes the
+    // encoder actually produced and print them beside the request.
+    //
+    // Reads and writes happen on `queue` only, like the other counters here.
+    private static let rateProbeEnabled =
+        ProcessInfo.processInfo.environment["REMOTECRAB_E2E_BITRATE"] == "1"
+    private var probeBytes = 0
+    private var probeFrames = 0
+    private var probeWindowStart = Date()
+
+    private func recordRateProbe(bytes: Int) {
+        guard Self.rateProbeEnabled else { return }
+        probeBytes += bytes
+        probeFrames += 1
+        let now = Date()
+        let elapsed = now.timeIntervalSince(probeWindowStart)
+        guard elapsed >= 2 else { return }
+        let achieved = VideoEncodingPolicy.achievedBitsPerSecond(bytes: probeBytes, seconds: elapsed)
+        let ratio = bitrate > 0 ? Double(achieved) / Double(bitrate) : 0
+        Self.forensic(String(
+            format: "rate req=%d kbps achieved=%d kbps ratio=%.2f frames=%d gop=%d",
+            bitrate / 1000, achieved / 1000, ratio, probeFrames,
+            VideoEncodingPolicy.maxKeyFrameInterval(fps: fps)))
+        probeBytes = 0
+        probeFrames = 0
+        probeWindowStart = now
     }
 
     /// Extract SPS/PPS from the compressed sample buffer's format

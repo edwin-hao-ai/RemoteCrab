@@ -388,6 +388,77 @@ mod tests {
         assert_eq!(actions, vec![MouseAction::Move { x: 0, y: 0 }]);
     }
 
+    /// Direction, as an invariant rather than a description.
+    ///
+    /// `move_clamps_to_screen` cannot catch an inverted axis: +5.0 and -5.0
+    /// both clamp to (0,0), so it passes just as happily against a negated
+    /// delta as against a correct one. A user reporting "the pointer goes
+    /// right when my finger goes left" needs a test that starts from the
+    /// middle of the screen — where nothing clamps — and moves a little.
+    ///
+    /// The pairing is the point: equal and opposite deltas must land
+    /// symmetrically about the start, so no single gain or scale factor can
+    /// make this pass while the axis is flipped.
+    #[test]
+    fn a_move_preserves_the_sign_of_its_delta() {
+        // Start from the middle of the screen, where nothing clamps.
+        let centre = |mut t: InputTranslator| {
+            t.touch(&touch(TouchPhase::Move, 0.5, 0.0), screen());
+            assert_eq!(t.last_cursor.0, 500.0, "the cursor must start centred");
+            t
+        };
+
+        let mut right = centre(InputTranslator::new());
+        right.touch(&touch(TouchPhase::Move, 0.01, 0.0), screen());
+        assert!(
+            right.last_cursor.0 > 500.0,
+            "a positive dx must move the cursor toward larger x, got {:?}",
+            right.last_cursor
+        );
+
+        let mut left = centre(InputTranslator::new());
+        left.touch(&touch(TouchPhase::Move, -0.01, 0.0), screen());
+        assert!(
+            left.last_cursor.0 < 500.0,
+            "a negative dx must move the cursor toward smaller x, got {:?}",
+            left.last_cursor
+        );
+
+        // Equal and opposite deltas must travel equally far, so no gain or
+        // scale factor can make this pass while the axis is flipped.
+        let travelled_right = right.last_cursor.0 - 500.0;
+        let travelled_left = 500.0 - left.last_cursor.0;
+        assert!(
+            (travelled_right - travelled_left).abs() < 0.01,
+            "opposite deltas must travel equally far, {travelled_right} vs {travelled_left}"
+        );
+    }
+
+    /// The same invariant on the vertical axis, which the mirror path flips
+    /// relative to the camera path — so it gets its own assertion rather than
+    /// being folded into the horizontal one.
+    #[test]
+    fn a_move_preserves_the_sign_of_a_vertical_delta() {
+        let mut down = InputTranslator::new();
+        down.touch(&touch(TouchPhase::Move, 0.0, 0.5), screen());
+        assert_eq!(down.last_cursor.1, 500.0);
+        down.touch(&touch(TouchPhase::Move, 0.0, 0.01), screen());
+        assert!(
+            down.last_cursor.1 > 500.0,
+            "a positive dy must move the cursor toward larger y, got {:?}",
+            down.last_cursor
+        );
+
+        let mut up = InputTranslator::new();
+        up.touch(&touch(TouchPhase::Move, 0.0, 0.5), screen());
+        up.touch(&touch(TouchPhase::Move, 0.0, -0.01), screen());
+        assert!(
+            up.last_cursor.1 < 500.0,
+            "a negative dy must move the cursor toward smaller y, got {:?}",
+            up.last_cursor
+        );
+    }
+
     #[test]
     fn click_is_down_then_up_at_cursor() {
         let mut t = InputTranslator::new();
