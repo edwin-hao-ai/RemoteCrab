@@ -226,7 +226,7 @@ final class SpeakerPlayer {
         envelope.append(Character(String(digit)))
         if envelope.count > Self.envelopeLength { envelope.removeFirst() }
         packetsEnqueued += 1
-        drain()
+        pumpOnArrival()
     }
 
     private func append(_ source: UnsafeBufferPointer<Int16>) {
@@ -238,7 +238,7 @@ final class SpeakerPlayer {
             writeFrame += 1
             i += 2
         }
-        // Drop the oldest audio if the drain fell behind: for live audio a
+        // Drop the oldest audio if playback fell behind: for live audio a
         // stale buffer is worse than a hole, and a hole is what silence is
         // for.
         if bufferedFrames > capacityFrames {
@@ -246,15 +246,6 @@ final class SpeakerPlayer {
             readFrame += excess
             starvedDrops += excess / SpeakerPlayer.framesPerPacket
         }
-    }
-
-    /// Keep the graph fed. Schedules real audio once the cushion is built and
-    /// silence whenever it runs dry — `player.isPlaying` must stay true, or
-    /// the audio session is reclaimable and the next packet restarts the
-    /// engine audibly.
-    private func drain() {
-        guard isRunning, !ring.isEmpty else { return }
-        pump()
     }
 
     /// How many packets have been handed to the player and not yet played.
@@ -277,11 +268,8 @@ final class SpeakerPlayer {
     ///
     /// `SpeakerSchedule` holds the rule and its reasons; this is only the
     /// plumbing.
-    private func pump() {
-        switch SpeakerSchedule.decide(bufferedFrames: bufferedFrames,
-                                      pendingPlayback: pendingPlayback,
-                                      framesPerPacket: SpeakerPlayer.framesPerPacket,
-                                      targetPackets: SpeakerPlayer.targetPackets) {
+    private func pump(_ decision: SpeakerSchedule) {
+        switch decision {
         case .playAudio:
             schedule(silence: false)
         case .scheduleSilence:
@@ -289,6 +277,16 @@ final class SpeakerPlayer {
         case .wait:
             break
         }
+    }
+
+    /// Arrival is what feeds real audio — see `SpeakerSchedule.onPacket` for
+    /// why this cannot hang off a timer. Called on every packet received.
+    private func pumpOnArrival() {
+        guard isRunning else { return }
+        pump(SpeakerSchedule.onPacket(bufferedFrames: bufferedFrames,
+                                      pendingPlayback: pendingPlayback,
+                                      framesPerPacket: SpeakerPlayer.framesPerPacket,
+                                      targetPackets: SpeakerPlayer.targetPackets))
     }
 
     private func schedule(silence: Bool) {
@@ -339,17 +337,27 @@ final class SpeakerPlayer {
         }
     }
 
-    /// Called on a timer by the owner so silence keeps flowing while the
-    /// network is quiet — without this the player graph is scheduled dry
-    /// and the session can be reclaimed by the system.
+    /// Keeps the audio graph alive, and nothing else.
     ///
-    /// It routes through the same decision as the ingest path rather than
-    /// scheduling unconditionally. That used to add a silent packet on every
-    /// one of these fires, on top of the real audio `drain` was already
-    /// scheduling, which is what produced the runaway backlog.
+    /// It used to schedule real audio as well, which is the mistake this file
+    /// exists to correct — and it failed in both directions. Scheduling
+    /// unconditionally put a silent packet in on top of real audio, so filler
+    /// ran at the full packet rate and the queue grew a second of latency per
+    /// second. Then, once that was fixed, scheduling audio *only* here could
+    /// not keep up at all: `Task.sleep(20 ms)` measured ~30 ms on the device,
+    /// so playback ran at 33 packets/s against 46 arriving, and the ring
+    /// overflowed (`starved` climbing, `played` falling further behind every
+    /// sample).
+    ///
+    /// Real audio is now scheduled by arrival (`pumpOnArrival`); the timer's
+    /// sole remaining job is the one it cannot delegate, because
+    /// `AVAudioPlayerNode.isPlaying` has to stay true or the system reclaims
+    /// the audio session. It must never run while audio is waiting.
     func tick() {
         guard isRunning, !ring.isEmpty else { return }
-        pump()
+        pump(SpeakerSchedule.onTick(bufferedFrames: bufferedFrames,
+                                    pendingPlayback: pendingPlayback,
+                                    framesPerPacket: SpeakerPlayer.framesPerPacket))
     }
 
     /// Play a short two-tone confirmation through the phone's speaker.

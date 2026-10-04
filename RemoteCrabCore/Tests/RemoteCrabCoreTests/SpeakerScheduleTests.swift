@@ -5,132 +5,161 @@ final class SpeakerScheduleTests: XCTestCase {
 
     private let framesPerPacket = 960
     private let targetPackets = 3
+    private let onePacket = 960
     /// 60 ms of real audio in the ring.
     private let fullCushion = 960 * 3
-    private let onePacket = 960
 
-    private func decide(_ buffered: Int, _ pending: Int) -> SpeakerSchedule {
-        SpeakerSchedule.decide(bufferedFrames: buffered,
-                                pendingPlayback: pending,
-                                framesPerPacket: framesPerPacket,
-                                targetPackets: targetPackets)
+    private func onPacket(_ buffered: Int, _ pending: Int) -> SpeakerSchedule {
+        SpeakerSchedule.onPacket(bufferedFrames: buffered,
+                                 pendingPlayback: pending,
+                                 framesPerPacket: framesPerPacket,
+                                 targetPackets: targetPackets)
     }
 
-    /// The regression this whole thing exists for: a 20 ms timer scheduled a
-    /// silent packet unconditionally, so silence was added at the full packet
-    /// rate **on top of** real audio. Production ran at 100 packets/s into a
-    /// player that drains 50, the queue grew by 50 packets a second, and the
-    /// user heard fragmented, garbled audio that kept playing after the
-    /// feature was switched off.
+    private func onTick(_ buffered: Int, _ pending: Int) -> SpeakerSchedule {
+        SpeakerSchedule.onTick(bufferedFrames: buffered,
+                               pendingPlayback: pending,
+                               framesPerPacket: framesPerPacket)
+    }
+
+    // MARK: - The regression this exists for
+
+    /// `tick` scheduled a silent packet unconditionally, so filler was added
+    /// at the full packet rate **on top of** real audio: 50 real + 50 silent a
+    /// second into a player that drains 50. The queue grew ~50 packets — one
+    /// second of latency — every second, and the user heard fragmented,
+    /// garbled audio that kept playing after the feature was switched off.
+    /// Measured on the device before the fix: `silence=916` against
+    /// `enqueued=1011`.
     ///
-    /// The invariant: while real audio is waiting, silence must never be
-    /// scheduled — not even once, not even when the graph wants feeding.
-    func testNeverSchedulesSilenceWhileRealAudioIsWaiting() {
-        // Every combination of "the ring has audio" x "the queue is deep",
-        // which is exactly the space the old timer ignored.
+    /// The invariant: while real audio is waiting, the timer must never
+    /// schedule silence — not once, not even to "keep the graph fed".
+    func testTheTimerNeverSchedulesSilenceWhileRealAudioIsWaiting() {
         for buffered in [onePacket, fullCushion, fullCushion * 4] {
             for pending in [0, 1, 2, 5, 50, 1000] {
-                let decision = decide(buffered, pending)
-                XCTAssertNotEqual(decision, .scheduleSilence,
-                                  "buffered=\(buffered) pending=\(pending): scheduled silence on top of real audio")
+                XCTAssertNotEqual(onTick(buffered, pending), .scheduleSilence,
+                                  "buffered=\(buffered) pending=\(pending): filler on top of real audio")
             }
         }
     }
 
-/// Simulates a real session against the real consumer: 50 packets a
-    /// second of genuine audio arriving, and a player that drains exactly 50 a
-    /// second (20 ms of audio per 20 ms of wall clock).
-    ///
-    /// The assertion that matters is `peakPending`. The old code scheduled a
-    /// silent packet on every timer tick *and* a real packet as the ring
-    /// allowed, so it produced 100 packets a second into a 50/s player and the
-    /// backlog grew by ~50 packets — one second of latency — every second.
-    /// That backlog is the whole symptom: the audio the user hears is
-    /// interleaved with filler and increasingly stale, and it keeps playing
-    /// long after the feature is switched off because there is so much of it.
-    func testARealStreamKeepsThePlaybackQueueAtAConstantLowDepth() {
-        var buffered = 0
-        var pending = 0
-        var peakPending = 0
-        var silenceScheduled = 0
-        var audioScheduled = 0
-
-        // 10 seconds: 500 ticks, each one a 20 ms timer fire.
-        for _ in 0..<500 {
-            buffered += onePacket                   // one packet arrives
-            pending = max(0, pending - 1)           // the player drains one
-            switch decide(buffered, pending) {
-            case .playAudio:
-                audioScheduled += 1
-                buffered -= onePacket
-                pending += 1
-            case .scheduleSilence:
-                silenceScheduled += 1
-                pending += 1
-            case .wait:
-                break
+    /// The counter-schedule: real audio is scheduled by arrival, never by the
+    /// clock. If a timer fed audio, a drifted timer would either double the
+    /// rate or starve — both measured on this device, 400 ms of latency and a
+    /// ring that overflowed.
+    func testTheTimerNeverSchedulesRealAudio() {
+        for buffered in [0, onePacket, fullCushion, fullCushion * 8] {
+            for pending in [0, 1, 3, 40] {
+                XCTAssertNotEqual(onTick(buffered, pending), .playAudio,
+                                  "buffered=\(buffered) pending=\(pending): the clock scheduled audio")
             }
-            peakPending = max(peakPending, pending)
         }
-
-        XCTAssertGreaterThan(audioScheduled, 400, "the stream should have played continuously")
-        XCTAssertEqual(silenceScheduled, 0,
-                       "with audio arriving continuously, not one silent packet should be scheduled")
-        // A couple of buffers is the start-up cushion. Anything beyond that
-        // is latency the user can hear.
-        XCTAssertLessThanOrEqual(peakPending, 3,
-                                 "playback queue reached \(peakPending) packets — that is the audible backlog")
     }
 
-    /// The direct statement of "it will not turn off": with nothing left to
-    /// play, the queue must drain instead of being kept full.
+    // MARK: - Arrival-driven playback
+
+    /// Audio starts only once the start-up cushion is present, so the player
+    /// never begins mid-word.
+    func testPlaybackWaitsForTheStartUpCushion() {
+        XCTAssertEqual(onPacket(onePacket, 0), .wait)
+        XCTAssertEqual(onPacket(fullCushion - 1, 0), .wait)
+        XCTAssertEqual(onPacket(fullCushion, 0), .playAudio)
+    }
+
+    /// The queue depth is a feedback term: the deeper the player's queue, the
+    /// more audio must arrive before another packet goes in. This is what
+    /// keeps the two rates locked together instead of relying on a timer.
+    func testADeepQueueDemandsMoreAudioBeforeTheNextPacket() {
+        // Threshold is always (queued + cushion) packets, so it rises 1:1 with
+        // the queue depth. Written in packets to keep that visible.
+        func packets(_ n: Int) -> Int { n * framesPerPacket }
+
+        XCTAssertEqual(onPacket(packets(3) - 1, 0), .wait)
+        XCTAssertEqual(onPacket(packets(3), 0), .playAudio)
+
+        // 3 queued needs 6 packets buffered.
+        XCTAssertEqual(onPacket(packets(6), 3), .playAudio)
+        XCTAssertEqual(onPacket(packets(6) - 1, 3), .wait)
+
+        // 7 queued needs 10.
+        XCTAssertEqual(onPacket(packets(10), 7), .playAudio)
+        XCTAssertEqual(onPacket(packets(10) - 1, 7), .wait)
+    }
+
+    /// The invariant as a simulation: a steady real stream must keep both the
+    /// queue depth and the ring bounded, and must not discard audio — at any
+    /// arrival rate, including one the 20 ms timer could not have matched.
+    func testARealStreamKeepsQueueAndRingBoundedAtAnyArrivalRate() {
+        for arrivalEveryNTicks in [1, 2, 3] {
+            var buffered = 0
+            var pending = 0
+            var peakPending = 0
+            var peakRing = 0
+            var silenceScheduled = 0
+            var discarded = 0
+            var played = 0
+
+            // 20 s at 50 ticks/s.
+            for tick in 0..<1000 {
+                if tick % arrivalEveryNTicks == 0 { buffered += onePacket }   // arrival
+                pending = max(0, pending - 1)                                  // player drains
+                switch onPacket(buffered, pending) {
+                case .playAudio:
+                    buffered -= onePacket; pending += 1; played += 1
+                case .scheduleSilence, .wait:
+                    break
+                }
+                switch onTick(buffered, pending) {
+                case .scheduleSilence:
+                    silenceScheduled += 1; pending += 1
+                case .playAudio, .wait:
+                    break
+                }
+                if buffered > fullCushion * 4 {                               // ring overflow
+                    discarded += 1
+                    buffered = fullCushion * 4
+                }
+                peakPending = max(peakPending, pending)
+                peakRing = max(peakRing, buffered / onePacket)
+            }
+
+            let label = "arrival every \(arrivalEveryNTicks) tick(s)"
+            XCTAssertGreaterThan(played, 200, "\(label): nothing played")
+            XCTAssertEqual(discarded, 0, "\(label): \(discarded) packets discarded — playback cannot keep up")
+            XCTAssertLessThanOrEqual(peakPending, 4,
+                                     "\(label): queue reached \(peakPending) packets of latency")
+            XCTAssertLessThanOrEqual(peakRing, 8,
+                                     "\(label): ring reached \(peakRing) packets")
+            XCTAssertEqual(silenceScheduled, 0,
+                           "\(label): scheduled \(silenceScheduled) filler packets over a real stream")
+        }
+    }
+
+    /// When the Mac goes quiet the queue must drain, not be kept full. This
+    /// is what "will not turn off" looked like: a backlog playing out long
+    /// after the toggle.
     func testAnIdleStreamDoesNotRearmThePlaybackQueue() {
-        // The Mac goes quiet: packets stop arriving.
-        var pending = 0
-        var buffered = 0
-        for _ in 0..<50 {                            // 1 s of silence from the Mac
+        var pending = 3
+        var scheduledSilence = 0
+        for _ in 0..<100 {
             pending = max(0, pending - 1)
-            switch decide(buffered, pending) {
-            case .playAudio:
-                pending += 1
-            case .scheduleSilence:
-                pending += 1
-            case .wait:
-                break
-            }
+            if onTick(0, pending) == .scheduleSilence { scheduledSilence += 1; pending += 1 }
         }
-        // One buffer may legitimately be held to keep the session alive, but
-        // it must not be topped up every tick.
-        XCTAssertLessThanOrEqual(pending, 2,
-                                 "queue kept \(pending) packets busy while the Mac sent nothing")
+        XCTAssertLessThanOrEqual(pending, 2, "queue held \(pending) packets while the Mac sent nothing")
+        XCTAssertLessThan(scheduledSilence, 100,
+                          "silence should stop once one packet is held, not be topped up every tick")
     }
 
-    /// The queue must be allowed to drain rather than being fed. This is what
-    /// turns "will not turn off" into "turns off immediately": with the old
-    /// behaviour the backlog kept playing long after the feature was stopped.
-    func testADeepQueueIsLeftAloneSoItCanDrain() {
-        XCTAssertEqual(decide(fullCushion, 40), .wait)
-        XCTAssertEqual(decide(fullCushion * 4, 400), .wait)
-    }
+    // MARK: - Keeping the graph alive
 
-    /// The graph still has to be kept alive while the Mac is quiet, or
-    /// `isPlaying` goes false and the system reclaims the audio session —
-    /// which the original fix was written to prevent.
+    /// The reason the timer exists at all: `isPlaying` must stay true or the
+    /// system reclaims the audio session. So silence still has to flow when
+    /// there is genuinely nothing to play.
     func testSilenceStillFlowsWhenThereIsNothingToPlay() {
-        XCTAssertEqual(decide(0, 0), .scheduleSilence)
-        XCTAssertEqual(decide(onePacket / 2, 0), .scheduleSilence)
-    }
-
-    /// But only until there is a packet's worth queued: a deep queue plus an
-    /// empty ring is the start of the next session, not a reason to keep
-    /// feeding silence.
-    func testSilenceStopsOnceOnePacketIsQueued() {
-        XCTAssertEqual(decide(0, 2), .wait)
-    }
-
-    /// Real audio wins over the graph-feeder even when the graph is bare.
-    func testAudioWinsOverSilenceWhenBothWantToRun() {
-        // Ring is full and nothing is queued: the audio must go first.
-        XCTAssertEqual(decide(fullCushion, 0), .playAudio)
+        XCTAssertEqual(onTick(0, 0), .scheduleSilence)
+        XCTAssertEqual(onTick(onePacket - 1, 0), .scheduleSilence)
+        // ... but only until one buffer is held.
+        XCTAssertEqual(onTick(0, 1), .scheduleSilence)
+        XCTAssertEqual(onTick(0, 2), .wait)
     }
 }
