@@ -258,6 +258,15 @@ final class CaptureEngine: ObservableObject {
 
     private(set) var audioEncoder: MicrophoneEncoder?
 
+    /// Plays the computer's audio on this phone's speaker (wire kind 0x24).
+    /// The first playback code in this app: everything else that made sound
+    /// was `BackgroundKeepAlive`, which is deliberately silent.
+    private var speakerPlayer = SpeakerPlayer()
+    private var speakerTickTask: Task<Void, Never>?
+    /// Why the speaker is not playing, when it should be. Surfaced because a
+    /// control that fails silently is worse than one that is not there.
+    @Published private(set) var speakerStatus: String?
+
     /// Single source of truth for capability state. Bound by the UI
     /// and mutated by remote FeatureControl frames alike.
     let features = FeatureStore()
@@ -1591,7 +1600,7 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1", !features.cameraOn {
             features.set(feature: .camera, enabled: true)
         }
-        syncMicrophone(features.micOn && !features.voiceOn)
+        syncAudioMode(features)
         // Resume the mirror if it was on when the link dropped. No-op when
         // the feature is off or `start` was already sent.
         syncScreen()
@@ -2510,6 +2519,15 @@ final class CaptureEngine: ObservableObject {
                 if let result = try? IBWire.decodeCommandResult(frame) {
                     resolveCommand(result)
                 }
+            case .speakerAudio:
+                // Payload is PCM (see IBWire.encode(speakerAudio:)), so the
+                // bytes go straight into the player — no decoder on this path.
+                if let packet = try? IBWire.decodeSpeakerAudio(frame), packet.channels == 2 {
+                    speakerPlayer.enqueue(packet.opusData)
+                } else if let packet = try? IBWire.decodeSpeakerAudio(frame) {
+                    Forensic.log("[audio] speaker frame ignored: channels=\(packet.channels) expected 2")
+                }
+
             case .ping:
                 // Either the echo of our own probe (a measurement) or the
                 // Mac's own probe (echo it back so ITS round trip closes).
@@ -2627,7 +2645,7 @@ final class CaptureEngine: ObservableObject {
         }
         wasCameraOn = snapshot.cameraOn
         broadcaster?.send(snapshot)
-        syncMicrophone(snapshot.micOn && !snapshot.voiceOn)
+        syncAudioMode(snapshot)
         syncScreen()
     }
 
@@ -2674,6 +2692,83 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
+    /// The single place that applies `AudioModeArbiter` to the hardware.
+    ///
+    /// This replaces two copies of `micOn && !voiceOn` — one on the live
+    /// feature-change path, one on the reconnect path — plus a third
+    /// De Morgan complement in `applyKeepAlive`. Three expressions to keep in
+    /// step is three chances to leave the microphone streaming while the
+    /// phone plays the computer back, which is an echo the user hears and
+    /// cannot diagnose.
+    private func syncAudioMode(_ snapshot: FeatureStateSnapshot) {
+        let mode = AudioModeArbiter.resolve(
+            micOn: snapshot.micOn,
+            voiceOn: snapshot.voiceOn,
+            speakerOn: snapshot.speakerOn)
+        syncAudioMode(mode)
+    }
+
+    private func syncAudioMode(_ snapshot: FeatureStore) {
+        syncAudioMode(AudioModeArbiter.resolve(
+            micOn: snapshot.micOn,
+            voiceOn: snapshot.voiceOn,
+            speakerOn: snapshot.speakerOn))
+    }
+
+    private func syncAudioMode(_ mode: AudioMode) {
+        switch mode {
+        case .microphone:
+            if speakerPlayer.running { stopSpeakerPlayback(reason: "microphone took over") }
+            syncMicrophone(true)
+        case .speaker:
+            // Stand the microphone down FIRST. BackgroundKeepAlive.stop()
+            // must run before a `.playback` claim or its own `.playback`
+            // session makes ours fail with '!pri' (see syncMicrophone).
+            syncMicrophone(false)
+            startSpeakerPlayback()
+        case .voice:
+            if speakerPlayer.running { stopSpeakerPlayback(reason: "hold-to-talk took over") }
+            syncMicrophone(false)
+        case .idle:
+            if speakerPlayer.running { stopSpeakerPlayback(reason: nil) }
+            syncMicrophone(false)
+        }
+        applyKeepAlive()
+        Forensic.log("[audio] mode=\(mode) micWanted=\(AudioModeArbiter.wantsMicrophone(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn)) speakerWanted=\(AudioModeArbiter.wantsSpeaker(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn))")
+    }
+
+    private func startSpeakerPlayback() {
+        guard !speakerPlayer.running else { return }
+        do {
+            try speakerPlayer.start()
+            Forensic.log("[audio] speaker playback started")
+        } catch {
+            // Never leave a glowing active state behind a failure (the same
+            // rollback startVoice does): report it and stand the feature down.
+            speakerStatus = error.localizedDescription
+            Forensic.log("[audio] speaker playback FAILED: \(error.localizedDescription)")
+            features.set(feature: .speaker, enabled: false)
+            return
+        }
+        speakerStatus = nil
+        speakerTickTask?.cancel()
+        speakerTickTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(20))
+                guard let self, self.speakerPlayer.running else { return }
+                self.speakerPlayer.tick()
+            }
+        }
+    }
+
+    private func stopSpeakerPlayback(reason: String?) {
+        speakerTickTask?.cancel()
+        speakerTickTask = nil
+        speakerPlayer.stop()
+        speakerStatus = nil
+        Forensic.log("[audio] speaker playback stopped\(reason.map { " (\($0))" } ?? "")")
+    }
+
     private func syncMicrophone(_ enabled: Bool) {
         Forensic.log("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)")
         if enabled {
@@ -2696,7 +2791,15 @@ final class CaptureEngine: ObservableObject {
     /// Hold the app open in the background, unless a record session
     /// (mic/voice) is already doing so.
     private func applyKeepAlive() {
-        let recording = features.micOn || features.voiceOn
+        // NOT `micOn || voiceOn`: that expression is the De Morgan complement
+        // of the one in syncMicrophone, and the speaker mode sits between
+        // them — a playback-only mode must not read as "recording", or the
+        // keep-alive starts its own `.playback` session and races the
+        // speaker player's for the one AVAudioSession.
+        let recording = AudioModeArbiter.isRecording(
+            micOn: features.micOn,
+            voiceOn: features.voiceOn,
+            speakerOn: features.speakerOn)
         if isStreaming && !recording {
             BackgroundKeepAlive.shared.start()
         } else {
