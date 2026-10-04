@@ -9270,7 +9270,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The connection to your Mac is slow. Video and input may lag."
+            "value": "The connection to your computer is slow. Video and input may lag."
           }
         },
         "zh-Hans": {
@@ -9321,7 +9321,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't confirm with your Mac — its app may be out of date."
+            "value": "Couldn't confirm with your computer — its app may be out of date."
           }
         },
         "zh-Hans": {
@@ -9355,7 +9355,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That window isn't open on your Mac anymore."
+            "value": "That window isn't open on your computer anymore."
           }
         },
         "zh-Hans": {
@@ -9372,7 +9372,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your Mac refused that request."
+            "value": "Your computer refused that request."
           }
         },
         "zh-Hans": {
