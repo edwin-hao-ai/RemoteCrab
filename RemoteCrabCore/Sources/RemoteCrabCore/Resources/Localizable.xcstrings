@@ -10062,6 +10062,159 @@
           }
         }
       }
+    },
+    "Speaker": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扬声器"
+          }
+        }
+      }
+    },
+    "Play computer sound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play computer sound"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放电脑声音"
+          }
+        }
+      }
+    },
+    "Play the computer's sound out of this phone's speaker. The computer's own speakers go quiet while it is on, and come back when you switch off.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play the computer's sound out of this phone's speaker. The computer's own speakers go quiet while it is on, and come back when you switch off."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用本手机扬声器播放电脑的声音。开启期间电脑自身的扬声器会安静，关闭后自动恢复。"
+          }
+        }
+      }
+    },
+    "Turning on the phone speaker…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning on the phone speaker…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在打开手机扬声器…"
+          }
+        }
+      }
+    },
+    "Speaker on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker on"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扬声器开"
+          }
+        }
+      }
+    },
+    "Speaker off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speaker off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "扬声器关"
+          }
+        }
+      }
+    },
+    "If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果听不到声音，请检查本手机的音量 —— 此刻电脑并没有通过自己的扬声器播放。"
+          }
+        }
+      }
+    },
+    "Audio mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio mode"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音频模式"
+          }
+        }
+      }
+    },
+    "Choose whether this phone's microphone streams to the computer, or the computer's sound plays out of this phone, or both are off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether this phone's microphone streams to the computer, or the computer's sound plays out of this phone, or both are off"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择本手机麦克风是否传输到电脑、是否用本手机扬声器播放电脑的声音，或全部关闭"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

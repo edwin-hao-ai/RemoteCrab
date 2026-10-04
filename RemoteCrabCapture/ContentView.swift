@@ -733,21 +733,50 @@ struct ContentView: View {
             .accessibilityValue(engine.features.cameraOn ? IBLocale.A11y.on : IBLocale.A11y.off)
             .accessibilityAddTraits(engine.features.cameraOn ? .isSelected : [])
 
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                withAnimation(IBAnimation.snappy) {
-                    engine.features.set(feature: .microphone, enabled: !engine.features.micOn)
+            // ONE control for the phone's audio, because the microphone and
+            // the speaker are not two independent things: they claim the same
+            // AVAudioSession in opposite directions, so they cannot both be
+            // on. Two toggles would let the user light up both and get an
+            // echo with no way to understand it.
+            //
+            // The ICON shows the current mode, so the state is readable
+            // without opening the menu — that is what keeps this cheap to
+            // use. The checkmark idiom is copied from the mirror menu below,
+            // which is the existing precedent for "two sources, one
+            // dropdown".
+            Menu {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.microphone) }
+                } label: {
+                    Label(IBLocale.Mic.modeMicrophone,
+                          systemImage: audioMode == .microphone ? "checkmark" : "mic.fill")
+                }
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.speaker) }
+                } label: {
+                    Label(IBLocale.Speaker.modeSpeaker,
+                          systemImage: audioMode == .speaker ? "checkmark" : "speaker.wave.2.fill")
+                }
+                Divider()
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.idle) }
+                } label: {
+                    Label(IBLocale.Mic.modeOff,
+                          systemImage: audioMode == .idle ? "checkmark" : "mic.slash")
                 }
             } label: {
-                topBarIcon("mic.fill", tint: .white,
-                           active: engine.features.micOn, activeColor: IBColor.recording)
+                topBarIcon(audioModeIcon, tint: .white,
+                           active: audioMode != .idle,
+                           activeColor: audioMode == .microphone ? IBColor.recording : .accentColor)
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
-            .buttonStyle(IBPressButtonStyle())
-            .accessibilityLabel(IBLocale.A11y.microphone)
-            .accessibilityValue(engine.features.micOn ? IBLocale.A11y.on : IBLocale.A11y.off)
-            .accessibilityAddTraits(engine.features.micOn ? .isSelected : [])
+            .accessibilityLabel(IBLocale.A11y.audioMode)
+            .accessibilityValue(audioModeAccessibilityValue)
+            .accessibilityHint(IBLocale.A11y.audioModeHint)
 
             // Mirror + Extended Display are two parallel SOURCES for the
             // same viewer, so they share one dropdown; the checkmark marks
@@ -857,6 +886,36 @@ struct ContentView: View {
             } catch {
                 screenshotError = IBLocale.Transfer.noScreenshot
             }
+        }
+    }
+
+    /// Resolved once so the icon, the menu checkmark and the accessibility
+    /// value can never disagree about what the phone is doing.
+    private var audioMode: AudioMode {
+        AudioModeArbiter.resolve(
+            micOn: engine.features.micOn,
+            voiceOn: engine.features.voiceOn,
+            speakerOn: engine.features.speakerOn)
+    }
+
+    private var audioModeIcon: String {
+        switch audioMode {
+        case .microphone: return "mic.fill"
+        case .voice: return "mic.fill"
+        case .speaker: return "speaker.wave.2.fill"
+        case .idle: return "mic.slash"
+        }
+    }
+
+    /// VoiceOver needs a NAME for the state, not just an icon: a user who
+    /// cannot see the icon must still be told which mode is active, and
+    /// "Microphone / Speaker / Off" is what makes the choice navigable.
+    private var audioModeAccessibilityValue: String {
+        switch audioMode {
+        case .microphone: return IBLocale.Mic.modeMicrophone
+        case .voice: return IBLocale.Mic.modeMicrophone
+        case .speaker: return IBLocale.Speaker.modeSpeaker
+        case .idle: return IBLocale.Mic.modeOff
         }
     }
 

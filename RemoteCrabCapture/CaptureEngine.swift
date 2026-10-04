@@ -2737,6 +2737,30 @@ final class CaptureEngine: ObservableObject {
         Forensic.log("[audio] mode=\(mode) micWanted=\(AudioModeArbiter.wantsMicrophone(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn)) speakerWanted=\(AudioModeArbiter.wantsSpeaker(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn))")
     }
 
+    /// The single user-facing entry point for the phone's audio, so the
+    /// toggle and the menu cannot disagree about how to switch modes. Each
+    /// mode sets the other flags off explicitly rather than relying on the
+    /// arbiter to break the tie: the STORED flags are what get sent to the
+    /// computer, and leaving a stale `micOn` in there would show the mic as
+    /// on in the computer's control panel while the phone plays audio.
+    func setAudioMode(_ mode: AudioMode) {
+        switch mode {
+        case .idle:
+            features.set(feature: .speaker, enabled: false)
+            features.set(feature: .microphone, enabled: false)
+        case .microphone:
+            features.set(feature: .speaker, enabled: false)
+            features.set(feature: .microphone, enabled: true)
+        case .speaker:
+            features.set(feature: .microphone, enabled: false)
+            features.set(feature: .speaker, enabled: true)
+        case .voice:
+            // Not user-selectable: hold-to-talk owns this while it lasts.
+            break
+        }
+        syncAudioMode(features)
+    }
+
     private func startSpeakerPlayback() {
         guard !speakerPlayer.running else { return }
         do {

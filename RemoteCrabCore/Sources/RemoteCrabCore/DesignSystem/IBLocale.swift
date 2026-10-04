@@ -205,6 +205,29 @@ public enum IBLocale {
     public enum Mic {
         public static let on = IBL("Mic on")
         public static let off = IBL("Mic off")
+        /// The three states of the combined microphone / speaker control.
+        /// These are the CHECKMARK LABELS in that menu, and they double as
+        /// the value VoiceOver announces — a sighted user reads a checkmark
+        /// where a screen-reader user needs a word, so the two must be the
+        /// same string.
+        public static let modeOff = IBL("Off")
+        public static let modeMicrophone = IBL("Microphone")
+    }
+
+    /// "Use the iPhone as the speaker": the computer's audio plays out of
+    /// this phone. Named as an action a person would recognise rather than as
+    /// a codec or a channel.
+    public enum Speaker {
+        public static let modeSpeaker = IBL("Speaker")
+        /// First-run explanation. The top bar carries no text labels at all,
+        /// so without this the capability is invisible until you already know
+        /// to look for it.
+        public static let title = IBL("Play computer sound")
+        public static let hint = IBL("Play the computer's sound out of this phone's speaker. The computer's own speakers go quiet while it is on, and come back when you switch off.")
+        public static let enabling = IBL("Turning on the phone speaker…")
+        public static let on = IBL("Speaker on")
+        public static let off = IBL("Speaker off")
+        public static let listeningCheck = IBL("If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.")
     }
 
     /// iOS connection sheet (Bonjour readout + stream toggle).
@@ -890,6 +913,11 @@ public enum IBLocale {
 
         // iOS feature dock.
         public static let microphone = IBL("Microphone")
+        /// One control, three states. Named "Audio mode" rather than
+        /// "Microphone" so a screen-reader user is not told the control does
+        /// something it does not.
+        public static let audioMode = IBL("Audio mode")
+        public static let audioModeHint = IBL("Choose whether this phone's microphone streams to the computer, or the computer's sound plays out of this phone, or both are off")
         public static func showsSurface(_ name: String) -> String {
             String(format: IBL("Shows the %@ surface"), name)
         }
