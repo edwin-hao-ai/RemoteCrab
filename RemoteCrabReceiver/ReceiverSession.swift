@@ -1028,7 +1028,8 @@ final class ReceiverSession: ObservableObject {
         var sent = 0
         var packetRms = 0.0
         var packetPeak = 0
-        while let pcm = speakerTap.takePacket() {
+        let tap = speakerTap
+        while let pcm = tap.takePacket() {
             // Measure the PACKET, not the tap. The tap can be loud while the
             // packet is silent, and those are two completely different bugs.
             pcm.withUnsafeBytes { raw in
@@ -1052,13 +1053,12 @@ final class ReceiverSession: ObservableObject {
         }
         if sent > 0 {
             let bytesOut = packetBytes
-            Self.log.info("speaker packet: bytes=\(bytesOut) rms=\(Int(packetRms)) peak=\(packetPeak) sent=\(sent)")
+            Self.log.info("speaker packet: bytes=\(bytesOut) rms=\(Int(packetRms)) peak=\(packetPeak) sent=\(sent) ringNewest=\(tap.newestRingSample) avail=\(tap.lastAvailableFrames) dropped=\(tap.droppedFrameCount)")
             speakerCapturedFrames = speakerTap.capturedFrameCount
             speakerDroppedFrames = speakerTap.droppedFrameCount
             // Once a second, and ONLY the level: this is the line that
             // separates "the tap is dead" from "the Mac is not making any
             // sound", which the packet counts cannot.
-            let tap = speakerTap
             let seconds = Double(tap.capturedFrameCount) / 48_000
             if sent == 1 || seconds - lastLevelReportAt > 1.0 {
                 lastLevelReportAt = seconds

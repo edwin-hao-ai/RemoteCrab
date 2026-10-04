@@ -225,9 +225,6 @@ public enum IBLocale {
         public static let title = IBL("Play computer sound")
         public static let hint = IBL("Play the computer's sound out of this phone's speaker. The computer's own speakers go quiet while it is on, and come back when you switch off.")
         public static let enabling = IBL("Turning on the phone speaker…")
-        /// One-time pointer at the audio control. The top bar has no text
-        /// labels, so without this the capability is undiscoverable.
-        public static let discoverHint = IBL("The mic button also plays your computer's sound")
         public static let on = IBL("Speaker on")
         public static let off = IBL("Speaker off")
         public static let listeningCheck = IBL("If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.")

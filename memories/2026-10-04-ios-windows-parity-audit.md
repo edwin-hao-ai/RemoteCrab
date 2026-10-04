@@ -2,6 +2,7 @@
 type: memory
 title: iOS 侧的 Windows 兼容审计 —— ⌘ 只到了键盘界面，以及三份独立的同一句话
 created: 2026-10-04T00:30:00+00:00
+updated: 2026-10-04 (later: 切换/断开重构 + 触控板方向调查)
 source: cli
 ---
 

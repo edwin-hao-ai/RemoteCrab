@@ -200,6 +200,7 @@ final class TouchSurfaceUIView: UIView {
             // event's tiny delta.
             let velocity = rec.velocity(in: self)
             let pointerSpeed = Float(hypot(velocity.x, velocity.y)) / Float(uniformReference)
+            lastPointerSpeed = pointerSpeed
             let (dx, dy) = dragArmed
                 ? TrackpadMath.selectionAccelerate(dx: rawDX, dy: rawDY)
                 : TrackpadMath.accelerate(dx: rawDX, dy: rawDY, sensitivity: sensitivity,
@@ -559,6 +560,9 @@ final class TouchSurfaceUIView: UIView {
 
     // MARK: - Air mouse (labs)
 
+    /// Only read by the `[dir]` diagnostic.
+    private var lastPointerSpeed: Float = 0
+
     private let motionManager = CMMotionManager()
     /// Attitude captured on the first motion frame after activation;
     /// subsequent frames emit .move deltas relative to it, so holding
@@ -804,6 +808,36 @@ final class TouchSurfaceUIView: UIView {
             x = Float(location.x / bounds.width)
             y = Float(location.y / bounds.height)
         }
+        // TEMPORARY DIAGNOSTIC — inert unless REMOTECRAB_E2E_TRACKPAD_DIR=1.
+        //
+        // A user reports the pointer travelling right when the finger goes
+        // left, on Windows only. Both receivers read clean — no negation on
+        // either side, and the Windows move maths has exactly one commit and
+        // never had a sign flip — so the only way to settle it is to record
+        // what the phone actually emits and compare it with what the receiver
+        // acts on. This logs the **input** side, which is the half that can
+        // be measured on this machine; the Windows half is one log line away.
+        //
+        // Every 12th move, so a 30-second swipe is a readable table instead
+        // of 600 lines. Delete once the direction is settled.
+        if TouchSurfaceUIView.trackpadDirDiag, phase == .move {
+            TouchSurfaceUIView.trackpadDirCount &+= 1
+            if TouchSurfaceUIView.trackpadDirCount % 12 == 1 {
+                var line = "[dir] n=\(TouchSurfaceUIView.trackpadDirCount)"
+                if let location {
+                    line += " fx=\(String(format: "%.0f", location.x))"
+                    line += " prev=\(String(format: "%.0f", lastDragLocation?.x ?? 0))"
+                } else {
+                    line += " fx=nil"
+                }
+                line += " ref=\(Int(uniformReference))"
+                line += " out.dx=\(String(format: "%+.5f", dx))"
+                line += " out.dy=\(String(format: "%+.5f", dy))"
+                line += " speed=\(String(format: "%.3f", lastPointerSpeed))"
+                line += " w=\(Int(bounds.width))"
+                Forensic.log(line)
+            }
+        }
         onEvent?(TouchEvent(
             phase: phase,
             x: x, y: y,
@@ -813,6 +847,12 @@ final class TouchSurfaceUIView: UIView {
             timestampMicros: ts
         ))
     }
+
+    /// See the `[dir]` block in `emit`. Gated by an env var so a shipping
+    /// build does none of this.
+    fileprivate static let trackpadDirDiag = ProcessInfo.processInfo
+        .environment["REMOTECRAB_E2E_TRACKPAD_DIR"] == "1"
+    fileprivate nonisolated(unsafe) static var trackpadDirCount: UInt32 = 0
 
     private func normalize(_ p: CGPoint) -> CGPoint {
         guard bounds.width > 0, bounds.height > 0 else { return .zero }

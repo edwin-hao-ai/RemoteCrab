@@ -108,6 +108,14 @@ public final class SystemAudioTap: @unchecked Sendable {
     private var energySum: Double = 0
     private var energyCount: Int = 0
     private var peakSeen: Int = 0
+    /// Frames the callback had to discard. Written by the callback, drained
+    /// by the pump — never applied to `readIndex` from the realtime thread.
+    private var pendingDrops: UInt64 = 0
+    /// A probe of the most recently written ring slot, so a run can tell
+    /// "the ring holds zeros" from "the ring holds audio and the reader is
+    /// looking in the wrong place".
+    public private(set) var newestRingSample: Int = 0
+    public private(set) var lastAvailableFrames: UInt64 = 0
 
     /// Signal level of everything the tap has delivered. This is the only way
     /// to tell "the tap is not running" from "the tap is running and the
@@ -294,6 +302,9 @@ public final class SystemAudioTap: @unchecked Sendable {
         peakSeen = 0
         capturedRms = 0
         capturedPeak = 0
+        pendingDrops = 0
+        newestRingSample = 0
+        lastAvailableFrames = 0
         lock.unlock()
 
         os_log("tap started: mute=%{public}@ aggregate=%u", Self.log,
@@ -381,13 +392,21 @@ public final class SystemAudioTap: @unchecked Sendable {
         energySum += sum
         energyCount += count
         if peak > peakSeen { peakSeen = peak }
+        newestRingSample = peak
 
         var dropped: UInt64 = 0
 
-        if w &- readIndex > capacity {
-            dropped = (w &- readIndex) - capacity
-            readIndex = w &- capacity
-            droppedFrames &+= dropped
+        // Two threads writing one index is the bug (lesson 125): the pump
+        // advances `readIndex` to consume, and the callback used to reset it
+        // here on overflow. Two writers means the unsigned
+        // `writeIndex &- readIndex` can wrap, so the "do we have a packet"
+        // guard passes on garbage and the pump reads slots that are not the
+        // ones it thinks. So the callback only *counts* what must go and the
+        // PUMP is the sole owner of `readIndex`.
+        let gap = w &- readIndex
+        if gap > capacity {
+            dropped = gap - capacity
+            pendingDrops += dropped
         }
     }
 
@@ -408,7 +427,17 @@ public final class SystemAudioTap: @unchecked Sendable {
         lock.unlock()
         guard running else { return nil }
 
+        // Apply whatever the callback had to discard, first — otherwise the
+        // gap keeps growing and every read is of data older than the ring.
+        let toDrop = pendingDrops
+        pendingDrops = 0
+        if toDrop > 0 {
+            readIndex &+= toDrop
+            droppedFrames &+= toDrop
+        }
+
         let available = writeIndex &- readIndex
+        lastAvailableFrames = available
         guard available >= UInt64(Self.framesPerPacket) else { return nil }
 
         var samples = [Int16](repeating: 0, count: Self.framesPerPacket * Self.channels)

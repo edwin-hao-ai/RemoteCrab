@@ -801,121 +801,29 @@ struct ContentView: View {
             // only until they have opened this menu once — then it stops being
             // in the way. Same pattern as the camera-off guidance in the
             // placeholder.
+            // Only a FAILURE gets a line here, and it must be constrained to
+            // a width: an overlay is offered its parent's width, and
+            // `fixedSize(horizontal: false)` then lets a `Text` take one
+            // character's width — which rendered the hint vertically, one
+            // glyph per line. A state that is not "working" owes the user a
+            // reason and a next step (rule 1); a hint about a button that works
+            // does not.
             .overlay(alignment: .top) {
-                // A real failure OUTRANKS the discoverability hint: rule 1 is
-                // that a state which is not "working" owes the user a reason,
-                // and a hint about a button that does not work is noise.
-                //
-                // The WIDTH MUST be constrained. An overlay is offered its
-                // parent's width, and `fixedSize(horizontal: false)` then
-                // lets the text take the width it wants — which for a `Text`
-                // inside an unbounded overlay is one character. The result was
-                // a vertical column of characters hanging under the button.
-                // A fixed frame is the whole fix.
-                Group {
-                    if let status = engine.speakerStatus {
-                        Text(status)
-                    } else if showAudioModeHint && !hasSeenAudioModeHint {
-                        Text(IBLocale.Speaker.discoverHint)
-                    } else {
-                        EmptyView()
-                    }
+                if let status = engine.speakerStatus {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.white)
+                        .lineLimit(3)
+                        .frame(width: 236, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background { RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.82)) }
+                        .offset(y: 54)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
                 }
-                .font(.system(size: 11))
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(.white)
-                .lineLimit(3)
-                .frame(width: 236, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background { RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.82)) }
-                .offset(y: 54)
-                .transition(.opacity)
-                .allowsHitTesting(false)
             }
-
-            // Mirror + Extended Display are two parallel SOURCES for the
-            // same viewer, so they share one dropdown; the checkmark marks
-            // the active one. (Windows has no virtual-display support, so
-            // only "mirror a window" is offered there.)
-            Menu {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) {
-                        engine.toggleScreenMirror()
-                    }
-                } label: {
-                    Label(IBLocale.Mirror.title,
-                          systemImage: (engine.features.screenOn && !engine.isExtendedDisplayOn)
-                                      ? "checkmark" : "rectangle.on.rectangle")
-                }
-                if !engine.connectedIsWindows {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(IBAnimation.snappy) {
-                            engine.toggleExtendedDisplay()
-                        }
-                    } label: {
-                        Label(IBLocale.Mirror.extendDisplay,
-                              systemImage: engine.isExtendedDisplayOn
-                                          ? "checkmark" : "rectangle.on.rectangle.angled")
-                    }
-                }
-            } label: {
-                topBarIcon("rectangle.on.rectangle",
-                           active: engine.features.screenOn || engine.isExtendedDisplayOn)
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .accessibilityLabel(IBLocale.Mirror.title)
-
-            // Everything else lives in ONE overflow menu. The bar used
-            // to carry five buttons, which crowded the live view.
-            Menu {
-                Button { showMacPicker = true } label: {
-                    Label(IBLocale.Pairing.macPickerTitle, systemImage: "laptopcomputer.and.iphone")
-                }
-                Button { showSendDialog = true } label: {
-                    Label(IBLocale.Transfer.sendTitle, systemImage: "square.and.arrow.up")
-                }
-                Button { engine.sendClipboard() } label: {
-                    Label(IBLocale.Transfer.clipboardToMac, systemImage: "doc.on.clipboard")
-                }
-                Button { showNotifications = true } label: {
-                    Label(engine.notificationStore.unread > 0
-                              ? "\(IBLocale.Notify.section) (\(engine.notificationStore.unread))"
-                              : IBLocale.Notify.section,
-                          systemImage: "bell")
-                }
-                Divider()
-                Button {
-                    // No longer forces the trackpad surface: the sheet is a
-                    // reference for BOTH surfaces now, so switching the
-                    // screen behind it would be noise.
-                    showTrackpadGuide = true
-                } label: {
-                    Label(IBLocale.Coach.title, systemImage: "hand.point.up.left.fill")
-                }
-                Divider()
-                Button { showConnectionSheet = true } label: {
-                    Label(IBLocale.Connection.info, systemImage: "antenna.radiowaves.left.and.right")
-                }
-                Button { showSettings = true } label: {
-                    Label(IBLocale.Settings.title, systemImage: "gear")
-                }
-            } label: {
-                topBarIcon("ellipsis.circle")
-                    .overlay(alignment: .topTrailing) {
-                        if engine.notificationStore.unread > 0 {
-                            unreadBadge(engine.notificationStore.unread)
-                        }
-                    }
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
-            .accessibilityLabel(IBLocale.App.more)
-            .accessibilityValue(engine.notificationStore.unread > 0
-                                    ? "\(engine.notificationStore.unread)" : "")
         }
     }
 
@@ -943,14 +851,6 @@ struct ContentView: View {
                 screenshotError = IBLocale.Transfer.noScreenshot
             }
         }
-    }
-
-    /// The one-time "this button also plays your computer's sound" hint.
-    /// Gated on having connected once (so it never appears during onboarding)
-    /// and dismissed permanently the first time the menu is opened.
-    private var showAudioModeHint: Bool { engine.connectedMacId != nil }
-    private var hasSeenAudioModeHint: Bool {
-        UserDefaults.standard.bool(forKey: "remotecrab.ios.sawAudioModeHint")
     }
 
     /// Resolved once so the icon, the menu checkmark and the accessibility
