@@ -796,6 +796,87 @@ struct ContentView: View {
             .accessibilityLabel(IBLocale.A11y.audioMode)
             .accessibilityValue(audioModeAccessibilityValue)
             .accessibilityHint(IBLocale.A11y.audioModeHint)
+
+            // Mirror + Extended Display are two parallel SOURCES for the
+            // same viewer, so they share one dropdown; the checkmark marks
+            // the active one. (Windows has no virtual-display support, so
+            // only "mirror a window" is offered there.)
+            Menu {
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(IBAnimation.snappy) {
+                        engine.toggleScreenMirror()
+                    }
+                } label: {
+                    Label(IBLocale.Mirror.title,
+                          systemImage: (engine.features.screenOn && !engine.isExtendedDisplayOn)
+                                      ? "checkmark" : "rectangle.on.rectangle")
+                }
+                if !engine.connectedIsWindows {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(IBAnimation.snappy) {
+                            engine.toggleExtendedDisplay()
+                        }
+                    } label: {
+                        Label(IBLocale.Mirror.extendDisplay,
+                              systemImage: engine.isExtendedDisplayOn
+                                          ? "checkmark" : "rectangle.on.rectangle.angled")
+                    }
+                }
+            } label: {
+                topBarIcon("rectangle.on.rectangle",
+                           active: engine.features.screenOn || engine.isExtendedDisplayOn)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .accessibilityLabel(IBLocale.Mirror.title)
+
+            // Everything else lives in ONE overflow menu. The bar used
+            // to carry five buttons, which crowded the live view.
+            Menu {
+                Button { showMacPicker = true } label: {
+                    Label(IBLocale.Pairing.macPickerTitle, systemImage: "laptopcomputer.and.iphone")
+                }
+                Button { showSendDialog = true } label: {
+                    Label(IBLocale.Transfer.sendTitle, systemImage: "square.and.arrow.up")
+                }
+                Button { engine.sendClipboard() } label: {
+                    Label(IBLocale.Transfer.clipboardToMac, systemImage: "doc.on.clipboard")
+                }
+                Button { showNotifications = true } label: {
+                    Label(engine.notificationStore.unread > 0
+                              ? "\(IBLocale.Notify.section) (\(engine.notificationStore.unread))"
+                              : IBLocale.Notify.section,
+                          systemImage: "bell")
+                }
+                Divider()
+                Button {
+                    // No longer forces the trackpad surface: the sheet is a
+                    // reference for BOTH surfaces now, so switching the
+                    // screen behind it would be noise.
+                    showTrackpadGuide = true
+                } label: {
+                    Label(IBLocale.Coach.title, systemImage: "hand.point.up.left.fill")
+                }
+                Divider()
+                Button { showConnectionSheet = true } label: {
+                    Label(IBLocale.Connection.info, systemImage: "antenna.radiowaves.left.and.right")
+                }
+                Button { showSettings = true } label: {
+                    Label(IBLocale.Settings.title, systemImage: "gear")
+                }
+            } label: {
+                topBarIcon("ellipsis.circle")
+                    .overlay(alignment: .topTrailing) {
+                        if engine.notificationStore.unread > 0 {
+                            unreadBadge(engine.notificationStore.unread)
+                        }
+                    }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .accessibilityLabel(IBLocale.App.more)
             // The top bar carries no text labels at all, so a capability the
             // user does not already know about is invisible. One line, shown
             // only until they have opened this menu once — then it stops being
