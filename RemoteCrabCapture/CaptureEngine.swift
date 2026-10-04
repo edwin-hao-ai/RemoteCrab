@@ -263,6 +263,7 @@ final class CaptureEngine: ObservableObject {
     /// was `BackgroundKeepAlive`, which is deliberately silent.
     private var speakerPlayer = SpeakerPlayer()
     private var speakerTickTask: Task<Void, Never>?
+    private var speakerProgressTick = 0
     /// Why the speaker is not playing, when it should be. Surfaced because a
     /// control that fails silently is worse than one that is not there.
     @Published private(set) var speakerStatus: String?
@@ -1595,6 +1596,19 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MIC"] == "1", !features.micOn {
             features.set(feature: .microphone, enabled: true)
         }
+        // E2E: "use the iPhone as the speaker". Turned on ~3 s after the
+        // session is accepted, so the Mac has finished its handshake and the
+        // phone is not competing with the pairing prompt. Asserted from the
+        // Mac's receiver log ("speaker capture started") and from the phone's
+        // own forensic log ("mode=speaker", then packets arriving).
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SPEAKER"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self else { return }
+                self.setAudioMode(.speaker)
+                Forensic.log("[e2e] speaker mode requested")
+            }
+        }
         // E2E asserts on live video; the product default is camera-off,
         // so headless runs opt back in explicitly.
         if ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1", !features.cameraOn {
@@ -2781,6 +2795,13 @@ final class CaptureEngine: ObservableObject {
                 try? await Task.sleep(for: .milliseconds(20))
                 guard let self, self.speakerPlayer.running else { return }
                 self.speakerPlayer.tick()
+                self.speakerProgressTick += 1
+                if self.speakerProgressTick % 50 == 0 {
+                    // 20 ms x 50 = every second. This is the line that proves
+                    // audio actually moved, rather than the control merely
+                    // reporting itself as on.
+                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops)")
+                }
             }
         }
     }
