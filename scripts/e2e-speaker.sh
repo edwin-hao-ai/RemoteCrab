@@ -119,7 +119,14 @@ if [[ -z "$APP" ]]; then bad "no RemoteCrabCapture.app produced"; exit 4; fi
 # NOT `strings | grep -q`: under `pipefail`, grep -q exits early, `strings`
 # takes SIGPIPE, and the pipeline reports failure even though grep matched —
 # which reads as "the code is missing" for a build that has it. Count instead.
-MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker-diag" || true)
+# The marker must be something the speaker path cannot lose: this check
+# exists to catch building into the wrong DerivedData (lesson 85), so a
+# diagnostic that gets cleaned up must not be what it keys on. It was
+# `speaker-diag` once, and deleting that diagnostic silently turned this
+# check into "always FAIL" — which is how a real build got reported as
+# missing the speaker code. "speaker player started" is the os_log message
+# the player emits when it starts, and it is not a diagnostic.
+MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker player started" || true)
 if [[ "${MARKERS:-0}" -lt 1 ]]; then
   bad "the built app does not contain the speaker code — wrong DerivedData picked up"
   exit 4
