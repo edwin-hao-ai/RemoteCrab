@@ -86,6 +86,13 @@ fi
 # --- existed: the feature reported four failures while the code under test
 # --- was not on the phone at all. A stale artifact is indistinguishable from
 # --- a broken feature, so the harness builds what it tests.
+# The mute behaviour is a real user preference, and the harness needs to be
+# able to set it so the experiment is reproducible rather than "whatever the
+# defaults happened to be".
+MUTE_LOCAL="${SPEAKER_MUTE_LOCAL:-1}"
+defaults write com.remotecrab.RemoteCrabReceiver remotecrab.mac.speakerMutesLocal -bool "$([ "$MUTE_LOCAL" = "1" ] && echo true || echo false)"
+say "setting mac-local audio to $([ "$MUTE_LOCAL" = "1" ] && echo MUTED || echo KEPT) while the phone plays"
+
 say "building for the phone"
 # There are SEVERAL DerivedData directories for this project, so "the first
 # match" is a coin flip and routinely picks a build from before the feature

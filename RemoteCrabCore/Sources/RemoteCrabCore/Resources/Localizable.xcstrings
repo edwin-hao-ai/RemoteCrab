@@ -5865,23 +5865,6 @@
         }
       }
     },
-    "This iPhone is already in use by %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This iPhone is already in use by %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这台 iPhone 正被 %@ 占用"
-          }
-        }
-      }
-    },
     "This iPhone is already in use by another Mac": {
       "extractionState": "manual",
       "localizations": {
@@ -5894,7 +5877,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 iPhone 正被另一台 电脑 占用"
+            "value": "这台 iPhone 正被另一台电脑占用"
           }
         }
       }
@@ -10331,6 +10314,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在为它保留连接 30 秒。"
+          }
+        }
+      }
+    },
+    "This iPhone is being used by %@ — pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone is being used by %@ — pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 iPhone 正被 %@ 使用 —— 请在手机「选择电脑」里切到这台电脑；单独点重试不会成功。"
+          }
+        }
+      }
+    },
+    "Switching to %@…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching to %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在切换到 %@"
+          }
+        }
+      }
+    },
+    "That computer connects on its own. If it doesn't, open this menu and pick it again — or disconnect the other one.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That computer connects on its own. If it doesn't, open this menu and pick it again — or disconnect the other one."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "那台电脑会自己连上。如果没连上，打开这个菜单重新选一次 —— 或者断开另一台。"
           }
         }
       }

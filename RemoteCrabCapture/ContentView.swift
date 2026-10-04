@@ -1041,6 +1041,27 @@ struct ContentView: View {
 
     /// Non-nil only for states worth surfacing; connected/idle are silent.
     private var currentAlert: StatusAlert? {
+        // A switch in progress outranks every other state, including
+        // "connected" and "idle" — which is exactly the gap that made
+        // switching feel broken. Tapping a computer in the picker calls
+        // `setPreferredComputer`, which drops the current owner, and
+        // `clearOwner(.disconnected)` sets `.idle`. Both of those return
+        // nil below, so the phone went from "streaming from Windows" to
+        // "no message at all" with nothing on screen to say a switch had
+        // even started. The user could not tell a working switch from a
+        // broken one, which is the whole complaint.
+        if let preferred = engine.preferredMac {
+            return StatusAlert(symbol: "arrow.triangle.2.circlepath",
+                               tint: IBColor.accent,
+                               title: IBLocale.Pairing.switchingTo(preferred.name),
+                               subtitle: IBLocale.Pairing.switchingHint)
+        }
+        if let gaveUp = engine.preferredGaveUp {
+            return StatusAlert(symbol: "door.left.hand.open",
+                               tint: IBColor.warning,
+                               title: IBLocale.Pairing.preferredGaveUp(gaveUp.name),
+                               subtitle: nil)
+        }
         switch engine.connectionState {
         case .connected, .idle:
             return nil

@@ -833,6 +833,15 @@ public enum IBLocale {
         }
         /// The window itself, so "30 seconds" is never a surprise.
         public static let preferredGraceWindow = IBL("Holding the door for 30 seconds.")
+
+        /// Shown on the surface the user is actually on, not only inside the
+        /// picker. A switch that is invisible cannot be told apart from a
+        /// switch that failed.
+        public static func switchingTo(_ name: String) -> String {
+            String(format: IBL("Switching to %@…"), name)
+        }
+        /// The action, because the state alone leaves the user guessing.
+        public static let switchingHint = IBL("That computer connects on its own. If it doesn't, open this menu and pick it again — or disconnect the other one.")
         public static let pickerFooter = IBL("Several computers are on this network. Pick one — it takes over on its next connect; the others see \"in use\".")
         /// The last attempt's outcome, shown next to a computer in the picker.
         ///
@@ -905,8 +914,17 @@ public enum IBLocale {
         public static let networkUnavailable = IBL("RemoteCrab could not reach the local network. Check that Wi-Fi is on and this app may use it in Settings.")
 
         // Multi-Mac pairing.
+        /// The state, AND the action.
+        ///
+        /// It used to say only "already in use by X" — which left the user
+        /// with one button, **Retry**, that cannot ever succeed while
+        /// another computer holds the phone. So the honest next step was
+        /// discoverable nowhere: you have to go to the iPhone and use
+        /// Choose a Computer, and no surface said so. This is the rule in
+        /// AGENTS.md ("the line that states what is happening must also
+        /// state what to do") applied to the one row that lacked it.
         public static func iphoneBusy(_ owner: String) -> String {
-            String(format: IBL("This iPhone is already in use by %@"), owner)
+            String(format: IBL("This iPhone is being used by %@ — pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing."), owner)
         }
         public static let iphoneBusyUnknown = IBL("This iPhone is already in use by another Mac")
         public static let connectionDenied = IBL("The iPhone denied the connection")

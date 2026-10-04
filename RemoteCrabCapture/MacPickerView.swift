@@ -179,9 +179,8 @@ struct MacPickerView: View {
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(engine.seenComputers.filter {
-                    $0.id != engine.connectedMacId && $0.name != engine.pendingMacName
-                }) { computer in
+                ForEach(MacPairingStore.pickerRows(seen: engine.seenComputers,
+                                                   connectedId: engine.connectedMacId)) { computer in
                     let isConnected = engine.connectedMacId == computer.id
                     let isPaired = engine.pairedMacs.contains { $0.id == computer.id }
                     Button {

@@ -547,6 +547,47 @@ final class PairingTests: XCTestCase {
         XCTAssertTrue(MacPairingStore(defaults: defaults).seen.isEmpty)
     }
 
+    // MARK: - Which computers the picker lists
+
+    /// The regression: the row filter also compared **names**, so two
+    /// computers sharing a hostname meant one of them was not in the list at
+    /// all — you could not pick it, which is indistinguishable from "the
+    /// switch is broken".
+    func testTwoComputersWithTheSameNameAreBothListed() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "win-1", name: "EDWIN", platform: "windows"),
+            SeenComputer(id: "mac-1", name: "EDWIN", platform: "macos"),
+        ], connectedId: nil)
+        XCTAssertEqual(Set(rows.map(\.id)), ["win-1", "mac-1"])
+    }
+
+    func testTheConnectedComputerIsTheOnlyOneHidden() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "a", name: "Mac A", platform: "macos"),
+            SeenComputer(id: "b", name: "Mac B", platform: "macos"),
+            SeenComputer(id: "c", name: "Mac A", platform: "macos"),
+        ], connectedId: "a")
+        XCTAssertEqual(Set(rows.map(\.id)), ["b", "c"],
+                       "a same-named machine must survive its twin connecting")
+    }
+
+    /// A pending computer stays in the list on purpose: re-picking it is how
+    /// a stuck switch is recovered.
+    func testAPendingComputerIsStillListed() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "p", name: "New PC", platform: "windows"),
+        ], connectedId: nil)
+        XCTAssertEqual(rows.map(\.id), ["p"])
+    }
+
+    func testNothingConnectedListsEverything() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "a", name: "A", platform: "macos"),
+            SeenComputer(id: "b", name: "B", platform: "macos"),
+        ], connectedId: nil)
+        XCTAssertEqual(rows.count, 2)
+    }
+
     /// `pruneStale` must guarantee no preference names a missing computer —
     /// even when the prune removed nothing. A preference for an id that was
     /// never in `seen` (which `setPreferred` accepts: it takes any string)

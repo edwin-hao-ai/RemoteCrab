@@ -297,6 +297,20 @@ public final class MacPairingStore {
         seen.first { $0.id == id }?.lastOutcome
     }
 
+    /// Which computers "Choose a computer" lists.
+    ///
+    /// By **id**, and only excluding the one that is currently connected.
+    /// The first cut also excluded anything whose *name* matched the pending
+    /// computer, which silently hid every machine sharing a hostname — one
+    /// user had two computers both named "EDWIN", so the other one was not
+    /// in the list to be picked at all. A pending computer has its own
+    /// section; leaving it in `seen` is deliberate, since re-picking it is
+    /// how you recover from a stuck switch.
+    public static func pickerRows(seen: [SeenComputer],
+                                  connectedId: String?) -> [SeenComputer] {
+        seen.filter { $0.id != connectedId }
+    }
+
     /// The platform we last saw for a given computer id.
     public func platform(for id: String) -> String? {
         seen.first(where: { $0.id == id })?.platform
