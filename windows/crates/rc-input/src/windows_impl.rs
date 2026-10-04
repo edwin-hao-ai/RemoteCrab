@@ -155,6 +155,14 @@ impl WindowsInjector {
         }
     }
 
+    /// Where the translator currently believes the pointer is, in
+    /// virtual-desktop pixels. Read by the `REMOTECRAB_E2E_TRACKPAD_DIR`
+    /// diagnostic to print the cursor's actual travel next to the delta that
+    /// was received.
+    pub fn cursor(&self) -> (f64, f64) {
+        self.translator.last_cursor
+    }
+
     /// Inject one mirror `ScreenInput` at the window frame `origin`/`size`
     /// (virtual-desktop pixels). Modifiers are held around the mouse actions
     /// so shift-click / ⌘-click etc. reach the target window.

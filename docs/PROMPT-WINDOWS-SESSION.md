@@ -405,3 +405,66 @@ MacBook Pro de Edwin     ECBDD7BA-…            refusedBusy ← 本机，被正
 `virtual_screen_size()` 的 `origin_x/origin_y`，**这块没有测试**。
 单显示器看不出问题；如果你的机器是双屏而单屏测试都正常，
 方向类症状优先怀疑这里。
+
+---
+
+## 2026-10-04 追加：触控板方向 —— 手机侧**已用测量排除**，现在只剩你那台机器
+
+上一条我说「Windows 侧已被测试证明，等 `[dir]` 日志」。日志拿到了，
+**结论是手机没问题**。所以方向的反转如果真实存在，就在 Windows 这一侧，
+而代码路径已经全测过了 —— 请看下面第 2 步。
+
+### 1. 手机实测：每一行 `out.dx` 都和手指同号
+
+`REMOTECRAB_E2E_TRACKPAD_DIR=1` + 触控板界面，用户左右各滑几下：
+
+```
+n=1  fx=230 finger.dx=+0.02844 out.dx=+0.08221 speed=0.979
+n=25 fx=211 finger.dx=-0.00474 out.dx=-0.00865 speed=0.323
+n=49 fx=224 finger.dx=-0.00079 out.dx=-0.00116 speed=0.102
+n=85 fx=259 finger.dx=+0.01738 out.dx=+0.04753 speed=0.883
+```
+
+- **符号永远一致**：`fx` 从 230 → 211 → 197（往左）时 `finger.dx` 与
+  `out.dx` 都为负；往右时都为正。
+- **幅度也对得上** `TrackpadMath`：speed=0.979 → 增益 2.89
+  = 1.3（sensitivity 3 的 baseGain）× 2.22（boost）。没有失控。
+
+**手机发的方向是对的。** 手机日志现在打的是 `finger.dx` 而不是原来的 `prev` ——
+`prev` 读的是已经推进过的 `lastDragLocation`，永远等于 `fx`，等于没打（已修）。
+
+### 2. 请跑这个（一个环境变量）
+
+我加了 `REMOTECRAB_E2E_TRACKPAD_DIR=1` 在 **`rc-app`**，每 12 个 move 打一行：
+
+```
+[dir] n=25 in.dx=-0.00474 cursor_dx=-16.4 cursor_dy=-8.2 at=(413,271)
+```
+
+**一行就能定案**：
+
+| 现象 | 结论 |
+|---|---|
+| `in.dx` 与 `cursor_dx` **同号** | 这一层也是对的 → 反转在 `perform_mouse` 之下（SendInput / 驱动 / 多屏） |
+| `in.dx` 与 `cursor_dx` **反号** | 反转就在 `rc-input`，把那几行发我 |
+
+```cmd
+set REMOTECRAB_E2E_TRACKPAD_DIR=1
+remotecrab.exe
+```
+然后手机上左右各滑几下，看控制台。
+
+### 3. 顺手发现的一个**既有**测试失败（不是我改的）
+
+`cargo test --workspace` 里 `rc-app` 有 1 条红的：
+
+```
+status::no_video_tests::a_latency_reading_never_replaces_the_waiting_notice
+  assert!(line.contains("等待画面"))  →  实际 "Streaming from iPhone — connected, waiting for video…"
+```
+
+`i18n::t` 在非中文 locale 下选了英文，于是断言里的中文字面量匹配不上。
+我用 `git clone --no-local` + `checkout 7f0d646`（本 session 任何提交之前）
+复现了**完全相同**的失败，所以**与本轮无关**，是既有缺陷。
+`./scripts/test.sh` 只跑 `rc-net` 那些 crate，所以一直没暴露。
+这条归你：要么让 `i18n::t` 在测试里可确定化，要么断言用 `i18n::t` 自己取文案。

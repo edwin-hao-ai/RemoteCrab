@@ -20,6 +20,7 @@ use rc_net::settings::NameList;
 use rc_net::{Config, Event, Session, State};
 #[cfg(windows)]
 use rc_protocol::SystemCommandKind;
+use rc_protocol::TouchPhase;
 use rc_protocol::{
     encode_app_list, encode_file_ack, encode_installed_apps, encode_notification,
     encode_window_list,
@@ -281,6 +282,11 @@ async fn main() -> ExitCode {
     // whole surrounding logic.
     #[allow(unused_variables)]
     let injector: Option<()> = None;
+
+    // Pointer-direction diagnostic. TEMPORARY and inert unless
+    // REMOTECRAB_E2E_TRACKPAD_DIR=1 — see the `Event::Touch` arm.
+    let direction_diag = std::env::var("REMOTECRAB_E2E_TRACKPAD_DIR").as_deref() == Ok("1");
+    let mut touch_dir_count: u32 = 0;
 
     // App-window mirror: started/stopped by the iPhone's screenControl.
     #[cfg(windows)]
@@ -584,6 +590,40 @@ async fn main() -> ExitCode {
                                 // the phone *asked* the cursor to go, which is the only
                                 // way to tell a dropped modifier from a stuck one.
                                 stats.record_touch(&t);
+                                // TEMPORARY DIAGNOSTIC — inert unless
+                                // REMOTECRAB_E2E_TRACKPAD_DIR=1.
+                                //
+                                // A user reports the pointer travelling right when the
+                                // finger goes left, on Windows only. The phone has been
+                                // measured doing the right thing (its own
+                                // `REMOTECRAB_E2E_TRACKPAD_DIR` log shows `out.dx`
+                                // carrying the finger's own sign, magnified ~1.5-2.9x
+                                // by TrackpadMath), and `rc-input`'s move maths is
+                                // covered by `a_move_preserves_the_sign_of_its_delta`.
+                                // So this prints the received delta and the cursor
+                                // travel it produced on ONE line: if `in.dx` and
+                                // `cursor_dx` disagree in sign, the inversion is here.
+                                #[cfg(windows)]
+                                if direction_diag && t.phase == TouchPhase::Move {
+                                    if let Some(inj) = injector.as_mut() {
+                                        let before = inj.cursor();
+                                        inj.inject_touch(&t);
+                                        let after = inj.cursor();
+                                        touch_dir_count += 1;
+                                        if touch_dir_count % 12 == 1 {
+                                            println!(
+                                                "  [dir] n={touch_dir_count} in.dx={:+.5} cursor_dx={:+.1} cursor_dy={:+.1} at=({:.0},{:.0})",
+                                                t.dx,
+                                                after.0 - before.0,
+                                                after.1 - before.1,
+                                                after.0,
+                                                after.1
+                                            );
+                                        }
+                                        // Already injected above; don't run it twice.
+                                        continue;
+                                    }
+                                }
                                 #[cfg(windows)]
                         publish_stats(&stats);
                                 #[cfg(windows)]
