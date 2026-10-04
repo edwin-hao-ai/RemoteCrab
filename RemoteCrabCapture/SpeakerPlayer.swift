@@ -71,6 +71,7 @@ final class SpeakerPlayer {
     private(set) var receivedPeak: Int = 0
     private var energySum: Double = 0
     private var energyCount: Int = 0
+    private var diagnosticPackets = 0
 
     init() {
         format = AVAudioFormat(commonFormat: .pcmFormatInt16,
@@ -169,9 +170,49 @@ final class SpeakerPlayer {
         guard isRunning else { return }
         let needed = SpeakerPlayer.framesPerPacket * SpeakerPlayer.channels * 2
         guard pcm.count >= needed else { return }
+        // Measure what ARRIVED, not just how much. A packet count cannot tell
+        // "sound arrived" from "3840 bytes of silence arrived", and the
+        // difference is the whole feature: the user either hears the
+        // computer or they do not.
+        var sum = 0.0
+        var count = 0
+        var peak = 0
         pcm.withUnsafeBytes { raw in
-            append(raw.bindMemory(to: Int16.self))
+            let source = raw.bindMemory(to: Int16.self)
+            append(source)
+            for v in source {
+                sum += Double(v) * Double(v)
+                count += 1
+                let a = abs(Int(v))
+                if a > peak { peak = a }
+            }
         }
+        // The first packets in full. Every counter between here and the
+        // speaker has already said "fine", so when it comes out silent these
+        // are the only numbers that locate it.
+        if diagnosticPackets < 2 {
+            diagnosticPackets += 1
+            var head: [Int] = []
+            pcm.withUnsafeBytes { raw in
+                let b = raw.bindMemory(to: Int16.self)
+                for i in 0..<min(6, b.count) { head.append(Int(b[i])) }
+            }
+            Forensic.log("[speaker-diag] bytes=\(pcm.count) head=\(head) sumsq=\(Int(sum)) n=\(count)")
+        }
+
+        energySum += sum
+        energyCount += count
+        if peak > receivedPeak { receivedPeak = peak }
+        receivedRms = energyCount > 0 ? (energySum / Double(energyCount)).squareRoot() : 0
+        // Log scale, and NORMALISED FIRST: `receivedRms` is in Int16 units,
+        // so 20*log10(1958) is +66 dB and every audible packet saturates the
+        // digit at 9 — which reads as a flat line, i.e. exactly the "tone or
+        // fragment" verdict the envelope exists to catch. Divide by full
+        // scale before taking the log, then span -60..0 dBFS.
+        let db = 20 * log10(max(receivedRms / 32_768.0, 1e-6))
+        let digit = max(0, min(9, Int((db + 60) / 6)))
+        envelope.append(Character(String(digit)))
+        if envelope.count > Self.envelopeLength { envelope.removeFirst() }
         packetsEnqueued += 1
         drain()
     }
