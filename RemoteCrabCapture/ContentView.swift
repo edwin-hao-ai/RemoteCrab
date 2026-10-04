@@ -744,6 +744,15 @@ struct ContentView: View {
             // use. The checkmark idiom is copied from the mirror menu below,
             // which is the existing precedent for "two sources, one
             // dropdown".
+            // The Windows receiver does not send kind 0x24 yet, so the
+            // speaker entry is hidden there rather than shipped as a control
+            // that does nothing — the same call the mirror menu makes for
+            // Extended Display. A feature that half-works is worse than one
+            // that is absent, because the user cannot tell which half they
+            // got. Re-enable this the moment the Windows receiver captures
+            // loopback audio.
+            let speakerAvailable = !engine.connectedIsWindows
+
             Menu {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -752,12 +761,14 @@ struct ContentView: View {
                     Label(IBLocale.Mic.modeMicrophone,
                           systemImage: audioMode == .microphone ? "checkmark" : "mic.fill")
                 }
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.speaker) }
-                } label: {
-                    Label(IBLocale.Speaker.modeSpeaker,
-                          systemImage: audioMode == .speaker ? "checkmark" : "speaker.wave.2.fill")
+                if speakerAvailable {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        withAnimation(IBAnimation.snappy) { engine.setAudioMode(.speaker) }
+                    } label: {
+                        Label(IBLocale.Speaker.modeSpeaker,
+                              systemImage: audioMode == .speaker ? "checkmark" : "speaker.wave.2.fill")
+                    }
                 }
                 Divider()
                 Button {

@@ -682,3 +682,46 @@ so a cross-reference from another lesson still resolves.
     (`baff770`, "narrow the pre-existing crash"), which is untidy but far
     cheaper to live with than a rebase that fights their session. Leave it;
     note it in the closeout.
+
+124. **Apple's Opus codec does NOT round-trip stereo through
+     `AudioConverter` on macOS 26 — measure before building a music
+     feature on it (2026-10-04).** For "use the iPhone as the speaker" the
+     obvious transport is the existing mono Opus path with
+     `channels: 2`. Measured, in a throwaway harness:
+
+     | | encoded packet | decoded samples / 20 ms packet |
+     |---|---|---|
+     | mono 440 Hz | ~51 B | 960 (= 960 frames) |
+     | stereo, left 440 Hz loud / right silent | ~115 B | **960** |
+
+     The encoder really is doing stereo (2.3x the packet). The decoder
+     returns **mono**, and at about a third of the input amplitude. Read as
+     interleaved stereo, L and R come out with identical rms — which is the
+     signature of a collapsed stream, not of a quiet one.
+
+     **It is not the platform.** `afconvert`'s own stereo Opus round trip
+     is correct on the same machine: encode a 1 s stereo WAV to
+     `opus@48000`, decode it back, and the channels survive intact (L
+     rms 8426, R rms 0 for loud-left/silent-right). So `AudioConverter`
+     with the ASBDs we build is the thing that is wrong, and there is a
+     good chance it is fixable — this lesson records that it is **not yet
+     diagnosed**, not that stereo Opus is impossible.
+
+     Two dead ends already checked, so nobody repeats them:
+     * `AudioStreamBasicDescription` has **no** `mChannelsPerPacket` field
+       in this SDK — only `mChannelsPerFrame`. The Opus "channels per
+       packet" idea has nowhere to live.
+     * `afconvert -d "opus@48000/2"` is **rejected** by ExtAudioFileSetProperty.
+       Plain `-d opus@48000` works and inherits the source channel count, so
+       `afconvert` is a usable reference even though you cannot ask it for a
+       channel count.
+
+     What the feature shipped with instead: **uncompressed PCM**
+     (`AudioPacket.codec == "pcm"`, `channels: 2`). 48 kHz stereo Int16 is
+     1.5 Mbps, which is small beside the H.264 already on the same link,
+     and it costs **zero codec latency** — which matters more than the
+     bandwidth here, because end-to-end delay is the feature's weak point.
+     The lesson is not "avoid stereo Opus"; it is **"a platform support
+     matrix is an assumption until you measure a round trip on your own
+     OS, and a silent mono collapse is the failure mode you will not
+     notice without two deliberately different channels."**
