@@ -5,6 +5,40 @@ use rc_net::State;
 
 use crate::i18n;
 
+/// Compare what the phone says it is sending against what is actually arriving.
+///
+/// Returns `None` when the two agree, and a line naming the shortfall when they
+/// do not. Kept pure and separate from the event loop because the loop is where
+/// this was impossible to test — the numbers arrive over a socket and the
+/// warning is only interesting when it is *absent*, which no integration test
+/// can distinguish from "the code never ran".
+///
+/// The thresholds are deliberately loose (80% of the claimed rate, 50% of the
+/// claimed bitrate). This is a "something is wrong" flag, not a quality
+/// judgement: the only thing it must not do is cry wolf, because a warning that
+/// appears when nothing is wrong is one people learn to ignore.
+///
+/// Why it exists: on iOS the advertised bitrate is *computed* from a property
+/// that `Quality` overrides, so it does not describe the stream. Measured on a
+/// real iPhone: claimed 30 fps / 9331 kbps, delivered 3.5 fps / 1878 kbps, while
+/// the status line read "streaming @ 30fps". A receiver that only prints the
+/// claim reports success for a stream delivering an eighth of it.
+pub fn stream_shortfall(
+    claimed_fps: f64,
+    claimed_kbps: f64,
+    got_fps: f64,
+    got_kbps: f64,
+) -> Option<String> {
+    let fps_short = got_fps < claimed_fps * 0.8;
+    let kbps_short = got_kbps < claimed_kbps * 0.5;
+    if !fps_short && !kbps_short {
+        return None;
+    }
+    Some(format!(
+        "MEASURED {got_fps:.1} fps / {got_kbps:.0} kbps against a claim of {claimed_fps:.0} fps / {claimed_kbps:.0} kbps"
+    ))
+}
+
 /// Human, localized copy for a failure. `State::Error` carries a
 /// developer-facing English literal; a user should never see one
 /// (AGENTS.md lesson 13).
@@ -167,6 +201,61 @@ pub fn tray_status(state: &State, seen_frame: bool, zh: bool) -> String {
         }
         State::Searching => t(zh, "等待 iPhone…", "Waiting for an iPhone…").to_string(),
         State::Error(reason) => error_text(reason),
+    }
+}
+
+#[cfg(test)]
+mod stream_shortfall_tests {
+    use super::stream_shortfall;
+
+    /// The real capture: a phone that claimed 30 fps and 9331 kbps while
+    /// delivering 3.5 fps and 1878 kbps, and the status line said
+    /// "streaming @ 30fps". This is the line that should have been printed then.
+    #[test]
+    fn a_phone_sending_an_eighth_of_its_claim_is_called_out() {
+        let line = stream_shortfall(30.0, 9331.0, 3.5, 1878.0).expect("should warn");
+        assert!(line.contains("30 fps"), "the claim must be in the line: {line}");
+        assert!(line.contains("9331"), "the claimed rate must be in it: {line}");
+        assert!(line.contains("3.5"), "and what actually arrived: {line}");
+        assert!(line.contains("1878"), "both figures, so the reader can compare: {line}");
+    }
+
+    /// A stream that matches its claim must say nothing. A warning that appears
+    /// when nothing is wrong is one people learn to ignore, and this one has to
+    /// survive a whole session of real use to be worth having.
+    #[test]
+    fn a_stream_that_matches_its_claim_is_silent() {
+        assert_eq!(stream_shortfall(30.0, 9331.0, 29.8, 9100.0), None);
+    }
+
+    /// Just inside the tolerance. 30 fps claimed and 25 delivered is 83%, which
+    /// is normal for a phone sharing a network, and warning there would be crying
+    /// wolf on every single session.
+    #[test]
+    fn being_inside_the_tolerance_is_silent() {
+        assert_eq!(stream_shortfall(30.0, 9331.0, 25.0, 4800.0), None);
+    }
+
+    /// Each dimension is judged on its own: a stream can hold its frame rate
+    /// while collapsing in bitrate, or the reverse, and both are real faults.
+    #[test]
+    fn each_dimension_is_judged_independently() {
+        assert!(
+            stream_shortfall(30.0, 9331.0, 29.0, 900.0).is_some(),
+            "bitrate collapsed, frame rate held"
+        );
+        assert!(
+            stream_shortfall(30.0, 9331.0, 4.0, 9200.0).is_some(),
+            "frame rate collapsed, bitrate held"
+        );
+    }
+
+    /// A phone that claims nothing must not produce a warning. Metadata always
+    /// arrives before video in practice, but a missing claim is not evidence of
+    /// a fault.
+    #[test]
+    fn zero_claimed_produces_no_false_alarm() {
+        assert_eq!(stream_shortfall(0.0, 0.0, 4.0, 900.0), None);
     }
 }
 

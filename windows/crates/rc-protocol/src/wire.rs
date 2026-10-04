@@ -81,6 +81,20 @@ pub enum Kind {
     /// 0x1A–0x23: an unknown byte falls through to `Video`, and this JSON
     /// payload would then be handed to the H.264 decoder.
     SpeakerAudio = 0x24,
+    /// receiver → iPhone: "send a keyframe next".
+    ///
+    /// The standard mitigation for a decoder that has lost its reference frames,
+    /// from OpenH264's own issue tracker (#1998, #1163): once the receiver knows
+    /// it cannot decode what it is being sent, the only recovery is a fresh IDR,
+    /// and waiting for the next scheduled one can be seconds away. Without this
+    /// the receiver has no way to ask, and a stream that lost a P-frame stays
+    /// wrong until the phone's keyframe interval happens to elapse.
+    ///
+    /// Purely additive: an older phone ignores an unknown kind, and it is the
+    /// receiver that sends it, so an older receiver never emits it. The iOS side
+    /// has to implement the handling — see
+    /// [`docs/HANDOFF-MAC-SIDE-2026-10-04.md`](docs/HANDOFF-MAC-SIDE-2026-10-04.md).
+    RequestKeyframe = 0x25,
 }
 
 impl Kind {
@@ -140,6 +154,7 @@ impl Kind {
             0x22 => Kind::Notification,
             0x23 => Kind::CommandResult,
             0x24 => Kind::SpeakerAudio,
+            0x25 => Kind::RequestKeyframe,
             _ => Kind::Video,
         }
     }
@@ -195,6 +210,15 @@ pub fn encode_screen_nal(frame: &NalFrame) -> Vec<u8> {
 /// in microseconds; the iPhone echoes it back verbatim.
 pub fn encode_ping(sent_micros: u64) -> Vec<u8> {
     encode_frame(Kind::Ping, &sent_micros.to_be_bytes())
+}
+
+/// Ask the phone for a keyframe as its next picture.
+///
+/// Empty payload, so it cannot be confused with a neighbouring kind and cannot
+/// be mis-parsed by an older phone: it arrives as a frame with a known length
+/// and no body, which every parser in the tree already skips.
+pub fn encode_request_keyframe() -> Vec<u8> {
+    encode_frame(Kind::RequestKeyframe, &[])
 }
 
 /// Encode a raw file chunk (payload is the bytes verbatim).
@@ -430,7 +454,7 @@ pub fn decode_ping(frame: &Frame) -> u64 {
 
 #[cfg(test)]
 mod speaker_audio_kind_tests {
-    use super::Kind;
+    use super::{encode_request_keyframe, Kind, Parser};
 
     /// 0x24 is frozen on the wire. If it changes, an older iPhone that
     /// knows kinds only up to 0x23 will not recognise it — and the failure
@@ -476,9 +500,38 @@ mod speaker_audio_kind_tests {
             Kind::ScreenPps, Kind::ScreenControl, Kind::ScreenInput,
             Kind::ScreenInfo, Kind::InstalledAppsRequest, Kind::InstalledApps,
             Kind::Notification, Kind::CommandResult, Kind::SpeakerAudio,
+            Kind::RequestKeyframe,
         ];
         for k in kinds {
             assert_eq!(Kind::from_u8_or_video(k as u8), k, "kind {:?} is not reachable", k);
         }
+    }
+
+    /// `requestKeyframe` is the first kind the receiver sends that the phone is
+    /// expected to act on rather than merely receive. If its byte ever collides
+    /// with something else, the phone silently does the wrong thing instead of
+    /// ignoring it — so the byte and the empty payload are both pinned.
+    #[test]
+    fn request_keyframe_is_kind_0x25_with_an_empty_payload() {
+        assert_eq!(Kind::RequestKeyframe as u8, 0x25);
+        assert_eq!(Kind::from_u8_or_video(0x25), Kind::RequestKeyframe);
+
+        let frame = encode_request_keyframe();
+        // [4-byte BE length][kind] — a length of exactly 1 means a kind byte
+        // and nothing else.
+        assert_eq!(frame.len(), 5);
+        assert_eq!(&frame[..4], &[0, 0, 0, 1]);
+        assert_eq!(frame[4], 0x25);
+    }
+
+    /// It has to survive a round trip through the parser, or the phone never
+    /// sees it. An empty payload is the easy thing to get wrong.
+    #[test]
+    fn request_keyframe_survives_the_parser() {
+        let mut parser = Parser::new();
+        let frames = parser.append(&encode_request_keyframe());
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].kind, Kind::RequestKeyframe);
+        assert!(frames[0].payload.is_empty());
     }
 }
