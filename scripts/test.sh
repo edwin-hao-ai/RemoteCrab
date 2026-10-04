@@ -96,5 +96,24 @@ else
   fail "Windows receiver tests"
 fi
 
+# 3b. Every binary target must COMPILE on this host, even though its tests are
+#     not run here. `--lib` above skips bin targets entirely, and that is how a
+#     macOS-hostile change reached main: `rc-loopback` (a lib) failed loudly, but
+#     `rc-app` (a bin) was never compiled off Windows, so the dependency chain
+#     that made `cargo build -p rc-app` fail was invisible to this script. A
+#     green gate that never built the thing is worse than no gate.
+#
+#     `cargo build --workspace` covers lib + bins and skips examples, which is
+#     why it is not `--all-targets` (see the `rc-vcam` note above).
+if [ "$(uname -s)" != "MINGW"* ] && [ "$(uname -s)" != "CYGWIN"* ]; then
+  echo ""
+  echo "── Windows receiver: all targets compile on this host ──"
+  if (cd windows && cargo build --workspace 2>&1 | tail -6); then
+    pass "Windows receiver host build"
+  else
+    fail "Windows receiver host build"
+  fi
+fi
+
 echo ""
 echo -e "${GREEN}All checks passed.${RESET}"

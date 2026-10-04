@@ -216,7 +216,6 @@ pub struct LoopbackCapture {
     mute_broke_audio: bool,
 }
 
-#[cfg(windows)]
 impl LoopbackCapture {
     pub fn new() -> Self {
         Self {
@@ -266,12 +265,21 @@ impl LoopbackCapture {
         if self.behaviour.is_muting() {
             // The capture thread restores the volume itself; this is the belt to
             // its braces, for the case where it never got as far as muting.
-            let previous = {
-                let d = self.shared.lock().expect("diag mutex poisoned");
-                d.volume_before_mute
-            };
-            if let Some(v) = previous {
-                let _ = wasapi::set_endpoint_master_volume(v);
+            //
+            // Windows-gated like the `thread.take()` above: this is the one
+            // `wasapi::` call in the file that was reachable from every
+            // platform. It is why `rc-app` — which depends on this crate —
+            // built on Windows and nowhere else, with three errors that all
+            // pointed at this method.
+            #[cfg(windows)]
+            {
+                let previous = {
+                    let d = self.shared.lock().expect("diag mutex poisoned");
+                    d.volume_before_mute
+                };
+                if let Some(v) = previous {
+                    let _ = wasapi::set_endpoint_master_volume(v);
+                }
             }
         }
         self.watch.on_unmuted();
@@ -383,19 +391,18 @@ impl LoopbackCapture {
 /// there, which is the point of keeping it in the app layer.
 #[cfg(not(windows))]
 impl LoopbackCapture {
+    /// Refuses, rather than pretending. There is no loopback to run here, and
+    /// a stub that reported success would let the speaker feature look
+    /// available on a platform that cannot deliver a single packet.
+    ///
+    /// `stop()` is deliberately absent: the real one lives on the ungated
+    /// impl and works everywhere, so defining it here too was a duplicate
+    /// definition that stopped the crate compiling off Windows.
     pub fn start(&mut self, _mute: MuteBehaviour) -> Result<bool, LoopbackError> {
         Err(LoopbackError::ComInit(0))
     }
-
-    pub fn stop(&mut self) {
-        self.running = false;
-    }
 }
 
-/// Windows-gated because the constructor is: on any other target this struct
-/// is the refusal stub above, which has no capture to construct. `Drop` is not
-/// gated — it only needs `stop`, which both impls have.
-#[cfg(windows)]
 impl Default for LoopbackCapture {
     fn default() -> Self {
         Self::new()
@@ -471,14 +478,6 @@ mod tests {
         assert!(MuteBehaviour::MuteLocal.is_muting());
     }
 
-    /// Windows-only, and that is the point: it asserts the state of a real
-    /// `LoopbackCapture` before `start`. Off Windows there is no capture
-    /// object to make that claim about — the stub refuses to start and has no
-    /// constructor — so running it there would assert against a fiction.
-    ///
-    /// What *is* platform-neutral and does run everywhere is the ring, the
-    /// sample conversion and the mute A/B, in the sibling modules.
-    #[cfg(windows)]
     #[test]
     fn a_capture_that_never_started_reports_no_audio_rather_than_a_zero() {
         let mut c = LoopbackCapture::new();
