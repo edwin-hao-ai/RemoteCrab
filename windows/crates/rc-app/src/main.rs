@@ -367,6 +367,9 @@ async fn main() -> ExitCode {
     // line every 10 s would be noise. We only re-announce when something
     // actually changes.
     let mut stuck_owner: Option<String> = None;
+    // Whether the trackpad currently believes it is connected, so the
+    // streaming→not transition can be caught exactly once per link.
+    let mut trackpad_was_connected = false;
     let mut last_spike_report = std::time::Instant::now();
 
     // Console feature control: the receiver can toggle the iPhone's camera /
@@ -409,6 +412,32 @@ async fn main() -> ExitCode {
                             break;
                         }
                         let st = state_rx.borrow().clone();
+
+                        // Release whatever the trackpad is still holding the
+                        // moment the link drops.
+                        //
+                        // `WindowsInjector::end_gesture` had no caller anywhere
+                        // in the tree, so a Shift held for a range-select
+                        // survived a disconnect as a physically stuck key:
+                        // `SendInput` posted a real key-down and nothing ever
+                        // posted the key-up, so every later keystroke was
+                        // shifted until the user pressed and released it
+                        // themselves. Nothing in any log said so. It also
+                        // flushes the fractional wheel accumulators, which
+                        // otherwise drop a partial notch of scroll.
+                        //
+                        // On the streaming *edge*, not on every state change,
+                        // so it does not run per heartbeat — and it is
+                        // idempotent, so a duplicate state is harmless.
+                        #[cfg(windows)]
+                        if matches!(st, State::Streaming { .. }) {
+                            trackpad_was_connected = true;
+                        } else if trackpad_was_connected {
+                            trackpad_was_connected = false;
+                            if let Some(inj) = injector.as_mut() {
+                                inj.end_gesture();
+                            }
+                        }
 
                         // Collapse the busy→connecting→busy churn into silence.
                         match &st {

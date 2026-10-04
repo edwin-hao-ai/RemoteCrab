@@ -449,3 +449,62 @@ harsh horizontal > 8%  →  像素已坏  →  坏在上游（码率）
 **教训**：任何「没找到问题」的结论，都必须先回答**「输入里有没有问题可找」**。
 找异常的检查在无信息输入上必然通过，所以要先量输入的信息量，再解释输出。
 
+## 115 · 三块拼起来的保险丝，每一块都没接上，45 个测试全绿
+
+2026-10-04，审计触控板「不好用」。用户报的方向反转**不存在**——真机跑
+`REMOTECRAB_E2E_TRACKPAD_DIR=1`，86 个采样、68 个有效样本，`in.dx` 与
+`cursor_dx` **零反号**。交接文档追了三轮的那个方向问题，到此结案。
+
+但审计过程中读到一段注释，它比周围的代码更完整：
+
+```swift
+// Remember what is down so a dropped link can release it. A
+// stuck Shift is the kind of bug that makes the whole machine
+// feel broken and is invisible in every log.
+```
+
+`rc-input/src/windows_impl.rs` 里，这套保险丝由三块组成：
+
+| 部件 | 实际状态 |
+|---|---|
+| `released_keys` | 有声明(59)、有 drain(128)，**从未被写入** |
+| `end_gesture()` | **全仓零调用**——它自己的注释写着「链路断开时调用」 |
+| `released` 标志 | 只写不读 |
+
+`ModifierKeys` 分支**只调 `send_vk`**，一个键都没记。所以 `held_modifiers()`
+永远返回空 Vec，整条保险丝是三段没接上的电路。`cargo test -p rc-input`
+**45 passed**。
+
+**用户会遇到的症状**：按住 Shift 划选时链路一断（手机锁屏、Wi-Fi 抖一下、
+Mac 抢走手机），**物理 Shift 一直按在 Windows 上**，之后打字全是大写、
+触发快捷键，直到手动按一下再松开。日志里零信息。
+
+### 修的过程，以及我犯的错
+
+第一版测试只测了 `HeldKeys` 这个纯结构。**逆向验证时我把 `press`/`release`
+两行调用整个删掉，50 个测试依然全绿。** 因为测试自己 new 了一个 `held` 然后
+自己调 `apply` —— 它**复制**了接线，而不是**测试**接线。这比重写之前更糟：
+它给一行没人执行的代码签了证。
+
+第二版用 `InputTranslator` 手工喂 `MouseAction`——还是绿的，同样原因。
+
+真正的原因是：`perform_mouse` 里的记账在 `SendInput` 调用**后面**，测试够不到，
+因为一够到就会在跑测试的机器上真的按下键。
+
+**最终修法**：把 `send_vk` / `send_mouse` 提成 `WindowsInjector` 上的函数字段，
+默认指向真函数，`#[cfg(test)]` 下换成记录用的桩。于是测试可以驱动**真实的**
+`inject_touch → translator → perform_mouse` 全链路，并断言「实际会发出哪些按键」。
+把 `held_keys.apply` 删掉再跑：**2 个测试 FAILED**，其中一条的断言消息就是
+`end_gesture must key the stranded Shift up — this is the whole bug`。
+
+**教训**：
+
+1. **注释描述意图，代码实现事实，两者不一致时信代码**——并且要当成缺陷报出来，
+   而不是当成注释过时。写注释的人已经想清楚了防御方案，只是没接上。
+2. **一个测试必须在删掉被测代码后失败**，否则它测的是测试自己。这个检查很便宜：
+   `git stash` 一下改动、跑测试、看红不红。上面两轮我都是靠它才发现问题的。
+3. **不可测的分支不会被测试覆盖**。所以「先记下的键忘了写」和「没人调用清理
+   函数」可以共存三年还全绿——因为两者都在一个碰不到的平台调用后面。
+   要修 bug，先把接缝造出来。
+
+
