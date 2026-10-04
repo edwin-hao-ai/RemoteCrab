@@ -163,43 +163,63 @@ cargo run --release -p rc-render --example vcam_forensics -- \
 | `ping 通但 8765 无响应` | 手机在网内但 **iOS listener 没启动**。实测 listener 会**闪断**（连续 13 次 refused，中间成功过一次），探针现在会自动重试 15 次 |
 | `Connection refused` 一直不变 | 手机离开网络了（锁屏/换 AP/休眠），不是 listener 的问题 |
 
-### 🔴 已定位的 iOS bug：一个死掉的 pending 连接会把手机锁死
+## 🔴 交给 Mac / iOS 的一行修复：一个死掉的 pending 连接会把手机锁死
 
-这个不是假设，是读代码定位 + 探针输出对上了。
-
-`CaptureEngine.swift:1883`：
+**位置**：`RemoteCrabCapture/CaptureEngine.swift:1883`
 
 ```swift
-case .failed, .cancelled:
-    handshakeTask?.cancel()
-    candidate = nil            // ← 1888 先置 nil
-    candidateParser = nil
-    if pendingConnection === candidate {   // ← 1890 于是变成 pendingConnection == nil
-        pendingConnection = nil            // ← 这三行永远进不去
-        pendingHello = nil
-        pendingMacName = nil
+private func handleCandidateState(_ state: NWConnection.State, token: UUID) {
+    guard handshakeToken == token else { return }
+    switch state {
+    case .failed, .cancelled:
+        handshakeTask?.cancel()
+        candidate = nil                          // ← 1888 先置 nil
+        candidateParser = nil
+        if pendingConnection === candidate {     // ← 1890 于是变成 pendingConnection == nil
+            pendingConnection = nil              // ← 这三行永远进不去
+            pendingHello = nil
+            pendingMacName = nil
+        }
+    default:
+        break
     }
+}
 ```
 
-`candidate` 在 1890 行已经是 `nil`，所以判断**只可能在 `pendingConnection` 本来就是 nil 时成立**，
-而那种情况下面三行本来就没东西可清。**清理 pending 槽位的代码是死代码。**
+`candidate` 在 1890 行已经是 `nil`，所以判断**只在 `pendingConnection` 本来就是
+nil 时成立**，而那种情况下面三行没东西可清。**清理 pending 槽位的代码是死代码。**
 
 再叠加两件事：
-- **`pending` 槽位没有 watchdog。** `checkOwnerLiveness()`（`CaptureEngine.swift:2532`）
-  的守卫是 `connection != nil || ownerMac != nil`，只管**已授权的 owner**。
-- `CaptureEngine.swift:1492-1513`：只要 `pendingConnection` 还挂着，
-  **任何**电脑连进来都拿到 `replyBusy(ownerName: pendingMacName)` —— 报的是那个
-  已经死掉的连接的名字。
 
-**完整失效链**：某个接收端连上来 → 手机弹批准框、`pendingConnection` 挂上 →
-那个进程在批准前退出（我那次的 25 秒探针窗口到点退出就是这样）→
-`.cancelled` 触发但因为上面那个 bug 清不掉 → **手机从此对所有电脑说 Busy，
-并报出一个根本没在运行的名字**，直到 App 重启。
+1. **`pending` 槽位没有 watchdog。** `checkOwnerLiveness()`（`CaptureEngine.swift:2531`）
+   的守卫是 `guard connection != nil || ownerMac != nil`，只管**已授权的 owner**。
+2. `CaptureEngine.swift:1492-1513`：只要 `pendingConnection` 还挂着，
+   **任何**电脑连进来都拿到 `replyBusy(on:ownerName: pendingMacName)` ——
+   报的是那个已经死掉的连接的名字。
 
-**这解释了前面三个 session 里最贵的那个 `Busy`。** 它从来不是 Mac 抢手机。
-交接文档里那张表的 `Busy` 一行是错的。
+### 完整失效链（有证据，不是推理）
 
-**修法**（一行，需要 Mac / Xcode 才能验证，**我没动 iOS 代码**）：
+现场抓到的日志（新版 Windows 取证探针会打印 `ownerName`）：
+
+```
+  sessionReply: Busy
+    held by: forensics
+  THE PHONE IS HELD BY ANOTHER COMPUTER.
+```
+
+`held by: forensics` —— 占用者**就是探针自己**。它的 client id 在早前一次
+「用户点了允许」之后被登记成 owner；那次连接随后进程退出、socket 死掉，
+`.cancelled` 触发，但因为上面那个 bug 清不掉。从那以后**每一次**新连接都收到
+`Busy`，并且报的是那个已经不存在的东西。
+
+所以：某个接收端连上来 → 手机弹批准框、`pendingConnection` 挂上 → 那个进程在
+批准前退出（我那次的 25 秒探针窗口到点退出就是这样）→ **手机从此对所有电脑说
+Busy，并报出一个根本没在运行的名字**，直到 App 重启。
+
+**这解释了前面三个 session 里最贵的那个 `Busy`。它从来不是 Mac 抢手机。**
+本文件旧版那张表的 `Busy` 一行是错的。
+
+### 修法（一行，需要 Mac / Xcode 验证）
 
 ```swift
 case .failed, .cancelled:
@@ -214,8 +234,28 @@ case .failed, .cancelled:
     }
 ```
 
-配套建议给 `pending` 槽位加一个和 owner 同款的 watchdog，别只依赖 socket 事件——
-`NWConnection` 的 `.cancelled` 并非在所有退出路径上都会到达。
+### 配套建议：给 pending 槽位加 watchdog
+
+光修上面那一行还不够健壮，因为 `NWConnection` 的 `.cancelled` 并非在所有退出
+路径上都会到达。`pending` 应该和 owner 一样有超时释放——现在只有
+`grant()`（`CaptureEngine.swift:1605`）会 `startOwnerWatchdog()`，
+pending 从来没有对等物。
+
+**验收方式**：Windows 侧不用改，跑取证探针即可，它现在会打印 `ownerName`：
+
+```sh
+cd windows
+cargo run --release -p rc-render --example vcam_forensics -- \
+    --connect <iphone-ip>:8765 --seconds 180
+```
+
+- 批准探针 → 跑完 → **杀掉探针进程**
+- 立刻再跑一次
+- **修好之前**：第二次会拿到 `sessionReply: Busy` + `held by: forensics`
+- **修好之后**：第二次会拿到 `sessionReply: Pending`（因为这是一个新客户端）
+
+Windows 侧的探针已经就位并打印 owner 名，所以这条修复可以在 Mac 上做完立刻验证，
+不需要 Windows 机器配合。
 
 ### 顺带发现，尚未修（都不确定是否在你这里发生过）
 

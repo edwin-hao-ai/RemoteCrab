@@ -456,6 +456,11 @@ remotecrab.exe
 
 ### 3. 顺手发现的一个**既有**测试失败（不是我改的）
 
+> **2026-10-04 更新：这条已经转绿。** 下面保留原文，因为「用
+> `git clone --no-local` + checkout 到 session 之前的 commit 复现」这个做法
+> 本身值得留着——它能把「既有缺陷」和「我这轮弄坏的」分开，我当时就是靠它
+> 确认这条与本轮无关。现在 `cargo test -p rc-app` 112 项全过。
+
 `cargo test --workspace` 里 `rc-app` 有 1 条红的：
 
 ```
