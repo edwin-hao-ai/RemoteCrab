@@ -327,6 +327,16 @@ struct MenuBarMenu: View {
     private var togglesSection: some View {
         let connected = session.featureState != nil
         return VStack(spacing: 0) {
+            // Why the speaker is not running, in words. Falls back to the
+            // plain description so the row always has a subtitle — a status
+            // surface that goes blank when something breaks tells the user
+            // nothing.
+            let speakerSubtitle: LocalizedStringKey = {
+                guard connected else { return LocalizedStringKey(IBLocale.Status.connectIPhoneFirst) }
+                if let status = session.speakerStatus { return LocalizedStringKey(status) }
+                return LocalizedStringKey(IBLocale.Speaker.on)
+            }()
+
             sectionHeader(LocalizedStringKey(IBLocale.MenuBar.featuresSection))
             ToggleRow(icon: "camera.fill",
                       title: IBLocale.Mode.camera,
@@ -340,6 +350,30 @@ struct MenuBarMenu: View {
                       subtitle: connected ? LocalizedStringKey(IBLocale.MenuBar.micSubtitle)
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.microphone, \.micOn),
+                      isEnabled: connected)
+            // A live "it isn't working" line, not a silent toggle: the most
+            // common reason for silence is that Screen Recording was never
+            // granted, and that is fixable in one click.
+            .overlay(alignment: .bottomLeading) {
+                if let status = session.speakerStatus {
+                    Text(status)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.leading, 38)
+                }
+            }
+            Divider().opacity(0.3).padding(.leading, 38)
+            // "Play sound on the iPhone". Mutually exclusive with the mic
+            // above: both claim the phone's one audio session in opposite
+            // directions, so turning this on stands the microphone down on
+            // the phone (its `setAudioMode` clears the other flag) and the
+            // phone's control panel reflects that rather than showing two
+            // live audio features at once.
+            ToggleRow(icon: "speaker.wave.2.fill",
+                      title: IBLocale.Speaker.title,
+                      subtitle: speakerSubtitle,
+                      isOn: featureBinding(.speaker, \.speakerOn),
                       isEnabled: connected)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
