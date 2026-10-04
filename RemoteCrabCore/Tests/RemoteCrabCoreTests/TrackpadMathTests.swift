@@ -138,4 +138,72 @@ final class TrackpadMathTests: XCTestCase {
         let base: Float = 0.6 + 0.35 * 2
         XCTAssertEqual(full, base * (1 + 2.5), accuracy: 0.01)
     }
+
+    // MARK: - Direction is an invariant, not a detail
+    //
+    // A user reported the pointer going right when the finger went left, on
+    // Windows only. Reading both receivers found them **identical** — no
+    // negation anywhere, and `git log -S` shows the Windows move maths has
+    // exactly one commit and never had a sign flip. So nothing in this repo
+    // explains it, which is precisely why the property needs a test: it is
+    // the thing that would be invisible if it ever broke again.
+    //
+    // The curve is a positive gain, so it must never flip a sign or reorder
+    // axes — at any sensitivity, any speed, in either direction.
+
+    func testAccelerationNeverFlipsTheDirectionOfTravel() {
+        for sensitivity in 1...5 {
+            for pointerSpeed in [Float(0), 0.3, 1.0, 2.0, 9.0] {
+                for (dx, dy) in [(Float(-0.2), Float(-0.1)),
+                                 (Float(-0.2), Float(0.1)),
+                                 (Float(0.2), Float(-0.1)),
+                                 (Float(0.2), Float(0.1))] {
+                    let out = TrackpadMath.accelerate(dx: dx, dy: dy,
+                                                      sensitivity: sensitivity,
+                                                      pointerSpeed: pointerSpeed)
+                    XCTAssertEqual(out.dx.sign == dx.sign, true,
+                                   "s=\(sensitivity) v=\(pointerSpeed): dx \(dx) -> \(out.dx)")
+                    XCTAssertEqual(out.dy.sign == dy.sign, true,
+                                   "s=\(sensitivity) v=\(pointerSpeed): dy \(dy) -> \(out.dy)")
+                }
+            }
+        }
+    }
+
+    /// Selection drags use a different curve (fixed low gain). It must not
+    /// swap or flip the axes either — a reversed selection drag is the same
+    /// class of bug as a reversed pointer.
+    func testSelectionCurveKeepsTheAxesApart() {
+        let out = TrackpadMath.selectionAccelerate(dx: -0.3, dy: 0.2)
+        XCTAssertLessThan(out.dx, 0)
+        XCTAssertGreaterThan(out.dy, 0)
+    }
+
+    /// The gain must be finite and bounded at extreme speeds. An unbounded
+    /// or NaN gain is what makes a small drag overshoot the target, which a
+    /// user can easily describe as "it went the other way".
+    func testTheGainStaysBoundedAtExtremeSpeed() {
+        for pointerSpeed in [Float(0), 1e3, 1e9, .greatestFiniteMagnitude] {
+            let out = TrackpadMath.accelerate(dx: 0.01, dy: 0,
+                                              sensitivity: 5, pointerSpeed: pointerSpeed)
+            XCTAssertTrue(out.dx.isFinite, "gain went non-finite at v=\(pointerSpeed)")
+            XCTAssertLessThan(out.dx, 1.0, "a 1% drag must not cross the whole screen")
+        }
+    }
+
+    /// Scrolling is the other direction users report. Same invariant: the
+    /// curve scales, it never reflects.
+    func testScrollAccelerationNeverFlipsTheDirection() {
+        for sensitivity in 1...5 {
+            for (dx, dy) in [(CGFloat(-0.2), CGFloat(-0.1)),
+                             (CGFloat(-0.2), CGFloat(0.1)),
+                             (CGFloat(0.2), CGFloat(-0.1)),
+                             (CGFloat(0.2), CGFloat(0.1))] {
+                let out = TrackpadMath.accelerateScroll(dx: dx, dy: dy,
+                                                        sensitivity: sensitivity)
+                XCTAssertEqual(out.x.sign == dx.sign, true, "scroll x flipped")
+                XCTAssertEqual(out.y.sign == dy.sign, true, "scroll y flipped")
+            }
+        }
+    }
 }
