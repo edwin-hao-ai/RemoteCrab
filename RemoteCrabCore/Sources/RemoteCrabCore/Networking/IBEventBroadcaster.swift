@@ -30,6 +30,14 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .audio) { try IBWire.encode(audio: packet) }
     }
 
+    /// The computer's own audio, heading the other way: receiver → iPhone,
+    /// for playback on the phone speaker. Same payload shape as the
+    /// microphone packet, PCM with `channels: 2` — see the note on
+    /// `IBWire.encode(speakerAudio:)` for why this path is not Opus.
+    public func sendSpeakerAudio(_ packet: AudioPacket) {
+        send(kind: .speakerAudio) { try IBWire.encode(speakerAudio: packet) }
+    }
+
     public func send(_ snapshot: FeatureStateSnapshot) {
         send(kind: .featureState) { try IBWire.encode(featureState: snapshot) }
     }

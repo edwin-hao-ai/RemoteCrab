@@ -74,6 +74,13 @@ pub enum Kind {
     // the same reason as 0x20–0x22 above: an unknown byte decodes as `Video`
     // and this JSON would go to the H.264 decoder.
     CommandResult = 0x23,
+    /// receiver → iPhone: the computer's own audio, for playback on the
+    /// phone speaker ("use the iPhone as the speaker"). The Windows
+    /// receiver sends these once it has loopback capture; it MUST
+    /// recognise the kind even before that, for the same reason as
+    /// 0x1A–0x23: an unknown byte falls through to `Video`, and this JSON
+    /// payload would then be handed to the H.264 decoder.
+    SpeakerAudio = 0x24,
 }
 
 impl Kind {
@@ -132,6 +139,7 @@ impl Kind {
             0x21 => Kind::InstalledApps,
             0x22 => Kind::Notification,
             0x23 => Kind::CommandResult,
+            0x24 => Kind::SpeakerAudio,
             _ => Kind::Video,
         }
     }
@@ -209,6 +217,7 @@ json_codec!(encode_metadata, decode_metadata, Kind::Metadata, StreamMetadata);
 json_codec!(encode_touch, decode_touch, Kind::Touch, TouchEvent);
 json_codec!(encode_key, decode_key, Kind::Key, KeyEvent);
 json_codec!(encode_audio, decode_audio, Kind::Audio, AudioPacket);
+json_codec!(encode_speaker_audio, decode_speaker_audio, Kind::SpeakerAudio, AudioPacket);
 json_codec!(
     encode_feature_control,
     decode_feature_control,
@@ -417,4 +426,59 @@ pub fn decode_ping(frame: &Frame) -> u64 {
         value = (value << 8) | byte as u64;
     }
     value
+}
+
+#[cfg(test)]
+mod speaker_audio_kind_tests {
+    use super::Kind;
+
+    /// 0x24 is frozen on the wire. If it changes, an older iPhone that
+    /// knows kinds only up to 0x23 will not recognise it — and the failure
+    /// mode is silent: `from_u8_or_video` maps unknown bytes to `Video`, so
+    /// the JSON payload would be handed to the H.264 decoder and corrupt
+    /// the camera preview rather than reporting an error.
+    #[test]
+    fn speaker_audio_kind_is_frozen_at_0x24() {
+        assert_eq!(Kind::SpeakerAudio as u8, 0x24);
+        assert_eq!(Kind::from_u8_or_video(0x24), Kind::SpeakerAudio);
+    }
+
+    /// The reason 0x24 needed registering at all. If someone ever changes
+    /// the fallback this test should fail loudly, because that fallback is
+    /// what turns a forgotten kind into corrupt video instead of an error.
+    #[test]
+    fn unknown_kind_still_falls_back_to_video() {
+        assert_eq!(Kind::from_u8_or_video(0x7F), Kind::Video);
+        assert_eq!(Kind::from_u8_or_video(0xFF), Kind::Video);
+    }
+
+    #[test]
+    fn speaker_audio_is_distinct_from_microphone_audio() {
+        assert_ne!(Kind::SpeakerAudio, Kind::Audio);
+        assert_eq!(Kind::from_u8_or_video(0x06), Kind::Audio);
+    }
+
+    /// Every kind in the enum must be reachable from its byte. A kind added
+    /// to the enum but not to `from_u8_or_video` compiles fine and then
+    /// silently decodes as `Video` — which is exactly the bug class this
+    /// module keeps hitting.
+    #[test]
+    fn every_declared_kind_is_reachable_from_its_byte() {
+        let kinds = [
+            Kind::Metadata, Kind::Video, Kind::Sps, Kind::Pps, Kind::Touch,
+            Kind::Key, Kind::Audio, Kind::FeatureControl, Kind::FeatureState,
+            Kind::Ping, Kind::ClientHello, Kind::SessionReply, Kind::AppList,
+            Kind::AppListRequest, Kind::ActivateApp, Kind::FileOffer,
+            Kind::FileChunk, Kind::FileComplete, Kind::FileAck,
+            Kind::ClipboardSet, Kind::TextCommand, Kind::CameraCommand,
+            Kind::QuitApp, Kind::WindowListRequest, Kind::WindowList,
+            Kind::SystemCommand, Kind::ScreenVideo, Kind::ScreenSps,
+            Kind::ScreenPps, Kind::ScreenControl, Kind::ScreenInput,
+            Kind::ScreenInfo, Kind::InstalledAppsRequest, Kind::InstalledApps,
+            Kind::Notification, Kind::CommandResult, Kind::SpeakerAudio,
+        ];
+        for k in kinds {
+            assert_eq!(Kind::from_u8_or_video(k as u8), k, "kind {:?} is not reachable", k);
+        }
+    }
 }

@@ -54,6 +54,11 @@ public enum IBWire {
         case installedApps  = 0x21    // JSON IBInstalledApps (receiver → iPhone)
         case notification   = 0x22    // JSON IBNotification (Mac → iPhone)
         case commandResult  = 0x23    // JSON IBCommandResult (receiver → iPhone)
+        /// receiver → iPhone: the computer's own audio, for playback on the
+        /// phone speaker ("use the iPhone as the speaker"). Carries the same
+        /// `AudioPacket` shape as `.audio`, but PCM with `channels: 2` —
+        /// see the note on `encode(speakerAudio:)`.
+        case speakerAudio  = 0x24
     }
 
     // MARK: - Encoding
@@ -334,6 +339,30 @@ public enum IBWire {
     /// Decode a `.key` frame's payload into a `KeyEvent`.
     public static func decodeKey(_ frame: Frame) throws -> KeyEvent {
         try JSONDecoder().decode(KeyEvent.self, from: frame.payload)
+    }
+
+    /// Encode the computer's system audio for phone-speaker playback.
+    ///
+    /// Why PCM and not Opus, when the microphone path uses Opus at
+    /// 24 kbps: Apple's Opus codec round-trips this audio correctly at
+    /// MONO only. Measured on macOS 26 — a stereo Opus stream encodes
+    /// (packet grows ~2.3x) but decodes back to 960 samples per 20 ms
+    /// packet, i.e. mono, at roughly a third of the input amplitude.
+    /// `afconvert`'s own stereo Opus round trip is correct, so the
+    /// platform supports it and our `AudioConverter` setup does not.
+    /// Shipping that would be silent bad audio, so the speaker path sends
+    /// uncompressed PCM instead: 48 kHz stereo Int16 is 1.5 Mbps, which is
+    /// small next to the H.264 video already flowing on the same link, and
+    /// it costs ZERO codec latency — which matters more here than the
+    /// bandwidth, because the feature's weak point is end-to-end delay.
+    public static func encode(speakerAudio: AudioPacket) throws -> Data {
+        let json = try JSONEncoder().encode(speakerAudio)
+        return encodeFrame(kind: .speakerAudio, payload: json)
+    }
+
+    /// Decode a `.speakerAudio` frame's payload into an `AudioPacket`.
+    public static func decodeSpeakerAudio(_ frame: Frame) throws -> AudioPacket {
+        try JSONDecoder().decode(AudioPacket.self, from: frame.payload)
     }
 
     /// Decode an `.audio` frame's payload into an `AudioPacket`.
