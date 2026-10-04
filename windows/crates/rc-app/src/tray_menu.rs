@@ -83,6 +83,29 @@ pub mod ids {
     /// is worth *more* on Windows: input injection leaves no visible trace, so
     /// without it "did my tap land?" has no answer anywhere.
     pub const SELF_CHECK: usize = 125;
+    /// Mute this PC's audio while the phone plays the computer's sound (kind
+    /// `0x24`).
+    ///
+    /// **Reserved and deliberately unused**, so it carries no icon cell today.
+    /// The row belongs here — the tray is where a user looks for this — but
+    /// `scripts/generate-windows-menu-icons.py` needs Python + PIL, and no cell
+    /// exists for a speaker glyph yet. Assigning an existing cell would collide,
+    /// and `no_two_rows_share_a_glyph` is right to refuse that: two rows with the
+    /// same picture is worse than one row absent. Until the sheet can be
+    /// regenerated, the preference lives on the console as `speaker-mute` (like
+    /// `autostart`), and the safe default means nobody has to set it for the
+    /// feature to work.
+    ///
+    /// To finish this: add the glyph as cell 20 in the generator's `ROWS`, bump
+    /// `ICON_CELLS_FOR_THE_SHEET` to 21, regenerate the PNG, then map
+    /// `SPEAKER_MUTE => 20` in `icon_cell`, add it to `known_ids` and
+    /// `is_on`, and push the row in `menu_rows`.
+    ///
+    /// `allow(dead_code)` is targeted rather than blanket, and only because a
+    /// reservation is by definition not referenced yet — `the_speaker_row_is_
+    /// reserved_and_deliberately_not_wired` is what keeps that honest.
+    #[allow(dead_code)]
+    pub const SPEAKER_MUTE: usize = 126;
 }
 
 /// What the menu shows right now, as far as the layout is concerned.
@@ -269,6 +292,10 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
             t(NOTIFY_LABEL_OFF.0, NOTIFY_LABEL_OFF.1).to_string()
         },
     );
+    // The speaker-mute preference is NOT here yet; see `ids::SPEAKER_MUTE` for
+    // why and for the exact steps to finish it. It lives on the console as
+    // `speaker-mute` until then, and the default (`keep this PC playing`) means
+    // the feature works without anyone opening it.
     push(
         Row::Item,
         ids::AUTOSTART,
@@ -452,6 +479,8 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::SETUP => 17,
         ids::SETTINGS => 18,
         ids::SELF_CHECK => 19,
+        // `SPEAKER_MUTE` is deliberately absent until the sheet has a speaker
+        // glyph to give it; see the id's doc comment for the exact steps.
         // `RECORD` is deliberately absent: it is the one row whose glyph
         // depends on state, so it goes through [`record_icon_cell`] and not
         // through here. Letting both decide it is how they drift apart.
@@ -817,6 +846,24 @@ mod sheet_order_tests {
             notify_relay: false,
             vcam_installed: true,
         }
+    }
+
+    #[test]
+    fn the_speaker_row_is_reserved_and_deliberately_not_wired() {
+        // Both halves of "deliberately", so a later change cannot half-enable it:
+        // a row with an id nobody handles clicks into nothing, and an id with a
+        // glyph but no row is a cell that can never be seen.
+        assert!(!super::known_ids().contains(&ids::SPEAKER_MUTE), "the id is live but no row pushes it");
+        assert!(
+            super::icon_cell(ids::SPEAKER_MUTE).is_none(),
+            "the id borrows another row's glyph"
+        );
+        assert!(
+            !super::menu_rows(&state_with_details())
+                .iter()
+                .any(|r| r.id == ids::SPEAKER_MUTE),
+            "the row exists without an icon"
+        );
     }
 
     #[test]

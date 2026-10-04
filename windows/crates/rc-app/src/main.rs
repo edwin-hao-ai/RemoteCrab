@@ -50,6 +50,7 @@ mod mirror;
 mod scan;
 mod selftest;
 mod single_instance;
+mod speaker;
 mod status;
 mod stream_stats;
 mod tray;
@@ -127,12 +128,26 @@ impl PreviewWindow {
 async fn main() -> ExitCode {
     let args = parse_args();
 
+    // FIRST, before anything else can fail. If a previous run muted this PC
+    // while the phone was playing and then died — a crash, a force-quit, a
+    // power cut — the user came back to a silent computer with no way to know
+    // why. The marker file is written before the volume is ever touched, so this
+    // is the only place that has to look, and it costs one file read.
+    #[cfg(windows)]
+    speaker::recover_volume_if_needed();
+
     // `--version` first, and it works with no other argument and no window:
     // a user reporting a bug has to be able to say which build they are on
     // without starting a receiver, and before anything can fail.
     if args.version {
         println!("remotecrab {}", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
+    }
+    // Before the single-instance check and before any window: this is a question
+    // about the audio hardware, so a running receiver must not be in the way.
+    #[cfg(windows)]
+    if args.speaker_probe {
+        return speaker::probe();
     }
     // A release build does not carry the fake sender, so these two cannot
     // work. Saying so beats a flag that quietly does nothing.
@@ -375,6 +390,11 @@ async fn main() -> ExitCode {
     let mut console_alive = true;
     let mut last_features: Option<rc_protocol::FeatureStateSnapshot> = None;
     let mut quit_requested = false;
+    // "Use the iPhone as the speaker" (kind 0x24). The capture and its pump live
+    // on their own thread inside `Speaker`; this loop only decides when.
+    let mut speaker = speaker::Speaker::new();
+    let mut speaker_running = false;
+    let mut connected = false;
     // Recording: `--record` arms it, the `record` console command toggles it.
     let mut metadata: Option<rc_protocol::StreamMetadata> = None;
     let mut recording: Option<ActiveRecording> = None;
@@ -427,6 +447,18 @@ async fn main() -> ExitCode {
                             }
                         }
 
+                        // Speaker capture follows the SESSION, not just the
+                        // toggle: a phone that disconnects leaves the capture
+                        // running with nobody to send to, which is the one state
+                        // the Mac receiver guards against too
+                        // (`sessionGranted && connection.state == .ready`).
+                        let now_connected = matches!(st, State::Streaming { .. });
+                        if !now_connected && speaker_running {
+                            speaker.stop();
+                            speaker_running = false;
+                        }
+                        connected = now_connected;
+
                         let label = status::state_line(&st, stats.last_frame.is_some());
                         if label != last_label {
                             println!("{label}");
@@ -448,7 +480,11 @@ async fn main() -> ExitCode {
                         // to stream": a phone that handshakes and then sends
                         // nothing produces no error and no event, so without it
                         // the tray asserts success forever.
-                        tray.set_status(&status::tray_status(&st, stats.last_frame.is_some()));
+                        tray.set_status(&status::tray_status(
+                            &st,
+                            stats.last_frame.is_some(),
+                            i18n::is_chinese(),
+                        ));
 
                         // …and give the "why not connected" row something true to say.
                         //
@@ -510,8 +546,16 @@ async fn main() -> ExitCode {
                             }
                             Event::Video(nal) => {
                                 video_frames += 1;
+                                // The NAL's byte count is the only real bitrate
+                                // measurement available: the phone's metadata
+                                // number is a *request*, and on iOS it is inert.
+                                stats.record_video_bytes(nal.data.len());
                                 // A decoded frame is the only proof the camera is
                                 // actually on, as opposed to merely enabled.
+                                // The zeros mean "dimensions unknown here" and
+                                // leave the metadata's resolution alone — passing
+                                // them through used to overwrite 1920x1080 with
+                                // 0x0 on the very first frame.
                                 stats.record_video(0, 0);
                                 if let Some(rec) = recording.as_mut() {
                                     match nal.kind {
@@ -668,13 +712,13 @@ async fn main() -> ExitCode {
                                 // the connection-test UI" — which nothing was reading
                                 // until now.
                                 stats.record_audio(audio.level());
-                                tray.set_details(stream_stats::detail_rows(&stats));
+                                tray.set_details(tray_rows(&stats, &speaker));
                             }
                             Event::Latency(ms) => {
                                 stats.record_latency(ms);
                                 // Refresh the readout's contents; the tray re-renders
                                 // the submenu on each popup, so this is the only write.
-                                tray.set_details(stream_stats::detail_rows(&stats));
+                                tray.set_details(tray_rows(&stats, &speaker));
                                 // Keep the console readable: report a lag spike only
                                 // when it is both large AND rare (a rolling gate), not
                                 // on every ping.
@@ -780,7 +824,7 @@ async fn main() -> ExitCode {
                                         .replace("{}", &name)
                                     );
                                     stats.unsupported_commands.push(name);
-                                    tray.set_details(stream_stats::detail_rows(&stats));
+                                    tray.set_details(tray_rows(&stats, &speaker));
                                 }
                                 #[cfg(not(windows))]
                                 let _ = &cmd;
@@ -877,8 +921,28 @@ async fn main() -> ExitCode {
                                 if !s.camera_on {
                                     stats.set_camera_note(Some(i18n::t("已关闭", "off")));
                                 }
+                                // "Use the iPhone as the speaker" (wire kind 0x24).
+                                // The phone owns this toggle, so the receiver follows
+                                // the ECHOED state rather than acting on a request
+                                // twice — the same rule the Mac receiver applies to
+                                // `snap.speakerOn`. `decide` is a pure function, and
+                                // this arm is its only caller.
+                                match speaker::decide(
+                                    s.speaker_on,
+                                    connected,
+                                    speaker_running,
+                                ) {
+                                    speaker::Action::StartCapture => {
+                                        speaker_running = speaker.start(&session);
+                                    }
+                                    speaker::Action::StopCapture => {
+                                        speaker.stop();
+                                        speaker_running = false;
+                                    }
+                                    speaker::Action::NoChange => {}
+                                }
                                 tray.set_features(Some(s.clone()));
-                                tray.set_details(stream_stats::detail_rows(&stats));
+                                tray.set_details(tray_rows(&stats, &speaker));
                                 last_features = Some(s);
                             }
                             Event::ScreenControl(control) => {
@@ -1072,6 +1136,25 @@ fn spawn_window_refresh(session: &rc_net::Session) {
             session.send_frame(encode_window_list(&list).unwrap_or_default());
         }
     });
+}
+
+/// The tray's live readout: the stream stats, plus a speaker row when the
+/// speaker has something to say.
+///
+/// Composed in one place because there are four call sites and the speaker half
+/// has to travel with all of them — a status that only refreshes on a latency
+/// packet is a status that is wrong whenever the audio changes without the
+/// latency changing. A *working* speaker contributes no row at all
+/// (`speaker::status_row`), so this costs nothing in the common case.
+fn tray_rows(
+    stats: &stream_stats::StreamStats,
+    speaker: &speaker::Speaker,
+) -> Vec<(String, String)> {
+    let mut rows = stream_stats::detail_rows(stats);
+    if let Some(row) = speaker.view().status.and_then(speaker::status_row) {
+        rows.push(row);
+    }
+    rows
 }
 
 /// The state the wizard reports on, read fresh each time.

@@ -216,6 +216,45 @@ pub fn handle_console_command(
             println!("  → {}", i18n::t("正在切换摄像头", "switching camera"));
         }
         "clipboard" | "send-clipboard" => send_clipboard_to_iphone(session),
+        // Whether this PC goes quiet while the phone plays the computer's audio
+        // (kind 0x24). A preference rather than an action, so it lives here next
+        // to `autostart` instead of in the tray: the tray row needs an icon cell
+        // the generated sheet does not have yet (see `ids::SPEAKER_MUTE`), and a
+        // borrowed glyph would be a lie. The default already works, so this is an
+        // optimisation for people who want AirPlay semantics, not a step.
+        "speaker-mute" | "mute-pc" => {
+            let now_mute = match want {
+                Some(w) => w,
+                None => !matches!(
+                    crate::speaker::mute_preference(),
+                    rc_loopback::MuteBehaviour::MuteLocal
+                ),
+            };
+            crate::speaker::set_mute_preference(now_mute);
+            let state = if now_mute {
+                i18n::t("开", "on")
+            } else {
+                i18n::t("关", "off")
+            };
+            println!(
+                "  → {} {state}",
+                i18n::t(
+                    "手机播放时本机静音",
+                    "mute this PC while the phone plays"
+                )
+            );
+            if now_mute {
+                // The one thing a user must be told before agreeing to it: the
+                // failure mode is a computer that comes back silent.
+                println!(
+                    "  {}",
+                    i18n::t(
+                        "若程序异常退出，下次启动会自动把音量恢复；音量不会被永久改写。",
+                        "If the app exits unexpectedly the next launch restores the volume; it is never left changed permanently."
+                    )
+                );
+            }
+        }
         "autostart" => {
             #[cfg(windows)]
             {

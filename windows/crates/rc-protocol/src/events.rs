@@ -255,6 +255,19 @@ pub struct FeatureStateSnapshot {
     /// for snapshots from builds that predate the mirror.
     #[serde(default)]
     pub screen_on: bool,
+    /// Whether the phone wants this computer's audio played out of its own
+    /// speaker (wire kind `0x24`, "use the iPhone as the speaker").
+    ///
+    /// Defaults to false for snapshots from phone builds that predate the
+    /// feature. `#[serde(default)]` is load-bearing twice over here: the
+    /// receiver's whole trigger for starting the capture is this one flag, and
+    /// this struct has no other defaulted field that a missing key could hide
+    /// behind. A snapshot that failed to decode would take the whole
+    /// `featureState` frame — and with it camera, mic and mirror control —
+    /// down to "no state at all", which is the failure mode the loader in this
+    /// project is documented to swallow silently (rule 2).
+    #[serde(default)]
+    pub speaker_on: bool,
     #[serde(default)]
     pub timestamp_micros: u64,
 }

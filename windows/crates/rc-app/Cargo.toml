@@ -22,6 +22,10 @@ rc-net.workspace = true
 rc-input.workspace = true
 rc-render.workspace = true
 rc-audio.workspace = true
+# System-audio capture for "use the iPhone as the speaker". A plain dependency,
+# not target-gated: the COM layer inside it is `cfg(windows)`, so the crate
+# compiles (and its pure logic is tested) on the Mac that runs the suite too.
+rc-loopback.workspace = true
 rc-os.workspace = true
 rc-record.workspace = true
 rc-mirror.workspace = true

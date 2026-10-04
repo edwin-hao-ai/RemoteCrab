@@ -1,9 +1,24 @@
 ---
 title: Windows 交接 —— 「用 iPhone 当音箱」功能（协议已就绪，接收端未实现）
 type: handoff
-status: current
+status: superseded
 last_verified: 2026-10-04
 code_baseline: 096f287
+superseded_by: WINDOWS-SPEAKER-2026-10-04.md
+---
+
+> **✅ 本交接已实现，见 [`WINDOWS-SPEAKER-2026-10-04.md`](WINDOWS-SPEAKER-2026-10-04.md)。**
+>
+> 第 1 节（协议）照做；第 2 节（loopback）照做，`IAudioClient::Initialize` 需要传
+> **完整的 40 字节 `WAVEFORMATEXTENSIBLE`**，只给 18 字节的头会 `E_INVALIDARG`
+> （0x80070057）；第 3 节（必须 PCM）照做；第 4 节（删 iOS 那行）**还没做**，
+> 因为 Mac session 得先修一个会让麦克风被静默关掉的 bug（新文件第 6 节）；
+> 第 5 节的「Windows 没有等价物」做成了运行时 A/B + 崩溃可恢复的 marker；
+> 第 6 节（验收清单）变成了一条命令：`remotecrab --speaker-probe`，
+> 本机实测 `rms=497 peak=1100 dropped=0`。
+>
+> **下面保留原文**，作为设计决策的记录。
+
 ---
 
 # Windows 交接：让 Windows 电脑的声音从 iPhone 播出来

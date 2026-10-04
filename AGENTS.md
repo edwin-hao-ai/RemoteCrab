@@ -419,8 +419,19 @@ buffering. The parser refuses frames larger than 64 MiB
 * **`readIndex` 曾被两个线程同时写**（实时回调 + pump），已改成每个索引一个写者。
   这个竞态是真的，**但无法证明它就是当时听不到声音的原因** —— 那时我看到的零本身就是
   坏掉的测量。别把它当成已验证的修复。
-* **Windows**：协议已就绪，采集未实现；iOS 端故意隐藏入口。`echo` 关掉
-  `speakerAvailable = !engine.connectedIsWindows` 即可打开。
+* **Windows：采集已实现并实测出声**（2026-10-04，`rc-loopback` WASAPI loopback）。
+  真机：`rms=497 peak=1100 dropped=0`，125 包/2.5 s = 精确 20 ms 一包。
+  一条命令可复现：`remotecrab --speaker-probe`。
+  iOS 端的入口**仍然锁着**，因为要先修 `CaptureEngine.swift:1635` 那个会让
+  Windows 上麦克风被静默关掉的 bug —— 见 `docs/HANDOFF-IOS-QUALITY.md` §6.1。
+  细节：`docs/WINDOWS-SPEAKER-2026-10-04.md`。
+* **`IAudioClient::Initialize` 要传完整的 40 字节 `WAVEFORMATEXTENSIBLE`**，
+  只给 18 字节的 `WAVEFORMATEX` 头会 `E_INVALIDARG`（**0x80070057**），而现代
+  Windows 的 loopback 混音格式**几乎都是 extensible**。这条只有让探针打印
+  HRESULT 才能查到 —— 「初始化失败、0 帧」和「这台机器没有音频输出」长得一模一样。
+* **实测：Windows 的 loopback 采集的是音量之后的信号**（20,000 振幅进去，
+  测到 1,100）。所以「压主音量让本机静音」会**连采集一起压掉** —— 这就是
+  `MuteWatch` 在运行时做 A/B 并自动恢复的原因，也是 Windows 上默认**不**静音的原因。
 * **iOS 权限已实测通过**（iPhone 14 / iOS 26，5 步 0 失败）：麦克风↔扬声器交接
   两个方向都成功，播放图能跑，且**不需要任何新权限**。
 * **e2e**：`./scripts/e2e-speaker.sh`。它自带编译/安装/标记校验/重启接收器，

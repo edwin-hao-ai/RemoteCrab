@@ -474,6 +474,41 @@ Mac 用 **VideoToolbox**，Windows 用 **OpenH264**（passthrough）。两个编
 **没有的**：下载、校验、替换、卸载旧的、per-machine 升级。这需要：
 签名 + appcast 服务器 + Windows 工具链。**这是最后一个大功能**，建议先跑通 1-2 个月。
 
+### 3.10 ✅ 扬声器模式（用 iPhone 当音箱）—— 采集已实现并在本机验证
+
+`rc-loopback`（WASAPI loopback）+ `rc-app/src/speaker.rs` 已落地，493 个测试绿，
+`clippy -D warnings` 全绿，MSVC release + 依赖检查都过。
+
+**先跑这一条** —— 唯一能回答「loopback 在这台机器上听不听得到东西」的命令，
+它属于 release build，不需要 `--features selftest`：
+
+```powershell
+# 随便放点声音，然后：
+.\target\release\remotecrab.exe --speaker-probe
+```
+
+本机 2026-10-04 的实测输出：
+
+```
+  mix format     : F32 48000 Hz, 2 ch
+  endpoint       : {0.0.0.00000000}.{64c98063-2154-46ce-8519-8420311959e7}
+  captured       : 153600 frames (3.20 s)
+  packets        : 125 in the 2.5s window (480000 bytes of PCM)
+  level          : rms=497 peak=1100
+  dropped        : 0 frames
+```
+
+**还差的**：🔲 **iPhone ↔ Windows 的端到端**（采集侧已验证，`0x24` 的线路还没跑过）。
+连上手机后开扬声器，确认手机出声，并且托盘没有出现「扬声器」那一行的报错。
+
+**iOS 端的入口还锁着**（`ContentView.swift:759` 的 `speakerAvailable`），
+因为 Mac session 要先修一个会在 Windows 上把麦克风静默关掉的 bug ——
+见 [`HANDOFF-IOS-QUALITY.md`](HANDOFF-IOS-QUALITY.md) §6.1。
+**在那之前不要删那一行**，否则会得到一个点不掉的扬声器开关。
+
+细节、途中被测试抓到的四个 bug、以及「静音本机」为什么默认关着：
+[`WINDOWS-SPEAKER-2026-10-04.md`](WINDOWS-SPEAKER-2026-10-04.md)。
+
 ---
 
 ## 4. ❌ 明确不做（别浪费时间）

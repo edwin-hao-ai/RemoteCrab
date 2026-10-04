@@ -195,6 +195,7 @@ fn round_trip_feature_state() {
         active_surface: Surface::Keyboard,
         camera_position: CameraPosition::Back,
         screen_on: false,
+        speaker_on: false,
         timestamp_micros: 42,
     };
     let data = encode_feature_state(&snap).unwrap();

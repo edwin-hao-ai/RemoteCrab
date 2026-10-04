@@ -101,42 +101,71 @@ pub fn state_line(state: &State, seen_frame: bool) -> String {
 /// One-line, pill-language status for the tray menu — same wording the Mac's
 /// menu-bar popover and the iOS status pill use (`State::pill_label` /
 /// `Status.latency`), without the console's [TAG] + wrapped explanation.
-pub fn tray_status(state: &State, seen_frame: bool) -> String {
+///
+/// # Why `zh` is a parameter and not an `i18n::t` lookup
+///
+/// This function used to render through the global `i18n::t`, and its test
+/// asserted a **Chinese literal** against that output. So the test passed on a
+/// Chinese-locale machine and failed on every other one — and this suite is run
+/// from both (the project tests on a Mac and on the Windows box), which is how
+/// it reached `main` broken.
+///
+/// A global locale lookup is the right thing for *rendering* and the wrong thing
+/// for a *function under test*: it makes the result a property of the machine
+/// rather than of the input. `doctor.rs` already threads an explicit `zh: bool`
+/// through `panel` / `panel_summary` for exactly this reason, and this is now
+/// the same shape. `i18n::t` remains the single place that knows the real
+/// answer — the caller passes `i18n::is_chinese()`.
+pub fn tray_status(state: &State, seen_frame: bool, zh: bool) -> String {
+    // A named function rather than a closure: a closure with two independent
+    // `&str` parameters cannot return either one, because their lifetimes do not
+    // unify. Every string here is a literal, so `'static` is the honest bound.
+    fn t(zh: bool, a: &'static str, b: &'static str) -> &'static str {
+        if zh {
+            a
+        } else {
+            b
+        }
+    }
     match state {
         // Before the latency arm: a round-trip number with not one frame
         // decoded is a measurement of nothing, and printing it would dress the
         // "waiting" state up as a working one.
-        State::Streaming { name, .. } if !seen_frame => format!(
-            "{}{name} \u{2014} {}",
-            i18n::t("正在投屏 ", "Streaming from "),
-            i18n::t("已连接，等待画面…", "connected, waiting for video\u{2026}")
-        ),
+        State::Streaming { name, .. } if !seen_frame => {
+            let dash = "\u{2014}";
+            let waiting = if zh {
+                "已连接，等待画面…"
+            } else {
+                "connected, waiting for video\u{2026}"
+            };
+            format!("{}{name} {dash} {waiting}", t(zh, "正在投屏 ", "Streaming from "))
+        }
         State::Streaming { name, latency_ms } if *latency_ms > 0 => {
-            format!(
-                "{}{name} · {latency_ms} ms",
-                i18n::t("正在投屏 ", "Streaming from ")
-            )
+            format!("{}{name} · {latency_ms} ms", t(zh, "正在投屏 ", "Streaming from "))
         }
         State::Streaming { name, .. } => {
-            format!("{}{name}", i18n::t("正在投屏 ", "Streaming from "))
+            format!("{}{name}", t(zh, "正在投屏 ", "Streaming from "))
         }
         // See the note in `state_line`: the tap is on the iPhone.
-        State::AwaitingApproval { name } => i18n::t(
-            &format!("请在 iPhone 上允许「{name}」"),
-            &format!("Allow \"{name}\" on the iPhone"),
-        )
-        .to_string(),
+        State::AwaitingApproval { name } => {
+            let (a, b) = if zh {
+                (format!("请在 iPhone 上允许「{name}」"), String::new())
+            } else {
+                (String::new(), format!("Allow \"{name}\" on the iPhone"))
+            };
+            if zh {
+                a
+            } else {
+                b
+            }
+        }
         State::Connecting { name } | State::Handshaking { name } => {
-            format!("{}{name}…", i18n::t("正在连接 ", "Connecting to "))
+            format!("{}{name}…", t(zh, "正在连接 ", "Connecting to "))
         }
         State::Busy { owner } => {
-            format!(
-                "{}{owner}{}",
-                i18n::t("已被 ", "In use by "),
-                i18n::t(" 占用", "")
-            )
+            format!("{}{owner}{}", t(zh, "已被 ", "In use by "), t(zh, " 占用", ""))
         }
-        State::Searching => i18n::t("等待 iPhone…", "Waiting for an iPhone…").to_string(),
+        State::Searching => t(zh, "等待 iPhone…", "Waiting for an iPhone…").to_string(),
         State::Error(reason) => error_text(reason),
     }
 }
@@ -193,16 +222,37 @@ mod no_video_tests {
     /// sends nothing: no error, no event, no warning. Both surfaces used to
     /// answer with an unqualified "streaming", which is a positive claim about
     /// something that was not happening.
+    ///
+    /// The tray arm is checked over **both** languages, because `tray_status`
+    /// used to read the global locale while this assertion hard-coded Chinese —
+    /// so the test passed on a Chinese machine and failed everywhere else, which
+    /// is how it reached `main` broken. `state_line` still reads the global
+    /// locale (it is console output, and there is nothing to parameterise from
+    /// here), so it is checked against the locale it will actually use.
     #[test]
     fn a_connected_phone_that_sends_nothing_does_not_say_streaming() {
-        for line in [state_line(&streaming(), false), tray_status(&streaming(), false)] {
+        let console = state_line(&streaming(), false);
+        let console_waiting = if crate::i18n::is_chinese() {
+            "等待画面"
+        } else {
+            "waiting for video"
+        };
+        assert!(
+            console.contains(console_waiting),
+            "the console line does not say it is waiting: {console}"
+        );
+
+        for zh in [true, false] {
+            let waiting = if zh { "等待画面" } else { "waiting for video" };
+            let streaming_word = if zh { "正在投屏" } else { "Streaming from" };
+            let line = tray_status(&streaming(), false, zh);
             assert!(
-                !line.contains("正在投屏") || line.contains("等待画面"),
-                "claims to be streaming with no frames: {line}"
+                !line.contains(streaming_word) || line.contains(waiting),
+                "claims to be streaming with no frames (zh={zh}): {line}"
             );
             assert!(
-                line.contains("等待画面") || line.contains("waiting for video"),
-                "does not say it is waiting: {line}"
+                line.contains(waiting),
+                "does not say it is waiting (zh={zh}): {line}"
             );
         }
     }
@@ -211,26 +261,63 @@ mod no_video_tests {
     /// for another.
     #[test]
     fn a_connected_phone_that_is_sending_says_so_plainly() {
-        for line in [state_line(&streaming(), true), tray_status(&streaming(), true)] {
+        let console = state_line(&streaming(), true);
+        let console_waiting = if crate::i18n::is_chinese() {
+            "等待画面"
+        } else {
+            "waiting for video"
+        };
+        assert!(
+            !console.contains(console_waiting),
+            "the console says it is waiting while frames arrive: {console}"
+        );
+        for zh in [true, false] {
+            let waiting = if zh { "等待画面" } else { "waiting for video" };
+            let line = tray_status(&streaming(), true, zh);
             assert!(
-                !line.contains("等待画面") && !line.contains("waiting for video"),
-                "says it is waiting while frames are arriving: {line}"
+                !line.contains(waiting),
+                "says it is waiting while frames are arriving (zh={zh}): {line}"
             );
         }
     }
 
     /// Latency with zero decoded frames measures nothing, so it must not appear
     /// in place of the waiting notice.
+    ///
+    /// This is the assertion that failed on a non-Chinese machine and passed on a
+    /// Chinese one — the whole test's verdict was a property of the locale, not
+    /// of the code. Both languages are checked now, so neither machine can be the
+    /// one that hides a regression.
     #[test]
     fn a_latency_reading_never_replaces_the_waiting_notice() {
         let with_ping = State::Streaming {
             name: "iPhone".into(),
             latency_ms: 12,
         };
-        let line = tray_status(&with_ping, false);
-        assert!(line.contains("等待画面"), "{line}");
-        assert!(!line.contains("12 ms"), "{line}");
-        // With frames, the same reading is worth showing.
-        assert!(tray_status(&with_ping, true).contains("12 ms"));
+        for zh in [true, false] {
+            let waiting = if zh { "等待画面" } else { "waiting for video" };
+            let line = tray_status(&with_ping, false, zh);
+            assert!(line.contains(waiting), "zh={zh} {line}");
+            assert!(!line.contains("12 ms"), "zh={zh} {line}");
+            // With frames, the same reading is worth showing.
+            assert!(
+                tray_status(&with_ping, true, zh).contains("12 ms"),
+                "zh={zh}: the reading vanished once frames arrived"
+            );
+        }
+    }
+
+    /// The tray row is the whole product on Windows — there is no main window —
+    /// so it has to render in the language it claims to. Asserting a Chinese
+    /// literal against an English render is how the test above was passing on the
+    /// wrong machine.
+    #[test]
+    fn the_tray_row_renders_in_the_language_it_is_asked_for() {
+        let zh = tray_status(&streaming(), false, true);
+        let en = tray_status(&streaming(), false, false);
+        assert!(zh.contains("等待画面"), "{zh}");
+        assert!(en.contains("waiting for video"), "{en}");
+        assert!(!en.contains("等待画面"), "English row leaked Chinese: {en}");
+        assert!(!zh.contains("waiting for video"), "Chinese row leaked English: {zh}");
     }
 }

@@ -93,13 +93,15 @@ fn feature_state_keys() {
         active_surface: Surface::Trackpad,
         camera_position: CameraPosition::Back,
         screen_on: true,
+        speaker_on: true,
         timestamp_micros: 0,
     };
     assert_keys(
         &s,
         &[
             "cameraOn", "micOn", "voiceOn", "trackpadOn", "keyboardOn",
-            "activeSurface", "cameraPosition", "screenOn", "timestampMicros",
+            "activeSurface", "cameraPosition", "screenOn", "speakerOn",
+            "timestampMicros",
         ],
     );
 }
@@ -112,6 +114,35 @@ fn feature_state_decodes_without_screen_on() {
         "keyboardOn":true,"activeSurface":"trackpad","cameraPosition":"back","timestampMicros":1}"#;
     let snap: FeatureStateSnapshot = serde_json::from_str(json).unwrap();
     assert!(!snap.screen_on);
+}
+
+/// The same obligation for `speakerOn`, and it is the one field whose absence
+/// has a consequence rather than just a default: `speakerOn` is the ONLY thing
+/// that starts the loopback capture, so a phone build that predates the feature
+/// must read as "not asking" instead of failing the decode and taking camera,
+/// mic and mirror control down with it (rule 2).
+#[test]
+fn feature_state_decodes_without_speaker_on() {
+    let json = r#"{"cameraOn":true,"micOn":false,"voiceOn":false,"trackpadOn":true,
+        "keyboardOn":true,"activeSurface":"trackpad","cameraPosition":"back","timestampMicros":1}"#;
+    let snap: FeatureStateSnapshot = serde_json::from_str(json).unwrap();
+    assert!(!snap.speaker_on);
+}
+
+/// The previous on-the-wire shape must load with NOTHING lost — not just with
+/// the new key defaulted. `assert_keys` above pins what we send; this pins that
+/// a phone which never heard of the speaker still controls everything else.
+#[test]
+fn a_snapshot_from_before_the_speaker_keeps_every_field_it_had() {
+    let json = r#"{"cameraOn":true,"micOn":true,"voiceOn":false,"trackpadOn":true,
+        "keyboardOn":false,"activeSurface":"keyboard","cameraPosition":"front",
+        "screenOn":true,"timestampMicros":4242}"#;
+    let snap: FeatureStateSnapshot = serde_json::from_str(json).unwrap();
+    assert!(snap.camera_on && snap.mic_on && snap.trackpad_on && snap.screen_on);
+    assert!(!snap.voice_on && !snap.keyboard_on && !snap.speaker_on);
+    assert_eq!(snap.active_surface, Surface::Keyboard);
+    assert_eq!(snap.camera_position, CameraPosition::Front);
+    assert_eq!(snap.timestamp_micros, 4242);
 }
 
 #[test]

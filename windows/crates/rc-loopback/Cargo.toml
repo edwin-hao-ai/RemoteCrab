@@ -1,0 +1,36 @@
+[package]
+name = "rc-loopback"
+description = "WASAPI loopback capture for the RemoteCrab receiver (use the iPhone as the speaker)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# No rc-* dependency on purpose. This crate is a capture surface and nothing
+# else: the decision of *when* to capture belongs to the app layer, so that the
+# policy (follow the phone's echoed state, never act on the request twice) can
+# be tested without an audio device. Same split as `rc-notify`.
+
+[target.'cfg(windows)'.dependencies]
+# The COM/WASAPI surface.
+#
+# Target-gated, and this crate exists partly because of that: `windows` pulls in
+# features whose generated code cannot compile for a non-Windows host, so
+# putting them in a crate that is only ever built for Windows is what keeps
+# `cargo test` running everywhere. The pure logic that CAN be tested anywhere
+# (the ring's index ownership, the sample-format and rate conversion) lives in
+# this crate's own modules rather than behind `cfg`, so the parts most likely
+# to be wrong do not need a Windows machine to cover.
+windows = { version = "0.62", features = [
+    "Win32_Media_Audio",
+    # `IAudioEndpointVolume`, which is the only lever for "the PC goes quiet
+    # while the phone plays" on Windows. Not in `Win32_Media_Audio`.
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    # `Win32_Foundation` for `CoTaskMemFree` / `RPC_E_CHANGED_MODE`.
+    "Win32_Foundation",
+    # `IMMDevice::Activate` is gated on this one as well as StructuredStorage.
+    "Win32_System_Variant",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Devices_FunctionDiscovery",
+] }

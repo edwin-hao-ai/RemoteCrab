@@ -161,3 +161,74 @@ real Windows machine. It is **not** in this document because none of it is
 caused by the Windows receiver — it all needs the new iOS build in the phone and
 then a human ticking boxes. See those files; this one is only about what the
 Windows session measured.
+---
+
+## 6. Speaker mode: two iOS-side defects, measured from the Windows session
+
+Windows 侧把扬声器采集实现完了（`docs/WINDOWS-SPEAKER-2026-10-04.md`），
+所以下面两条**现在是可以修的了**，而且第 6.1 条**必须先修**，
+否则打开 Windows 的扬声器入口会打开一个陷阱。
+
+### 6.1 🔴 The saved speaker habit silently switches the microphone OFF on Windows
+
+`RemoteCrabCapture/CaptureEngine.swift:1635`, on every accepted session:
+
+```swift
+if UserDefaults.standard.bool(forKey: Self.speakerHabitKey), !features.speakerOn {
+    features.set(feature: .microphone, enabled: false)
+    features.set(feature: .speaker, enabled: true)
+}
+```
+
+**There is no `connectedIsWindows` check here.** The gate is only on the menu item
+(`ContentView.swift:759`). The chain, all of it verified by reading the code rather
+than guessing:
+
+1. the user turns the speaker on once with a Mac, so `remotecrab.ios.speakerOn` is
+   persisted;
+2. they connect to a Windows receiver instead;
+3. the block above runs: **microphone off**, speaker on;
+4. `AudioModeArbiter.resolve` puts the speaker above the microphone
+   (`AudioModeArbiter.swift:62`), so `wantsMicrophone == false` — the microphone
+   genuinely stops streaming and the session goes to `.playback`;
+5. the top bar shows `speaker.wave.2.fill`, tinted as active
+   (`ContentView.swift:790`) — and the menu it opens has **no speaker row**, because
+   that row is behind `if speakerAvailable`.
+
+So the state is visible and the action is unreachable, and the microphone the user
+believes is streaming is not. That is rule 1 twice over.
+
+**Fix**: a pure function in `RemoteCrabCore` (so it can be tested),
+`speaker::shouldRestore(habit:connectedIsWindows:)` plus a test, then one added
+condition:
+
+```swift
+if UserDefaults.standard.bool(forKey: Self.speakerHabitKey),
+   !features.speakerOn,
+   !connectedIsWindows {
+```
+
+**Why it has to land before `ContentView.swift:759` is deleted.** With the habit
+path still unfixed, removing that gate gives a Windows user a speaker toggle they
+cannot switch off. Fix the gate, then open the entry.
+
+### 6.2 The 4d shape assertion cannot pass, and the reason is a running average
+
+`SpeakerPlayer.swift:203-214`: the envelope character is derived from
+`receivedRms`, which is a **cumulative average over the whole capture**
+(`energySum += sum`, `energyCount += count`, reset only in `start()`).
+
+A cumulative mean of "eight notes with gaps" converges to the notes' level, so the
+gap can never appear — **the plateau is arithmetic, not "the tap missed the
+gaps"**. The per-packet `sum` and `count` are already computed in `enqueue` (for
+`peak`), so using `sqrt(sum/count)` for the digit gives the shape directly:
+a gap lands on 0, a note near 7.
+
+**The same root cause weakens 4c.** `pcmRms > 500` is the same cumulative average,
+so it stays high after the audio stops and cannot detect "the sound stopped". Since
+`docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md` §6 tells the Windows session to copy
+4c and 4d specifically, **copy the fixed versions, not these**.
+
+**Why this session did not patch it**: no Swift toolchain on this machine, so not
+even a compile was possible. AGENTS.md's own rule — a change you cannot verify is
+worse than a handoff with numbers — wins over the urge to just do it.

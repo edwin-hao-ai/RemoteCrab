@@ -26,10 +26,27 @@ pub struct StreamStats {
     pub latency_history: Vec<i64>,
     /// Decoded frame size, once a frame has been decoded.
     pub resolution: Option<(u32, u32)>,
-    /// Frames per second, measured over a short window.
+    /// Frames per second, **measured** over a short window from the frames that
+    /// actually arrived.
     pub fps: Option<f64>,
-    /// Bits per second of incoming video, from the phone's own metadata.
+    /// Bits per second of incoming video, **measured** from the bytes that
+    /// actually arrived.
+    ///
+    /// Not the number the phone asked for: see [`Self::requested_bitrate_bps`],
+    /// which is kept because it is genuinely informative — just not as a
+    /// measurement.
     pub bitrate_bps: Option<u64>,
+    /// The rate the phone **asked** for, in `IBStreamMetadata`.
+    ///
+    /// Worth keeping, and worth not confusing with the line above. Measured on
+    /// iOS 26: `kVTCompressionPropertyKey_Quality` *overrides*
+    /// `kVTCompressionPropertyKey_AverageBitRate` entirely — asking for 6,220
+    /// kbps and for 9,331 kbps produced **byte-identical** output — so this
+    /// number has no relationship to the stream that follows it. A readout that
+    /// presented it as the bitrate taught a Windows user to "measure" the
+    /// phone's own request and call it proof (`docs/lessons/ios-device.md`,
+    /// lesson 137).
+    pub requested_bitrate_bps: Option<u64>,
     /// The last key the phone sent, as a short printable description.
     pub last_key: Option<String>,
     /// The last cursor position the trackpad asked for, in virtual-screen
@@ -55,11 +72,105 @@ pub struct StreamStats {
     pub last_key_at: Option<std::time::Instant>,
     /// When the last trackpad gesture arrived, for the same reason.
     pub last_touch_at: Option<std::time::Instant>,
+    /// The frame rate the phone says it is configured for. An expectation to
+    /// compare a measurement against, never shown as a reading.
+    pub expected_fps: Option<f64>,
+    /// The measured window. See [`VideoWindow`].
+    pub video: VideoWindow,
 }
 
 /// How many samples the sparkline keeps. Thirty is what the Mac's
 /// `latencyHistory` keeps, and it is about 60 s at the 2 s probe interval.
 const HISTORY: usize = 30;
+
+/// How long a measurement window runs before the readings are published.
+///
+/// Two seconds: long enough that a single dropped frame does not move the
+/// number a user would notice, short enough that the readout is not stale by the
+/// time they look at it. The Mac's control panel refreshes on the same kind of
+/// cadence.
+pub const VIDEO_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The accumulator behind the measured frame rate and bitrate.
+///
+/// Kept apart from [`StreamStats`] and driven by a pure `publish` so the
+/// arithmetic can be tested without waiting two seconds: the previous version of
+/// this readout had no measurement at all, and "testable without a clock" is the
+/// only reason the replacement has one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct VideoWindow {
+    frames: u64,
+    bytes: u64,
+    opened_at: Option<std::time::Instant>,
+    published_fps: Option<f64>,
+    published_bps: Option<u64>,
+}
+
+impl VideoWindow {
+    /// One frame's worth of traffic. `bytes` is the NAL payload length.
+    pub fn push(&mut self, bytes: u64, now: std::time::Instant) {
+        let opened = *self.opened_at.get_or_insert(now);
+        let elapsed = now.duration_since(opened);
+        if elapsed >= VIDEO_WINDOW {
+            // Close the window that just ended — which does NOT include this
+            // frame — and start the next one with it. Publishing first and then
+            // counting the trigger frame would silently drop it, and the loss
+            // would be one frame per window forever.
+            self.publish(elapsed);
+            self.frames = 0;
+            self.bytes = 0;
+            self.opened_at = Some(now);
+        }
+        self.frames += 1;
+        self.bytes += bytes;
+    }
+
+    /// Close the window and compute. Takes the elapsed time rather than assuming
+    /// the nominal one, so a frame that arrives late lowers the reading instead
+    /// of raising it.
+    fn publish(&mut self, elapsed: std::time::Duration) {
+        let seconds = elapsed.as_secs_f64();
+        if seconds <= 0.0 {
+            return;
+        }
+        if self.frames > 0 {
+            self.published_fps = Some(self.frames as f64 / seconds);
+        }
+        if self.bytes > 0 {
+            self.published_bps = Some((self.bytes as f64 * 8.0 / seconds) as u64);
+        }
+    }
+
+    pub fn fps(&self) -> Option<f64> {
+        self.published_fps
+    }
+
+    pub fn bitrate_bps(&self) -> Option<u64> {
+        self.published_bps
+    }
+
+    /// Live counters, for tests that need to check the boundary arithmetic
+    /// without waiting out a window. Read-only: publishing is `push`'s job.
+    #[cfg(test)]
+    pub fn frames(&self) -> u64 {
+        self.frames
+    }
+
+    #[cfg(test)]
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Seed a closed window directly. Test-only: the point of splitting `publish`
+    /// out was so the arithmetic can be checked without a two-second sleep.
+    #[cfg(test)]
+    pub fn publish_for_test(&mut self, frames: u64, bytes: u64) {
+        self.frames = frames;
+        self.bytes = bytes;
+        self.opened_at = Some(std::time::Instant::now());
+        self.publish(VIDEO_WINDOW);
+    }
+}
 
 impl StreamStats {
     /// A latency sample, pushed into the history.
@@ -79,22 +190,58 @@ impl StreamStats {
         if m.width > 0 && m.height > 0 {
             self.resolution = Some((m.width as u32, m.height as u32));
         }
-        if m.fps > 0 {
-            self.fps = Some(m.fps as f64);
-        }
+        // The requested rate and frame rate are recorded under their own names
+        // and NOT as the measurements. See the fields' doc comments: on iOS this
+        // number is inert, and calling it "bitrate" is what made it look like
+        // evidence.
         if m.bitrate_bps > 0 {
-            self.bitrate_bps = Some(m.bitrate_bps as u64);
+            self.requested_bitrate_bps = Some(m.bitrate_bps as u64);
         }
         if !m.device_name.trim().is_empty() {
             self.device_name = Some(m.device_name.trim().to_string());
         }
+        // `m.fps` is the phone's *configured* frame rate, not what it is
+        // delivering. It seeds the measurement window's expectation and is not
+        // shown as a reading; `record_video` produces the real one.
+        if m.fps > 0 {
+            self.expected_fps = Some(m.fps as f64);
+        }
+    }
+
+    /// A video NAL arrived, carrying `bytes` of payload.
+    ///
+    /// This is where the two real numbers come from. The receiver sees every
+    /// frame the phone sends, so counting them is not an estimate — and it is the
+    /// only way to report a bitrate that means anything.
+    pub fn record_video_bytes(&mut self, bytes: usize) {
+        self.record_video_window(bytes);
     }
 
     /// A decoded frame arrived, so the camera is demonstrably on.
+    ///
+    /// `width`/`height` of 0 mean "not known here" and leave the resolution
+    /// alone. The obvious earlier signature took them unconditionally, and the
+    /// only caller had no dimensions to hand — so the very first frame replaced
+    /// the metadata's real 1920x1080 with **0x0**, and the tray then displayed
+    /// "Resolution 0x0" for the rest of the session. A row that is wrong in a
+    /// way that looks like a measurement is worse than no row.
     pub fn record_video(&mut self, width: u32, height: u32) {
-        self.resolution = Some((width, height));
+        if width > 0 && height > 0 {
+            self.resolution = Some((width, height));
+        }
         self.camera_note = None;
         self.last_frame = Some(std::time::Instant::now());
+        self.record_video_window(0);
+    }
+
+    fn record_video_window(&mut self, bytes: usize) {
+        self.video.push(bytes as u64, std::time::Instant::now());
+        if let Some(f) = self.video.fps() {
+            self.fps = Some(f);
+        }
+        if let Some(b) = self.video.bitrate_bps() {
+            self.bitrate_bps = Some(b);
+        }
     }
 
     /// Describe a key the way a person would recognise it.
@@ -349,6 +496,13 @@ pub fn detail_rows(s: &StreamStats) -> Vec<(String, String)> {
     if let Some(bps) = s.bitrate_bps {
         rows.push((t("码率", "Bitrate"), format_bitrate(bps)));
     }
+    // The phone's REQUEST, as its own row and labelled as one. It used to BE the
+    // row above, which made an inert number look like a measurement — and a user
+    // who trusted it drew conclusions about picture quality from the phone's own
+    // ask rather than from the pixels.
+    if let Some(want) = s.requested_bitrate_bps {
+        rows.push((t("手机请求码率", "Requested bitrate"), format_bitrate(want)));
+    }
     if let Some(ms) = s.latency_ms {
         rows.push((
             t("延迟", "Latency"),
@@ -431,7 +585,7 @@ mod readout_tests {
     }
 
     #[test]
-    fn the_phone_name_resolution_frame_rate_and_bitrate_all_appear() {
+    fn the_phone_name_and_resolution_appear_from_metadata() {
         let mut s = StreamStats::default();
         s.record_metadata(&rc_protocol::StreamMetadata {
             version: 1,
@@ -450,14 +604,145 @@ mod readout_tests {
             label(&rows, "分辨率", "Resolution").as_deref(),
             Some("1080x1920")
         );
-        assert_eq!(
-            label(&rows, "帧率", "Frame rate").as_deref(),
-            Some("30 fps")
+    }
+
+    /// The test that used to live here asserted `帧率 = 30 fps` and
+    /// `码率 = 2.4 Mbps` straight out of `IBStreamMetadata` — it pinned the lie.
+    ///
+    /// Both of those numbers are things the phone *asked for*. Measured on iOS
+    /// 26, `kVTCompressionPropertyKey_Quality` overrides `AverageBitRate`
+    /// entirely (asking for 6,220 kbps and 9,331 kbps produced byte-identical
+    /// output), so presenting the request as the measurement is not a rounding
+    /// issue — it is a number with no relationship to the stream. This asserts
+    /// the request appears, labelled as a request, and that **neither reading
+    /// appears before anything has been measured**.
+    #[test]
+    fn a_phones_request_is_not_shown_as_a_measurement() {
+        let mut s = StreamStats::default();
+        s.record_metadata(&rc_protocol::StreamMetadata {
+            version: 1,
+            device_name: "iPhone".into(),
+            width: 1080,
+            height: 1920,
+            fps: 30,
+            bitrate_bps: 2_400_000,
+            codec: "h264".into(),
+            sps: None,
+            pps: None,
+        });
+        assert_eq!(s.requested_bitrate_bps, Some(2_400_000));
+        // The configured frame rate is an expectation, not a reading.
+        assert_eq!(s.expected_fps, Some(30.0));
+        assert_eq!(s.fps, None, "a frame rate appeared with no frames");
+        assert_eq!(s.bitrate_bps, None, "a bitrate appeared with no bytes");
+
+        let rows = detail_rows(&s);
+        assert!(
+            label(&rows, "帧率", "Frame rate").is_none(),
+            "an unmeasured frame rate is on screen: {rows:?}"
         );
+        assert!(
+            label(&rows, "码率", "Bitrate").is_none(),
+            "an unmeasured bitrate is on screen: {rows:?}"
+        );
+        // The request is still visible, under its own name.
         assert_eq!(
-            label(&rows, "码率", "Bitrate").as_deref(),
+            label(&rows, "手机请求码率", "Requested bitrate").as_deref(),
             Some("2.4 Mbps")
         );
+    }
+
+    /// …and once bytes HAVE arrived, the reading is the bytes. A phone asking
+    /// for 2.4 Mbps while sending 8 Mbps must show 8 Mbps, because that is what
+    /// the link is carrying.
+    #[test]
+    fn the_measured_bitrate_is_the_bytes_that_arrived() {
+        let mut s = StreamStats::default();
+        s.record_metadata(&rc_protocol::StreamMetadata {
+            version: 1,
+            device_name: "iPhone".into(),
+            width: 1080,
+            height: 1920,
+            fps: 30,
+            bitrate_bps: 2_400_000,
+            codec: "h264".into(),
+            sps: None,
+            pps: None,
+        });
+        // 2 s of 2 Mbps = 500_000 bytes.
+        s.video.publish_for_test(60, 500_000);
+        assert_eq!(s.video.frames(), 60);
+        assert_eq!(s.video.bytes(), 500_000);
+        s.record_video_bytes(0);
+        // 500_000 bytes over 2 s = 2_000_000 bits per second.
+        assert_eq!(s.bitrate_bps, Some(2_000_000));
+        assert_eq!(s.fps, Some(30.0));
+        let rows = detail_rows(&s);
+        assert!(label(&rows, "码率", "Bitrate").is_some());
+        assert!(label(&rows, "帧率", "Frame rate").is_some());
+    }
+
+    /// The regression that made the tray read "Resolution 0x0" for a whole
+    /// session: the only caller of `record_video` has no dimensions, and the
+    /// function used to store them unconditionally.
+    #[test]
+    fn a_frame_with_unknown_dimensions_does_not_erase_the_resolution() {
+        let mut s = StreamStats::default();
+        s.record_metadata(&rc_protocol::StreamMetadata {
+            version: 1,
+            device_name: "iPhone".into(),
+            width: 1920,
+            height: 1080,
+            fps: 30,
+            bitrate_bps: 9_331_200,
+            codec: "h264".into(),
+            sps: None,
+            pps: None,
+        });
+        s.record_video(0, 0);
+        assert_eq!(s.resolution, Some((1920, 1080)));
+        // …and a frame that DOES know its dimensions still updates it.
+        s.record_video(1280, 720);
+        assert_eq!(s.resolution, Some((1280, 720)));
+    }
+
+    /// The window's arithmetic, without waiting two seconds for it.
+    #[test]
+    fn the_measurement_window_publishes_only_over_a_full_window() {
+        let t0 = std::time::Instant::now();
+        let mut w = VideoWindow::default();
+        // Under the window: accumulating, nothing published.
+        for _ in 0..10 {
+            w.push(1000, t0);
+        }
+        assert_eq!(w.frames(), 10);
+        assert_eq!(w.fps(), None, "published before a window elapsed");
+        assert_eq!(w.bitrate_bps(), None);
+
+        // Cross it: the readings appear and the counters restart. The published
+        // numbers describe the window that just ENDED, so they are ten frames
+        // over two seconds — the frame that triggered publication opens the next
+        // window rather than being counted in this one.
+        w.push(1000, t0 + VIDEO_WINDOW);
+        assert_eq!(w.fps(), Some(10.0 / VIDEO_WINDOW.as_secs_f64()));
+        assert_eq!(w.bitrate_bps(), Some((10_000.0 * 8.0 / 2.0) as u64));
+        assert_eq!(w.frames(), 1, "the window did not restart");
+        assert_eq!(w.bytes(), 1000, "the triggering frame was lost");
+    }
+
+    /// A window with no bytes must not publish a bitrate of zero, which reads as
+    /// a measurement rather than as an absence.
+    #[test]
+    fn an_empty_window_publishes_no_bitrate() {
+        let t0 = std::time::Instant::now();
+        let mut w = VideoWindow::default();
+        for _ in 0..30 {
+            // Frames, but zero bytes: an encoder that produced nothing.
+            w.push(0, t0);
+        }
+        w.push(0, t0 + VIDEO_WINDOW);
+        assert_eq!(w.bitrate_bps(), None);
+        assert!(w.fps().is_some(), "the frame count is still real");
     }
 
     #[test]
