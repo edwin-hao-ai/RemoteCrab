@@ -959,7 +959,23 @@ final class ReceiverSession: ObservableObject {
     /// Idempotent, because the request can arrive from the phone's toggle,
     /// from the Mac's own menu row, and from a `featureState` replay after
     /// a reconnect — and each of those can fire twice.
-    func startSpeakerCapture(mute: SystemAudioTapMute = .muteWhileTapped) {
+    /// Whether the Mac's own speakers go quiet while the phone plays.
+    ///
+    /// Defaults to YES (AirPlay semantics), and it is a real preference rather
+    /// than a constant because the right answer depends on the machine: on a
+    /// Mac mini or a desktop with no speakers there is nothing to silence,
+    /// and a user who wants to hear both has no reason to be argued with.
+    /// Read with `object(forKey:)` rather than `bool(forKey:)` so "never set"
+    /// can mean true instead of silently meaning false.
+    static let speakerMutesLocalKey = "remotecrab.mac.speakerMutesLocal"
+
+    var speakerMutesLocal: Bool {
+        UserDefaults.standard.object(forKey: Self.speakerMutesLocalKey) as? Bool ?? true
+    }
+
+    func startSpeakerCapture(mute: SystemAudioTapMute? = nil) {
+        let mute = mute ?? (speakerMutesLocal ? SystemAudioTapMute.muteWhileTapped
+                                              : SystemAudioTapMute.keepLocalAudio)
         guard sessionGranted, let connection, connection.state == .ready else {
             speakerStatus = "Not connected — the phone cannot play audio from a Mac that is not connected."
             return

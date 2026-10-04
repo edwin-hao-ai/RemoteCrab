@@ -547,6 +547,47 @@ final class PairingTests: XCTestCase {
         XCTAssertTrue(MacPairingStore(defaults: defaults).seen.isEmpty)
     }
 
+    // MARK: - Which computers the picker lists
+
+    /// The regression: the row filter also compared **names**, so two
+    /// computers sharing a hostname meant one of them was not in the list at
+    /// all — you could not pick it, which is indistinguishable from "the
+    /// switch is broken".
+    func testTwoComputersWithTheSameNameAreBothListed() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "win-1", name: "EDWIN", platform: "windows"),
+            SeenComputer(id: "mac-1", name: "EDWIN", platform: "macos"),
+        ], connectedId: nil)
+        XCTAssertEqual(Set(rows.map(\.id)), ["win-1", "mac-1"])
+    }
+
+    func testTheConnectedComputerIsTheOnlyOneHidden() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "a", name: "Mac A", platform: "macos"),
+            SeenComputer(id: "b", name: "Mac B", platform: "macos"),
+            SeenComputer(id: "c", name: "Mac A", platform: "macos"),
+        ], connectedId: "a")
+        XCTAssertEqual(Set(rows.map(\.id)), ["b", "c"],
+                       "a same-named machine must survive its twin connecting")
+    }
+
+    /// A pending computer stays in the list on purpose: re-picking it is how
+    /// a stuck switch is recovered.
+    func testAPendingComputerIsStillListed() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "p", name: "New PC", platform: "windows"),
+        ], connectedId: nil)
+        XCTAssertEqual(rows.map(\.id), ["p"])
+    }
+
+    func testNothingConnectedListsEverything() {
+        let rows = MacPairingStore.pickerRows(seen: [
+            SeenComputer(id: "a", name: "A", platform: "macos"),
+            SeenComputer(id: "b", name: "B", platform: "macos"),
+        ], connectedId: nil)
+        XCTAssertEqual(rows.count, 2)
+    }
+
     /// `pruneStale` must guarantee no preference names a missing computer —
     /// even when the prune removed nothing. A preference for an id that was
     /// never in `seen` (which `setPreferred` accepts: it takes any string)
@@ -559,6 +600,78 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(store.seen.count, 1)
         XCTAssertFalse(store.pruneStale(), "nothing was removed")
         XCTAssertNil(store.preferredId, "the ghost preference survived a no-op prune")
+    }
+
+    // MARK: - The grace period on a computer switch
+    //
+    // A user picks a computer to switch to; the phone refuses every OTHER
+    // computer so the chosen one can take over. If the chosen one never
+    // arrives, that refusal used to last the full 10-minute TTL — so a
+    // single failed switch locked the phone out entirely, with the only
+    // escape a Cancel button the user has to know exists. Four real Mac
+    // states mean the chosen computer is not coming: asleep, on another
+    // network, denied (which schedules no retry at all), or auto-reconnect
+    // switched off.
+
+    func testTheDoorIsHeldWhileTheGraceIsRunning() {
+        let store = freshStore()
+        let armed = Date()
+        store.noteSeen(IBClientHello(name: "New PC", id: "target", platform: "windows"))
+        store.setPreferred(id: "target", name: "New PC", at: armed)
+        XCTAssertNotNil(store.effectivePreferred(now: armed.addingTimeInterval(5)),
+                        "a computer that might still arrive must be waited for")
+    }
+
+    func testTheDoorReopensOnceTheGraceIsSpent() {
+        let store = freshStore()
+        let armed = Date()
+        store.noteSeen(IBClientHello(name: "New PC", id: "target", platform: "windows"))
+        store.setPreferred(id: "target", name: "New PC", at: armed)
+        let after = armed.addingTimeInterval(MacPairingStore.preferredGrace + 1)
+        XCTAssertNil(store.effectivePreferred(now: after),
+                     "the door is still held — everyone is locked out for nothing")
+    }
+
+    /// Exactly at the boundary is spent, like the expiry TTL: which side of
+    /// `<` a refactor lands on must not change the answer.
+    func testTheGraceBoundaryIsExclusive() {
+        let store = freshStore()
+        let armed = Date()
+        store.setPreferred(id: "x", name: "X", at: armed)
+        XCTAssertNil(store.effectivePreferred(
+            now: armed.addingTimeInterval(MacPairingStore.preferredGrace)))
+    }
+
+    /// The 10-minute TTL is a different question and still applies: it is how
+    /// long the preference is remembered at all. The grace must therefore be
+    /// well inside it, or the grace is pointless.
+    func testTheGraceIsShorterThanTheTTL() {
+        XCTAssertLessThan(MacPairingStore.preferredGrace, MacPairingStore.preferredTTL)
+    }
+
+    /// And the grace has to outlast a `busy` Mac's only retry, which is 15 s
+    /// (`scheduleSlowRetry`). A shorter grace would abandon exactly the case
+    /// that was about to succeed.
+    func testTheGraceOutlastsTheMacsSlowRetry() {
+        XCTAssertGreaterThan(MacPairingStore.preferredGrace, 15)
+    }
+
+    /// No preference armed means nothing holds the door — the unchanged case.
+    func testNoPreferenceHoldsNothing() {
+        XCTAssertNil(freshStore().effectivePreferred())
+    }
+
+    /// The last recorded outcome, which is what lets the waiting banner say
+    /// *why*. `denied` is the important one: the Mac schedules no retry at
+    /// all, so without this the user waits for something that will never
+    /// happen.
+    func testTheChosenComputersLastOutcomeIsReadable() {
+        let store = freshStore()
+        store.noteSeen(IBClientHello(name: "New PC", id: "target", platform: "windows"))
+        XCTAssertNil(store.lastOutcome(for: "target"))
+        store.noteOutcome(.denied, for: "target")
+        XCTAssertEqual(store.lastOutcome(for: "target"), .denied)
+        XCTAssertNil(store.lastOutcome(for: "never-met"))
     }
 
     /// The one thing pruning must never do: touch the allow-list. An

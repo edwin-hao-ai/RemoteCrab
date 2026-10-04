@@ -22,7 +22,20 @@ public enum AudioMode: Sendable, Equatable {
     case speaker
 }
 
-/// Resolves feature flags into one audio mode.
+/// Resolves the two INDEPENDENT flags (`micOn`, `speakerOn`) into the one
+/// mode the hardware can actually be in.
+///
+/// The flags stay separate on purpose — the user-facing controls are two
+/// toggles sharing one dropdown, like the mirror menu's two sources, and the
+/// computer's control panel shows them as two features. This type is the
+/// SAFETY layer underneath: the two cannot both be on, so something has to
+/// decide which one wins when a snapshot or a reconnect says both are.
+///
+/// The phone cannot stream its microphone to the computer and play the
+/// computer's audio back at the same time — one `AVAudioSession`, two
+/// directions. So the tie is broken here rather than in the UI, which keeps
+/// the two controls independent while making the impossible state
+/// unreachable.
 ///
 /// Precedence, and why:
 ///

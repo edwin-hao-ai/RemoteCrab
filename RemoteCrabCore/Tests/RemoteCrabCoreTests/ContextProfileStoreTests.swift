@@ -118,11 +118,11 @@ final class ContextProfileStoreTests: XCTestCase {
         let merged = ContextProfileStore.merge(builtin: [b], user: [u], remote: [])
         let app = IBAppInfo(id: "com.example.terminal", name: "Term", pid: 1,
                             isActive: true, iconPNG: nil)
-        XCTAssertEqual(ContextProfiles.profile(for: app, in: merged).title, "Mine")
+        XCTAssertEqual(ContextProfiles.profile(for: app, platform: .mac, in: merged).title, "Mine")
         // And the built-in's own app no longer resolves, since the
         // override replaced it wholesale rather than merging.
         let old = IBAppInfo(id: "com.apple.Terminal", name: "Term", pid: 1,
                             isActive: true, iconPNG: nil)
-        XCTAssertEqual(ContextProfiles.profile(for: old, in: merged).id, "console")
+        XCTAssertEqual(ContextProfiles.profile(for: old, platform: .mac, in: merged).id, "console")
     }
 }

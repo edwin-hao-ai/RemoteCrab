@@ -138,6 +138,34 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertEqual(zh?["value"] as? String, "电脑")
     }
 
+    /// A state a user is stuck in must name the place the action lives.
+    ///
+    /// The Mac's busy line used to say only "already in use by X", leaving
+    /// one button — **Retry** — that cannot succeed while another computer
+    /// holds the phone. The honest next step (use Choose a Computer on the
+    /// iPhone) was discoverable nowhere. This is AGENTS.md's rule that the
+    /// line stating what is happening must also state what to do.
+    func testTheBusyMessageSaysWhereTheActionLives() {
+        let text = IBLocale.Error.iphoneBusy("EDWIN")
+        XCTAssertTrue(text.contains("iPhone"),
+                      "the message never says which device to go to: \(text)")
+        XCTAssertTrue(text.lowercased().contains("choose a computer"),
+                      "the message does not name the control to use: \(text)")
+        XCTAssertTrue(text.contains("Retry"),
+                      "the message should say that Retry alone will not work: \(text)")
+    }
+
+    /// And the switch itself has to be visible outside the picker, with an
+    /// action — otherwise a working switch is indistinguishable from a failed
+    /// one, which is exactly the complaint.
+    func testTheSwitchBannerHasBothStateAndAction() {
+        let title = IBLocale.Pairing.switchingTo("MacBook Pro")
+        XCTAssertTrue(title.contains("MacBook Pro"), "the banner never names the target")
+        let hint = IBLocale.Pairing.switchingHint
+        XCTAssertTrue(hint.lowercased().contains("disconnect"),
+                      "the hint offers no way out: \(hint)")
+    }
+
     /// A VoiceOver label must name the action the key actually performs.
     ///
     /// The Windows chord row reuses the Mac row's *layout* but its keys do

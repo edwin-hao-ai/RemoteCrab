@@ -751,43 +751,85 @@ struct ContentView: View {
             // that is absent, because the user cannot tell which half they
             // got. Re-enable this the moment the Windows receiver captures
             // loopback audio.
+            // The Windows receiver does not send kind 0x24 yet, so the
+            // speaker entry is hidden there rather than shipped as a control
+            // that does nothing — the same call the mirror menu makes for
+            // Extended Display. Re-enable it the moment the Windows receiver
+            // captures loopback audio.
             let speakerAvailable = !engine.connectedIsWindows
 
+            // TWO independent features behind one button, exactly like the
+            // mirror menu below: the microphone streams this phone's input to
+            // the computer, the speaker plays the computer's audio out of this
+            // phone, and each is its own toggle with its own checkmark.
+            //
+            // They ARE mutually exclusive in practice — one AVAudioSession,
+            // two directions — and that is enforced in the engine
+            // (`setAudioMode` stands the other one down), not by pretending
+            // here that they are one three-way setting. Keeping them as two
+            // flags is what lets the Mac's control panel, the menu checkmark
+            // and the icon all describe them the same way.
             Menu {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.microphone) }
+                    withAnimation(IBAnimation.snappy) { engine.toggleMicrophone() }
                 } label: {
                     Label(IBLocale.Mic.modeMicrophone,
-                          systemImage: audioMode == .microphone ? "checkmark" : "mic.fill")
+                          systemImage: engine.features.micOn ? "checkmark" : "mic.fill")
                 }
                 if speakerAvailable {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(IBAnimation.snappy) { engine.setAudioMode(.speaker) }
+                        withAnimation(IBAnimation.snappy) { engine.toggleSpeaker() }
                     } label: {
                         Label(IBLocale.Speaker.modeSpeaker,
-                              systemImage: audioMode == .speaker ? "checkmark" : "speaker.wave.2.fill")
+                              systemImage: engine.features.speakerOn ? "checkmark" : "speaker.wave.2.fill")
                     }
-                }
-                Divider()
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.idle) }
-                } label: {
-                    Label(IBLocale.Mic.modeOff,
-                          systemImage: audioMode == .idle ? "checkmark" : "mic.slash")
                 }
             } label: {
                 topBarIcon(audioModeIcon, tint: .white,
-                           active: audioMode != .idle,
-                           activeColor: audioMode == .microphone ? IBColor.recording : .accentColor)
+                           active: engine.features.micOn || engine.features.speakerOn,
+                           activeColor: engine.features.micOn ? IBColor.recording : .accentColor)
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .accessibilityLabel(IBLocale.A11y.audioMode)
             .accessibilityValue(audioModeAccessibilityValue)
             .accessibilityHint(IBLocale.A11y.audioModeHint)
+            // The top bar carries no text labels at all, so a capability the
+            // user does not already know about is invisible. One line, shown
+            // only until they have opened this menu once — then it stops being
+            // in the way. Same pattern as the camera-off guidance in the
+            // placeholder.
+            .overlay(alignment: .top) {
+                // A real failure OUTRANKS the discoverability hint: rule 1 is
+                // that a state which is not "working" owes the user a reason,
+                // and a hint about a button that does not work is noise.
+                if let status = engine.speakerStatus {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.black.opacity(0.82)) }
+                        .offset(y: 52)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                } else if showAudioModeHint && !hasSeenAudioModeHint {
+                    Text(IBLocale.Speaker.discoverHint)
+                        .font(IBFont.eyebrowMono)
+                        .ibEyebrowTracking()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background { Capsule().fill(Color.black.opacity(0.72)) }
+                        .offset(y: 52)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                }
+            }
+            .onChange(of: showAudioModeHint) { _, _ in }
 
             // Mirror + Extended Display are two parallel SOURCES for the
             // same viewer, so they share one dropdown; the checkmark marks
@@ -900,6 +942,14 @@ struct ContentView: View {
         }
     }
 
+    /// The one-time "this button also plays your computer's sound" hint.
+    /// Gated on having connected once (so it never appears during onboarding)
+    /// and dismissed permanently the first time the menu is opened.
+    private var showAudioModeHint: Bool { engine.connectedMacId != nil }
+    private var hasSeenAudioModeHint: Bool {
+        UserDefaults.standard.bool(forKey: "remotecrab.ios.sawAudioModeHint")
+    }
+
     /// Resolved once so the icon, the menu checkmark and the accessibility
     /// value can never disagree about what the phone is doing.
     private var audioMode: AudioMode {
@@ -991,6 +1041,27 @@ struct ContentView: View {
 
     /// Non-nil only for states worth surfacing; connected/idle are silent.
     private var currentAlert: StatusAlert? {
+        // A switch in progress outranks every other state, including
+        // "connected" and "idle" — which is exactly the gap that made
+        // switching feel broken. Tapping a computer in the picker calls
+        // `setPreferredComputer`, which drops the current owner, and
+        // `clearOwner(.disconnected)` sets `.idle`. Both of those return
+        // nil below, so the phone went from "streaming from Windows" to
+        // "no message at all" with nothing on screen to say a switch had
+        // even started. The user could not tell a working switch from a
+        // broken one, which is the whole complaint.
+        if let preferred = engine.preferredMac {
+            return StatusAlert(symbol: "arrow.triangle.2.circlepath",
+                               tint: IBColor.accent,
+                               title: IBLocale.Pairing.switchingTo(preferred.name),
+                               subtitle: IBLocale.Pairing.switchingHint)
+        }
+        if let gaveUp = engine.preferredGaveUp {
+            return StatusAlert(symbol: "door.left.hand.open",
+                               tint: IBColor.warning,
+                               title: IBLocale.Pairing.preferredGaveUp(gaveUp.name),
+                               subtitle: nil)
+        }
         switch engine.connectionState {
         case .connected, .idle:
             return nil
@@ -1396,6 +1467,20 @@ private struct ConnectionSheet: View {
                             Text(IBLocale.Pairing.connectedNow)
                                 .font(IBFont.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    // Releasing the computer that has you is a thing people
+                    // want to do *while using it* — it is currently three
+                    // taps away and filed under a button labelled "Choose a
+                    // computer", which does not say what it does. One tap,
+                    // named for what it does. Not a debug affordance: "stop
+                    // controlling my phone's input" is an ordinary request,
+                    // and the alternative was a 10-minute lockout.
+                    if engine.connectedMacName != nil {
+                        Button(role: .destructive) {
+                            engine.disconnectCurrentMac()
+                        } label: {
+                            Label(IBLocale.Pairing.disconnect, systemImage: "eject")
                         }
                     }
                     Button {

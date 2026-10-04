@@ -86,6 +86,9 @@ final class CaptureEngine: ObservableObject {
     /// The Mac the user picked in the Mac picker — it takes over on its
     /// next connect while others are answered "busy".
     @Published private(set) var preferredMac: PairedMac?
+    /// Set for one refresh when a switch stops holding the door, so the picker
+    /// can say so instead of having its banner silently disappear.
+    @Published private(set) var preferredGaveUp: PairedMac?
     /// Name of the Mac currently owning the session, if any.
     @Published private(set) var connectedMacName: String?
     /// Stable id of the owning Mac (matches `PairedMac.id`).
@@ -264,6 +267,14 @@ final class CaptureEngine: ObservableObject {
     private var speakerPlayer = SpeakerPlayer()
     private var speakerTickTask: Task<Void, Never>?
     private var speakerProgressTick = 0
+
+    /// Remembered across launches, like the camera and NOT like the mic.
+    /// The microphone deliberately does not persist (restoring `micOn`
+    /// would start recording the moment the app launches, which is a
+    /// privacy surprise); the speaker only starts the Mac sending audio, and
+    /// still requires a live session, so restoring it is a convenience with
+    /// no surprise attached.
+    private static let speakerHabitKey = "remotecrab.ios.speakerOn"
     /// Why the speaker is not playing, when it should be. Surfaced because a
     /// control that fails silently is worse than one that is not there.
     @Published private(set) var speakerStatus: String?
@@ -370,6 +381,23 @@ final class CaptureEngine: ObservableObject {
         // decides if "use the iPhone as the computer's speaker" is possible.
         // Inert unless REMOTECRAB_E2E_AUDIOSESSION=1.
         AudioSessionProbe.runIfRequested()
+        // E2E: "use the iPhone as the speaker".
+        //
+        // Fired at LAUNCH rather than after the session is accepted, on
+        // purpose: the real run asserts from the Mac's receiver log, and a
+        // phone-side smoke test (does the mode switch, the session claim and
+        // the player survive being turned on) needs no Mac at all. Anchoring
+        // it to the connection meant a simulator could never exercise the
+        // path, which is exactly where a crash in it would be cheapest to
+        // find.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SPEAKER"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(3))
+                guard let self else { return }
+                self.setAudioMode(.speaker)
+                Forensic.log("[e2e] speaker mode requested")
+            }
+        }
 
         features.onChange = { [weak self] snapshot in
             self?.handleFeaturesChanged(snapshot)
@@ -1490,8 +1518,14 @@ final class CaptureEngine: ObservableObject {
                 return
             }
         }
+        // `effectivePreferred`, not `preferred`: once the 30 s grace is spent
+        // this is nil, so the policy sees "no preference" and the door is open
+        // to every computer again. Aiming it at `preferred` here is what made
+        // one failed switch lock the phone out for ten minutes — the chosen
+        // computer was asleep or had been denied, and it still refused
+        // everyone else until the TTL ran out.
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
-                                            preferred: pairingStore.preferred)
+                                            preferred: pairingStore.effectivePreferred())
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
@@ -1596,23 +1630,17 @@ final class CaptureEngine: ObservableObject {
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MIC"] == "1", !features.micOn {
             features.set(feature: .microphone, enabled: true)
         }
-        // E2E: "use the iPhone as the speaker". Turned on ~3 s after the
-        // session is accepted, so the Mac has finished its handshake and the
-        // phone is not competing with the pairing prompt. Asserted from the
-        // Mac's receiver log ("speaker capture started") and from the phone's
-        // own forensic log ("mode=speaker", then packets arriving).
-        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_SPEAKER"] == "1" {
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(3))
-                guard let self else { return }
-                self.setAudioMode(.speaker)
-                Forensic.log("[e2e] speaker mode requested")
-            }
-        }
         // E2E asserts on live video; the product default is camera-off,
         // so headless runs opt back in explicitly.
         if ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1", !features.cameraOn {
             features.set(feature: .camera, enabled: true)
+        }
+        // The speaker is resumed the way the camera is: it only takes effect
+        // once a session exists, so restoring it here cannot capture anything
+        // on a Mac we are not connected to.
+        if UserDefaults.standard.bool(forKey: Self.speakerHabitKey), !features.speakerOn {
+            features.set(feature: .microphone, enabled: false)
+            features.set(feature: .speaker, enabled: true)
         }
         syncAudioMode(features)
         // Resume the mirror if it was on when the link dropped. No-op when
@@ -2205,7 +2233,17 @@ final class CaptureEngine: ObservableObject {
 
     private func refreshPairedMacs() {
         pairedMacs = pairingStore.paired
-        preferredMac = pairingStore.preferred
+        // The banner must follow the **effective** preference, not the armed
+        // one: once the grace is spent the door is open to everyone, so a
+        // banner still saying "waiting" would be the same class of lie as the
+        // buttons that used to say "Safari" on a PC.
+        let effective = pairingStore.effectivePreferred()
+        if preferredMac != nil, effective == nil {
+            preferredGaveUp = preferredMac
+        } else if preferredMac == nil {
+            preferredGaveUp = nil
+        }
+        preferredMac = effective
         seenComputers = pairingStore.seen
     }
 
@@ -2223,6 +2261,23 @@ final class CaptureEngine: ObservableObject {
             disconnectCurrentMac()
         }
     }
+
+    /// What the chosen computer's last attempt produced, for the waiting
+    /// banner to explain itself with.
+    func preferredOutcome(for id: String) -> AttemptOutcome? {
+        pairingStore.lastOutcome(for: id)
+    }
+
+    /// When the current preference was armed, so the picker can time its
+    /// wait-out to the grace period.
+    var preferredArmedAt: Date? { pairingStore.preferredArmedAt }
+
+    /// Forget the "gave up waiting for X" notice.
+    func clearPreferredGaveUp() { preferredGaveUp = nil }
+
+    /// Called when the picker's wait-out timer fires: re-read the preference
+    /// so a lapsed grace is noticed even though nothing knocked.
+    func recheckPreferredMac() { refreshPairedMacs() }
 
     /// Drop computer rows the picker should no longer offer: identities a
     /// receiver has superseded, and machines long gone. Purely a display +
@@ -2751,29 +2806,63 @@ final class CaptureEngine: ObservableObject {
         Forensic.log("[audio] mode=\(mode) micWanted=\(AudioModeArbiter.wantsMicrophone(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn)) speakerWanted=\(AudioModeArbiter.wantsSpeaker(micOn: features.micOn, voiceOn: features.voiceOn, speakerOn: features.speakerOn))")
     }
 
-    /// The single user-facing entry point for the phone's audio, so the
-    /// toggle and the menu cannot disagree about how to switch modes. Each
-    /// mode sets the other flags off explicitly rather than relying on the
-    /// arbiter to break the tie: the STORED flags are what get sent to the
-    /// computer, and leaving a stale `micOn` in there would show the mic as
-    /// on in the computer's control panel while the phone plays audio.
+    /// Two independent toggles, so the UI can present them as two things
+    /// rather than one three-way setting. Each stands the other down
+    /// explicitly instead of leaning on the arbiter to break the tie: the
+    /// STORED flags are what get sent to the computer, so leaving a stale
+    /// `micOn` behind would show the microphone as live in the Mac's control
+    /// panel while the phone was playing audio back at it.
+    func toggleMicrophone() {
+        setMicrophone(!features.micOn)
+    }
+
+    func toggleSpeaker() {
+        setSpeaker(!features.speakerOn)
+    }
+
+    /// Sets the microphone and clears the speaker. Persisted, but NOT
+    /// restored at launch: the microphone deliberately does not persist
+    /// (restoring `micOn` would start recording the moment the app opens,
+    /// which is a privacy surprise), and the speaker follows the same rule
+    /// here even though it is not itself privacy-sensitive — a control that
+    /// silently starts capturing on relaunch is the same surprise either way.
+    func setMicrophone(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.micHabitKey)
+        features.set(feature: .microphone, enabled: on)
+        if on { features.set(feature: .speaker, enabled: false) }
+        syncAudioMode(features)
+    }
+
+    /// Sets the speaker and clears the microphone. Persisted and RESTORED —
+    /// this one uses the camera's pattern (`setCameraEnabled`), not the
+    /// microphone's, because turning it on only asks the Mac to send audio
+    /// and still requires a live session, so there is no surprise in
+    /// resuming it.
+    func setSpeaker(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: Self.speakerHabitKey)
+        features.set(feature: .speaker, enabled: on)
+        if on { features.set(feature: .microphone, enabled: false) }
+        syncAudioMode(features)
+    }
+
+    /// Still used by the e2e hook, which names a mode rather than a feature.
     func setAudioMode(_ mode: AudioMode) {
         switch mode {
         case .idle:
             features.set(feature: .speaker, enabled: false)
             features.set(feature: .microphone, enabled: false)
         case .microphone:
-            features.set(feature: .speaker, enabled: false)
-            features.set(feature: .microphone, enabled: true)
+            setMicrophone(true)
         case .speaker:
-            features.set(feature: .microphone, enabled: false)
-            features.set(feature: .speaker, enabled: true)
+            setSpeaker(true)
         case .voice:
             // Not user-selectable: hold-to-talk owns this while it lasts.
             break
         }
         syncAudioMode(features)
     }
+
+    private static let micHabitKey = "remotecrab.ios.micOn"
 
     private func startSpeakerPlayback() {
         guard !speakerPlayer.running else { return }
@@ -2789,6 +2878,10 @@ final class CaptureEngine: ObservableObject {
             return
         }
         speakerStatus = nil
+        // Prove the path works at the moment it turns on. Without this, a
+        // phone on silent produces: toggle says on, the Mac's own speakers
+        // go quiet (muteWhileTapped), and the user hears nothing at all.
+        speakerPlayer.playConfirmationTone()
         speakerTickTask?.cancel()
         speakerTickTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -2800,7 +2893,7 @@ final class CaptureEngine: ObservableObject {
                     // 20 ms x 50 = every second. This is the line that proves
                     // audio actually moved, rather than the control merely
                     // reporting itself as on.
-                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops)")
+                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pcmPeak=\(self.speakerPlayer.receivedPeak)")
                 }
             }
         }

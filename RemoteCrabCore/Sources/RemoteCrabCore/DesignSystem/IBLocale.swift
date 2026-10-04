@@ -225,6 +225,9 @@ public enum IBLocale {
         public static let title = IBL("Play computer sound")
         public static let hint = IBL("Play the computer's sound out of this phone's speaker. The computer's own speakers go quiet while it is on, and come back when you switch off.")
         public static let enabling = IBL("Turning on the phone speaker…")
+        /// One-time pointer at the audio control. The top bar has no text
+        /// labels, so without this the capability is undiscoverable.
+        public static let discoverHint = IBL("The mic button also plays your computer's sound")
         public static let on = IBL("Speaker on")
         public static let off = IBL("Speaker off")
         public static let listeningCheck = IBL("If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.")
@@ -802,6 +805,43 @@ public enum IBLocale {
             String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu."), name)
         }
         public static let cancelPreferred = IBL("Cancel Preference")
+
+        /// Why the chosen computer has not turned up yet.
+        ///
+        /// The headline above gives generic advice ("click Retry in its
+        /// menu"), which is the right advice for exactly one of the four
+        /// situations the phone can actually tell apart — and the phone
+        /// *does* know which one it is, because it records the last outcome
+        /// of every attempt. A `denied` computer will never retry on its own
+        /// at all; a `busy` one retries every fifteen seconds and needs
+        /// nothing. Telling those two apart is the difference between waiting
+        /// and walking to another machine.
+        public static func waitingReasonDenied(_ name: String) -> String {
+            String(format: IBL("You denied %@ earlier, so it will only try again when you click Retry on that computer."), name)
+        }
+        public static func waitingReasonBusy(_ name: String) -> String {
+            String(format: IBL("%@ is queuing politely — it retries on its own every 15 seconds."), name)
+        }
+        public static func waitingReasonApproval(_ name: String) -> String {
+            String(format: IBL("%@ is waiting for you to Allow it on this phone."), name)
+        }
+        public static let waitingReasonNotSeenYet = IBL("It has not knocked at all yet — check that it is on this network and switched on.")
+        /// Shown once when the grace period is spent. Without it the banner
+        /// would simply vanish, which reads as a bug.
+        public static func preferredGaveUp(_ name: String) -> String {
+            String(format: IBL("Gave up waiting for %@ after 30 seconds. Any computer can connect again."), name)
+        }
+        /// The window itself, so "30 seconds" is never a surprise.
+        public static let preferredGraceWindow = IBL("Holding the door for 30 seconds.")
+
+        /// Shown on the surface the user is actually on, not only inside the
+        /// picker. A switch that is invisible cannot be told apart from a
+        /// switch that failed.
+        public static func switchingTo(_ name: String) -> String {
+            String(format: IBL("Switching to %@…"), name)
+        }
+        /// The action, because the state alone leaves the user guessing.
+        public static let switchingHint = IBL("That computer connects on its own. If it doesn't, open this menu and pick it again — or disconnect the other one.")
         public static let pickerFooter = IBL("Several computers are on this network. Pick one — it takes over on its next connect; the others see \"in use\".")
         /// The last attempt's outcome, shown next to a computer in the picker.
         ///
@@ -874,8 +914,17 @@ public enum IBLocale {
         public static let networkUnavailable = IBL("RemoteCrab could not reach the local network. Check that Wi-Fi is on and this app may use it in Settings.")
 
         // Multi-Mac pairing.
+        /// The state, AND the action.
+        ///
+        /// It used to say only "already in use by X" — which left the user
+        /// with one button, **Retry**, that cannot ever succeed while
+        /// another computer holds the phone. So the honest next step was
+        /// discoverable nowhere: you have to go to the iPhone and use
+        /// Choose a Computer, and no surface said so. This is the rule in
+        /// AGENTS.md ("the line that states what is happening must also
+        /// state what to do") applied to the one row that lacked it.
         public static func iphoneBusy(_ owner: String) -> String {
-            String(format: IBL("This iPhone is already in use by %@"), owner)
+            String(format: IBL("This iPhone is being used by %@ — pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing."), owner)
         }
         public static let iphoneBusyUnknown = IBL("This iPhone is already in use by another Mac")
         public static let connectionDenied = IBL("The iPhone denied the connection")
