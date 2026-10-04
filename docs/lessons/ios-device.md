@@ -613,3 +613,171 @@ so a cross-reference from another lesson still resolves.
        with theory is more likely to be a stale or partial build than a bug —
        and that is checkable: build into a dedicated derived-data path and
        assert on a marker string only the current build contains.
+
+## 138
+
+**One bug wore three disguises, and the counters were green through all of
+them.**
+
+Report: real playback works, but a video on the Mac comes across as "very
+garbled, shrill", and will not switch off. The e2e suite was green.
+
+The feature was doing a 20 ms timer (`tick`) that scheduled a **silent**
+packet unconditionally — correctly, because `AVAudioPlayerNode.isPlaying` must
+stay true or the system reclaims the audio session — while a second function
+played real audio from the ring as fast as it arrived. Neither was wrong
+alone. Together: 50 real packets a second **plus** 50 silent ones into a
+player that drains 50, so the queue grew by ~50 packets — one second of
+latency — every second. That single fact explains all three symptoms:
+fragmented and stale audio, audio that keeps playing after the toggle, and a
+green suite.
+
+The suite was green because **nothing checked the filler**. `pcmRms != 0`
+passes when half the timeline is zeros.
+
+Two more rounds followed, both found by reading numbers rather than by
+reasoning:
+
+* The first fix gated playback on `pendingPlayback < 2`. But 2 buffers **is**
+  the normal start-up cushion, so playback stalled the moment the player was
+  healthy — the receive ring filled and `starved` climbed 253 → 687 by
+  discarding the oldest audio. Queue depth answers "is the graph about to go
+  dry", which is a question about *silence*; it is not a reason to stop
+  feeding real audio.
+* The second fix left the timer as the only thing feeding audio.
+  `Task.sleep(for: .milliseconds(20))` measured **~30 ms**, so playback ran at
+  33 packets/s against 46 arriving. A player that consumes 50 packets a
+  second cannot be fed from a clock that drifts.
+
+The shape that satisfies all three: **real audio is scheduled by the arrival
+of real audio**, with the player's queue depth as a *feedback* term — schedule
+only when the ring holds enough to refill the queue to the start-up cushion —
+and **the timer keeps exactly one job**, keeping the graph alive, and never
+runs while audio is waiting. Then the arrival and consumption rates cannot
+drift apart however badly the timer does.
+
+Measured on the device, same source, before → after:
+
+| | before | after |
+|---|---|---|
+| filler (`silence`) | 916, 47% of scheduled | 2 |
+| queue depth | growing, 18–20 | 0–3 |
+| discarded (`starved`) | growing, 866 | 0 |
+| `played` behind `enqueued` | 877 packets | 5 |
+
+Generalisable, and it is the third time this project has been bitten by a
+variant: **a timer that keeps an audio graph alive is not a scheduler.** It
+looks like one, and it will happily double your output rate. The invariant is
+not "keep feeding the player" but "**never add silence while real audio is
+waiting**" — and the test for it is the filler share, which nobody had.
+
+## 139
+
+**A format declared one way and written another costs you a channel, and no
+counter in the pipeline can see it.**
+
+With every counter green and the sound still wrong, the fault had to be in
+the samples. `SpeakerPlayer.init` built its `AVAudioFormat` with
+`interleaved: true` and then filled buffers through
+`int16ChannelData[channel][frame]` — the **planar** idiom.
+
+Measured on the two channel pointers: **2 bytes apart**. So `dst[1][0]` and
+`dst[0][1]` are the same address, and every right-channel sample was
+overwritten by the next left-channel sample before anything read it.
+
+Three complaints, one cause:
+* **shrill** — the left channel played at double speed
+* **not clear** — the right channel gone
+* **noisy** — the survivors formed L,R pairs that never existed in the
+  source, i.e. comb filtering
+
+The silence path had the same mismatch, so the periodic filler was
+mono-mono-mono too.
+
+Two fixes, and the second was not the one I expected:
+
+1. `SpeakerPCMWriter` writes **either** layout correctly, and the caller asks
+   `format.isInterleaved` at runtime instead of remembering. One test
+   reproduces the clobbering verbatim, so if the premise ever changes the
+   test fails rather than quietly ceasing to mean anything.
+2. The format is now **planar**, because that is what `AVAudioPlayerNode`
+   renders natively. The interleaved format bought nothing and cost measured
+   latency: the device sat at `queued=9` (~200 ms) with `starved` still
+   climbing, and both went flat on the change.
+
+The reason no existing check caught it: **the packets arriving from the Mac
+are correct**; the corruption happened on the way into the audio buffer. Only
+reading the buffer back proves anything, and it has to be read back **per
+channel**:
+
+```
+outL=-6402 outR=-3366 STEREO-OK
+```
+
+Two different values is the fix. Under the old writer they were byte-identical,
+which is also the shape of the bug: "one channel at double speed, the other
+discarded".
+
+The general rule: **when a format is declared, the write path must derive its
+indexing from the format, not from the mental model of it.** `interleaved` is
+a one-word difference with a two-byte pointer offset.
+
+## 140
+
+**A diagnostic can be the thing that breaks the feature — and one that
+reports "silence" when it is the one lying is worse than none.**
+
+To check playback objectively I tapped the audio node's output. It cost three
+iterations, and every failure mode looked like a broken player:
+
+* tapped the node, `format: nil` → reported **silent** every run
+* tapped the **mixer** instead → the mixer renders in the mixer's own format,
+  Float32, so the tapped buffer's `int16ChannelData` is nil; the guard
+  returned early and the number was still **silent**
+* tapped with the Int16 format → **`App terminated due to signal 5`**
+
+That last one is the generalisable part. `installTap` on an audio node, fed
+from an audio thread, traps the process. A tap whose format does not match
+the node's output does not merely report the wrong thing — in this build it
+removed the feature entirely.
+
+So I deleted it. The same fact is provable from the calling thread by reading
+the first frame back out of the buffer the player was handed, which is what
+`outL/outR` does, and that cannot take anything down. **A temporary
+measurement has no business being able to take the feature down**, and a
+diagnostic that can only ever print "silent" is indistinguishable from one
+whose silence is real.
+
+## 141
+
+**The first number in a bug report can be the phone's own opinion of itself.**
+
+Chasing "the picture is soft", a handoff across two machines recommended
+raising the encoder's bitrate coefficient, on the strength of a receiver
+printing `6220 kbps` — which turned out to be exactly
+`1920 × 1080 × 30 × 0.1`, the phone's **request**, read back out of
+`IBStreamMetadata`, not a measurement of the wire.
+
+`H264Encoder` set both `kVTCompressionPropertyKey_AverageBitRate` and
+`kVTCompressionPropertyKey_Quality`, and `VTCompressionProperties.h`
+documents neither as taking precedence. Measured with
+`scripts/vt-bitrate-probe.swift` against the real encoder:
+
+| Quality | achieved |
+|---|---|
+| 0.50 | 4,989 kbps |
+| **0.70 (shipped)** | **9,179 kbps** |
+| **0.75** | **10,886 kbps** |
+| 0.80 | 13,552 kbps |
+
+Asking for 6,220 and for 9,331 produced **byte-identical output** (3,442,273
+bytes). Not imprecise — inert. So the phone had been reporting an invented
+rate since the property list was written, and **the cross-machine acceptance
+criterion built on that number would have gone green while the picture stayed
+exactly as soft.**
+
+The lesson is lesson 137's cousin: *an acceptance test that cannot fail is
+worse than none.* Here the failing branch was a measurement that was never a
+measurement. Whenever a symptom is "quality too low", verify that the knob you
+are about to turn is connected to the thing you are about to measure — and
+when two properties are set, do not assume the more obvious one is in charge.

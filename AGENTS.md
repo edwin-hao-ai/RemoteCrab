@@ -397,28 +397,53 @@ buffering. The parser refuses frames larger than 64 MiB
 | **Settings (V1.1)** | `PreferencesView.swift`, `ReceiverSession.swift`, `BonjourBrowser.swift` | launchAtLogin wired to `SMAppService.mainApp` (was a dead toggle); autoReconnect gate now actually gates the reconnect loop (`remotecrab.autoReconnect`); AWDL peer-to-peer toggle `remotecrab.mac.peerToPeer` (default true) feeds `includePeerToPeer` on both the browser and outbound dials (`tcpParameters()`) |
 | **Auto-update (V1.6)** | `UpdaterController.swift`, `RemoteCrabCore/State/UpdateInstallGate.swift`, `scripts/make-appcast.sh` | Sparkle 2, silent + idle-gated (no owned session/recording, 30 s dwell); menu-bar "Check for Updates…"/pending-only "Restart to Update" + Preferences toggle; Info.plist `SUFeedURL`/`SUPublicEDKey` (+ `SUEnableAutomaticChecks`/`SUAutomaticallyUpdate`); `REMOTECRAB_UPDATE_FEED` overrides the feed for tests. See lesson 74 |
 
-### Speaker mode — 用 iPhone 当音箱（WIP，协议就绪，声音还没出来）
+### Speaker mode — 用 iPhone 当音箱（**已修好并经用户验收，2026-10-04**）
 
-**状态：已通，用户在 iPhone 上亲耳验收（`pcmRms=1965 pcmPeak=8856`）。**
-细节与 Windows 交接见 `docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md`。
+**状态：能用。** 之前 e2e 绿、真机难听（"非常乱七八糟、尖锐、关不掉"），
+根因是三个叠在一起的缺陷，全部已修并有设备数字。Windows 端采集**仍未实现**，
+实现方案与本轮踩的坑见 `docs/WINDOWS-SPEAKER-HANDOFF-2026-10-04.md`。
 
 * **形态**：麦克风按钮点开是一个**两个独立开关**的下拉菜单（麦克风 / 扬声器，
-  各自打勾），完全照抄镜像菜单的写法（`ContentView.swift:752`）——不是三选一。
-  图标本身反映当前状态。互斥在 `AudioModeArbiter` 里，不在 UI 里。
+  各自打勾）。**控制点只有手机这一处** —— Mac 菜单栏那一行已从 `ToggleRow`
+  改成**状态行**（`FeatureStatusRow`，副标题写明"在手机上开关"）。原因：
+  两处都有同名开关时，用户会去 Mac 上找，形成"要先设置好才能用"的错觉。
+  **Mac 端 `speakerOn` 仍默认 false** —— 改成 true 等于一连上就把电脑声音
+  推到手机，没有任何手势也没有提示，是隐私问题；"Mac 端默认可用"是靠
+  去掉额外步骤满足的，不是靠自动开始传。iOS 端用 `remotecrab.ios.speakerOn`
+  记住用户上次的选择并在连接时恢复。
 * **协议**：新 kind `0x24` + 复用 `AudioPacket`（`codec:"pcm"`, `channels:2`,
-  3840 字节/包）。**两端都登记**（Rust 的 `from_u8_or_video` 不加分支会把 JSON
-  当 H.264 NAL 喂进解码器）。
+  3840 字节/包 = 20 ms @ 48 kHz）。**两端都登记**（Rust 的 `from_u8_or_video`
+  不加分支会把 JSON 当 H.264 NAL 喂进解码器）。
 * **传输用 PCM 不用 Opus**：立体声 Opus 在 `AudioConverter` 上会解码成单声道且
-  幅度只剩三分之一（lesson 124）。PCM 是 1.5 Mbps，相对同链路的 H.264 可忽略，
-  而且**零编解码延迟**。
+  幅度只剩三分之一（lesson 124）。PCM 相对同链路的 H.264 可忽略，且**零编解码延迟**。
 * **Mac 采集**：`SystemAudioTap`（CoreAudio process tap，不装驱动、不改默认输出
-  设备、断开自愈）。实测抓到真实声音（rms=1989 peak=8856）。
-* **踩过的坑（读的时候注意）**：我一度断定「包全是零」，因为手机的 `pcmRms` 一直打印 0 ——
-  **那个测量代码根本没在跑**（属性声明活着，喂它的代码被一次并发编辑覆盖掉了）。
-  属性还活着、代码没了，所以文件照样编译、看起来照样完整。lesson 126。
+  设备、断开自愈）。**实测过它交回来的 buffer 布局**：`buffers=1 channels=2
+  flags=0x9`（一个交织双通道 buffer，`IsNonInterleaved` 未置位），48,213 帧/秒
+  对期望的 48,000，播 44.1 kHz 和 48 kHz 源都不变 —— CoreAudio 会重采样到
+  请求的速率。**所以这层是干净的，尖锐不在这里。**
+* **调度（本轮最大的坑，lesson 138）**：真实音频由**数据到达**驱动，
+  `SpeakerSchedule.onPacket` 用播放队列深度作**反馈项**（ring 里够填满
+  "当前队列 + 起播缓冲"才加下一包）；20 ms 定时器只负责维持 audio graph
+  （`isPlaying` 必须为 true，否则系统回收音频会话），且**绝不在有音频等待时
+  补静音**。定时器曾经无条件补静音，与 `drain` 双路喂料 → 生产速率是消费速率
+  的两倍 → 每秒积压 50 包。**`Task.sleep(20 ms)` 实测约 30 ms，所以定时器不能
+  当调度器用** —— 播放器每秒消费 50 包，时钟漂了就喂不上。
+* **buffer 布局（lesson 139）**：格式曾声明 `interleaved: true` 却用**平面**
+  写法 `int16ChannelData[ch][frame]` 填。两个 channel 指针只差 **2 字节**，
+  于是右声道样本被下一个左声道样本覆盖 —— 左声道 2 倍速（尖锐）、右声道消失
+  （不清晰）、幸存样本组成源里不存在的 L,R 配对（梳状滤波杂音）。
+  现在格式是 **planar**（`AVAudioPlayerNode` 原生布局，交错还实测带来约 200 ms
+  延迟），写入统一走 `SpeakerPCMWriter` 并**运行时读 `format.isInterleaved`**。
+* **设备实测（修完后）**：填充 `2`（原 916 = 47%）、队列 `0–3`（原 18–20）、
+  丢弃 `0`（原 866）、`played` 只落后 `enqueued` **5 包**、`outL=-6402
+  outR=-3366 STEREO-OK`。
+* **别再用 `installTap` 做这个诊断（lesson 140）**：格式不匹配时它报"静音"，
+  而那正是它在说谎；格式匹配时它用 **signal 5** 把 app 打死。要证明立体声
+  完整性，从交给播放器的 buffer 里**读回第一帧**即可，主线程做，零风险。
 * **`readIndex` 曾被两个线程同时写**（实时回调 + pump），已改成每个索引一个写者。
-  这个竞态是真的，**但无法证明它就是当时听不到声音的原因** —— 那时我看到的零本身就是
-  坏掉的测量。别把它当成已验证的修复。
+这个竞态是真的，但当时看不到声音的证据本身是坏掉的测量（`pcmRms` 的赋值
+  代码被一次并发编辑删掉，属性声明还在，所以照样编译、看起来完整）。
+  **别把它当成已验证的修复。**
 * **Windows：采集已实现并实测出声**（2026-10-04，`rc-loopback` WASAPI loopback）。
   真机：`rms=497 peak=1100 dropped=0`，125 包/2.5 s = 精确 20 ms 一包。
   一条命令可复现：`remotecrab --speaker-probe`。
@@ -436,6 +461,9 @@ buffering. The parser refuses frames larger than 64 MiB
   两个方向都成功，播放图能跑，且**不需要任何新权限**。
 * **e2e**：`./scripts/e2e-speaker.sh`。它自带编译/安装/标记校验/重启接收器，
   并断言「不是数字静音」和「包络有形状」——前五次假判决全在 harness 里。
+  断言已补上本轮缺的那两条 —— **4e 填充占比 ≤ 20%**、**4f 队列深度 ≤ 6 包（120 ms）**。
+  原来的断言只看 `pcmRms != 0`，而填充占 47% 时它照样通过。
+  **跨机器验收不要读对端打印的请求值**（lesson 141，见码率那条）。
 
 ### Multi-Mac pairing (V0.4, 2026-09-12)
 
@@ -937,6 +965,10 @@ cross-references rather than the file order.
 | 135 | Filtering a list by **name** instead of id: with two computers sharing a hostname the list showed **nothing at all** — not one machine missing, every machine gone |
 | 136 | "What the state says" and "what the state lets you do" are two separate wires; missing one leaves the user stuck even though the mechanism works |
 | 137 | A property can be documented as one thing and behave as another — **`kVTCompressionPropertyKey_Quality` makes `AverageBitRate` inert**, so the phone was reporting an invented number; and a clamping test (`-5.0` → 0) passes on a **negated** axis, so only a paired mid-screen assertion detects inversion | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 138 | A timer that keeps an audio graph alive is **not a scheduler** — it doubled the packet rate and the suite never checked the filler share; and `Task.sleep(20 ms)` measured ~30 ms, so a clock can never feed a player that consumes 50 packets/s | [`ios-device`](docs/lessons/ios-device.md) |
+| 139 | A format declared `interleaved: true` and written with the **planar** idiom costs you a channel: the pointers are 2 bytes apart, so one channel plays at double speed and the other is gone — and only a **per-channel read-back** of the buffer can see it | [`ios-device`](docs/lessons/ios-device.md) |
+| 140 | A diagnostic can be the thing that breaks the feature: `installTap` with a mismatched format reported **silent** when it was the thing lying, and with a matching one it killed the app with **signal 5** | [`ios-device`](docs/lessons/ios-device.md) |
+| 141 | The first number in a bug report can be the phone's opinion of itself — `IBStreamMetadata` reported the *requested* bitrate, so an acceptance test built on it would have gone green while the picture stayed exactly as soft | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via

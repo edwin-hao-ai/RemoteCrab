@@ -332,9 +332,14 @@ struct MenuBarMenu: View {
             // surface that goes blank when something breaks tells the user
             // nothing.
             let speakerSubtitle: LocalizedStringKey = {
-                guard connected else { return LocalizedStringKey(IBLocale.Status.connectIPhoneFirst) }
+                guard connected else { return LocalizedStringKey(IBLocale.Speaker.connectPhoneFirst) }
+                // A tap that cannot run is the one case where the row has to
+                // stop reporting state and start explaining: Screen Recording
+                // is missing, and that is fixable in one click.
                 if let status = session.speakerStatus { return LocalizedStringKey(status) }
-                return LocalizedStringKey(IBLocale.Speaker.on)
+                return LocalizedStringKey(session.featureState?.speakerOn == true
+                                           ? IBLocale.Speaker.controlledOnPhone
+                                           : IBLocale.Speaker.controlledOnPhoneOff)
             }()
 
             sectionHeader(LocalizedStringKey(IBLocale.MenuBar.featuresSection))
@@ -370,11 +375,17 @@ struct MenuBarMenu: View {
             // the phone (its `setAudioMode` clears the other flag) and the
             // phone's control panel reflects that rather than showing two
             // live audio features at once.
-            ToggleRow(icon: "speaker.wave.2.fill",
-                      title: IBLocale.Speaker.title,
-                      subtitle: speakerSubtitle,
-                      isOn: featureBinding(.speaker, \.speakerOn),
-                      isEnabled: connected)
+            //
+            // It is deliberately NOT a toggle here. This feature routes the
+            // computer's audio to a phone, so the phone is where the user
+            // decides — and a switch sitting in this menu is a second place
+            // to look for the same decision, which is exactly how it ended
+            // up feeling like the Mac had to be set up first. The row now
+            // reports the state and names the place that changes it.
+            FeatureStatusRow(icon: "speaker.wave.2.fill",
+                             title: IBLocale.Speaker.title,
+                             subtitle: speakerSubtitle,
+                             isOn: session.featureState?.speakerOn ?? false)
             Divider().opacity(0.3).padding(.leading, 38)
             ToggleRow(icon: "hand.point.up.left.fill",
                       title: IBLocale.Mode.trackpad,
@@ -600,6 +611,49 @@ private struct ToggleRow: View {
                 // The visible label is hidden from the switch itself,
                 // so without this VoiceOver only reads "switch, off".
                 .accessibilityLabel(title)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+    }
+}
+
+/// A feature whose switch lives on the other machine.
+///
+/// It looks like the toggles next to it on purpose — same icon, same
+/// typography, same accent when it is live — and differs in exactly one way:
+/// there is no control. That matters because a row that looks switchable but
+/// is not is worse than either alternative, so the subtitle always names the
+/// place the decision is actually made.
+private struct FeatureStatusRow: View {
+    let icon: String
+    let title: String
+    let subtitle: LocalizedStringKey
+    let isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 18, alignment: .center)
+                .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(IBFont.bodySmall)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(IBFont.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            // A state word rather than a switch, so the row reads as a
+            // report. `.accessibilityAddTraits(.isStaticText)` stops
+            // VoiceOver announcing this as something to activate.
+            Text(isOn ? IBLocale.Speaker.on : IBLocale.Speaker.off)
+                .font(IBFont.caption)
+                .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
+                .accessibilityAddTraits(.isStaticText)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 5)

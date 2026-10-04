@@ -27,9 +27,9 @@ struct AppSwitcherView: View {
     /// Pinned apps first (preserving the Mac's front-to-back order within
     /// each group).
     private var orderedWindows: [IBWindowInfo] {
-        guard !pinned.isEmpty else { return engine.macWindows }
-        return engine.macWindows.filter { pinned.contains($0.appId) }
-             + engine.macWindows.filter { !pinned.contains($0.appId) }
+        guard !pinned.isEmpty else { return engine.peer.windows }
+        return engine.peer.windows.filter { pinned.contains($0.appId) }
+             + engine.peer.windows.filter { !pinned.contains($0.appId) }
     }
 
     private var forceQuitPresented: Binding<Bool> {
@@ -48,7 +48,7 @@ struct AppSwitcherView: View {
             // (`windows.rs`: it is true only once real thumbnails exist), so
             // a false there means "no pixels yet", which the empty state
             // already covers.
-            if !engine.connectedIsWindows && !engine.windowsCanCapture && !engine.macWindows.isEmpty {
+            if !engine.connectedIsWindows && !engine.peer.windowsCanCapture && !engine.peer.windows.isEmpty {
                 permissionHint
                     .padding(.horizontal, IBSpace.l.pt)
                     .padding(.top, IBSpace.s.pt)

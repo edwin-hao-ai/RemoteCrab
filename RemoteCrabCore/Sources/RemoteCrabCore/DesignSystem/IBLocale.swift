@@ -228,6 +228,15 @@ public enum IBLocale {
         public static let on = IBL("Speaker on")
         public static let off = IBL("Speaker off")
         public static let listeningCheck = IBL("If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.")
+        /// The Mac menu row for this feature is a *status*, not a control:
+        /// the phone is where the user decides whether their computer's audio
+        /// should reach it, and a switch on the other machine is a second
+        /// place to look for the same decision. This says so, and says what
+        /// the state is, because a row that only says where to go elsewhere
+        /// has not told the user anything about now.
+        public static let controlledOnPhone = IBL("On — switch it off on your iPhone")
+        public static let controlledOnPhoneOff = IBL("Off — switch it on from your iPhone's sound menu")
+        public static let connectPhoneFirst = IBL("Connect your iPhone to switch this on")
     }
 
     /// iOS connection sheet (Bonjour readout + stream toggle).

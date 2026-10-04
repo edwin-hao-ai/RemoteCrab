@@ -260,6 +260,14 @@ public final class SystemAudioTap: @unchecked Sendable {
             guard let clientData else { return noErr }
             let tap = Unmanaged<SystemAudioTap>.fromOpaque(clientData).takeUnretainedValue()
             let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData))
+            // `ingest` treats every buffer as INTERLEAVED stereo (it reads
+            // (L,R) pairs). A live tap was measured doing exactly that — one
+            // 2-channel interleaved buffer — and CoreAudio holds to it, but
+            // if it ever hands back two planar 1-channel buffers, pairs read
+            // out of the left buffer play that channel at twice its rate. The
+            // packet would still be exactly 3840 bytes and the ring would
+            // still drain on time, so nothing else here would notice; the
+            // symptom would be pitch, on the phone, with a clean log.
             for buffer in buffers {
                 guard let data = buffer.mData else { continue }
                 let sampleCount = Int(buffer.mDataByteSize) / MemoryLayout<Float>.size
@@ -356,6 +364,15 @@ public final class SystemAudioTap: @unchecked Sendable {
         // silently downmix stereo to mono, which is the exact defect this
         // feature exists to avoid — so a short (odd) buffer is handled as
         // mono explicitly and visibly, not smeared across both channels.
+        //
+        // MEASURED, not assumed: a standalone probe of a live tap (asking for
+        // exactly the format above) reported `buffers=1 channels=2 flags=0x9`
+        // — one interleaved 2-channel buffer, `IsNonInterleaved` clear — and
+        // 48,213 frames/s against a wanted 48,000, unchanged while playing
+        // both 44.1 kHz and 48 kHz sources. CoreAudio resamples to the
+        // requested rate, so this pairing holds whatever the system output
+        // is doing. A planar reply would read the left channel at twice its
+        // rate here, which is the symptom the phone side had instead.
         while i + 1 < count {
             let slot = Int(w % capacity) * Self.channels
             ring[slot] = Self.clampToInt16(interleaved[i])

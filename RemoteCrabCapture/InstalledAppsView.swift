@@ -29,9 +29,9 @@ struct InstalledAppsView: View {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let base: [IBInstalledApp]
         if needle.isEmpty {
-            base = engine.installedApps
+            base = engine.peer.installedApps
         } else {
-            base = engine.installedApps.filter {
+            base = engine.peer.installedApps.filter {
                 $0.name.lowercased().contains(needle) || $0.id.lowercased().contains(needle)
             }
         }
@@ -65,8 +65,8 @@ struct InstalledAppsView: View {
                 }
             }
         }
-        .onAppear { rebuildIcons(engine.installedApps) }
-        .onChange(of: engine.installedApps) { _, list in rebuildIcons(list) }
+        .onAppear { rebuildIcons(engine.peer.installedApps) }
+        .onChange(of: engine.peer.installedApps) { _, list in rebuildIcons(list) }
         .task { engine.requestInstalledApps() }
         .onChange(of: engine.connectionState) { _, state in
             // The sheet is reachable before the Mac is: it can be opened
@@ -75,7 +75,7 @@ struct InstalledAppsView: View {
             // this the sheet sat on "not connected" for as long as the
             // handshake took — measured at 8 s on a real session — and
             // needed a manual refresh for a link that had already come up.
-            if state == .connected, engine.installedApps.isEmpty {
+            if state == .connected, engine.peer.installedApps.isEmpty {
                 engine.requestInstalledApps()
             }
         }

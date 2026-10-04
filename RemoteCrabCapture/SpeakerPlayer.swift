@@ -24,6 +24,7 @@
 
 import AVFoundation
 import Foundation
+import RemoteCrabCore
 import os.log
 
 @MainActor
@@ -71,18 +72,36 @@ final class SpeakerPlayer {
     private(set) var receivedPeak: Int = 0
     private var energySum: Double = 0
     private var energyCount: Int = 0
-    private var diagnosticPackets = 0
 
+    /// **PLANAR**, and that is not a preference.
+    ///
+    /// This was declared `interleaved: true`, which is wrong twice over.
+    /// `AVAudioPlayerNode` renders in the planar layout natively and converts
+    /// from whatever it is handed, so an interleaved format bought nothing and
+    /// cost measurable latency — the device sat at `queued=9` (≈200 ms) with
+    /// `starved` still climbing. And it invited the bug this file's tests now
+    /// pin: on an interleaved buffer `int16ChannelData[0]` and
+    /// `int16ChannelData[1]` are 2 bytes apart, so the natural-looking
+    /// `planes[ch][frame]` write has each right-channel sample overwritten by
+    /// the next left-channel one — one channel at double speed, the other
+    /// gone. `SpeakerPCMWriter` handles either layout, so nothing here has to
+    /// remember which is which.
     init() {
         format = AVAudioFormat(commonFormat: .pcmFormatInt16,
                                sampleRate: Self.sampleRate,
                                channels: AVAudioChannelCount(Self.channels),
-                               interleaved: true)
+                               interleaved: false)
             ?? AVAudioFormat(standardFormatWithSampleRate: Self.sampleRate,
                              channels: AVAudioChannelCount(Self.channels))!
     }
 
     var running: Bool { isRunning }
+
+    /// Packets handed to the player and not yet played, for the diagnostics
+    /// that assert the queue stays shallow. A large value is audible latency
+    /// and it is the first thing to look at when the stream sounds fragmented
+    /// or will not stop.
+    var queuedPackets: Int { pendingPlayback }
     private var bufferedFrames: Int { writeFrame - readFrame }
 
     // MARK: - Session
@@ -119,6 +138,7 @@ final class SpeakerPlayer {
         player.play()
 
         resetRing()
+        lastVerifiedPair = nil
         packetsEnqueued = 0
         packetsScheduled = 0
         silencePacketsScheduled = 0
@@ -140,6 +160,11 @@ final class SpeakerPlayer {
         ring = []
         writeFrame = 0
         readFrame = 0
+        // `player.stop()` drops everything already queued, so the completion
+        // callbacks for those buffers will never run — leaving this non-zero
+        // would make the next session think its queue was already full and
+        // refuse to schedule anything.
+        pendingPlayback = 0
         isRunning = false
         // Hand the session back rather than deactivating it: the keep-alive
         // may already want it, and a deactivate/reactivate in the same turn
@@ -187,19 +212,6 @@ final class SpeakerPlayer {
                 if a > peak { peak = a }
             }
         }
-        // The first packets in full. Every counter between here and the
-        // speaker has already said "fine", so when it comes out silent these
-        // are the only numbers that locate it.
-        if diagnosticPackets < 2 {
-            diagnosticPackets += 1
-            var head: [Int] = []
-            pcm.withUnsafeBytes { raw in
-                let b = raw.bindMemory(to: Int16.self)
-                for i in 0..<min(6, b.count) { head.append(Int(b[i])) }
-            }
-            Forensic.log("[speaker-diag] bytes=\(pcm.count) head=\(head) sumsq=\(Int(sum)) n=\(count)")
-        }
-
         energySum += sum
         energyCount += count
         if peak > receivedPeak { receivedPeak = peak }
@@ -214,7 +226,7 @@ final class SpeakerPlayer {
         envelope.append(Character(String(digit)))
         if envelope.count > Self.envelopeLength { envelope.removeFirst() }
         packetsEnqueued += 1
-        drain()
+        pumpOnArrival()
     }
 
     private func append(_ source: UnsafeBufferPointer<Int16>) {
@@ -226,7 +238,7 @@ final class SpeakerPlayer {
             writeFrame += 1
             i += 2
         }
-        // Drop the oldest audio if the drain fell behind: for live audio a
+        // Drop the oldest audio if playback fell behind: for live audio a
         // stale buffer is worse than a hole, and a hole is what silence is
         // for.
         if bufferedFrames > capacityFrames {
@@ -236,42 +248,86 @@ final class SpeakerPlayer {
         }
     }
 
-    /// Keep the graph fed. Schedules real audio once the cushion is built and
-    /// silence whenever it runs dry — `player.isPlaying` must stay true, or
-    /// the audio session is reclaimable and the next packet restarts the
-    /// engine audibly.
-    private func drain() {
-        guard isRunning, !ring.isEmpty else { return }
-        while bufferedFrames >= SpeakerPlayer.framesPerPacket * SpeakerPlayer.targetPackets {
+    /// How many packets have been handed to the player and not yet played.
+    ///
+    /// This is the number that was missing, and it is why the stream sounded
+    /// broken. `drain` played real audio as fast as it arrived, and `tick`
+    /// added a silent packet on every 20 ms fire *regardless*, so the player
+    /// was handed twice the audio it could consume and the queue grew by
+    /// ~50 packets — one second of latency — every second. The audio the user
+    /// heard was real samples interleaved with filler and increasingly stale,
+    /// and it kept playing after the feature was switched off because there
+    /// was a backlog of it.
+    ///
+    /// Written from both the caller (MainActor) and the player's completion
+    /// callback (an audio queue), hence `nonisolated(unsafe)`.
+    nonisolated(unsafe) private var pendingPlayback = 0
+
+    /// The single scheduling decision, shared by the timer and the ingest path
+    /// so they can never disagree.
+    ///
+    /// `SpeakerSchedule` holds the rule and its reasons; this is only the
+    /// plumbing.
+    private func pump(_ decision: SpeakerSchedule) {
+        switch decision {
+        case .playAudio:
             schedule(silence: false)
+        case .scheduleSilence:
+            schedule(silence: true)
+        case .wait:
+            break
         }
+    }
+
+    /// Arrival is what feeds real audio — see `SpeakerSchedule.onPacket` for
+    /// why this cannot hang off a timer. Called on every packet received.
+    private func pumpOnArrival() {
+        guard isRunning else { return }
+        pump(SpeakerSchedule.onPacket(bufferedFrames: bufferedFrames,
+                                      pendingPlayback: pendingPlayback,
+                                      framesPerPacket: SpeakerPlayer.framesPerPacket,
+                                      targetPackets: SpeakerPlayer.targetPackets))
     }
 
     private func schedule(silence: Bool) {
         guard !ring.isEmpty,
               let buffer = AVAudioPCMBuffer(pcmFormat: format,
-                                           frameCapacity: AVAudioFrameCount(SpeakerPlayer.framesPerPacket)),
-              let dst = buffer.int16ChannelData else { return }
+                                           frameCapacity: AVAudioFrameCount(SpeakerPlayer.framesPerPacket))
+        else { return }
         buffer.frameLength = AVAudioFrameCount(SpeakerPlayer.framesPerPacket)
 
-        let channelCount = Int(format.channelCount)
         let frameCount = SpeakerPlayer.framesPerPacket
+        // The format is INTERLEAVED (see `init`), so `int16ChannelData[ch][f]`
+        // is the planar idiom and the two channel pointers sit 2 bytes apart:
+        // writing L and R through them overwrites one with the other. That
+        // was the sharp, thin, noisy sound — one channel at double speed and
+        // the other gone. `SpeakerPCMWriter` is layout-correct; this is the
+        // only place samples reach the player.
+        let interleaved = format.isInterleaved
 
         if silence || bufferedFrames < frameCount {
-            for channel in 0..<channelCount {
-                memset(dst[channel], 0, frameCount * MemoryLayout<Int16>.size)
-            }
+            SpeakerPCMWriter.silence(buffer, frames: frameCount, interleaved: interleaved)
             silencePacketsScheduled += 1
         } else {
             let available = min(bufferedFrames, frameCount)
-            for frame in 0..<frameCount {
+            var left = [Int16](repeating: 0, count: frameCount)
+            var right = [Int16](repeating: 0, count: frameCount)
+            for frame in 0..<available {
                 let ringFrame = Int((readFrame + frame) % capacityFrames)
-                let audible = frame < available
-                for channel in 0..<min(channelCount, SpeakerPlayer.channels) {
-                    dst[channel][frame] = audible
-                        ? ring[ringFrame * SpeakerPlayer.channels + channel]
-                        : 0
-                }
+                left[frame] = ring[ringFrame * SpeakerPlayer.channels]
+                right[frame] = ring[ringFrame * SpeakerPlayer.channels + 1]
+            }
+            SpeakerPCMWriter.fill(buffer, frames: frameCount,
+                                  interleaved: interleaved,
+                                  left: left, right: right)
+            // Read the first frame back out of the buffer we just filled. This
+            // is the check the receive-side energy counter cannot make: it
+            // proves the two channels landed in two places, in the layout the
+            // engine actually gave us, rather than one overwriting the other.
+            if let planes = buffer.int16ChannelData, available > 0 {
+                lastVerifiedPair = interleaved
+                    ? (planes[0][0], planes[0][1])
+                    : (planes[0][0], planes[1][0])
             }
             if available < frameCount { starvedDrops += 1 }
             readFrame += available
@@ -281,15 +337,64 @@ final class SpeakerPlayer {
         // NO options: `.interrupts` stops the player when the buffer ends,
         // which would make every 20 ms buffer cut the sound off. The loop is
         // driven by re-scheduling, not by `.loops`.
-        player.scheduleBuffer(buffer, at: nil) { }
+        //
+        // The completion callback is the ONLY way to learn the queue actually
+        // drained, and it is what keeps `pendingPlayback` honest. Without it
+        // the count could only ever grow, and the scheduling decision would
+        // have no way to tell "the player is backed up" from "nothing has
+        // been scheduled yet".
+        pendingPlayback += 1
+        player.scheduleBuffer(buffer, at: nil) { [weak self] in
+            // Runs on an audio-adjacent queue: touch the counter and nothing
+            // else.
+            self?.pendingPlayback -= 1
+        }
     }
 
-    /// Called on a timer by the owner so silence keeps flowing while the
-    /// network is quiet — without this the player graph is scheduled dry
-    /// and the session can be reclaimed by the system.
+    /// Keeps the audio graph alive, and nothing else.
+    ///
+    /// It used to schedule real audio as well, which is the mistake this file
+    /// exists to correct — and it failed in both directions. Scheduling
+    /// unconditionally put a silent packet in on top of real audio, so filler
+    /// ran at the full packet rate and the queue grew a second of latency per
+    /// second. Then, once that was fixed, scheduling audio *only* here could
+    /// not keep up at all: `Task.sleep(20 ms)` measured ~30 ms on the device,
+    /// so playback ran at 33 packets/s against 46 arriving, and the ring
+    /// overflowed (`starved` climbing, `played` falling further behind every
+    /// sample).
+    ///
+    /// Real audio is now scheduled by arrival (`pumpOnArrival`); the timer's
+    /// sole remaining job is the one it cannot delegate, because
+    /// `AVAudioPlayerNode.isPlaying` has to stay true or the system reclaims
+    /// the audio session. It must never run while audio is waiting.
     func tick() {
-        guard isRunning else { return }
-        schedule(silence: true)
+        guard isRunning, !ring.isEmpty else { return }
+        pump(SpeakerSchedule.onTick(bufferedFrames: bufferedFrames,
+                                    pendingPlayback: pendingPlayback,
+                                    framesPerPacket: SpeakerPlayer.framesPerPacket))
+    }
+
+    /// What the last packet put into the buffer, read back from the buffer.
+    ///
+    /// The receive-side `receivedRms` cannot see this class of bug: the
+    /// packets arriving from the Mac are correct interleaved stereo and the
+    /// corruption happened on the way into the audio buffer.
+    ///
+    /// Reading it back is enough, and it is done on the calling (main) thread
+    /// rather than through an `installTap` — a tap on the audio thread crashed
+    /// the app with SIGTRAP here, and a diagnostic that can take the feature
+    /// down has no business existing for a temporary measurement.
+    private var lastWrittenL: Int16 = 0
+    private var lastWrittenR: Int16 = 0
+    private var lastVerifiedPair: (Int16, Int16)?
+
+    /// A one-line, human-readable verdict on the channel layout actually used.
+    var playbackQualityText: String {
+        guard let pair = lastVerifiedPair else { return "outL=0 outR=0 skew=0.000 NOT-YET-WRITTEN" }
+        // A real source differs between channels; identical channels mean the
+        // "left at double speed, right discarded" shape, whatever the level.
+        let identical = pair.0 == pair.1 ? "MONO-OR-SCRAMBLED" : "STEREO-OK"
+        return "outL=\(Int(pair.0)) outR=\(Int(pair.1)) \(identical)"
     }
 
     /// Play a short two-tone confirmation through the phone's speaker.

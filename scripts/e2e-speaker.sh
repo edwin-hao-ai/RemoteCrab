@@ -119,7 +119,14 @@ if [[ -z "$APP" ]]; then bad "no RemoteCrabCapture.app produced"; exit 4; fi
 # NOT `strings | grep -q`: under `pipefail`, grep -q exits early, `strings`
 # takes SIGPIPE, and the pipeline reports failure even though grep matched —
 # which reads as "the code is missing" for a build that has it. Count instead.
-MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker-diag" || true)
+# The marker must be something the speaker path cannot lose: this check
+# exists to catch building into the wrong DerivedData (lesson 85), so a
+# diagnostic that gets cleaned up must not be what it keys on. It was
+# `speaker-diag` once, and deleting that diagnostic silently turned this
+# check into "always FAIL" — which is how a real build got reported as
+# missing the speaker code. "speaker player started" is the os_log message
+# the player emits when it starts, and it is not a diagnostic.
+MARKERS=$(strings "$APP/RemoteCrabCapture.debug.dylib" 2>/dev/null | grep -c "speaker player started" || true)
 if [[ "${MARKERS:-0}" -lt 1 ]]; then
   bad "the built app does not contain the speaker code — wrong DerivedData picked up"
   exit 4
@@ -266,6 +273,37 @@ if [[ -n "$LINE" ]]; then
     ok "4c. the received audio is NOT silence (pcmRms=$RMS) — sound, not just bytes"
   else
     bad "4c. the received audio is digital silence (pcmRms=${RMS:-?}) — packets moved but no sound did"
+  fi
+  # 4e. THE ONE THAT WAS MISSING.
+  #
+  # Everything above can pass while the feature is unusable, and did: the
+  # phone received real audio (4c) and played packets (4b) on every run of a
+  # build whose playback queue grew without bound. `tick` scheduled a silent
+  # packet on every 20 ms fire *on top of* the real audio `drain` was already
+  # scheduling, so the player was handed 100 packets a second and could
+  # consume 50. The backlog grew ~50 packets — one second of latency — every
+  # second: the stream sounded chopped and garbled and it kept sounding after
+  # it was switched off, because there was a backlog of it.
+  #
+  # So: while genuine audio is arriving, filler must be near zero, and the
+  # queue must stay shallow. Both are checked against the real numbers, not
+  # against "something was received".
+  SIL=$(echo "$LINE" | sed -E 's/.*silence=([0-9]+).*/\1/')
+  QUEUED=$(echo "$LINE" | sed -E 's/.*queued=([0-9]+).*/\1/')
+  if [[ -n "${SIL:-}" && -n "${QUEUED:-}" && "${ENQ:-0}" -gt 0 ]]; then
+    # Filler as a share of everything handed to the player. 20% is generous;
+    # a healthy stream is near zero.
+    PCT=$(( SIL * 100 / (ENQ + SIL) ))
+    if [[ "$PCT" -le 20 ]]; then
+      ok "4e. no filler on top of real audio (silence=$SIL = ${PCT}% of scheduled, queued=$QUEUED)"
+    else
+      bad "4e. ${PCT}% of what was played was FILLER (silence=$SIL of $((ENQ+SIL)), queued=$QUEUED) — the playback queue is growing, so the stream is fragmented and will not stop"
+    fi
+    if [[ "${QUEUED:-0}" -le 6 ]]; then
+      ok "4f. the playback queue is shallow (queued=$QUEUED packets = $((QUEUED*20))ms of latency)"
+    else
+      bad "4f. $QUEUED packets queued = $((QUEUED*20))ms of audio waiting to play — that is the audible lag"
+    fi
   fi
   # 4d. The SHAPE — REPORTED, NOT ENFORCED.
   #

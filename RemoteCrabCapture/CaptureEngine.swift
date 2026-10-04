@@ -107,10 +107,20 @@ final class CaptureEngine: ObservableObject {
     /// this (not a Bool) because a whole action *set* differs per platform,
     /// not just a few labels.
     var peerPlatform: IBModifierBar.PeerPlatform { IBModifierBar.PeerPlatform(connectedPlatform) }
-    /// Running apps on the Mac, for the app switcher.
-    @Published private(set) var macApps: [IBAppInfo] = []
-    /// Frontmost Mac app, from the latest pushed appList (0x0C).
-    var frontmostMacApp: IBAppInfo? { macApps.first(where: { $0.isActive }) }
+    /// Everything we know about *which computer is on the other end*: its
+    /// running apps, its windows, whether it can capture them, and what it
+    /// can launch.
+    ///
+    /// One value with one `clear()`, because these four lists each arrive as
+    /// their own frame from whoever owns the session and each used to
+    /// outlive that owner. `clearOwner` reset eighteen fields and none of
+    /// these, so after Mac → Windows the context sheet still named the Mac's
+    /// frontmost app — `访达` on a Chinese macOS — and the launcher offered
+    /// the Mac's bundle ids. `PeerIdentity` makes that unrepresentable:
+    /// nothing is installed, so nothing is named.
+    @Published private(set) var peer = PeerIdentity()
+    /// Frontmost app on the connected computer, from the latest `appList`.
+    var frontmostMacApp: IBAppInfo? { peer.frontmostApp }
 
     /// Presents the context-shortcut sheet (observed by ContentView).
     @Published var showContextSheet = false
@@ -119,14 +129,10 @@ final class CaptureEngine: ObservableObject {
     /// publishes omit icons (only an explicit switcher request fetches
     /// them).
     @Published private(set) var macAppIcons: [String: UIImage] = [:]
-    /// Mac windows for the full-screen window picker, front-to-back.
-    @Published private(set) var macWindows: [IBWindowInfo] = []
-    /// False when the Mac lacks Screen Recording, so `macWindows` holds
-    /// one app-level entry per app instead of real windows.
-    @Published private(set) var windowsCanCapture = false
     /// Decoded window snapshots keyed by `IBWindowInfo.id`. Kept across
     /// refreshes so a background refresh without pixels doesn't blank the
-    /// cards.
+    /// cards. Cleared with the identity — an image of a window belonging to
+    /// a computer that left is worse than a placeholder.
     @Published private(set) var macWindowSnapshots: [String: UIImage] = [:]
     /// Fixed listening port (for manual "connect by IP" when Bonjour is
     /// blocked) + this device's WiFi address, shown in the connection sheet.
@@ -314,7 +320,7 @@ final class CaptureEngine: ObservableObject {
     /// App-level placeholder entries (no `:` in the id) are dropped, and
     /// the active window sorts first.
     var screenWindows: [IBWindowInfo] {
-        let real = macWindows.filter { $0.id.contains(":") }
+        let real = peer.windows.filter { $0.id.contains(":") }
         let sameApp = screenInfo?.appId.map { appId in real.filter { $0.appId == appId } } ?? []
         let pool = sameApp.isEmpty ? real : sameApp
         return pool.sorted { ($0.isActive ? 0 : 1) < ($1.isActive ? 0 : 1) }
@@ -643,7 +649,7 @@ final class CaptureEngine: ObservableObject {
         for prefix in appPrefixes where t.hasPrefix(prefix) {
             let target = String(t.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
             guard !target.isEmpty else { continue }
-            if let app = macApps.first(where: {
+            if let app = peer.apps.first(where: {
                 $0.name.lowercased().contains(target) || $0.id.lowercased().contains(target)
             }) {
                 Self.log.info("voice command → activate \(app.name, privacy: .public)")
@@ -728,7 +734,7 @@ final class CaptureEngine: ObservableObject {
     /// silent. The app name is the *sender*, not notification content, so it
     /// is safe to record (the file is DEBUG/devicectl-only).
     func activateRelayedApp(named appName: String, windowTitle: String?) {
-        guard let app = NotificationAppResolver.resolve(name: appName, in: macApps) else {
+        guard let app = NotificationAppResolver.resolve(name: appName, in: peer.apps) else {
             Forensic.log("[notify] tap: '\(appName)' not running — ignored")
             return
         }
@@ -1593,6 +1599,13 @@ final class CaptureEngine: ObservableObject {
 
         ownerMac = mac
         connection = conn
+        // Belt and braces: `clearOwner` already wiped the previous
+        // computer on every path that leads here, but this is the ONE place
+        // a computer becomes the owner, so it is the one place that must not
+        // inherit anybody's identity. The old code cleared nineteen fields
+        // on the way out and none of the four that named the peer, which is
+        // why "访达" survived the switch to Windows.
+        clearPeerIdentity()
         connectedMacName = mac?.name ?? "Computer (legacy)"
         connectedMacId = mac?.id
         // Platform drives the keyboard UI (⌘ vs Ctrl). The live handshake
@@ -1981,10 +1994,11 @@ final class CaptureEngine: ObservableObject {
 
     // MARK: - Installed-app launcher
 
-    /// Launch-able applications advertised by the connected computer,
-    /// keyed by the same `id` the computer expects for `launchApp`
-    /// (bundle id on the Mac, `.lnk` path on Windows).
-    @Published private(set) var installedApps: [IBInstalledApp] = []
+    /// Launch-able applications advertised by the connected computer live
+    /// in `peer.installedApps` — same `id` the computer expects for
+    /// `launchApp` (bundle id on the Mac, `.lnk` path on Windows), and the
+    /// same reason for being there: a launcher listing the Mac's bundle ids
+    /// while Windows owns the session is that field outliving its owner.
 
     /// Whether the launcher is still waiting for that list. `awaiting` is the
     /// only phase that may show a spinner; `answered` is the only one that
@@ -2021,7 +2035,7 @@ final class CaptureEngine: ObservableObject {
     /// The receiver's answer arrived — the only event that may end a wait.
     private func resolveInstalledApps(_ list: [IBInstalledApp],
                                       bytes: Int = 0, askedAt: Date? = nil) {
-        installedApps = list
+        peer.install(installedApps: list)
         installedAppsGate.answer()
         installedAppsPhase = installedAppsGate.current
         stopInstalledAppsExpiry()
@@ -2144,7 +2158,7 @@ final class CaptureEngine: ObservableObject {
         // immediately. The Mac republishes the list right after the quit
         // and reconciles — if a graceful quit is blocked by an invisible
         // save prompt, the card simply comes back.
-        macWindows.removeAll { $0.appId == id }
+        peer.forgetWindow(appId: id)
     }
 
     // MARK: - File transfer
@@ -2425,6 +2439,21 @@ final class CaptureEngine: ObservableObject {
     ///
     /// Pass `reason` — it is what decides the visible connection state (see
     /// `OwnerRelease`).
+    /// Forget the computer we were talking to: its apps, its windows, its
+    /// installable apps, and the images we rendered for them.
+    ///
+    /// One call, so "did we forget something?" is answerable by reading this
+    /// list rather than by auditing eighteen fields. The four identity
+    /// fields live in `PeerIdentity` because they once outlived their owner
+    /// — the context sheet named the Mac's `访达` while Windows owned the
+    /// session — and the image caches are here only because they are
+    /// `UIImage`, which the core package cannot hold.
+    private func clearPeerIdentity() {
+        peer.clear()
+        macAppIcons.removeAll()
+        macWindowSnapshots.removeAll()
+    }
+
     private func clearOwner(reason: OwnerRelease) {
         switch reason {
         case .lost:
@@ -2442,6 +2471,7 @@ final class CaptureEngine: ObservableObject {
         commandLedger.clear()
         commandAppNames.removeAll()
         stopCommandExpiry()
+        clearPeerIdentity()
         // Nothing will answer a list request made to the Mac that just left.
         installedAppsGate.reset()
         installedAppsPhase = installedAppsGate.current
@@ -2613,7 +2643,7 @@ final class CaptureEngine: ObservableObject {
                 }
             case .appList:
                 if let list = try? IBWire.decodeAppList(frame) {
-                    macApps = list.apps
+                    peer.install(apps: list.apps)
                     for app in list.apps where app.iconPNG != nil {
                         if let data = app.iconPNG, let image = UIImage(data: data) {
                             macAppIcons[app.id] = image
@@ -2622,8 +2652,7 @@ final class CaptureEngine: ObservableObject {
                 }
             case .windowList:
                 if let list = try? IBWire.decodeWindowList(frame) {
-                    macWindows = list.windows
-                    windowsCanCapture = list.canCapture
+                    peer.install(windows: list.windows, canCapture: list.canCapture)
                     for window in list.windows where window.snapshotJPEG != nil {
                         if let data = window.snapshotJPEG, let image = UIImage(data: data) {
                             macWindowSnapshots[window.id] = image
@@ -2887,7 +2916,7 @@ final class CaptureEngine: ObservableObject {
                     // 20 ms x 50 = every second. This is the line that proves
                     // audio actually moved, rather than the control merely
                     // reporting itself as on.
-                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pcmPeak=\(self.speakerPlayer.receivedPeak) envelope=\(self.speakerPlayer.envelopeText)")
+                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) queued=\(self.speakerPlayer.queuedPackets) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pcmPeak=\(self.speakerPlayer.receivedPeak) \(self.speakerPlayer.playbackQualityText) envelope=\(self.speakerPlayer.envelopeText)")
                 }
             }
         }
