@@ -741,6 +741,34 @@ even for the FaceTime camera — build a tiny ad-hoc-signed `.app` with
 (and save a PNG; numbers lie less than eyes but PNGs settle arguments).
 Full detail: `docs/CMIO_SESSION_HANDOFF_2026-09-14.md`.
 
+### 🔀 跨端交接：Mac session ↔ Windows session
+
+两端**不能互相验证对方的产物**，所以约定固定入口，不要在聊天里临时写交接：
+
+| 方向 | 文件 | 谁写 | 内容 |
+|---|---|---|---|
+| Mac → Windows | [`docs/PROMPT-WINDOWS-SESSION.md`](docs/PROMPT-WINDOWS-SESSION.md) | Mac session | iOS 侧改动说明 + 需要 Windows 真机打勾的清单 |
+| Windows → Mac | [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QUALITY.md) | Windows session | 在 Windows 真机上**量到数字**的 iOS 侧问题 + 验收方法 |
+| Windows 待办 | [`docs/WINDOWS_TODO.md`](docs/WINDOWS_TODO.md) · [`HANDOFF_WINDOWS_MSI.md`](HANDOFF_WINDOWS_MSI.md) | Windows session | 安装/发布/虚拟摄像头的验证结果 |
+
+**规矩（两端都适用）**：
+
+1. **交接文件必须带数字。** 「画面有点花」不是交接，「1080x1920@30 下实测 6220 kbps，
+   等于 0.1 bit/pixel，截图里是沿边缘的彩色噪点 + 横向条带」才是。对面要能
+   自己判断，不用回来问你。
+2. **不要写「建议改成 X」而不说为什么现在不行。** 每个跨端条目都要写明
+   「为什么这个 session 改不了」——通常是缺 Xcode 或缺对端真机。
+3. **写完立刻提交并推送。** 交接文件的价值和代码一样，留在本地工作树里等于没写。
+   提交前 `git status`，只 stage 自己的文件。
+4. **先推 `git fetch` 看对面有没有已经写过同一件事。** 2026-10-04 这次 Windows
+   session 独立修好了 iOS 侧 `84f30fa` 也在修的「设备列表同名重复」根因
+   （`pc_id` 存在可被卸载删除的 app data 里）。对面写文档之前先 fetch，
+   能省掉两份重复劳动。
+
+**跨端改动的默认分工**：能在本端测量的（本端测试 + 本端真机）就在本端改并验；
+只有对端才能测的，本端**只写文档不改代码**——推一个自己验不了的改动，比留一条
+带数字的交接更糟，因为它看起来已经做完了。
+
 ### Lessons — the archive now lives in `docs/lessons/`
 
 117 entries, each a bug that shipped or a trap that cost a day. **They are not

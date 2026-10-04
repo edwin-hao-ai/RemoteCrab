@@ -194,6 +194,19 @@ let hello = rc_protocol::wire::encode_client_hello(&rc_protocol::ClientHello {
                     Ok(r) => println!("  sessionReply: {:?}", r.result),
                     Err(e) => println!("  sessionReply arrived but would not decode: {e}"),
                 },
+                Kind::FeatureState => {
+                    // The single most useful thing this probe can say. A phone
+                    // whose camera switch is off sends sps/pps and heartbeats and
+                    // no video at all, which is indistinguishable from a decoder
+                    // problem unless you read the flag. It is the first thing to
+                    // check before blaming any of the code below.
+                    if let Ok(s) = rc_protocol::wire::decode_feature_state(&f) {
+                        println!(
+                            "  featureState: camera_on={} mic_on={} position={:?}",
+                            s.camera_on, s.mic_on, s.camera_position
+                        );
+                    }
+                }
                 Kind::Video | Kind::Sps | Kind::Pps => {
                     let kind = match f.kind {
                         Kind::Sps => rc_protocol::NalKind::Sps,
