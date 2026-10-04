@@ -751,37 +751,45 @@ struct ContentView: View {
             // that is absent, because the user cannot tell which half they
             // got. Re-enable this the moment the Windows receiver captures
             // loopback audio.
+            // The Windows receiver does not send kind 0x24 yet, so the
+            // speaker entry is hidden there rather than shipped as a control
+            // that does nothing — the same call the mirror menu makes for
+            // Extended Display. Re-enable it the moment the Windows receiver
+            // captures loopback audio.
             let speakerAvailable = !engine.connectedIsWindows
 
+            // TWO independent features behind one button, exactly like the
+            // mirror menu below: the microphone streams this phone's input to
+            // the computer, the speaker plays the computer's audio out of this
+            // phone, and each is its own toggle with its own checkmark.
+            //
+            // They ARE mutually exclusive in practice — one AVAudioSession,
+            // two directions — and that is enforced in the engine
+            // (`setAudioMode` stands the other one down), not by pretending
+            // here that they are one three-way setting. Keeping them as two
+            // flags is what lets the Mac's control panel, the menu checkmark
+            // and the icon all describe them the same way.
             Menu {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.microphone) }
+                    withAnimation(IBAnimation.snappy) { engine.toggleMicrophone() }
                 } label: {
                     Label(IBLocale.Mic.modeMicrophone,
-                          systemImage: audioMode == .microphone ? "checkmark" : "mic.fill")
+                          systemImage: engine.features.micOn ? "checkmark" : "mic.fill")
                 }
                 if speakerAvailable {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        withAnimation(IBAnimation.snappy) { engine.setAudioMode(.speaker) }
+                        withAnimation(IBAnimation.snappy) { engine.toggleSpeaker() }
                     } label: {
                         Label(IBLocale.Speaker.modeSpeaker,
-                              systemImage: audioMode == .speaker ? "checkmark" : "speaker.wave.2.fill")
+                              systemImage: engine.features.speakerOn ? "checkmark" : "speaker.wave.2.fill")
                     }
-                }
-                Divider()
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    withAnimation(IBAnimation.snappy) { engine.setAudioMode(.idle) }
-                } label: {
-                    Label(IBLocale.Mic.modeOff,
-                          systemImage: audioMode == .idle ? "checkmark" : "mic.slash")
                 }
             } label: {
                 topBarIcon(audioModeIcon, tint: .white,
-                           active: audioMode != .idle,
-                           activeColor: audioMode == .microphone ? IBColor.recording : .accentColor)
+                           active: engine.features.micOn || engine.features.speakerOn,
+                           activeColor: engine.features.micOn ? IBColor.recording : .accentColor)
             }
             .frame(width: 44, height: 44)
             .contentShape(Circle())
@@ -1438,6 +1446,20 @@ private struct ConnectionSheet: View {
                             Text(IBLocale.Pairing.connectedNow)
                                 .font(IBFont.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                    }
+                    // Releasing the computer that has you is a thing people
+                    // want to do *while using it* — it is currently three
+                    // taps away and filed under a button labelled "Choose a
+                    // computer", which does not say what it does. One tap,
+                    // named for what it does. Not a debug affordance: "stop
+                    // controlling my phone's input" is an ordinary request,
+                    // and the alternative was a 10-minute lockout.
+                    if engine.connectedMacName != nil {
+                        Button(role: .destructive) {
+                            engine.disconnectCurrentMac()
+                        } label: {
+                            Label(IBLocale.Pairing.disconnect, systemImage: "eject")
                         }
                     }
                     Button {

@@ -10232,6 +10232,108 @@
           }
         }
       }
+    },
+    "You denied %@ earlier, so it will only try again when you click Retry on that computer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You denied %@ earlier, so it will only try again when you click Retry on that computer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你之前拒绝了 %@，所以它只会在你于那台电脑上点「重试」时再来。"
+          }
+        }
+      }
+    },
+    "%@ is queuing politely — it retries on its own every 15 seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is queuing politely — it retries on its own every 15 seconds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在安静地排队 —— 它每 15 秒会自己试一次。"
+          }
+        }
+      }
+    },
+    "%@ is waiting for you to Allow it on this phone.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is waiting for you to Allow it on this phone."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 正在等你在手机上点「允许」。"
+          }
+        }
+      }
+    },
+    "It has not knocked at all yet — check that it is on this network and switched on.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It has not knocked at all yet — check that it is on this network and switched on."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它还没有来敲门过 —— 确认它和手机在同一网络、并且已开机。"
+          }
+        }
+      }
+    },
+    "Gave up waiting for %@ after 30 seconds. Any computer can connect again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gave up waiting for %@ after 30 seconds. Any computer can connect again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "等了 %@ 30 秒仍未出现，已放弃。现在任何电脑都可以连接。"
+          }
+        }
+      }
+    },
+    "Holding the door for 30 seconds.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding the door for 30 seconds."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在为它保留连接 30 秒。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

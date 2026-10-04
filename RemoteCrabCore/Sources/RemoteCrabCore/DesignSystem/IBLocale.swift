@@ -805,6 +805,34 @@ public enum IBLocale {
             String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu."), name)
         }
         public static let cancelPreferred = IBL("Cancel Preference")
+
+        /// Why the chosen computer has not turned up yet.
+        ///
+        /// The headline above gives generic advice ("click Retry in its
+        /// menu"), which is the right advice for exactly one of the four
+        /// situations the phone can actually tell apart — and the phone
+        /// *does* know which one it is, because it records the last outcome
+        /// of every attempt. A `denied` computer will never retry on its own
+        /// at all; a `busy` one retries every fifteen seconds and needs
+        /// nothing. Telling those two apart is the difference between waiting
+        /// and walking to another machine.
+        public static func waitingReasonDenied(_ name: String) -> String {
+            String(format: IBL("You denied %@ earlier, so it will only try again when you click Retry on that computer."), name)
+        }
+        public static func waitingReasonBusy(_ name: String) -> String {
+            String(format: IBL("%@ is queuing politely — it retries on its own every 15 seconds."), name)
+        }
+        public static func waitingReasonApproval(_ name: String) -> String {
+            String(format: IBL("%@ is waiting for you to Allow it on this phone."), name)
+        }
+        public static let waitingReasonNotSeenYet = IBL("It has not knocked at all yet — check that it is on this network and switched on.")
+        /// Shown once when the grace period is spent. Without it the banner
+        /// would simply vanish, which reads as a bug.
+        public static func preferredGaveUp(_ name: String) -> String {
+            String(format: IBL("Gave up waiting for %@ after 30 seconds. Any computer can connect again."), name)
+        }
+        /// The window itself, so "30 seconds" is never a surprise.
+        public static let preferredGraceWindow = IBL("Holding the door for 30 seconds.")
         public static let pickerFooter = IBL("Several computers are on this network. Pick one — it takes over on its next connect; the others see \"in use\".")
         /// The last attempt's outcome, shown next to a computer in the picker.
         ///
