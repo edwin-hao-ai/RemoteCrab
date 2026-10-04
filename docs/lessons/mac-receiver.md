@@ -725,3 +725,41 @@ so a cross-reference from another lesson still resolves.
      matrix is an assumption until you measure a round trip on your own
      OS, and a silent mono collapse is the failure mode you will not
      notice without two deliberately different channels."**
+
+125. **A ring buffer read on a different thread than its writer needs the
+     indices to have exactly one owner each — and a level log on BOTH sides
+     of a pipeline is worth more than every packet counter (2026-10-04).**
+     The "use the iPhone as the speaker" capture path ends with a ring: a
+     CoreAudio realtime callback writes 512-frame chunks, a 10 ms pump reads
+     960 frames (20 ms) and ships them. Symptom: packets flow at exactly the
+     right rate, 492 of them reach the phone, the phone plays them, and the
+     user hears **digital silence**.
+
+     What located it was logging the signal level **twice, at the two ends of
+     the suspect boundary**, in the same log line if possible:
+
+     ```
+     speaker packet:     bytes=3840 rms=0    peak=0     ← the assembled packet
+     speaker tap level:  rms=1989 peak=8856             ← what the tap delivered
+     ```
+
+     Correctly sized, correctly paced, entirely silent — with the source
+     loud, in the same instant. Every counter before that (packets sent,
+     packets received, packets played, starved=0) said the pipeline was fine,
+     because none of them measured *amplitude*.
+
+     The structural lesson: **the realtime thread and the pump thread were both
+     writing `readIndex`** — the callback's overflow handling does
+     `readIndex = writeIndex - capacity` while the pump does
+     `readIndex &+= 960`. Two writers to one index is a data race, and the
+     unsigned `writeIndex &- readIndex` then wraps, so the
+     `available >= framesPerPacket` guard passes on a garbage value and the
+     pump reads slots that are not what it thinks they are. The fix is to give
+     each index ONE owner — the callback publishes `writeIndex` and an
+     overflow *count*, and only the pump advances `readIndex` — but note the
+     race was only the *proximate* cause; the amplitude log is what made it
+     findable at all.
+
+     Generalisable, and it is the second time this session: **a test that
+     counts things cannot see a value problem.** "492 packets arrived" and "the
+     sound arrived" are different claims, and only one of them was true.

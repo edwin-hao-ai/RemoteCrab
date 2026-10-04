@@ -58,6 +58,16 @@ final class SpeakerPlayer {
     /// a run where the Mac's system output is digital silence passes every
     /// packet-count assertion while the user hears nothing.
     private(set) var receivedRms: Double = 0
+    /// One character per packet: the level, mapped to 0-9. Drawn as a string
+    /// it is the SHAPE of the audio that arrived — so a run that received a
+    /// melody prints a waveform, and one that received a flat tone prints a
+    /// straight line. An energy number alone cannot tell those apart, and
+    /// "did the whole piece arrive, or a fragment" is the question that
+    /// matters.
+    nonisolated(unsafe) private var envelope: [Character] = []
+    private static let envelopeLength = 240
+
+    var envelopeText: String { String(envelope) }
     private(set) var receivedPeak: Int = 0
     private var energySum: Double = 0
     private var energyCount: Int = 0
@@ -116,6 +126,7 @@ final class SpeakerPlayer {
         receivedPeak = 0
         energySum = 0
         energyCount = 0
+        envelope.removeAll()
         isRunning = true
         os_log("speaker player started", Self.log)
     }

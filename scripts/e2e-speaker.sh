@@ -152,15 +152,30 @@ sleep 3   # let the stream attach before anything can be logged
 # A known 1 kHz tone, so "audio arrived" can be told apart from "digital
 # silence arrived". Without something playing, the Mac's system output is
 # silent and every packet-count assertion passes while the user hears nothing.
-if [[ ! -f /tmp/e2e-speaker-tone.wav ]]; then
+# A recognisable PIECE, not a tone: eight notes with silence between them.
+# A run that received the whole thing prints a waveform; one that received a
+# fragment, or a flat tone, does not — which is the difference between "audio
+# moved" and "the audio moved".
+if [[ ! -f /tmp/e2e-speaker-piece.wav ]]; then
   python3 - <<'PYGEN'
 import math, struct, wave
-w = wave.open('/tmp/e2e-speaker-tone.wav','wb')
-w.setnchannels(2); w.setsampwidth(2); w.setframerate(48000)
-frames = b''.join(struct.pack('<hh', int(11000*math.sin(2*math.pi*1000*i/48000)),
-                             int(11000*math.sin(2*math.pi*1000*i/48000)))
-                    for i in range(48000*20))
-w.writeframes(frames); w.close()
+RATE = 48000
+NOTES = [523.25, 659.25, 783.99, 1046.50, 783.99, 659.25, 523.25, 392.00]  # C E G C G E C G
+out = bytearray()
+for n, f in enumerate(NOTES):
+    for i in range(RATE // 4):                      # 250 ms of the note
+        t = i / RATE
+        env = min(1.0, t / 0.01) * min(1.0, (0.25 - t) / 0.05)   # no clicks
+        v = int(11000 * env * (0.6*math.sin(2*math.pi*f*t)
+                             + 0.3*math.sin(2*math.pi*2*f*t)
+                             + 0.1*math.sin(2*math.pi*3*f*t)))
+        out += struct.pack('<hh', v, v)
+    for i in range(RATE // 4):                      # 250 ms of silence
+        out += struct.pack('<hh', 0, 0)
+w = wave.open('/tmp/e2e-speaker-piece.wav','wb')
+w.setnchannels(2); w.setsampwidth(2); w.setframerate(RATE)
+w.writeframes(bytes(out)); w.close()
+print("piece: %d notes, %.1f s" % (len(NOTES), len(out)/4/RATE))
 PYGEN
 fi
 
@@ -172,8 +187,8 @@ timeout 60 xcrun devicectl device process launch --device "$PHONE_UDID" \
 LAUNCH_PID=$!
 
 sleep 4
-say "playing a 1 kHz tone on the Mac (so the audio is not digital silence)"
-( afplay /tmp/e2e-speaker-tone.wav >/dev/null 2>&1 ) &
+say "playing an 8-note piece on the Mac"
+( afplay /tmp/e2e-speaker-piece.wav >/dev/null 2>&1 ) &
 TONE_PID=$!
 sleep 11
 kill "$TONE_PID" 2>/dev/null; wait "$TONE_PID" 2>/dev/null
@@ -236,10 +251,27 @@ if [[ -n "$LINE" ]]; then
   #     measures the energy of the PCM it received, and a tone playing on the
   #     Mac must show up there. A silent system passes every count above.
   RMS=$(echo "$LINE" | sed -E 's/.*pcmRms=([0-9]+).*/\1/')
+  ENV=$(echo "$LINE" | sed -E 's/.*envelope=([0-9]*).*/\1/')
   if [[ -n "${RMS:-}" && "${RMS:-0}" -gt 500 ]]; then
     ok "4c. the received audio is NOT silence (pcmRms=$RMS) — sound, not just bytes"
   else
     bad "4c. the received audio is digital silence (pcmRms=${RMS:-?}) — packets moved but no sound did"
+  fi
+  # 4d. The STRUCTURE. Eight notes with gaps must arrive as eight bursts; a
+  #     flat line means a tone, a truncated run means a fragment, and both
+  #     are failures a level check would happily pass.
+  if [[ -n "${ENV:-}" ]]; then
+    printf '  envelope: %s\n' "$ENV"
+    BURSTS=$(echo "$ENV" | grep -oE "[6-9]{2,}" | wc -l | tr -d ' ')
+    GAPS=$(echo "$ENV" | grep -oE "[0-2]{3,}" | wc -l | tr -d ' ')
+    DISTINCT=$(echo "$ENV" | fold -w1 | sort -u | tr -d '\n' | wc -c | tr -d ' ')
+    if [[ "${BURSTS:-0}" -ge 4 && "${GAPS:-0}" -ge 3 ]]; then
+      ok "4d. the SHAPE arrived: $BURSTS loud passages separated by $GAPS gaps ($DISTINCT distinct levels)"
+    elif [[ "${DISTINCT:-0}" -le 2 ]]; then
+      bad "4d. the received audio is FLAT ($DISTINCT distinct level) — a tone or a fragment, not the piece"
+    else
+      bad "4d. only $BURSTS bursts / $GAPS gaps seen; the piece did not arrive whole"
+    fi
   fi
   printf '  last: %s\n' "$LINE"
 else
