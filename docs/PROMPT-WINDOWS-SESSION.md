@@ -550,3 +550,91 @@ iOS 端入口在 `speakerAvailable = !engine.connectedIsWindows`，实现完删�
   在 `7f0d646` 上同样失败）
 * `speaker` 采集（见上）
 * `virtual_screen_size()` 多显示器 origin 无测试
+
+---
+
+## 2026-10-05：Windows 端现在可以在这台 Mac 上被测试了
+
+`./scripts/e2e-parity.sh` —— 同一台 iOS、两个接收端、一张能力表。
+这是「两端到底对齐了没有」第一次变成一条命令，而不是靠人记得。
+
+```sh
+./scripts/e2e-parity.sh                     # 模拟器里的真 app，两个接收端
+./scripts/e2e-parity.sh --side windows      # 只跑 Windows 端
+./scripts/e2e-parity.sh --input fake        # rc-phone-sim，快，不需要模拟器
+```
+
+**已在本机验证的只有 `--input fake` 那一档**：
+
+```
+handshake    ✔     ✔     AUTOPAIR
+video decode –     ✔     --decode-only
+audio        –     –     (not exercised)
+```
+
+它用 `--decode-only` 跑**发布用的那个二进制**（在 macOS 上编译），
+打到 `rc-phone-sim` 的**真 H.264**（`encode_test_video` 用的是 OpenH264
+编码器），实测 `decode: 150 frames (320x180)`。
+其余格子是中性不是红 —— 假手机不发 touch/key/clipboard/file/activateApp，
+把它们报成失败就是凭空造 bug。
+
+**`--input simulator` 那一档接线完了但本机还没绿**，脚本会明说并退出非零，
+不打印没挣到的表。`scripts/e2e-simulator.sh` 在本机也失败（TextEdit 那步），
+所以这个阻塞是环境层面的，不是这个脚本引入的。
+
+### 🔴 你那边可以直接收下的三件事
+
+1. **`fatal runtime error: Rust cannot catch foreign exceptions` 的原因找到了**，
+   是**托管方式**不是 Windows 缺陷：`--preview` 默认开（`args.rs:110-112`），
+   minifb 在 macOS 上开不了 Cocoa 窗口，整个进程被带走。
+   本机 `--no-preview` 立刻正常，`--decode-only` 更是把解码和窗口解耦了
+   （`main.rs` 原来是 `if args.preview || args.vcam`，所以没法「只解码不开窗」）。
+   你那边带托盘复现不了是**对的**，不用再查。
+
+2. **`rc-loopback` 之前只在 Windows 上编译过**，而且是我用错方式修的。
+   那个 crate 里 `impl LoopbackCapture` **漏了 `#[cfg(windows)]`**
+   （周围的 `mod wasapi` 和非 Windows 桩都有），于是任何非 Windows 平台
+   两个 impl 一起编译 → `E0592 duplicate stop` + 五个 `wasapi::` 找不到。
+   **正确的修法不是给 impl 加属性**（那会把 `running`/`stats`/`take_packet`
+   一起从非 Windows 删掉，`rc-app/src/speaker.rs` 全部用它们），
+   而是 `stop()` 里那一行 `wasapi::set_endpoint_master_volume` 漏了 cfg。
+   现在 macOS 上 `cargo build -p rc-app` 干净。
+
+3. **`./scripts/test.sh` 以前从不编译 bin**（`cargo test --workspace --lib`），
+   所以上面那个「`rc-app` 编不过」是隐形的 —— 门禁全绿而东西是坏的。
+   现在加了 `cargo build --workspace`。**你的新 crate 如果是 bin，
+   以前不会被门禁发现。**
+
+### 仍然只能真机验的（harness 明确不覆盖）
+
+* **输入注入** —— 窗口拖动、选中、真实点击。macOS 上的 Windows 接收端
+  收得到帧但发不出去，所以那些格子标 `needs SendInput`，标了就**不算红**。
+* **画面质量** —— 模拟器没有摄像头。走 `renderer_fidelity`（不需要手机，
+  在 macOS 上能跑）+ 真机。
+* **虚拟摄像头 / 虚拟麦克风 / 托盘 / 窗口枚举** —— 见
+  `docs/WINDOWS-GAPS-2026-10-03.md` §5.6。
+* **speaker 采集** —— WASAPI loopback 按构造就是 Windows-only。
+  但**协议那一半**（kind `0x24` + `rc-phone-sim`）在 macOS 上完全可以验，
+  而 speaker 是 Mac 侧花了四轮才修对的功能（lessons 124/138/139/140/141），
+  对齐价值最高。要的话我加一档 `--input fake` 的 speaker 场景。
+
+### iOS 侧本轮修的两处（`3d9c591` / `8a89d35`）
+
+* **Windows 下情景模式显示「访达」** —— 根因不是套件表，是
+  `CaptureEngine.clearOwner()` 重置了十八个字段而**一个都没重置**
+  running apps / windows / installed apps。Mac → Windows 之后陈旧列表
+  还在，面板表头渲染上一个电脑的前台 app（中文 macOS 上字面就是「访达」）。
+  现在收成一个 `PeerIdentity`，一个 `clear()`，不变量进类型。
+  **Windows 端不需要改任何代码**，但你如果在别的会话里看到 Mac 套件，
+  先怀疑对端。
+* **4 条文案半吊子** —— 中文已改成「电脑」，**英文原文还写着 "your Mac"**，
+  同一个界面中英文不一致。现在英文也改了，并且守测试从「列 26 个 key」
+  改成「按界面枚举」，新增泄漏自动抓到。
+
+### 请你验的（我这边量不到）
+
+1. `./scripts/e2e-parity.sh --side windows` 在**你的 Windows 机器**上跑，
+   `--input simulator` 那档能不能开端口 8765。我这台不行，但本机
+   `e2e-simulator.sh` 也不行，所以分不清是脚本还是环境。
+2. `cargo build --workspace` 在 Windows 上（门禁新加的那步）。
+3. `--decode-only` 在真 Windows 上：应该解码但不弹窗。

@@ -992,6 +992,11 @@ cross-references rather than the file order.
 | 139 | A format declared `interleaved: true` and written with the **planar** idiom costs you a channel: the pointers are 2 bytes apart, so one channel plays at double speed and the other is gone — and only a **per-channel read-back** of the buffer can see it | [`ios-device`](docs/lessons/ios-device.md) |
 | 140 | A diagnostic can be the thing that breaks the feature: `installTap` with a mismatched format reported **silent** when it was the thing lying, and with a matching one it killed the app with **signal 5** | [`ios-device`](docs/lessons/ios-device.md) |
 | 141 | The first number in a bug report can be the phone's opinion of itself — `IBStreamMetadata` reported the *requested* bitrate, so an acceptance test built on it would have gone green while the picture stayed exactly as soft | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 142 | **`test.sh` 跑 `--lib`，所以它从来没编译过那个 bin** — 门禁验的是你改的那个 crate，不是依赖它的东西 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 143 | **`git checkout stash@{0} -- <file>` 会 stage**，所以普通 `git commit` 会把没提交的东西卷进去 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 144 | **按例子写的守测试，覆盖率是 0** — 26 个 key 全都已经是干净的；换成按界面枚举后当场抓到 4 条中英不一致 | [`ios-device`](docs/lessons/ios-device.md) |
+| 145 | **一个悄悄什么都没扫的解析器，和一张干净的健康报告长得一模一样** — 四次解析器 bug 全靠「未解析即硬失败」逼出来 | [`ios-device`](docs/lessons/ios-device.md) |
+| 146 | **一个会误报的 preflight 比没有更糟**，因为它教你忽略它 — LITERAL 与 MARKER 必须分开 | [`windows`](docs/lessons/windows.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1236,6 +1241,90 @@ If you're new, also read:
 - **`RemoteCrabCapture/OnboardingFlow.swift`** — how the user gets into the app
 
 ---
+
+_Last updated: 2026-10-05 (**Windows 端终于能在 Mac 上被联调了 —— 而修它的过程里，
+我的第一个修复是错的，还是门禁放行的**). 用户问「有什么办法可以好好联调 Windows 和 Mac」。
+先量后答：`cargo check -p rc-app` 通过、`#[cfg(not(windows))]` 空实现满地都是 ——
+**Windows 接收端本来就能在 macOS 上编译运行**，这改变了整个问题的形状。
+但真跑一次就崩：`fatal runtime error: Rust cannot catch foreign exceptions`。
+**我错了三次**：① 以为是解码器（`rc-phone-sim` 自己的文档说它「不发真 H.264」，
+而 `encode_test_video` 用的是 OpenH264 **编码器** —— 那句文档是假的，
+已经害我判断错两次）；② 以为是假手机的合成字节（同样假）；③ 真因是
+**`--preview` 默认开**（`args.rs:110-112`），**minifb 在 macOS 上开不了 Cocoa 窗口**。
+`--no-preview` 立刻正常。而 Windows session 在 `WINDOWS-GAPS §5.7` 里写着这个
+abort「真机 + 托盘下**仍无法复现**」—— 两个人的观测到这里合上：**它是托管方式的
+产物，不是 Windows 缺陷**。
+**新的地基**：`Args::decode_pipeline_needed()` 把「解码」和「显示」拆开
+（原来 `main.rs` 是 `if args.preview || args.vcam`，所以「只解码不开窗」无法表达）；
+`rc-phone-sim --video N` 让假手机能发**真** H.264；实测 `decode: 150 frames (320x180)`。
+`scripts/e2e-parity.sh` 把「两端对齐没有」变成一条命令。**它最有价值的产出不是
+那张表，是建表时暴露的三件事**：① `Event::Key` 在非 Windows 上编译成 `let _ = &k;`、
+`Touch`/`ActivateApp` 什么都不打印 —— 所以 touch/key/app switch 在 macOS 托管下
+**结构性地没有格子**，看起来像「没测」而真相是「这里注不进去」；
+**收帧是链路事实、只有注入需要 Windows**，于是补了 4 条可移植 marker。
+② 假手机只发 sessionReply/metadata/featureState/ping/H.264，**不发 touch/key/
+clipboard/file/activateApp** —— 所以「未启用输入」的格子必须是**中性不是红**，
+否则就是凭空造 7 个 bug（lesson 111 的形状）。③ **写脚本时犯的 5 个 bug 全靠跑出来、
+不是读出来**：`report` 定义了从没被调用（表是空的）、`"$1
+"` 在双引号里不展开
+（整张表变成一行）、`while read` 少了重定向、二进制路径写死 `windows/target/debug/`
+而 `~/.cargo/config.toml` 把所有项目指到**同一个共享 target-dir**、
+以及 preflight 要求整个 marker 是字面量而**两端都把握手结果格式化**
+（Mac `reply.result.rawValue` / Rust `{:?}`）所以它对一条正常 marker 误报 ——
+**一个会误报的 preflight 比没有更糟，因为它教你忽略它**。现在分 LITERAL（防腐烂、
+可 grep）与 MARKER（断言用，可含格式化部分）。
+**然后是本轮最贵的两个教训，都关于我自己**：拉下来的 `30914c3`（新增 `rc-loopback`
+WASAPI loopback 采集，补上 AGENTS.md 里「Windows 端采集仍未实现」那个洞）
+**让 `./scripts/test.sh` 变红**。根因是 `lib.rs:219` 的 `impl LoopbackCapture`
+**漏了 `#[cfg(windows)]`**。我的修复是给它加上 —— **错的方向**：那个 crate 本来
+就**逐方法**加 gate（`start`、`master_volume` 是方法级，`restore_volume` 是内联块），
+模块文档明说「这个类型在每个平台都存在，只有碰 WASAPI 的方法是 Windows-only」，
+所以给 impl 加属性会把 `running`/`stats`/`take_packet`/`new` 一起从非 Windows 删掉，
+而 `rc-app/src/speaker.rs` 全部裸用 —— **`cargo build -p rc-app` 仍然失败，而我报了「已验证」**。
+**为什么门禁没拦住**：`scripts/test.sh` 跑的是 `cargo test --workspace --lib`，
+**`--lib` 只编 library target，bin 从来没在这台机器上编译过**。所以它验的是
+「我改的那个 crate」，不是「依赖它的东西」。真正的缺陷只有一行：
+`stop()` 给 `self.thread.take()` 加了 `#[cfg(windows)]`，紧接着的
+`wasapi::set_endpoint_master_volume(v)` 没加。**反向验证**：单独弄坏
+`rc-app/src/main.rs`，旧门禁**通过**、`cargo build --workspace` **失败** ——
+于是把后者加进 `test.sh`（「一个从不编译被测物的门禁比没有门禁更糟」）。
+另外 `git checkout stash@{0} -- <file>` **会 stage**，所以我那条未提交的 RED 测试
+被一次普通 `git commit` 卷进了 CI 修复提交里（靠 cherry-pick 的文件数发现）。
+**访达那一条**：`clearOwner()` 重置十八个字段而**一个都没重置**
+running apps / windows / installed apps —— 根因不是套件表错，是
+**「描述对端是谁」的状态没有主人**。修法不是补一行，是收成一个纯的
+`PeerIdentity`（Core，可测）+ 一个 `clear()`，不变量变成
+**「没安装任何东西的身份答不出任何 app」**，`grant()` 也调一次因为那是
+「一台电脑成为主人」的唯一入口。⚠️ **我第一版回归测试是空过的**：它在 `clear()`
+之后又 `install` 了新列表，而 `install` 是替换，**缺失的 wipe 会被替换掩盖** ——
+真实暴露面是新电脑已接受会话但还没应答 `appList` 的那个窗口，测试改成那个形状后
+删掉 `clear()` 的三个赋值会有 11 个断言失败（含两条直接复现报告的）。
+**文案那条**：`testNoSessionSurfaceNamesAMac` 列了 **26 个 key，而那 26 个全都已经是
+干净的** —— 它从来没抓到过任何东西，是**按例子**而不是**按界面**写的覆盖率；
+实测「已上线文案里含 Mac 的 key」中它覆盖 **0** 个。换成按界面走
+（10 个会话期文件 → 解析 `IBLocale.swift` 拿到 catalog key → 检查每种语言）之后
+**当场抓到 4 条半吊子**（中文已改「电脑」、**英文原文还写着 "your Mac"**，
+同一界面中英不一致）和 **7 条没人分类过的**（3 条权限文案 + 4 条手势页的 Mac 分支 ——
+后者存在**正是因为**手势页按平台分流，删掉会让 Mac 用户读到 Windows 文案）。
+`deliberateMacText` 给每条例外写明理由，让「产品级文案说 Mac」读起来像决定而不是遗漏
+（同 `testPowerPointIsNotYetMapped` 的手法）。**它还抓到了我自己**：我加的
+`Download for Mac` 例外是陈旧的，那条文案**早就**改成「Download the desktop app」。
+写解析器的过程错了三次（符号切到第一个 `(` 而那属于 `IBL(`、
+`public static func` 的 key 在函数体里跨行、`Pairing` 里有嵌套 `Attempt` enum
+而单名扫描永远出不来），修第三个时又引入第四个（对**任何** `}` 都出栈，
+结果在第一个函数体里就清空了，511 个符号只解析出 376 个）——
+**所以「未解析的符号」被写成硬失败**：一个悄悄什么都没扫的解析器，
+和一张干净的健康报告长得一模一样。
+**两个诚实的边界**：parity 脚本的 `--input simulator` 档**接线完了但本机没绿**
+（要 local-network 授权种进 `TCC.db` + boot-cycle，`simctl privacy` 给不了这个服务；
+还要 `REMOTECRAB_AUTOSTREAM=1`，它是**唯一**不靠点击就调 `startStreaming()` 的路径，
+`ContentView.swift:361`）—— 为此错了四轮（只怪 TCC、只怪 boot-cycle、
+把那个真正需要的 flag 删掉、以及我自己的编排），而 `e2e-simulator.sh` 在本机
+**也失败**（TextEdit 那步），所以阻塞是环境层面的。**但「另一个脚本也失败」
+不是打印绿表的许可**，所以那一档明说并退出非零。
+540 Core 测试 + 两 target + Windows 套件 + 新的 host-build 步全绿；
+`scripts/e2e-parity.sh` 的假手机档实测 handshake + `decode: 150 frames (320x180)`。
+Lessons 142-146._
 
 _Last updated: 2026-10-04 (later, **「切换电脑」重构 + 触控板方向调查**). 用户报「连上 Windows 后切回 Mac 完全切换不了」「如果我被一台电脑占用了怎么让它断开」。**手机日志先证明机制本身是好的**：`06:21:08 hello ECBDD7BA ownerSet=false → accepted`；那个 5 分钟空档是**本机接收端当时根本没在跑**（并行 session 正在重装）—— **这条区分省掉了去查传输层的整轮弯路**。真因两个，都在 UI：① **选择列表可能一台电脑都不列** —— 行过滤除了按 id 排除已连接那台，还按**名字**排除待批准那台，而这台机器当时有**两台都叫 EDWIN**；拿真实数据代进旧规则 `old rule lists: []`。**不是少一台，是列表空掉**，字面意思就是「切换不了」。⚠️ **这个 bug 无法用「改一个值」逆向验证** —— 修法是「删掉一个输入」，旧行为在新签名下无法表达，所以证明方式是拿真实数据跑旧规则。② **正在工作的切换和失败的切换长得一模一样** —— `currentAlert` 对 `.connected` 和 `.idle` 都返回 nil，而切换踢掉 owner 后正是 `.idle`，且 `preferredMac` 之前**只在选择面板里渲染**。③ **Mac 端只说「正被占用」并给一个永远不可能成功的 Retry**，该做的事任何界面都没写。另修**30 秒宽限期**：此前一条被拒偏好会拒掉所有人最长 10 分钟；判据放 store 的 `effectivePreferred()`，**policy 里不含时间概念**。**审计轮自己又抓到 2 个**：`pruneStale` 的 count 早退把「清理悬空偏好」一起跳过了（偏好可指向从未敲门过的电脑）；**「Forget」只清 `paired` 而列表读 `seen`，所以点了 Forget 那台机器还在，且没有任何办法删**。**触控板方向：读不出 bug，所以改成测量** —— 用户报「手指往左、Windows 上光标往右」，我先误判成镜像、再误判成重力感应，**两次都是我的错**。整条链读下来是干净的（iOS `rawDX` → `accelerate` 是 `dx * gain` → `emit` 直传 → Mac/Windows 都是 `last + dx`，**两端无任何取负**，`git log -S` 显示 Windows 那个 move 计算**只有一个提交、历史上从未翻过符号**）。**一个代码解释不了的症状，缺的是测量不是编辑** —— 于是把「方向」变成有测试的不变量（三条曲线都断言「只缩放、绝不反射」+ **增益上界**，因为增益失控会让小幅拖动冲过目标、用户很容易说成「往另一边去了」），并加 `REMOTECRAB_E2E_TRACKPAD_DIR=1` 每 12 次 move 记一行带符号的 `out.dx/dy`。**「加速度没了」是感知变化不是回归**：`c2bd246`(09-25) 把加速度改成按速度，而旧代码的加速**几乎从未生效**（其注释自陈 "acceleration silently never engaged"）。🔒 **待用户滑一下手机定案**（手机发 `dx<0` = 问题在 Windows 接收端；手指往左但 `dx>0` = iOS 的 bug，就在本机）。**故意没修**：Windows **镜像**滚动没取负而 Mac 取了负，同文件两个测试断言**相反**符号（`scroll_is_inverted_and_gained` 期望 -120、`scroll_becomes_wheel_deltas` 期望 +75）—— 确定的 bug，但是另一个症状，**把符号改动叠在还没定性的方向问题上会让两个都更难查**。**共享工作树（lesson 134）**：并行 session 又把我**正在写**的代码用**它自己的**提交说明推上去了（`2adb456` 的音频按钮提交里混进我的 Disconnect 和 6 条文案），危害不是代码错而是**历史说谎**；不动已推送的历史，在自己提交说明里如实记录。**Lesson 编号撞车**：双方都用 123/124/125，归档出现两个 125 → 已把我的重排到 **130–136** 并同步本表。**整个 session 没有一次 e2e 全绿**（三次都是手机被另一台电脑占着，`busy owner=EDWIN`，**正确行为**）。7 个提交全部推上 `main`，**491 测试** + 两 target + Windows 套件全绿，`/Applications/RemoteCrab.app` 仍是 Developer ID build 11 / CDHash `d9dacda991ffaa8a1a32aff7abacf9b38b945549`。Lessons 130-136._
 _Last updated: 2026-10-04 (**iOS 侧的 Windows 兼容审计 —— ⌘ 只到了键盘界面，同一句话还有三份独立实现；顺带查出手机上还连着另一台电脑，所以 22 条 e2e 全红**). 用户报「连接 Windows 后还是显示 Command」。**根因不是一处漏改，是同一个概念在这个产品里有四份独立代码**。① **修饰键行有两个来源**：`KeyboardScreen` 自己画（对的），而**触控板 + 投屏**共用 `IBShortcutBar`，它调 `IBModifierBar` **没传 `platform`** → 走缺省 `.mac`。所以同一个 app 里**换个界面键就变了**，而且两个错的正好是最常用的两个。**文档点名了 `KeyboardScreen.swift:345`，实施者就只改了那一处 —— 点名一个文件等于替其他调用点背书**（lessons 118/119）。修法不是「记得传」而是**去掉默认值**：四处 `platform` 全部必填，编译器强制表态。② **手势说明页**写死「Lock ⌃⌥⌘⇧」「Mission Control」「the Mac」，而它是**会话中被阅读**的 —— 一份描述了错误机器的说明比短说明更糟，读者无法判断哪几行可信；顺带发现 `Coach.pinchZoom` **在 catalog 里根本没有条目**，中文界面显示英文原文。③ **VoiceOver 朗读标签**：Windows 和弦键复用了 Mac 的 label，于是 `Ctrl+Z` 被念作「Mission Control」、`Ctrl+A` 被念作「App Exposé」——**键帽是对的，所以没有任何检查能发现**，只有读屏用户听得到；抽成 `ShortcutChords` **数据**（键帽+朗读配成一对）后视图再没有「拿错标签」可言，顺带发现 `extra` 是**完整掩码**不是增量。④ **context chip 写死英文 `"Computer"`**，中文手机上和「按住说话」并排，catalog 里早就有 `Computer`→电脑，是调用点用字面量所以查表从没发生 —— **只能靠看截图发现**（lesson 76）。**情景模式三个按钮在说谎**：`windowsSystemActions` 是**独立数组**，`ContextWindowsSuiteTests` 里所有 `for profile in ContextProfiles.all` 循环**静默跳过了它**，它一个断言都没有而 `systemActions(for:)` 无条件渲染 —— 「显示桌面」发的是 **⊞⌥Escape**（keycode 53 是 Escape，`keymap.rs:105`→`vk::ESCAPE`）、「浏览器」图标是 `safari.fill`（=用户说的「Windows 没有 Safari」）、`.voiceHero` 待在宫格里让「Talk to Computer」渲染**两次**。**去掉宫格 hero 会让 13 个套件失去语音键**（console 没有 `windowsActions`），所以 `voiceHero(for:)` 必须**回退到 console 的 hero**，两条一起改才对 —— 这是最容易漏的一半。**Mac 侧零影响的证明不是测试绿而是渲染对比**：真组件塞进 `NSWindow` 截图，Mac 那张与修改前逐格相同；⚠️ `ImageRenderer` **不给 `ScrollView` 布局**会静默不画内容，必须 `NSHostingView`+`cacheDisplay`。**每个断言都反向验过**，而这一步抓到我自己两处问题：两条 pruning 测试**按最旧→最新排 fixture**，恰好和「最后写入胜出」这个 bug 一致 → **空过**（真实 `seen` 是最新在前，`noteSeen` 插 index 0，那个顺序下 bug 保留最旧的）；`daysAgo: 0` **每项各调一次 `Date()`** 所以「并列」差了几微秒，并列必须用**共享时间戳**构造。**用户随后报「设备列表出现多个 Windows 设备」，和 e2e 失败是同一件事**：`seen` 只按 `id` 去重，所以「按 id 删」永远删不掉换过身份的机器（Windows 接收端过去每装一次换一个 `pc_id`），`seenLimit = 20` 是唯一上限。`84f30fa` 加**同名合并 + 30 天过期**（纯函数 `pruned`），真机验证 **5 行 → 3 行、同名归零**，但**根因在接收端**：`c9c0463`（`MachineGuid`）已进 main 而**用户 Windows 机器上跑的还是旧版**。**e2e 22 条全红的真因是手机正被另一台电脑占着**（`busy owner=EDWIN`，**正确行为**），一锤定音的是读手机持久化的 `seenComputers`（`…98db…` 两条 **node 相同、id 不同** = 同一台机器两个身份）而不是继续从日志推断；且偏好锁 armed 的 10 分钟 TTL **按 id 判断**，我第一次重跑早了 46 秒（`14:51:52` 起跑 / TTL 到 `14:52:38`），结果一模一样 —— **时序断言要先算好时间**（lessons 120-122）。6 个提交全部推上 `main`，453 测试 + 两 target + Windows 套件全绿；`/Applications/RemoteCrab.app` 仍是 Developer ID build 11，CDHash `d9dacda991ffaa8a1a32aff7abacf9b38b945549` 未变；`stash@{0}` 是 Windows session 的**没碰**；合并前求交集确认与远端 3 个 Windows 提交**零文件重叠**。**🔒 待验**：`docs/PROMPT-WINDOWS-SESSION.md` 末尾的清单（修饰键三界面不串 / ⊞ 单独按 / 系统区四按钮 / 语音只一次 / 同名一行 / **重装后不需重新配对**）。Lessons 118-122._

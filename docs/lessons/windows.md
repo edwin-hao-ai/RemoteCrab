@@ -508,3 +508,35 @@ Mac 抢走手机），**物理 Shift 一直按在 Windows 上**，之后打字�
    要修 bug，先把接缝造出来。
 
 
+
+## 146 · 一个会误报的 preflight 比没有 preflight 更糟
+
+2026-10-06 接 145 的反面。`scripts/e2e-parity.sh` 在开跑前检查
+「声明的每个 marker 都存在于接收端源码里」，用来发现「断言写着一个
+代码早就不打印的 marker」这种腐烂。第一版要求**整个 marker 是源码字面量**，
+而**两端都把握手结果格式化**：Mac 打 `reply.result.rawValue`，
+Rust 打枚举的 `{:?}` —— 「accepted」这个词**在两个源文件里都不存在**。
+于是它对一条完全正常的 marker 误报。
+
+**教训**：**会误报的守检查比没有更糟，因为它教你忽略它** ——
+跑三次红之后你就学会跳过它了，然后它真正该抓的东西也一起被跳过。
+修法不是放松断言，是把两个概念分开：
+
+* **LITERAL** —— 稳定、能 grep 进源码、防腐烂，preflight 只查这个；
+* **MARKER** —— 拿去在 transcript 里断言，**允许**包含格式化的部分。
+
+顺带两条同源的：`--lib` 不编 bin（lesson 142），
+以及 preflight 扫描范围要跟着代码走 —— 握手的 marker 住在 `rc-net` 而不是 `rc-app`。
+
+**同一个脚本里另外四个 bug 全是跑出来的、不是读出来的**：
+`report` 定义了**从没被调用**（表是空的，我以为它跑了）；
+`ROWS+="$1\n"` 在双引号里 `\n` **不展开**，整张表变成一行；
+`while read` 少了个重定向，于是读 stdin 立刻结束；
+二进制路径写死 `windows/target/debug/`，而 `~/.cargo/config.toml` 把
+**所有项目**指向同一个共享 `target-dir`，所以那个路径不存在 ——
+现在用 `cargo metadata` 去问输出到底在哪。
+
+**还有一个反向的例子**：那句 abort（`Rust cannot catch foreign exceptions`）
+在 macOS 上是 **minifb 开不了 Cocoa 窗口**，而 Windows session 记录它
+「真机 + 托盘下**仍无法复现**」。两个观测合起来才是结论 ——
+**它是托管方式的产物，不是 Windows 缺陷**。

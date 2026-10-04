@@ -827,3 +827,48 @@ suite was green and the direction was untested. Clamping tests cannot detect
 inversion; only a **paired** assertion from mid-screen can
 (`a_move_preserves_the_sign_of_its_delta`, added 2026-10-04, reverse-verified
 by negating `dx` and watching exactly one of the two axis tests fail).
+
+## 142 · 门禁跑 `--lib`，所以它从来没编译过那个 bin
+
+2026-10-05。`./scripts/test.sh` 的 Windows 段跑的是
+`cargo test --workspace --lib`，而 **`--lib` 只构建 library target**。
+
+`rc-app` 是 **bin**。所以在这台 Mac 上，`rc-app` 从来没有被编译过 ——
+而 `rc-loopback`（lib）的失败是看得见的，于是我以为「红」已经等于
+「问题在 rc-loopback」，修完 lib 就报绿。
+
+真因是 `rc-loopback/src/lib.rs:219` 的 `impl LoopbackCapture` 漏了
+`#[cfg(windows)]`。我的第一个修复是**给它加上** —— **错的方向**：那个 crate
+本来就逐方法加 gate，`rc-loopback` 里除它以外每一个平台相关的东西都加了。
+加在 impl 上把 `running` / `stats` / `take_packet` / `new` 一起从非 Windows
+删掉了，而 `rc-app/src/speaker.rs` 全部裸用 —— `cargo build -p rc-app` 依然失败，
+**而我已经把上一个提交描述成「已验证」**。真正的缺陷只有一行：`stop()` 给
+`self.thread.take()` 加了 gate，紧接的 `wasapi::set_endpoint_master_volume(v)`
+没加。
+
+**门禁为什么没抓住**（反向验证，不是推理）：
+
+| 破坏方式 | `test --workspace --lib` | `build --workspace` |
+|---|---|---|
+| 只弄坏 `rc-app/src/main.rs` | **通过** | 失败 |
+
+所以 `test.sh` 现在多一步 `cargo build --workspace`（lib + bin，跳过 examples ——
+`rc-vcam` 的 `vcam_probe` 是 Media Foundation only）。**一个从不编译被测物的门禁
+比没有门禁更糟**：它把「东西是坏的」报成「一切正常」。
+
+**教训**：门禁验的是**你改的那个 crate**，不是**依赖它的东西**。
+加一条「所有 target 都能编译」很便宜，而它的价值恰好在你改的是叶子依赖的时候。
+
+## 143 · `git checkout stash@{0} -- <file>` 会 stage，所以普通 `git commit` 会把它卷进去
+
+2026-10-05。cherry-pick 的输出写着 `2 files changed`，而我的提交只碰了
+**一个**文件 —— 多的那个是我那条还没提交的 RED 测试。
+
+原因链：`git checkout stash@{0} -- windows/crates/rc-app/src/args.rs`
+**把文件放进 index**（恢复冲突的标准做法），之后一次普通的
+`git add <别的文件> && git commit` 就把**已经 staged 的** args.rs 一起提交了。
+
+**教训**：`git commit` 提交的是 **index**，不是「我这次改的东西」。
+用 `git checkout <ref> -- <path>` 恢复文件之后，先 `git status --short` 看
+第一列 —— `M `（staged）和 ` M`（unstaged）不是一回事。
+交叉验证的便宜办法是 `git show --stat HEAD` 看文件数对不对。

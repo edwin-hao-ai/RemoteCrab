@@ -781,3 +781,50 @@ worse than none.* Here the failing branch was a measurement that was never a
 measurement. Whenever a symptom is "quality too low", verify that the knob you
 are about to turn is connected to the thing you are about to measure — and
 when two properties are set, do not assume the more obvious one is in charge.
+
+## 144 · 按例子写的守测试，覆盖率是 0
+
+2026-10-05。`testNoSessionSurfaceNamesAMac` 列了 **26 个 key**，
+而那 26 个**全都已经是干净的** —— 它从来没抓到过任何东西。
+它是**修完之后**按例子列的，不是从界面推出来的，所以新增的泄漏从它旁边走过去。
+
+实测：catalog 里「已上线文案含 Mac」的 key 有 **19** 个，那份清单覆盖 **0** 个。
+
+换成按界面走之后（列 10 个会话期文件 → 解析 `IBLocale.swift` 拿到
+`IBLocale.<Enum>.<symbol>` → catalog key → 检查每种语言）**当场抓到**：
+
+* **4 条半吊子** —— `zh-Hans` 已经改成「电脑」，**`en` 的 value 从来没被碰过**。
+  同一个界面上中文用户看到「电脑」、英文用户看到 "your Mac"。
+  特征是：**只审一个语言就会漏**，而只审 key 会漏得更多（key 只是查找标识，
+  我曾把一个 key 当成文案报成 bug，而它的 value 早就是 "Send to computer"）。
+* **7 条没人分类过的** —— 3 条权限文案，加 4 条手势页的 **Mac 分支**。
+  后者存在**正是因为**手势页按平台分流（lesson 115），
+  删掉会让 Mac 用户读到 Windows 文案 —— 所以它们是**故意的**，
+  必须写成具名断言让「故意」读起来像决定。
+
+另一半同样重要：`deliberateMacText` 给每条例外写明理由，
+并有一条反向断言「catalog 里任何含 Mac 的 key 都必须在清单里」——
+**这才把「26 个 key 的清单」变成「全部的清单」**。它当场抓到了我自己：
+我加的 `Download for Mac` 例外是陈旧的，那条文案早就改成「Download the desktop app」。
+
+**教训**：守测试的清单要按**界面**列，不按**字符串**列；
+而且必须配一条反向断言，否则清单会静默缩小。
+
+## 145 · 一个悄悄什么都没扫的解析器，和一张干净的健康报告长得一模一样
+
+2026-10-05。`SessionSurfaceCopyTests` 靠正则 + 解析 `IBLocale.swift` 建立
+`符号 → catalog key` 的映射。写错了四次，每一次都是**测试自己报出来的**
+（把「未解析的符号」写成硬失败），因为绿测试在这种测试里毫无信息量：
+
+1. 符号切到**第一个** `(` 之前 —— 而那属于 `IBL(`，于是每个符号都变成
+   `open = IBL`，全部查不到。
+2. `public static func name(…) -> String { String(format: IBL(…), x) }`
+   的 key **在函数体里、跨行**。只认 `public static let` 就漏掉 8 个。
+3. `IBLocale.Pairing` 里有**嵌套** `enum Attempt`，单名扫描永远出不来，
+   于是 nest 之后每个声明都挂在错的名字下。
+4. 修第 3 个时引入的：对**任何** `}` 都出栈，结果在第一个函数体里就清空了 ——
+   511 个符号只解析出 376 个。区分「enum 的 body 闭合」和「函数的 body 闭合」
+   靠的是**括号深度**，不是看到 `}` 就弹。
+
+两条覆盖率下限让它变响而不是变绿：`> 400` 个符号被解析、`> 40` 条会话文案被扫。
+（`> 400` 这个数字是量出来的 —— 脚本第一次能跑时解析出 511 个。）
