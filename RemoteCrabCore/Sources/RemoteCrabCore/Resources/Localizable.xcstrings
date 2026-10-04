@@ -10199,23 +10199,6 @@
         }
       }
     },
-    "The mic button also plays your computer's sound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The mic button also plays your computer's sound"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "麦克风按钮也能播放电脑的声音"
-          }
-        }
-      }
-    },
     "You denied %@ earlier, so it will only try again when you click Retry on that computer.": {
       "extractionState": "manual",
       "localizations": {
