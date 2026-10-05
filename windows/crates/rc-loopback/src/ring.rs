@@ -470,11 +470,21 @@ mod thread_tests {
     /// read — half of one packet and half of the next — shows up as a mismatch,
     /// which is precisely what a missing acquire/release pair produces.
     ///
-    /// The producer is paced at 200 s per packet. That is not realism for its own
-    /// sake: an unthrottled producer wins the race against any consumer and
-    /// almost every packet is legitimately refused, which would test nothing
-    /// about integrity. Paced, the ring's four packets of headroom are never
-    /// exhausted, so "all 300 arrived" becomes a real assertion.
+    /// The producer is paced at 200 s per packet so it does not simply lap the
+    /// consumer and refuse everything, which would test nothing about integrity.
+    ///
+    /// It also **retries a refused packet instead of asserting it was accepted.**
+    /// The original form asserted `lost == 0` on the theory that four packets of
+    /// headroom could never be exhausted at this pace. That is a timing
+    /// assumption about the *scheduler*, not the ring: under a debug build the
+    /// consumer thread can go unscheduled for several milliseconds, the producer
+    /// fills the four-packet ring and a refusal is the ring doing exactly what
+    /// `push_frames` documents. The assertion made `cargo test --workspace --lib`
+    /// — the gate `scripts/test.sh` runs before every commit — fail about one run
+    /// in four on a clean tree, which is worse than no assertion because it
+    /// teaches re-running until green. Waiting for space and retrying the same
+    /// packet keeps the torn-packet check honest without depending on when the
+    /// consumer is scheduled.
     #[test]
     fn a_producer_and_a_consumer_on_separate_threads_never_see_a_torn_packet() {
         const PACKETS: i16 = 300;
@@ -484,8 +494,17 @@ mod thread_tests {
             let ring = Arc::clone(&ring);
             std::thread::spawn(move || {
                 for v in 1..=PACKETS {
-                    let lost = ring.push_frames(&vec![v; FRAMES_PER_PACKET * CHANNELS]);
-                    assert_eq!(lost, 0, "a paced producer must never be refused");
+                    // The ring is deliberately tiny, so a momentary refusal is
+                    // expected whenever the consumer is descheduled. Wait for
+                    // space and retry the same packet; a refusal here is the
+                    // documented full-ring behaviour, not a defect.
+                    loop {
+                        let lost = ring.push_frames(&vec![v; FRAMES_PER_PACKET * CHANNELS]);
+                        if lost == 0 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_micros(500));
+                    }
                     std::thread::sleep(std::time::Duration::from_micros(200));
                 }
             })
@@ -525,7 +544,11 @@ mod thread_tests {
             seen, PACKETS as usize,
             "a paced producer must lose nothing over two threads"
         );
-        assert_eq!(ring.dropped_frames(), 0);
+        // `dropped_frames()` is deliberately NOT asserted to be zero: a
+        // momentary refusal while the consumer is descheduled is the ring's
+        // documented behaviour and the producer retries through it. What must
+        // hold is that every packet the producer *did* accept arrived intact
+        // (the `seen` count above) and that the consumer drained the ring.
         assert_eq!(ring.available_frames(), 0, "the ring should be empty");
     }
 
