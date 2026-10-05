@@ -22,6 +22,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             SystemExtensionManager.shared.ensureRegistered()
         }
+        // The only notification this app raises: the phone is showing an
+        // approval card and the Mac is not looking at the phone. Requested once
+        // here, after AppKit is up, so the prompt has a window to appear in.
+        ApprovalNotifier.requestAuthorizationIfNeeded()
         // Start the auto-updater only now that AppKit has launched.
         // `App.init()` is too early to start system services (same class
         // of problem as the sysex registration above), so the updater is

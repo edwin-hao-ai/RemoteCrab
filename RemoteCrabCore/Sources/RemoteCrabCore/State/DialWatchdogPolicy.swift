@@ -50,9 +50,22 @@ public enum DialWatchdogPolicy {
         /// are already queued behind it.
         case abandonOnly
         /// Cancel it **and** try the remembered direct address. Right for a
-        /// Bonjour endpoint: re-resolving produces the same unroutable answer,
-        /// so the only way forward is a path that does not go through Bonjour.
+        /// Bonjour endpoint when we have one: it does not depend on Bonjour at
+        /// all, so it sidesteps an endpoint that does not route.
         case tryDirectIP
+        /// Cancel it **and** dial the same discovery once with peer-to-peer
+        /// excluded.
+        ///
+        /// This is the case with **no** remembered address — a first-ever
+        /// connection, which is exactly when there is nothing else to try.
+        /// Peer-to-peer (AWDL) stays enabled; it is how the phone is reachable
+        /// with no router at all, and disabling it globally would trade a real
+        /// feature for this edge case. Narrowing it for one retry keeps both:
+        /// AWDL is tried first every cycle, and if its endpoint does not route
+        /// within the budget, this attempt asks the same resolver for a
+        /// WiFi-only answer. Unbounded, it would merely wedge differently —
+        /// hence `shouldRetryWithoutPeerToPeer`.
+        case retryWithoutPeerToPeer
     }
 
     /// Whether a dial that has not become ready should be given up on.
@@ -65,8 +78,20 @@ public enum DialWatchdogPolicy {
     }
 
     /// What to try after abandoning.
-    public static func nextStep(isDirectDial: Bool) -> NextStep {
-        isDirectDial ? .abandonOnly : .tryDirectIP
+    ///
+    /// A known direct address beats a WiFi-only retry: it does not depend on
+    /// Bonjour at all. Which means the residual hole is narrow and stated rather
+    /// than hidden — with no saved address *and* a peer-to-peer endpoint that
+    /// does not route, the WiFi-only retry is the only move, and if the phone is
+    /// also off the WiFi then it is genuinely unreachable.
+    public static func nextStep(isDirectDial: Bool, hasKnownDirectIP: Bool = false) -> NextStep {
+        if isDirectDial { return .abandonOnly }
+        return hasKnownDirectIP ? .tryDirectIP : .retryWithoutPeerToPeer
+    }
+
+    /// Whether a WiFi-only retry is still allowed for this discovery.
+    public static func shouldRetryWithoutPeerToPeer(alreadyRetriedWithoutPeerToPeer: Bool) -> Bool {
+        !alreadyRetriedWithoutPeerToPeer
     }
 
     /// Whether there is a direct address worth falling back to.
