@@ -159,7 +159,8 @@ impl PreviewWindow {
 #[cfg(windows)]
 fn hide_console_if_we_own_it() {
     use windows::Win32::System::Console::{
-        FreeConsole, GetConsoleProcessList, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        FreeConsole, GetConsoleMode, GetConsoleProcessList, GetStdHandle, SetStdHandle,
+        STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
     };
 
     // A two-element buffer is enough: the function only has to tell "exactly
@@ -169,24 +170,34 @@ fn hide_console_if_we_own_it() {
     // SAFETY: `pids` is a valid writable buffer, and the binding passes its
     // length to the API.
     let attached = unsafe { GetConsoleProcessList(&mut pids) };
-    // **Exactly one.** Not "more than one is fine", which is what this first
-    // said: `GetConsoleProcessList` returns 0 when the process has no console at
-    // all, which is the case for anything started with redirected handles — a
-    // pipe, a build script, `Start-Process -RedirectStandardOutput`. Treating 0
-    // as "we own the console" made the program hijack stdout that the caller had
-    // explicitly pointed somewhere else, so `remotecrab --scan | grep …` printed
-    // nothing anywhere the caller could see.
+    // Exactly one: more than one means a shell shares it and is being read, and
+    // zero means there is no console to detach from at all.
     if attached != 1 {
         return;
     }
 
-    if let Some(handle) = append_log_handle() {
-        // SAFETY: these only swap one process-wide handle for another. The
-        // handle stays open for the life of the process — deliberately, since
-        // every later `println!` writes through it.
-        unsafe {
-            let _ = SetStdHandle(STD_OUTPUT_HANDLE, handle);
-            let _ = SetStdHandle(STD_ERROR_HANDLE, handle);
+    // Whether to *also* take over stdout is a separate question, and it is not
+    // answered by the console count. `Start-Process -RedirectStandardOutput`
+    // gives the child a console of its own — so the count is 1 — while pointing
+    // its stdout at a pipe, so a program that trusted the count appended to its
+    // own log and left the caller's file empty: `remotecrab --scan | grep …`
+    // printed nothing anywhere.
+    //
+    // `GetConsoleMode` succeeds only for a console handle. Anything else (a pipe,
+    // a file, NUL) is a destination the caller chose, and it is left alone.
+    let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) }.unwrap_or(windows::Win32::Foundation::HANDLE::default());
+    let mut mode = windows::Win32::System::Console::CONSOLE_MODE(0);
+    let stdout_is_a_console = unsafe { GetConsoleMode(stdout, &mut mode) }.is_ok();
+
+    if stdout_is_a_console {
+        if let Some(handle) = append_log_handle() {
+            // SAFETY: these only swap one process-wide handle for another. The
+            // handle stays open for the life of the process — deliberately, since
+            // every later `println!` writes through it.
+            unsafe {
+                let _ = SetStdHandle(STD_OUTPUT_HANDLE, handle);
+                let _ = SetStdHandle(STD_ERROR_HANDLE, handle);
+            }
         }
     }
 
