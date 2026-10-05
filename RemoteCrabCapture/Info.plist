@@ -32,6 +32,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_remotecrab._tcp</string>
+		<string>_remotecrab-computer._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>RemoteCrab turns your iPhone into a WiFi camera for your computer.</string>

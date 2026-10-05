@@ -75,6 +75,7 @@ targets:
           - audio
         NSBonjourServices:
           - _remotecrab._tcp
+          - _remotecrab-computer._tcp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ibridge.iBridgeCapture

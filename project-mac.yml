@@ -86,6 +86,7 @@ targets:
         NSLocalNetworkUsageDescription: RemoteCrab discovers your iPhone on the local WiFi network.
         NSBonjourServices:
           - _remotecrab._tcp
+          - _remotecrab-computer._tcp
         NSMicrophoneUsageDescription: RemoteCrab uses your Mac microphone for audio routing when the iPhone mic is unavailable.
         NSSystemExtensionUsageDescription: RemoteCrab installs a camera extension so other apps can use your iPhone as a webcam.
         # xcodegen rewrites Info.plist from these properties alone —
