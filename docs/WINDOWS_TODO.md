@@ -20,7 +20,10 @@
 > - **明确不做**（§4，虚拟显示器 / 虚拟麦克风驱动）—— 是决定，不是漏掉的活
 >
 > Mac / iOS 侧被你 10-04 交接的四条**已全部修完**（`6fff9d5` 起），其中一条
-> （B 帧）**前提被证伪所以没做**，一条（`0x25`）的发送逻辑仍然缺。
+> （B 帧）**前提被证伪所以没做**。**`0x25 requestKeyframe` 的发送端早就在
+> `rc-app/src/main.rs` 里**——旧文档写「仍然缺」是错的，且因为是一句「没做」的
+> 断言，没人会去验证它（lesson 148）。真正缺的是 **Mac 接收端从不发它**，那是
+> Mac 侧的事，不是你要做的。
 > 见 `docs/HANDOFF-WINDOWS-2026-10-05.md` —— 那是最新的一份，从它开始读。
 
 ```sh
@@ -92,11 +95,11 @@ ping、featureControl、touch、key、notification、commandResult。
 cd windows
 cargo build --release -p rc-app --target x86_64-pc-windows-msvc
 
-# 3. 跑测试：385 个，全部不需要手机、不需要 Windows
+# 3. 跑测试：全部（数字见 §1.1），不需要手机、不需要 Windows
 cargo test --workspace
 ```
 
-跑完 385 个测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
+跑完全部测试都是绿的，就说明逻辑层没坏。**剩下的全是 Win32 和真机行为**，
 那些只能看、不能推断。
 
 ---
@@ -546,7 +549,7 @@ Mac 用 **VideoToolbox**，Windows 用 **OpenH264**（passthrough）。两个编
 ### 5.1 Windows 目标和 macOS 编译出来的**不是同一个东西**
 
 `cargo check --target x86_64-pc-windows-gnu` 只保证**能编译**，不保证**能跑**。
-macOS 上 385 个测试全绿，也不代表 Win32 那部分对。AGENTS.md 的核心规则：
+macOS 上全部测试全绿，也不代表 Win32 那部分对。AGENTS.md 的核心规则：
 改了 `#[cfg(windows)]` 里的代码，交叉编译是唯一保证，而它连运行时都证明不了。
 
 ### 5.2 `rc-os` 的 `windows` 依赖**必须** target 化
