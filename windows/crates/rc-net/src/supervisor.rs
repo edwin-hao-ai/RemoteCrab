@@ -82,6 +82,11 @@ pub(crate) async fn supervisor(
     let mut active: Option<ActiveConn> = None;
     let mut target: Option<Target> = None;
     let mut suppress_auto = false;
+    // Set by `Command::Disconnect` and cleared by the next attempt. Dropping
+    // the connection task is what produces the `ConnMsg::End(Lost)` below, so
+    // without this the state machine rewrites the user's explicit disconnect
+    // as a dropped connection (see the `End(Lost)` arm).
+    let mut explicit_disconnect = false;
     let mut reconnect_at: Option<tokio::time::Instant> = None;
     // `/24` sweep pacing — see `sweep_interval`.
     let mut last_sweep_at: Option<tokio::time::Instant> = None;
@@ -202,6 +207,7 @@ pub(crate) async fn supervisor(
             Action::Cmd(Command::Connect { id }) => {
                 if let Some(phone) = discovered.iter().find(|p| p.id == id).cloned() {
                     suppress_auto = false;
+                    explicit_disconnect = false;
                     reconnect_at = None;
                     start_connection(
                         &config,
@@ -218,6 +224,7 @@ pub(crate) async fn supervisor(
             }
             Action::Cmd(Command::ConnectManual { host, port }) => {
                 suppress_auto = false;
+                explicit_disconnect = false;
                 reconnect_at = None;
                 let name = format!("iPhone ({host})");
                 start_connection(
@@ -236,11 +243,13 @@ pub(crate) async fn supervisor(
                 active = None; // drops outbound_tx → the conn task ends
                 target = None;
                 suppress_auto = true;
+                explicit_disconnect = true;
                 reconnect_at = None;
                 set_state(&state_tx, &events_tx, State::Searching);
             }
             Action::Cmd(Command::Retry) => {
                 suppress_auto = false;
+                explicit_disconnect = false;
                 reconnect_at = None;
                 if let Some(t) = target.clone() {
                     start_connection(
@@ -354,13 +363,22 @@ pub(crate) async fn supervisor(
                         // description, and leaving it there means the tray says
                         // "streaming" forever: no error, nothing to act on.
                         //
-                        // Unconditional on purpose. The retry below may be about
-                        // to overwrite this with `Connecting`, which is fine and
-                        // honest; but there are paths where it cannot — the
-                        // target was just cleared, and with `--connect` there is
-                        // no discovery to find another one. `rc-phone-sim
-                        // --scenario drop` reproduces exactly that.
-                        set_state(&state_tx, &events_tx, State::Error(reason.to_string()));
+                        // The retry below may be about to overwrite this with
+                        // `Connecting`, which is fine and honest; but there are
+                        // paths where it cannot — the target was just cleared,
+                        // and with `--connect` there is no discovery to find
+                        // another one. `rc-phone-sim --scenario drop` reproduces
+                        // exactly that.
+                        //
+                        // The one End that must NOT become an error is the one
+                        // an explicit `Disconnect` produced by dropping the task:
+                        // the user asked to stop, and telling them the link was
+                        // lost is a lie. Keep the `Searching` the command set.
+                        if explicit_disconnect {
+                            explicit_disconnect = false;
+                        } else {
+                            set_state(&state_tx, &events_tx, State::Error(reason.to_string()));
+                        }
                         if !suppress_auto {
                             reconnect_at = Some(tokio::time::Instant::now() + RECONNECT_DELAY);
                         }

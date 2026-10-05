@@ -306,6 +306,20 @@ async fn disconnect_returns_to_searching() {
     )
     .await;
     assert!(searching.is_some(), "expected Searching after disconnect");
+
+    // The explicit disconnect must STAY disconnected. Dropping the connection
+    // task makes it emit `ConnMsg::End(Lost)`, and the End handler used to
+    // rewrite the state to `Error("The connection was lost")` right after — so
+    // the user who pressed Disconnect was told the link had dropped. Wait past
+    // the End event so this assertion can see that rewrite, which the old
+    // `wait_for_state`-only form raced (it caught `Searching` before the End
+    // landed about two runs in three).
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let settled = session.state().borrow().clone();
+    assert!(
+        matches!(settled, State::Searching),
+        "an explicit disconnect must not be rewritten as a lost connection; got {settled:?}"
+    );
 }
 
 #[tokio::test]
