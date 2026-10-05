@@ -1587,11 +1587,14 @@ final class ReceiverSession: ObservableObject {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         Self.log.info("sessionReply: \(reply.result.rawValue, privacy: .public) owner=\(reply.ownerName ?? "-", privacy: .public)")
-        // Any reply other than `pending` resolves the wait, including `busy`
-        // and `denied` — the phone is no longer asking for a tap.
-        if reply.result != .pending {
-            clearApprovalNoticeIfResolved(previous: state)
-        }
+        // Capture the pre-reply state. The clear must run AFTER the switch
+        // below has applied the new state: `clearApprovalNoticeIfResolved`
+        // compares `previous` against the *current* `stateKind`, so calling it
+        // here read the pre-reply state twice, the policy never saw an exit
+        // from `awaitingApproval`, and a delivered "the iPhone is waiting"
+        // alert stayed in Notification Center after the user had already
+        // approved.
+        let previous = state
         switch reply.result {
         case .accepted:
             suppressReconnect = false
@@ -1637,9 +1640,9 @@ final class ReceiverSession: ObservableObject {
         case .pending:
             sessionGranted = false
             if let name = currentPhoneName() {
-                let previous = state
+                let beforePending = state
                 state = .awaitingApproval(name: name)
-                noteApprovalNeededIfFirstTime(previous: previous)
+                noteApprovalNeededIfFirstTime(previous: beforePending)
             }
 
         case .busy:
@@ -1663,6 +1666,12 @@ final class ReceiverSession: ObservableObject {
             stopPingLoop()
             state = .error(IBLocale.Error.connectionDenied)
             // Manual retry only — don't nag a user who tapped Deny.
+        }
+        // Any reply other than `pending` resolves the wait — including `busy`
+        // and `denied`, the phone is no longer asking for a tap. Run here, after
+        // the switch, so `stateKind` is the resolved state.
+        if reply.result != .pending {
+            clearApprovalNoticeIfResolved(previous: previous)
         }
     }
 
