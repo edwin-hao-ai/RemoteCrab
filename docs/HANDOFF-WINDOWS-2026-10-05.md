@@ -299,3 +299,44 @@ minifb 在 macOS 开不了 Cocoa 窗口），`--no-preview` / `--decode-only` �
 `Task { @MainActor }`，发送早就和编码输出解耦了，那条改动是空操作。
 真正该记的是「发送跑在主线程」这件事本身 —— 那一栏我已经改成实测结论，
 不再是一个待办。
+---
+
+## 8. 🆕 电脑在线状态（presence）—— Windows 侧只差接一行
+
+**背景**：iPhone 的「选择电脑」列的是 `seenComputers`（历史见过的机器），
+看不出哪台**现在在线**——因为它只广播、从不浏览，而 Mac/Windows 只浏览、从不
+广播。修法：接收端**额外广播**一个服务，iPhone 浏览它，列表分「在线/离线」。
+
+**协议契约（Mac 与 Windows 必须逐字节一致）**
+
+| | 值 |
+|---|---|
+| 服务类型 | `_remotecrab-computer._tcp.local.` |
+| TXT | `id` / `name` / `platform`（`macos` \| `windows`） |
+| 端口 | `0`（iPhone **不**连接它，只读 TXT） |
+
+⚠️ **不要**复用 `_remotecrab._tcp.local.`：接收端用那个类型浏览 iPhone，复用会
+把别的电脑当成 iPhone 来拨。
+
+**已合并的 API**（`windows/crates/rc-discovery/src/lib.rs`）
+- `SERVICE_TYPE_COMPUTER`
+- `presence_service_info(instance, id, name, platform) -> Result<ServiceInfo>`
+- `advertise(instance, id, name, platform) -> Result<PresenceAdvertiser>`；退出时
+  `PresenceAdvertiser::stop(self)`
+- 纯测试 `presence_service_info_carries_the_frozen_txt_contract` 每次提交都跑；
+  真 mDNS 浏览测试 `#[ignore]`（本机 CLI 被 local-network 权限拒绝，无法在此验证）。
+
+**要你做的（只有你的机器能验证）**
+1. 在 `rc-app` 启动、已拿到机器 id/名字处（`Session::spawn` 附近）加：
+   ```rust
+   let _presence = rc_discovery::advertise(&instance, &pc_id, &name, "windows")?;
+   ```
+   并让它活到进程结束。
+2. 真机：iPhone 打开「选择电脑」→ 这台 PC 应显示**在线**；结束进程 → 显示**离线 ·
+   最后在线 …**。点它应在约 1 秒内连上。
+3. 若安全软件拦截 mDNS 广播，广播会失败（不影响会话），需在该软件放行。
+
+**Mac 侧状态**：`PresenceAdvertiser` 已实现并合并；`NSBonjourServices` 已加入
+`_remotecrab-computer._tcp`（未声明时 macOS 返回 `-65555 NoAuth`）。**真机上的
+在线显示仍待一次 GUI 授权**（macOS 15 的「本地网络」权限按签名身份授予）——
+见本文件顶部的 session 记录。

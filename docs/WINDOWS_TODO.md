@@ -19,6 +19,10 @@
 >   需要解锁的 iPhone 跑新 iOS build + 这台 Windows 机器
 > - **明确不做**（§4，虚拟显示器 / 虚拟麦克风驱动）—— 是决定，不是漏掉的活
 >
+> **🆕 2026-10-05 新增**：电脑在线状态（presence）。Mac 已实现并合入；Windows 侧
+> `rc-discovery::advertise` 已合入，**只差在 `rc-app` 启动时接一行**。契约与做法
+> 见 `docs/HANDOFF-WINDOWS-2026-10-05.md` §8。
+>
 > Mac / iOS 侧被你 10-04 交接的四条**已全部修完**（`6fff9d5` 起），其中一条
 > （B 帧）**前提被证伪所以没做**。**`0x25 requestKeyframe` 的发送端早就在
 > `rc-app/src/main.rs` 里**——旧文档写「仍然缺」是错的，且因为是一句「没做」的
