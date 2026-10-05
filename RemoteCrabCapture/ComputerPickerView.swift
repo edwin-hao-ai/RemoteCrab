@@ -9,12 +9,17 @@ import RemoteCrabCore
 /// chosen computer takes over on its next connect — automatically, or after
 /// the user clicks Retry in its menu.
 ///
-/// The list is **every computer we've seen** (`seenComputers`), not just the
-/// paired ones — otherwise a brand-new Windows PC could never be selected
-/// while a Mac held the session, which is the exact dead-end users hit.
-struct MacPickerView: View {
+/// The list is the **roster**: every computer we have seen, with the ones
+/// announcing themselves right now marked **Online** and sorted first. That is
+/// the thing the old list could not tell the user — a row for a computer that
+/// is switched off looked exactly like a row for the one in the next room.
+struct ComputerPickerView: View {
     @EnvironmentObject var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
+
+    private var roster: [ComputerRosterEntry] {
+        ComputerRoster.entries(online: engine.onlineComputers, seen: engine.seenComputers)
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,15 +33,10 @@ struct MacPickerView: View {
                 if engine.connectedMacName != nil || engine.pendingMacName != nil {
                     sessionSection
                 }
-                seenSection
+                rosterSection
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
             .task {
-                // Wait out the preference's grace period so the "gave up"
-                // line appears on time. Without this the lapse is only
-                // noticed when something else triggers a refresh, and a
-                // phone sitting open on this screen would keep claiming it
-                // is waiting.
                 if let armed = engine.preferredArmedAt {
                     let remaining = MacPairingStore.preferredGrace
                         - Date().timeIntervalSince(armed)
@@ -45,12 +45,6 @@ struct MacPickerView: View {
                     }
                     engine.recheckPreferredMac()
                 }
-                // Opening the picker is the moment stale rows are visible,
-                // so it is also the moment to drop them: superseded
-                // identities (a receiver that changed id) and machines gone
-                // for months. Without this the list only ever shrinks when
-                // the next connection happens to knock, and a phone that
-                // accumulated duplicates keeps showing them.
                 engine.pruneSeenComputers()
             }
             .toolbar {
@@ -69,17 +63,25 @@ struct MacPickerView: View {
     private func preferredSection(_ preferred: PairedMac) -> some View {
         Section {
             VStack(alignment: .leading, spacing: 10) {
-                Label {
-                    Text(IBLocale.Pairing.waitingForPreferred(preferred.name))
-                        .font(IBFont.bodyMedium)
-                } icon: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .foregroundStyle(Color.accentColor)
+                if engine.onlineComputers.contains(where: { $0.id == preferred.id }) {
+                    // The computer is on the network, so this is a short wait —
+                    // show the mascot rather than a bare clock.
+                    HStack(spacing: IBSpace.m.pt) {
+                        CrabLoading(message: LocalizedStringKey(IBLocale.Pairing.switchingTo(preferred.name)),
+                                    size: 56)
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Label {
+                        Text(IBLocale.Pairing.waitingForPreferred(preferred.name))
+                            .font(IBFont.bodyMedium)
+                    } icon: {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .foregroundStyle(Color.accentColor)
+                    }
                 }
                 // WHY, not just advice. A denied computer will never retry on
                 // its own; a busy one retries every 15 s and needs nothing.
-                // Saying which one this is the difference between waiting and
-                // walking to another machine.
                 Text(reason(for: preferred))
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
@@ -102,7 +104,10 @@ struct MacPickerView: View {
         case .denied: return IBLocale.Pairing.waitingReasonDenied(preferred.name)
         case .refusedBusy: return IBLocale.Pairing.waitingReasonBusy(preferred.name)
         case .waitingApproval: return IBLocale.Pairing.waitingReasonApproval(preferred.name)
-        case .streaming, .none: return IBLocale.Pairing.waitingReasonNotSeenYet
+        case .streaming, .none:
+            return engine.onlineComputers.contains(where: { $0.id == preferred.id })
+                ? IBLocale.Pairing.waitingReasonApproval(preferred.name)
+                : IBLocale.Pairing.waitingReasonNotSeenYet
         }
     }
 
@@ -158,37 +163,29 @@ struct MacPickerView: View {
         }
     }
 
-    /// Every computer seen on the network. Paired ones show a shield;
-    /// brand-new ones are still tappable so first contact works even while
-    /// another machine holds the session.
-    ///
-    /// Each row carries **what that computer's last attempt actually
-    /// produced**, because the three cases look identical from the outside and
-    /// need completely different things from the user:
-    ///
-    /// - "Found you, but <X> is using the iPhone" → a *switching* problem, and
-    ///   the fix is right here: tap this row.
-    /// - "Waiting for your approval" → the phone is holding a card they have
-    ///   not answered yet.
-    /// - "Hasn't connected yet" → the computer cannot even *see* this iPhone,
-    ///   which is a network problem and tapping this row will not help.
-    private var seenSection: some View {
+    /// Every computer, online first. A green dot marks one announcing itself
+    /// now; a grey "Offline · last seen …" line marks one that is known but
+    /// not here. Tapping an online computer connects within about a second;
+    /// tapping an offline one is still allowed and says it will connect when
+    /// the computer returns.
+    private var rosterSection: some View {
         Section {
-            if engine.seenComputers.isEmpty {
+            if roster.isEmpty {
                 Text(IBLocale.Pairing.nonePaired)
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(MacPairingStore.pickerRows(seen: engine.seenComputers,
-                                                   connectedId: engine.connectedMacId)) { computer in
-                    let isConnected = engine.connectedMacId == computer.id
-                    let isPaired = engine.pairedMacs.contains { $0.id == computer.id }
+                ForEach(roster) { entry in
+                    let isConnected = engine.connectedMacId == entry.id
+                    let isPaired = engine.pairedMacs.contains { $0.id == entry.id }
+                    let seen = engine.seenComputers.first { $0.id == entry.id }
                     Button {
-                        engine.setPreferredComputer(id: computer.id)
+                        engine.setPreferredComputer(id: entry.id)
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
-                                computerIcon(for: computer.name, platform: computer.platform)
+                                computerIcon(for: entry.name, platform: entry.platform)
+                                if entry.isOnline { onlineDot }
                                 if !isPaired {
                                     Text(IBLocale.Pairing.notPairedBadge)
                                         .font(IBFont.caption)
@@ -200,9 +197,9 @@ struct MacPickerView: View {
                                         }
                                 }
                                 Spacer(minLength: 8)
-                                trailingBadge(for: computer, isConnected: isConnected)
+                                trailingBadge(for: entry, isConnected: isConnected)
                             }
-                            statusLine(for: computer)
+                            statusLine(for: entry, seen: seen)
                         }
                         .contentShape(Rectangle())
                     }
@@ -217,16 +214,23 @@ struct MacPickerView: View {
         }
     }
 
-    /// The right-hand status pill. `streaming` is the only one that gets a
+    private var onlineDot: some View {
+        Circle()
+            .fill(Color.green)
+            .frame(width: 8, height: 8)
+            .accessibilityLabel(Text(IBLocale.Pairing.online))
+    }
+
+    /// The right-hand status pill. `connected` is the only one that gets a
     /// colour; the rest are words, because a red badge on a machine that is
     /// merely waiting would cry wolf.
     @ViewBuilder
-    private func trailingBadge(for computer: SeenComputer, isConnected: Bool) -> some View {
+    private func trailingBadge(for entry: ComputerRosterEntry, isConnected: Bool) -> some View {
         if isConnected {
             Text(IBLocale.Pairing.connectedNow)
                 .font(IBFont.caption)
                 .foregroundStyle(.green)
-        } else if engine.preferredMac?.id == computer.id {
+        } else if engine.preferredMac?.id == entry.id {
             Text(IBLocale.Pairing.waitingBadge)
                 .font(IBFont.caption)
                 .foregroundStyle(Color.accentColor)
@@ -237,35 +241,33 @@ struct MacPickerView: View {
         }
     }
 
-    /// The second line: what happened, and — for the case where tapping will
-    /// not help — why.
+    /// The second line: presence, or — when the computer has actually knocked —
+    /// what that attempt produced, because those cases need different actions
+    /// from the user.
     @ViewBuilder
-    private func statusLine(for computer: SeenComputer) -> some View {
-        switch computer.lastOutcome {
-        case .streaming:
-            EmptyView()
-        case .waitingApproval:
-            statusText(
-                IBLocale.Pairing.Attempt.waitingApproval,
-                stamp: computer.lastSeen,
-                tint: Color.accentColor
-            )
-        case .refusedBusy(let owner):
-            statusText(
-                IBLocale.Pairing.Attempt.refusedBusy(owner: owner),
-                stamp: computer.lastSeen,
-                tint: .orange
-            )
-        case .denied:
-            statusText(
-                IBLocale.Pairing.Attempt.denied,
-                stamp: computer.lastSeen,
-                tint: .secondary
-            )
-        case nil:
-            // Silence here is the diagnosis: this machine has never reached
-            // this iPhone, so the problem is the network, not the pairing.
-            Text(IBLocale.Pairing.Attempt.neverReached)
+    private func statusLine(for entry: ComputerRosterEntry, seen: SeenComputer?) -> some View {
+        if let seen, seen.lastOutcome != nil, !entry.isOnline {
+            switch seen.lastOutcome {
+            case .streaming:
+                EmptyView()
+            case .waitingApproval:
+                statusText(IBLocale.Pairing.Attempt.waitingApproval, stamp: seen.lastSeen, tint: Color.accentColor)
+            case .refusedBusy(let owner):
+                statusText(IBLocale.Pairing.Attempt.refusedBusy(owner: owner), stamp: seen.lastSeen, tint: .orange)
+            case .denied:
+                statusText(IBLocale.Pairing.Attempt.denied, stamp: seen.lastSeen, tint: .secondary)
+            case nil:
+                EmptyView()
+            }
+        } else if entry.isOnline {
+            Text(IBLocale.Pairing.online)
+                .font(IBFont.caption)
+                .foregroundStyle(.green)
+                .accessibilityLabel(Text(IBLocale.Pairing.online))
+        } else {
+            (Text(IBLocale.Pairing.offline)
+                + Text(verbatim: " · ")
+                + Text(seen?.lastSeen ?? Date.distantPast, style: .relative))
                 .font(IBFont.caption)
                 .foregroundStyle(.secondary)
         }

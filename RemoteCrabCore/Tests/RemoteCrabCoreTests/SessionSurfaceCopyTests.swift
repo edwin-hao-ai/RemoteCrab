@@ -146,7 +146,7 @@ final class SessionSurfaceCopyTests: XCTestCase {
         "ContextSheetView.swift",
         "AppSwitcherView.swift",
         "InstalledAppsView.swift",
-        "MacPickerView.swift",
+        "ComputerPickerView.swift",
         "KeyboardScreen.swift",
         "TouchpadScreen.swift",
         "ScreenShareView.swift",

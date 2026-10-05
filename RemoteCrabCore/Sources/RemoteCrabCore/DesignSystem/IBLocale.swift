@@ -819,6 +819,12 @@ public enum IBLocale {
         public static let macPickerTitle = IBL("Choose a computer")
         public static let connectedNow = IBL("Connected")
         public static let waitingBadge = IBL("Preferred")
+        /// Presence: the computer is announcing itself on the network right now.
+        /// (Key differs from the value to avoid an Xcode symbol clash with the
+        /// existing "OFFLINE" status-pill string.)
+        public static let online = IBL("ComputerOnline")
+        /// Presence: known from history but not announcing itself now.
+        public static let offline = IBL("ComputerOffline")
         public static func waitingForPreferred(_ name: String) -> String {
             String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu."), name)
         }

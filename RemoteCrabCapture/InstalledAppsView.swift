@@ -110,17 +110,13 @@ struct InstalledAppsView: View {
         }
     }
 
-    /// The Mac's list is on the way — say so, and change nothing yet.
+    /// The Mac's list is on the way — say so, and change nothing yet. Uses the
+    /// RemoteCrab mascot with its idle animation instead of a stock spinner.
     private var loading: some View {
-        VStack(spacing: IBSpace.m.pt) {
-            ProgressView()
-            Text(IBLocale.Launcher.loading)
-                .font(IBFont.bodySmall)
-                .foregroundStyle(IBColor.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(Text(IBLocale.Launcher.loading))
+        CrabLoading(message: LocalizedStringKey(IBLocale.Launcher.loading), size: 84)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text(IBLocale.Launcher.loading))
     }
 
     /// Not a result — a state the user can leave. Both the title and the

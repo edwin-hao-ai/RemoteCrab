@@ -188,7 +188,7 @@ struct ContentView: View {
         }
         .task { presentTrackpadGuideIfNeeded() }
         .sheet(isPresented: $showMacPicker) {
-            MacPickerView()
+            ComputerPickerView()
                 .environmentObject(engine)
                 .presentationDetents([.medium, .large])
         }
