@@ -1,4 +1,4 @@
-﻿//! RemoteCrab for Windows — receiver CLI + status window.
+//! RemoteCrab for Windows — receiver CLI + status window.
 //!
 //! Wires the crates together exactly like the Mac receiver's `ReceiverSession`
 //! does: discovery → TCP handshake → stream → input injection. For the first
@@ -209,6 +209,20 @@ fn append_log_handle() -> Option<windows::Win32::Foundation::HANDLE> {
     // through.
     std::mem::forget(file);
     Some(handle)
+}
+
+/// Send a file-transfer acknowledgement, and say so if it cannot be encoded.
+///
+/// The callers used `encode_file_ack(&ack).unwrap_or_default()`, and
+/// `unwrap_or_default()` on an error is a **zero-length** frame. The phone then
+/// reads an empty body where a JSON ack should be: at best it ignores it, at
+/// worst it desynchronises the transfer, and either way nothing anywhere says
+/// why the file stopped moving. Sending nothing is both correct and visible.
+fn send_file_ack(session: &rc_net::Session, ack: &rc_protocol::FileAck) {
+    match encode_file_ack(ack) {
+        Ok(frame) => session.send_frame(frame),
+        Err(e) => eprintln!("  file: could not encode a transfer ack — {e}"),
+    }
 }
 
 #[tokio::main]
@@ -1010,20 +1024,20 @@ async fn main() -> ExitCode {
                             }
                             Event::FileOffer(offer) => {
                                 let ack = file_rx.begin(offer.clone());
-                                session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                send_file_ack(&session, &ack);
                                 println!("  file: receiving {} ({} bytes)…", offer.name, offer.size);
                             }
                             Event::FileChunk(data) => {
                                 if let Some(ack) = file_rx.append(&data) {
                                     // Only ack progress periodically to avoid flooding.
                                     if ack.received_bytes % (256 * 1024) < data.len() as i64 {
-                                        session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                        send_file_ack(&session, &ack);
                                     }
                                 }
                             }
                             Event::FileComplete(done) => {
                                 if let Some((ack, path)) = file_rx.complete(&done.id) {
-                                    session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                    send_file_ack(&session, &ack);
                                     println!("  file: saved to {}", path.display());
                                     #[cfg(windows)]
                                     {

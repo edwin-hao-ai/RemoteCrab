@@ -179,7 +179,18 @@ pub(crate) async fn supervisor(
             msg = conn_rx.recv() => {
                 action = msg.map(Action::Conn);
             }
-            ev = discovery_rx.as_mut().unwrap().recv(), if discovery_active => {
+            // `pending()` rather than `.unwrap()`: the two variables are kept in
+            // step today, so the unwrap cannot fire — but it is an unwrap inside a
+            // `select!` arm, where a panic is an abort of the whole supervisor, and
+            // the condition it would be reporting (browsing active with no
+            // receiver) is not worth that. A never-ready future parks the arm
+            // instead of either panicking or spinning on a channel that is gone.
+            ev = async {
+                match discovery_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            }, if discovery_active => {
                 match ev {
                     Some(e) => action = Some(Action::Discovery(e)),
                     // The daemon closed the channel. Same treatment as a

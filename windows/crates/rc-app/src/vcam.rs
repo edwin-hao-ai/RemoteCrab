@@ -224,7 +224,10 @@ pub fn install_with_elevation() -> crate::elevate::Elevation {
 /// Is the camera registered? Drives whether the tray offers to install it.
 #[cfg(windows)]
 pub fn is_registered() -> bool {
-    rc_vcam::install_source().is_ok()
+    // `rc_vcam::is_registered`, not `install_source().is_ok()`: the latter
+    // registers the camera as a side effect of being asked, and this is called
+    // from the tray's menu build and every wizard page.
+    rc_vcam::is_registered()
 }
 
 impl Vcam {

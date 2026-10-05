@@ -42,8 +42,8 @@ pub use error::VcamError;
 
 #[cfg(windows)]
 pub use win::{
-    install_source, run_spike, source_dll_path, start_camera, uninstall_source, StartOutcome,
-    VirtualCamera,
+    install_source, is_registered, registered_dll, run_spike, source_dll_path, start_camera,
+    uninstall_source, StartOutcome, VirtualCamera,
 };
 
 /// Convert a Rust string to a NUL-terminated wide string.

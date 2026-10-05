@@ -181,10 +181,33 @@ pub fn uninstall_source() -> Result<(), VcamError> {
     Ok(())
 }
 
+/// Whether the virtual camera is registered **and** points at this build.
+///
+/// A pure read. It exists because the query used to be
+/// `install_source().is_ok()`, and `install_source` *writes* HKLM when the
+/// registration is missing — so merely asking "is the camera set up?", which the
+/// tray does every time it builds its menu and the wizard does on every page,
+/// would register the camera as a side effect if the process happened to be
+/// elevated. A question should not be an action.
+///
+/// It checks the path rather than just the presence of a value: a registration
+/// left over from an older install points at a DLL that is no longer there, and
+/// reporting that as "ready" is how a user ends up in a camera list that never
+/// produces a frame.
+pub fn is_registered() -> bool {
+    let Some(registered) = registered_dll() else {
+        return false;
+    };
+    match source_dll_path() {
+        Ok(ours) => registered.eq_ignore_ascii_case(&ours.to_string_lossy()),
+        Err(_) => false,
+    }
+}
+
 /// Read the DLL path currently registered for our CLSID under HKLM, if any.
 /// Reading HKLM needs no elevation, so this lets a normal run detect a
 /// registration done once by an administrator.
-fn registered_dll() -> Option<String> {
+pub fn registered_dll() -> Option<String> {
     let sub = format!(
         "Software\\Classes\\CLSID\\{}\\InprocServer32",
         clsid_string()

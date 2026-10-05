@@ -453,7 +453,12 @@ unsafe fn build(hwnd: HWND) {
         button(
             hwnd,
             ID_FORGET,
-            t("忘记这台电脑", "Forget this computer"),
+            // "this computer" was wrong: the button forgets the phone selected in
+            // the list above it, and forgetting "this computer" is not a thing
+            // this window can do. A user reading the old label and clicking with
+            // nothing selected got silence, which reads as the button being
+            // broken rather than as there being nothing to forget.
+            t("忘记选中的手机", "Forget the selected phone"),
             20,
             y,
             180,
@@ -504,8 +509,8 @@ unsafe fn build(hwnd: HWND) {
         label(
             hwnd,
             t(
-                &format!("画质：{}（点此切换）", q.label()),
-                &format!("Quality: {} (click to change)", q.label()),
+                &format!("画质：{}（点此切换）", q.label(true)),
+                &format!("Quality: {} (click to change)", q.label(false)),
             ),
             20,
             y,

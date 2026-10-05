@@ -162,8 +162,15 @@ pub fn run_preview_window(
                 last_size = (fw, fh);
                 window.set_title(&format!("{title} — {fw}x{fh}"));
             }
-            blit.current.copy_from_slice(&frame.pixels);
-            painted = true;
+            // `RgbaFrame.pixels` is a public field, so a caller can hand over a
+            // slice that does not match `width * height`. `resize` short-circuits
+            // when the size has not changed, so a mismatched frame at a size we
+            // are already painting would panic here and take the window thread
+            // with it — on a thread nobody is watching.
+            if frame.pixels.len() == blit.current.len() {
+                blit.current.copy_from_slice(&frame.pixels);
+                painted = true;
+            }
         } else if !painted {
             // No video yet: draw a calm "waiting" background.
             let status_text = status.lock().map(|s| s.clone()).unwrap_or_default();

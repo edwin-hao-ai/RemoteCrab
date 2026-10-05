@@ -210,9 +210,63 @@ impl TokenStore {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Ok(json) = serde_json::to_string_pretty(&self.data) {
-            let _ = std::fs::write(path, json);
+        let Ok(json) = serde_json::to_string_pretty(&self.data) else {
+            eprintln!("token store: could not serialise {} ", path.display());
+            return;
+        };
+        // Whether this is the first write decides whether the ACL below has to
+        // run. `icacls` is a process spawn, and `save` runs on every pairing and
+        // re-key — paying for it each time would be absurd.
+        let fresh = !path.exists();
+        if let Err(e) = std::fs::write(path, json) {
+            // Used to be `let _ =`. A silent failure here is the worst kind: the
+            // pairing appears to succeed, the token evaporates at the next
+            // launch, and the phone re-prompts for approval every time with
+            // nothing on either side saying why.
+            eprintln!(
+                "token store: could not save {} — {e}\n\
+                 token store:     the phone will ask to approve this PC again next launch",
+                path.display()
+            );
+            return;
         }
+        if fresh {
+            restrict_to_current_user(path);
+        }
+    }
+}
+
+/// Best-effort: narrow the token file to the account that owns it.
+///
+/// `%APPDATA%` is already per-user on a default Windows profile, so this is
+/// belt-and-braces — but "already per-user" is a property of the *directory*,
+/// and an inherited ACE is one `icacls` away from being wrong. The file holds a
+/// pairing token, so whoever can read it can impersonate this PC to the phone.
+///
+/// Failure is reported, not fatal: a token the user can still use beats a
+/// pairing that refused to complete over a permissions tweak.
+fn restrict_to_current_user(path: &std::path::Path) {
+    let Ok(user) = std::env::var("USERNAME") else {
+        return;
+    };
+    let who = match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.is_empty() => format!("{domain}\\{user}"),
+        _ => user,
+    };
+    match std::process::Command::new("icacls")
+        .arg(path)
+        .arg("/inheritance:r")
+        .arg("/grant:r")
+        .arg(format!("{who}:(F)"))
+        .output()
+    {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => eprintln!(
+            "token store: could not restrict {} to {who}: {}",
+            path.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ),
+        Err(e) => eprintln!("token store: icacls could not be started: {e}"),
     }
 }
 
