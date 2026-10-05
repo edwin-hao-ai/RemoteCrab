@@ -1016,6 +1016,7 @@ cross-references rather than the file order.
 | 155 | **`NWBrowser` 的 `.bonjour` 描述符不返回 TXT** — 手机 `results=1` 但 `metadata=.none`，每台都读不到 id 被跳过；要用 `.bonjourWithTXTRecord` | [`ios-device`](docs/lessons/ios-device.md) |
 | 156 | **保活已让监听活着时还去重建它，只会打断所有连接** — 每次回前台 `stopStreaming/startStreaming` 使 Mac 每十几秒 `Connection reset by peer` | [`ios-device`](docs/lessons/ios-device.md) |
 | 157 | **纯服务端也能主动触发「你连我」** — 敲一下固定端口 8766 表示「马上拨回我」，数据方向/握手/配对全不变；角色被动仍可有承载意图的出口 | [`protocol`](docs/lessons/protocol.md) |
+| 158 | **一段「长得像代码 bug」的静音，可能是 coreaudiod 卡死** — 逐包 rms 0.4s 后归零、连续正弦音也一样；累计平均 rms 是红鲱鱼；修法是 `sudo killall coreaudiod` | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via

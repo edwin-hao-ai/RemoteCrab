@@ -918,3 +918,23 @@ tccutil reset Accessibility com.remotecrab.RemoteCrabReceiver
 codesign -d -r- /Applications/X.app        # designated requirement，逐字对比
 codesign -d --verbose=4 /Applications/X.app | grep CDHash
 ```
+
+---
+
+158. **一段「长得像代码 bug」的静音，可能是系统的音频服务卡死了 —— 而且那个「累计平均 rms」会骗你。**
+    「用 iPhone 当扬声器」突然在**换了构建之后**变成「有声音约 0.5–2 秒，然后一直没声音」，
+    开关一次恢复一下、再停。第一反应是「昨晚把它改坏了」。**逐一取证否掉了代码**：
+    `git log --since` 显示 `SystemAudioTap` 自上次只改过一次**文案**，采集/ring 一行没动；
+    我今天的改动只加了「屏幕录制权限申请」，不碰采集。
+    真正的判据是**两条日志**：
+    - Mac 侧 `speaker packet rms` 的**逐包**轨迹：一开始 ~1000–2000，约 20 个包（≈0.4 秒）
+      **平滑衰减到 0**，之后 **4805 个包全是 0**。同一台机、同一段代码，用**连续 20 秒正弦音**
+      也是这个形状 —— 所以**不是内容/网站/视频特有**，是 tap 不再交付音频。
+    - Mac 侧 `speaker tap level rms` 是**累计平均**（从启动累加至今），它慢速衰减、
+      看起来「一直有信号」——**它是红鲱鱼**。判「现在有没有声音」只能看**逐包** `pms`。
+    修法：**`sudo killall coreaudiod`**（AGENTS 早写过这一条：「if the audio stack is wedged」）。
+    重启后立刻恢复连续播放。
+    **规则**：一个「换了构建/重启之后才出现」的故障，先别改代码 —— 先问「被测的**服务**是什么状态」。
+    音频、TCC、网络这些**有状态的系统服务**卡死时，产物的形状和「代码 bug」一模一样。
+    区分它要一个**与内容无关**的输入（连续正弦音 vs 网页视频），并且要能看见**计数在动但数据是 0**
+    （IOProc 每 10.7ms 触发、frames 一直涨，但每包 rms=0 —— 回调在跑、数据是空的）。
