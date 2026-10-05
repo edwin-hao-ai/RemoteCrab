@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# What actually went wrong, twice, in one session on 2026-10-05.
+#
+# Two commits were created whose *message* described one change and whose
+# *content* was somebody else's:
+#
+#   fix(window): stop minifb painting from a freed buffer   ← carried 9 files of
+#                                                            an approval-notification feature
+#   feat(mac): raise a desktop alert when the phone…       ← carried 6 docs files
+#
+# Nothing broke. Both changes were correct. What broke was the *record*: for a
+# few minutes nobody could say which commit had introduced the notification, and
+# the only reason the second one was caught is that its stat said "6 files"
+# when the message was about one feature.
+#
+# A hook cannot tell you whether a message is the right one for its content.
+# It CAN tell you the one thing that started it: the commit picked up files that
+# were already staged when you ran `git commit`. So this prints what is staged,
+# and refuses when the staged set looks like it was assembled by something other
+# than you.
+#
+# Set `core.hooksPath` once per machine:
+#     git config --global core.hooksPath "$PWD/.githooks"
+# or per repo:
+#     git config core.hooksPath .githooks
+#
+# Escape hatch: REMOTECRAB_SKIP_STAGED_GUARD=1 git commit …
+
+set -uo pipefail
+
+# Nothing to guard: a merge, or an explicit "commit everything".
+if [[ "$(git rev-parse -q --verify MERGE_HEAD || true)" != "" ]]; then exit 0; fi
+if [[ "${1:-}" == "--no-verify" ]]; then exit 0; fi
+# The escape hatch the message below advertises. It was documented from the
+# first version and not implemented until a test tried to use it — which is the
+# only reason this hook was ever run against its own instructions.
+if [[ "${REMOTECRAB_SKIP_STAGED_GUARD:-0}" == "1" ]]; then exit 0; fi
+
+# No `mapfile`: macOS ships bash 3.2, where it does not exist. An earlier
+# version of this hook used it and failed open — the guard was worse than
+# useless, because it printed errors and then let every commit through.
+STAGED=""
+COUNT=0
+while IFS= read -r _line; do
+  STAGED+="$_line
+"
+  COUNT=$((COUNT + 1))
+done < <(git diff --cached --name-only)
+
+# One file is almost always deliberate, and this hook must not become the thing
+# everyone disables.
+if [[ "$COUNT" -le 2 ]]; then exit 0; fi
+
+echo "" >&2
+echo "── ${COUNT} files are staged ────────────────────────────────────────" >&2
+echo "$STAGED" | sed 's/^/    /' >&2
+echo "" >&2
+echo "  If you meant to commit all of these, say so:" >&2
+echo "      git commit -m '…'                    # (this is the guard's choice to keep asking)" >&2
+echo "      REMOTECRAB_SKIP_STAGED_GUARD=1 git commit -m '…'" >&2
+echo "" >&2
+echo "  If some of them were already staged when you started — a parallel" >&2
+echo "  session, an old 'git checkout stash -- <file>', a tool you didn't run —" >&2
+echo "  unstage them first:" >&2
+echo "      git restore --staged <file>" >&2
+echo "  A commit whose content is wider than its message is how a fix gets" >&2
+echo "  attributed to the wrong change. That happened twice today." >&2
+echo "" >&2
+exit 1
