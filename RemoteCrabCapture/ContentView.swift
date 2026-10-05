@@ -1034,7 +1034,8 @@ struct ContentView: View {
             return StatusAlert(symbol: "arrow.triangle.2.circlepath",
                                tint: IBColor.accent,
                                title: IBLocale.Pairing.switchingTo(preferred.name),
-                               subtitle: IBLocale.Pairing.switchingHint)
+                               subtitle: IBLocale.Pairing.switchingHint,
+                               mascot: true)
         }
         if let gaveUp = engine.preferredGaveUp {
             return StatusAlert(symbol: "door.left.hand.open",
