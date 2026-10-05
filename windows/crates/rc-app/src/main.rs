@@ -54,7 +54,7 @@ mod status;
 mod stream_stats;
 mod tray;
 mod tray_menu;
-#[cfg(windows)]
+mod updater;
 mod vcam;
 
 /// Owns the toggleable preview window thread (tray → Show/Hide Preview).
@@ -279,6 +279,225 @@ fn send_command_result(session: &rc_net::Session, request_id: Option<&str>, ok: 
     }
 }
 
+/// Check the release feed, and install a newer release if the user agrees.
+///
+/// Runs on a worker thread, because `updater` is blocking and both callers —
+/// the Settings button and the launch-time check — are on threads that must not
+/// wait for a network.
+///
+/// `interactive` decides how much the user is asked:
+///
+/// * from Settings, an update is confirmed before anything is downloaded, and
+///   the outcome is written into the window;
+/// * at launch, the check is silent and only its failure is worth a word —
+///   nobody wants a dialog on startup because a release host is unreachable.
+#[cfg(windows)]
+fn spawn_update_check(interactive: bool) {
+    std::thread::spawn(move || {
+        if !interactive {
+            // Late, and off the startup path: see the call site.
+            std::thread::sleep(std::time::Duration::from_secs(20));
+        }
+        let current = env!("CARGO_PKG_VERSION");
+        let key = updater::UPDATE_PUBLIC_KEY;
+
+        let line = match updater::check(current) {
+            Ok(None) => {
+                if interactive {
+                    Some(i18n::t(
+                        "已经是最新版本。",
+                        "RemoteCrab is up to date.",
+                    )
+                    .to_string())
+                } else {
+                    None
+                }
+            }
+            Ok(Some(manifest)) => install_offered(&manifest, current, &key, interactive),
+            Err(e) => {
+                // A failed check is not worth a dialog at launch, but it is
+                // worth a line in the log — "it never updates" is otherwise
+                // indistinguishable from "there is never an update".
+                eprintln!("[update] check failed: {e}");
+                if interactive {
+                    Some(
+                        i18n::t("检查更新失败（详情见日志）。", "The update check failed — see the log.")
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(line) = line {
+            settings_win::set_update_message(line);
+            settings_win::refresh_if_open();
+        }
+    });
+}
+
+/// A release is published: say so, and install it if the user says yes.
+///
+/// The confirmation comes **before** the download, not after: asking someone to
+/// approve a 2 MB download and then an install in two steps is two chances to
+/// change their mind for no reason, and the version number is the only fact they
+/// need to decide.
+#[cfg(windows)]
+fn install_offered(
+    manifest: &updater::Manifest,
+    current: &str,
+    key: &[u8; 32],
+    interactive: bool,
+) -> Option<String> {
+    let found = i18n::t(
+        &format!("有可用的新版本 {}（当前 {current}）。", manifest.version),
+        &format!("Version {} is available (you have {current}).", manifest.version),
+    )
+    .to_string();
+    eprintln!("[update] {} {}", found, manifest.notes.as_deref().unwrap_or(""));
+
+    if !interactive {
+        // Launch-time: report, do not act. An update that installs itself while
+        // the user is in the middle of something is a worse product than one
+        // that waits to be asked.
+        return None;
+    }
+
+    let question = match &manifest.notes {
+        Some(notes) => format!("{found}\n\n{notes}\n\n{}", i18n::t("现在安装？", "Install now?")),
+        None => format!("{found}\n\n{}", i18n::t("现在安装？", "Install now?")),
+    };
+    if !confirm(&question) {
+        return Some(i18n::t("已跳过这次更新。", "Update skipped.").to_string());
+    }
+
+    let staged = match updater::stage(manifest, &updater::update_dir(), key) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("[update] {e}");
+            return Some(
+                i18n::t(
+                    "更新包校验失败，已放弃（详情见日志）。",
+                    "The update failed verification and was discarded — see the log.",
+                )
+                .to_string(),
+            );
+        }
+    };
+    if let Err(e) = updater::install(&staged) {
+        eprintln!("[update] {e}");
+        return Some(
+            i18n::t("安装没能启动（详情见日志）。", "The installer could not be started — see the log.")
+                .to_string(),
+        );
+    }
+    // The installer has been handed control. Windows will not replace a running
+    // executable, so this process has to be gone before it finishes.
+    std::process::exit(0);
+}
+
+/// Yes/no dialog. `MB_ICONINFORMATION` rather than a warning: an update is not
+/// a problem.
+#[cfg(windows)]
+fn confirm(question: &str) -> bool {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_ICONINFORMATION, MB_YESNO,
+    };
+
+    let text = HSTRING::from(question);
+    let title = HSTRING::from(i18n::t("RemoteCrab 更新", "RemoteCrab update"));
+    // SAFETY: both strings outlive the call; no parent window means the box is
+    // owned by the thread, which is what we want from a worker.
+    let answer = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_YESNO | MB_ICONINFORMATION,
+        )
+    };
+    answer == IDYES
+}
+
+/// How long to ignore knocks after acting on one.
+///
+/// The alternative to a floor is a receiver that can be made to re-dial in a
+/// loop by anything on the LAN, which is a denial of service against the user's
+/// own session. Two seconds is far below the time it takes a person to tap a
+/// computer twice and far above anything a flood can do.
+#[cfg(windows)]
+const KNOCK_MIN_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Listen on the knock port: an inbound connection means "dial me back now".
+///
+/// The phone is the TCP server, so it cannot open the data socket — tapping a
+/// computer on the phone used to mean waiting for that computer's own retry
+/// poll. A knock closes that gap without changing the session at all: the phone
+/// connects to this port, hangs up, and the receiver dials it immediately. No
+/// handshake happens here, no bytes are exchanged; **the connection itself is
+/// the message**.
+///
+/// Two guards, and neither needs the knock to be authenticated — a knock cannot
+/// do anything except ask for a dial the receiver would have made anyway:
+///
+/// * ignored while already streaming, so a knock cannot tear down a live
+///   session (the phone knocking is usually the phone that is already here);
+/// * rate-limited, so a flood costs a reconnect rather than a loop of them.
+#[cfg(windows)]
+fn spawn_knock_listener(session: rc_net::Session) {
+    tokio::spawn(async move {
+        let listener =
+            match tokio::net::TcpListener::bind(("0.0.0.0", rc_discovery::KNOCK_PORT)).await {
+                Ok(listener) => listener,
+                Err(e) => {
+                    // Not fatal, and deliberately not retried: the phone falls
+                    // back to "remember this computer and wait for it to dial",
+                    // which is exactly what it did before this existed.
+                    eprintln!(
+                        "[knock] could not listen on {}: {e}\n\
+                         [knock]     tap-to-connect will wait for our own retry instead",
+                        rc_discovery::KNOCK_PORT
+                    );
+                    return;
+                }
+            };
+        println!(
+            "  knock: listening on port {} (tap this computer on the phone to connect at once)",
+            rc_discovery::KNOCK_PORT
+        );
+
+        let state = session.state();
+        let mut last_acted = std::time::Instant::now() - KNOCK_MIN_INTERVAL;
+        loop {
+            let Ok((stream, peer)) = listener.accept().await else {
+                // A failed accept on a bound listener is transient (EMFILE and
+                // friends); dropping the listener over it would take the feature
+                // away for the rest of the run.
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                continue;
+            };
+            // Nothing is read and nothing is written: closing immediately is the
+            // contract, and it also means a caller cannot make us wait.
+            drop(stream);
+
+            if matches!(*state.borrow(), rc_net::State::Streaming { .. }) {
+                println!("[knock] {peer} knocked while already streaming — ignored");
+                continue;
+            }
+            if last_acted.elapsed() < KNOCK_MIN_INTERVAL {
+                // Silent on purpose: a flood is not worth a log line per
+                // connection, and the user cannot act on it either way.
+                continue;
+            }
+            last_acted = std::time::Instant::now();
+            println!("[knock] {peer} asked us to dial back");
+            session.retry_now();
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
@@ -373,6 +592,12 @@ async fn main() -> ExitCode {
     // yet. It appears once — a wizard that reappears is a nag — and the tray's
     // "Setup wizard…" row brings it back.
     maybe_show_wizard();
+    // And an update check, quietly and late. Late because a release host is the
+    // least important thing at startup — a home network with no route to it
+    // would otherwise compete with discovery for the first seconds — and quietly
+    // because the answer is only actionable, not urgent: Settings has the button
+    // when someone wants to act on it.
+    spawn_update_check(false);
     println!(
         "{}\n",
         i18n::t(
@@ -384,6 +609,38 @@ async fn main() -> ExitCode {
     let session = Session::spawn(Config::default());
     #[cfg(windows)]
     let _ = SESSION.set(session.clone());
+
+    // Announce this computer on the LAN, so the phone's "choose a computer"
+    // list can tell online from merely-previously-seen. Held for the life of the
+    // process: dropping the advertiser unregisters the service, and a computer
+    // that vanishes from the list the moment the variable goes out of scope is
+    // worse than one that was never listed.
+    //
+    // Failure is a log line, not a fatal: the phone can still connect to a
+    // computer it cannot see (the pairing list is history, not discovery), and a
+    // security suite blocking multicast must not stop the product working.
+    #[cfg(windows)]
+    let _presence = {
+        let (id, name) = rc_net::Session::pc_identity();
+        match rc_discovery::advertise(&id, &id, &name, "windows") {
+            Ok(advertiser) => {
+                println!("  presence: advertising as {name} ({id})");
+                Some(advertiser)
+            }
+            Err(e) => {
+                eprintln!(
+                    "[presence] could not advertise: {e}\n\
+                     [presence]     the phone will not show this PC as online; pairing still works"
+                );
+                None
+            }
+        }
+    };
+
+    // The knock port. See `spawn_knock_listener`.
+    #[cfg(windows)]
+    spawn_knock_listener(session.clone());
+
     let mut events = session.subscribe();
     let mut state_rx = session.state();
     // The live readout behind the tray's "connection details" submenu. See
@@ -1590,6 +1847,7 @@ fn open_settings() {
             // no explanation at all.
             wizard::install_outcome(vcam::install_with_elevation())
         }),
+        check_update: Box::new(|| spawn_update_check(true)),
     });
 }
 

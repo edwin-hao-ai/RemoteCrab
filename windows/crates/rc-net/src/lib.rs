@@ -47,9 +47,14 @@ pub(crate) const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
 /// The same idea as [`BUSY_RETRY_DELAY`], for the phone having been told to
 /// disconnect *us*. The iPhone clears its `off` state the moment its user picks
 /// a computer, so a slow knock is how "re-pick this PC on the phone" recovers
-/// without anyone walking over to the machine. Matches the 15s the Mac
-/// receiver already uses.
-pub(crate) const OFF_RETRY_DELAY: Duration = Duration::from_secs(15);
+/// without anyone walking over to the machine.
+///
+/// **5 seconds, matching the Mac receiver**, and deliberately not the 15 that
+/// `BUSY_RETRY_DELAY` implies — the two cases are not alike. `busy` means another
+/// computer holds the phone and is likely to keep holding it, so retrying hard
+/// is noise. `off` means this user was in the phone's list a moment ago and will
+/// probably be back, so the wait should be short enough not to be felt.
+pub(crate) const OFF_RETRY_DELAY: Duration = Duration::from_secs(5);
 pub(crate) const FALLBACK_TICK: Duration = Duration::from_secs(5);
 /// How often to try to (re)start mDNS after it failed. Discovery is the
 /// primary path, so it is worth retrying even though the direct-IP fallbacks
@@ -214,6 +219,19 @@ impl Session {
     /// the user is only looking at.
     pub fn paired_phones() -> Vec<String> {
         token::TokenStore::load(token::default_token_path()).paired_phones()
+    }
+
+    /// This machine's stable id and display name — the pair the `clientHello`
+    /// carries, and the pair presence advertises.
+    ///
+    /// Read from the store, like [`Session::paired_phones`], so a caller does not
+    /// have to own a `TokenStore` or reach into `rc-net`'s internals. The two
+    /// must agree: the phone matches a presence sighting to a pairing by this id,
+    /// so an advert that used a different one would show the computer online and
+    /// then fail to connect to it.
+    pub fn pc_identity() -> (String, String) {
+        let store = token::TokenStore::load(token::default_token_path());
+        (store.pc_id().to_string(), store.pc_name().to_string())
     }
 
     pub fn spawn(config: Config) -> Session {
