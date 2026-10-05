@@ -1531,7 +1531,7 @@
         }
       }
     },
-    "Connect to your Mac": {
+    "Connect to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1956,7 +1956,7 @@
         }
       }
     },
-    "Discover & connect to your Mac": {
+    "Discover & connect to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1968,7 +1968,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发现并连接你的 电脑"
+            "value": "发现并连接你的电脑"
           }
         }
       }
@@ -2024,13 +2024,13 @@
         }
       }
     },
-    "Download and open RemoteCrab Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.": {
+    "Download and open RemoteCrab Receiver on your computer, then tap Continue. They'll find each other automatically.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Download and open the RemoteCrab Receiver app on your computer, then tap Continue. They'll find each other automatically."
+            "value": "Download and open RemoteCrab Receiver on your computer, then tap Continue. They'll find each other automatically."
           }
         },
         "zh-Hans": {
@@ -3248,7 +3248,7 @@
         }
       }
     },
-    "Live iPhone feed to your Mac": {
+    "Live iPhone feed to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3260,7 +3260,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 画面实时传到 电脑"
+            "value": "iPhone 画面实时传到电脑"
           }
         }
       }
@@ -4302,7 +4302,7 @@
         }
       }
     },
-    "Download for Mac": {
+    "Download the desktop app": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4727,19 +4727,19 @@
         }
       }
     },
-    "RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.": {
+    "RemoteCrab needs your camera, microphone, speech, photos, and local network. We only ever send data to your computer — nothing leaves your WiFi.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your computer — nothing leaves your WiFi."
+            "value": "RemoteCrab needs your camera, microphone, speech, photos, and local network. We only ever send data to your computer — nothing leaves your WiFi."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 需要使用摄像头、麦克风和本地网络。数据只会发送到你的 电脑，不会离开你的 WiFi。"
+            "value": "RemoteCrab 需要使用摄像头、麦克风、语音、照片和本地网络。数据只会发送到你的电脑，不会离开你的 WiFi。"
           }
         }
       }
@@ -5576,19 +5576,19 @@
         }
       }
     },
-    "Stream iPhone mic to Mac speakers": {
+    "Stream iPhone mic to your computer's speakers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stream iPhone mic to computer speakers"
+            "value": "Stream iPhone mic to your computer's speakers"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone 麦克风串流到 电脑 扬声器"
+            "value": "iPhone 麦克风串流到电脑扬声器"
           }
         }
       }
@@ -6035,7 +6035,7 @@
         }
       }
     },
-    "Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi.": {
+    "Turn your iPhone into a camera, microphone, trackpad and keyboard for your computer — over WiFi.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6047,7 +6047,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将你的 iPhone 变成 电脑 的摄像头、麦克风、触控板和键盘 —— 通过 WiFi。"
+            "value": "将你的 iPhone 变成电脑的摄像头、麦克风、触控板和键盘 —— 通过 WiFi。"
           }
         }
       }
@@ -6748,7 +6748,7 @@
         }
       }
     },
-    "Send recent screenshots to your Mac": {
+    "Send recent screenshots to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6760,7 +6760,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把最近截图发送到 电脑"
+            "value": "把最近截图发送到电脑"
           }
         }
       }
@@ -10575,6 +10575,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "未连接 — 手机无法播放未连接的电脑的声音。"
+          }
+        }
+      }
+    },
+    "Hold the voice button to dictate into your computer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the voice button to dictate into your computer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住语音键，用语音向电脑口述输入"
           }
         }
       }

@@ -170,11 +170,14 @@ public enum IBLocale {
 
     public enum Onboarding {
         public static let heroTitle = IBL("RemoteCrab")
-        public static let heroBody = IBL("Turn your iPhone into a camera, microphone, trackpad and keyboard for your Mac — over WiFi.")
+        public static let heroBody = IBL("Turn your iPhone into a camera, microphone, trackpad and keyboard for your computer — over WiFi.")
         public static let permissionsTitle = IBL("We need a few permissions")
-        public static let permissionsBody = IBL("RemoteCrab needs to use your camera, microphone, and local network. We only ever send data to your Mac — nothing leaves your WiFi.")
-        public static let pairTitle = IBL("Connect to your Mac")
-        public static let pairBody = IBL("Download and open RemoteCrab Receiver on your Mac, then tap Allow Permissions & Connect. They'll find each other automatically.")
+        // Must list the SAME set the request flow asks for (camera, microphone,
+        // speech, photos, local network) — it used to name three while the
+        // illustration drew four and the flow asked five.
+        public static let permissionsBody = IBL("RemoteCrab needs your camera, microphone, speech, photos, and local network. We only ever send data to your computer — nothing leaves your WiFi.")
+        public static let pairTitle = IBL("Connect to your computer")
+        public static let pairBody = IBL("Download and open RemoteCrab Receiver on your computer, then tap Continue. They'll find each other automatically.")
         public static let getStarted = IBL("Get Started")
         public static let skip = IBL("Skip")
         public static let nextBtn = IBL("Continue")
@@ -184,13 +187,17 @@ public enum IBLocale {
 
         /// Permissions-page illustration cards.
         public static let permCameraTitle = IBL("Camera")
-        public static let permCameraDesc = IBL("Live iPhone feed to your Mac")
+        public static let permCameraDesc = IBL("Live iPhone feed to your computer")
         public static let permMicTitle = IBL("Microphone")
-        public static let permMicDesc = IBL("Stream iPhone mic to Mac speakers")
+        public static let permMicDesc = IBL("Stream iPhone mic to your computer's speakers")
+        /// Reuses the "Speech Recognition" string the request flow uses, so the
+        /// illustration and the flow name the same thing.
+        public static let permSpeechTitle = IBL("Speech Recognition")
+        public static let permSpeechDesc = IBL("Hold the voice button to dictate into your computer")
         public static let permNetworkTitle = IBL("Local Network")
-        public static let permNetworkDesc = IBL("Discover & connect to your Mac")
+        public static let permNetworkDesc = IBL("Discover & connect to your computer")
         public static let permPhotoTitle = IBL("Photos")
-        public static let permPhotoDesc = IBL("Send recent screenshots to your Mac")
+        public static let permPhotoDesc = IBL("Send recent screenshots to your computer")
     }
 
     public enum Mode {
@@ -426,7 +433,7 @@ public enum IBLocale {
         public static let testHapticsHint = IBL("If you don't feel this, turn on Settings → Sounds & Haptics → System Haptics (UIFeedbackGenerator only plays when it's on).")
         public static let privacyPolicy = IBL("Privacy Policy")
         /// About-section link to the Mac receiver download page (vgoapp.com).
-        public static let downloadMac = IBL("Download for Mac")
+        public static let downloadMac = IBL("Download the desktop app")
     }
 
     public enum ModifierKey: String, CaseIterable, Identifiable {

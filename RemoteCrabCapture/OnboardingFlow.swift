@@ -287,18 +287,23 @@ private struct HeroIllustration: View {
 private struct PermissionsIllustration: View {
     var body: some View {
         VStack(spacing: 14) {
+            // Same order and same set as PermissionFlow.Stage.allCases —
+            // camera, microphone, speech, photos, local network.
             permissionCard(icon: "camera.fill",
                            title: IBLocale.Onboarding.permCameraTitle,
                            description: IBLocale.Onboarding.permCameraDesc)
             permissionCard(icon: "mic.fill",
                            title: IBLocale.Onboarding.permMicTitle,
                            description: IBLocale.Onboarding.permMicDesc)
-            permissionCard(icon: "wifi",
-                           title: IBLocale.Onboarding.permNetworkTitle,
-                           description: IBLocale.Onboarding.permNetworkDesc)
+            permissionCard(icon: "waveform",
+                           title: IBLocale.Onboarding.permSpeechTitle,
+                           description: IBLocale.Onboarding.permSpeechDesc)
             permissionCard(icon: "photo.on.rectangle",
                            title: IBLocale.Onboarding.permPhotoTitle,
                            description: IBLocale.Onboarding.permPhotoDesc)
+            permissionCard(icon: "wifi",
+                           title: IBLocale.Onboarding.permNetworkTitle,
+                           description: IBLocale.Onboarding.permNetworkDesc)
         }
         .padding(.horizontal, IBSpace.xxl.pt)
         .frame(minHeight: 320)
