@@ -1491,8 +1491,24 @@ final class ReceiverSession: ObservableObject {
 
     private func handleConnectionState(_ newState: NWConnection.State) {
         Self.log.info("connection state: \(String(describing: newState), privacy: .public)")
-        dialWatchdogTask?.cancel()
-        dialWatchdogTask = nil
+        // Disarm the dial watchdog only when the dial it guards is no longer
+        // pending. `.preparing` and `.waiting` are NOT progress — a dial can sit
+        // in them for the full TCP timeout (~75 s), which is exactly what the
+        // watchdog bounds — and `NWConnection` always emits `.preparing` before
+        // `.ready`. This used to cancel unconditionally at the top, so the
+        // watchdog was armed and disarmed within milliseconds and the common
+        // Bonjour dial still wedged. See `DialWatchdogPolicy.shouldDisarmWatchdog`.
+        let (isReady, isTerminal): (Bool, Bool) = {
+            switch newState {
+            case .ready: return (true, false)
+            case .failed, .cancelled: return (false, true)
+            default: return (false, false) // .preparing / .waiting / @unknown
+            }
+        }()
+        if DialWatchdogPolicy.shouldDisarmWatchdog(ready: isReady, terminal: isTerminal) {
+            dialWatchdogTask?.cancel()
+            dialWatchdogTask = nil
+        }
         switch newState {
         case .ready:
             // TCP is up but we are NOT the session owner yet: identify

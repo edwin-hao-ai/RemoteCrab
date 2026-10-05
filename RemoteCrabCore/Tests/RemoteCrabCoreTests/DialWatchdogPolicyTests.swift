@@ -68,6 +68,26 @@ final class DialWatchdogPolicyTests: XCTestCase {
                        "the existing direct-dial budget is the number that was already measured in the field")
     }
 
+    // MARK: - Arming
+
+    /// The regression that made the fix inert. `handleConnectionState` cancelled
+    /// the watchdog at the top for **every** state, and `NWConnection` always
+    /// emits `.preparing` before `.ready`, so the watchdog was armed and then
+    /// disarmed within milliseconds on the exact dial it was added to rescue.
+    /// `.preparing` is not progress — it is the stuck dial the watchdog bounds.
+    func testATransientConnectionStateDoesNotDisarmTheWatchdog() {
+        XCTAssertFalse(
+            DialWatchdogPolicy.shouldDisarmWatchdog(ready: false, terminal: false),
+            "a dial sitting in .preparing/.waiting is the case the watchdog exists for")
+    }
+
+    func testAReadyOrFinishedDialDisarmsTheWatchdog() {
+        XCTAssertTrue(DialWatchdogPolicy.shouldDisarmWatchdog(ready: true, terminal: false),
+                      "a ready connection no longer needs a watchdog")
+        XCTAssertTrue(DialWatchdogPolicy.shouldDisarmWatchdog(ready: false, terminal: true),
+                      "a failed/cancelled dial is finished; the next attempt re-arms its own")
+    }
+
     // MARK: - What happens next
 
     /// The case this policy exists for: Bonjour gave us an endpoint that does

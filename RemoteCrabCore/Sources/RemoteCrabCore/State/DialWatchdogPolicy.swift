@@ -77,6 +77,21 @@ public enum DialWatchdogPolicy {
         return elapsed >= budget
     }
 
+    /// Whether a connection-state transition should disarm the dial watchdog.
+    ///
+    /// `.preparing` and `.waiting` are **not progress**: a dial to an unroutable
+    /// endpoint can sit in `.preparing` for the full TCP timeout (~75 s), which
+    /// is precisely what the watchdog bounds. `ReceiverSession` used to cancel at
+    /// the top of its state handler for *every* state, and `NWConnection` always
+    /// emits `.preparing` first — so the watchdog was armed and disarmed within
+    /// milliseconds and the common Bonjour dial still wedged (the fix that added
+    /// it was inert). Only a `ready` connection or a finished one (`failed` /
+    /// `cancelled`) means there is no longer a pending dial to bound; the next
+    /// attempt arms its own watchdog.
+    public static func shouldDisarmWatchdog(ready: Bool, terminal: Bool) -> Bool {
+        ready || terminal
+    }
+
     /// What to try after abandoning.
     ///
     /// A known direct address beats a WiFi-only retry: it does not depend on
