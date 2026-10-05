@@ -326,6 +326,31 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
         t("开机自启动", "Start at login").to_string(),
     );
     push(Row::Separator, 0, String::new());
+
+    // The three windows. Their ids, glyphs and click handlers all existed and
+    // were tested, but for as long as these rows were missing the windows were
+    // unreachable: you could not open Settings or the self-check at all, and the
+    // setup wizard ran once on first launch and could never be seen again —
+    // while its own final page tells the user everything lives behind the tray
+    // icon. `every_known_id_has_a_row` below is the test that would have caught
+    // it; the old direction (`all_rows_have_a_known_id`) only catches the
+    // opposite mistake.
+    push(
+        Row::Item,
+        ids::SETTINGS,
+        t("设置…", "Settings…").to_string(),
+    );
+    push(
+        Row::Item,
+        ids::SETUP,
+        t("重新运行设置向导…", "Run setup again…").to_string(),
+    );
+    push(
+        Row::Item,
+        ids::SELF_CHECK,
+        t("自检…", "Self-check…").to_string(),
+    );
+    push(Row::Separator, 0, String::new());
     push(
         Row::Item,
         ids::QUIT,
@@ -695,6 +720,33 @@ mod tests {
                 row.text,
                 row.id
             );
+        }
+    }
+
+    /// The opposite direction from `all_rows_have_a_known_id`, and the one that
+    /// was missing.
+    ///
+    /// Settings, the setup wizard and the self-check each had an id, an icon, a
+    /// click handler and tests — everything except a row. Every existing test
+    /// walked *rows → ids*, so a window whose only entry point was never built
+    /// was invisible to all of them, and three finished windows sat unreachable
+    /// behind a tray menu that never mentioned them.
+    #[test]
+    fn every_known_id_has_a_row() {
+        // A couple of states, because RECORD is the one row that comes and goes.
+        for s in [state(), {
+            let mut s = state();
+            s.recording = true;
+            s
+        }] {
+            let rows = menu_rows(&s);
+            for id in known_ids() {
+                assert!(
+                    rows.iter().any(|r| r.kind == Row::Item && r.id == *id),
+                    "known_ids() lists {id} but no row pushes it in this state — \
+                     either build the row or drop the id"
+                );
+            }
         }
     }
 

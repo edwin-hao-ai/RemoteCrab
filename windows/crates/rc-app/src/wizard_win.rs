@@ -55,7 +55,11 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
         CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("RemoteCrab 设置 / Setup"),
+            // "首次设置", not "设置": this window and the Settings window used to
+            // share the Chinese title "设置", so two different windows looked
+            // identical in the taskbar and in any screenshot. The English halves
+            // were already distinct.
+            w!("RemoteCrab 首次设置 / Setup"),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

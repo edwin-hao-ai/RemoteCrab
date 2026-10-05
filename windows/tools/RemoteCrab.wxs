@@ -100,10 +100,26 @@
     </ComponentGroup>
 
     <ComponentGroup Id="Shortcuts" Directory="ShortcutFolder">
-      <!-- No Start Menu or desktop shortcut for the app itself. The product is a
-           tray app with no window: a shortcut launches it, it appears in the
-           notification area, and the user is left hunting for a window that will
-           never open. The uninstaller entry is the honest entry point. -->
+      <!-- The app itself, so a fresh install is launchable without browsing to
+           Program Files.
+
+           This reverses an earlier decision whose premise did not survive
+           contact: "a shortcut launches it, it appears in the notification area,
+           and the user is left hunting for a window that will never open". The
+           window does open — the first run raises the setup wizard, and every
+           run after that shows a tray icon — so the shortcut lands the user on
+           the one thing that explains the product, instead of on nothing.
+
+           What the shortcut must not do is pretend to be a document app. It
+           points straight at the exe. -->
+      <Component Id="AppShortcut" Guid="A3F7C1D2-8E45-4B96-A0D3-6C29F5E8B471" Directory="ShortcutFolder">
+        <Shortcut Id="AppShortcut"
+                  Name="RemoteCrab"
+                  Description="Use this PC's camera, microphone, trackpad and keyboard from your iPhone"
+                  Target="[INSTALLFOLDER]remotecrab.exe"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="AppShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
       <Component Id="UninstallShortcut" Guid="9D4C2E17-8B65-4A03-9F71-2C6D0E8B5A94" Directory="ShortcutFolder">
         <Shortcut Id="UninstallShortcut"
                   Name="Uninstall RemoteCrab"
