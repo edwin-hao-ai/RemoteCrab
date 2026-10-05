@@ -227,7 +227,21 @@ pub fn is_registered() -> bool {
     // `rc_vcam::is_registered`, not `install_source().is_ok()`: the latter
     // registers the camera as a side effect of being asked, and this is called
     // from the tray's menu build and every wizard page.
-    rc_vcam::is_registered()
+    //
+    // And **both** facts, because "registered" alone is true on Windows 10 —
+    // the installer writes HKLM regardless of the OS version — where no camera
+    // can ever be presented. Reporting that as ready told the user to go looking
+    // in their camera app for something that does not exist.
+    rc_vcam::is_registered() && rc_vcam::is_supported()
+}
+
+/// Whether this Windows build can host a virtual camera at all.
+///
+/// Separate from [`is_registered`] so the UI can say *which* of the two is
+/// missing: "install it" and "this Windows version cannot do it" are different
+/// things to tell someone, and only one of them has an action.
+pub fn is_supported() -> bool {
+    rc_vcam::is_supported()
 }
 
 impl Vcam {

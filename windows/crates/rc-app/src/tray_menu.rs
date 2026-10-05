@@ -410,6 +410,14 @@ pub fn flags_for(
             if row.id == ids::SHOW_FILE && !state.has_last_file {
                 f |= MF_GRAYED;
             }
+            // Feature toggles need a session. Without one the click is dropped
+            // by the supervisor (`SetFeature` on no connection) and the row does
+            // nothing at all — the same silent no-op as a row with no handler,
+            // wearing a checkbox. The Mac greys exactly these when not
+            // connected.
+            if !state.connected && needs_a_connection(row.id) {
+                f |= MF_GRAYED;
+            }
             f
         }
         // `MF_POPUP` is added by the tray, which owns the submenu's `HMENU` —
@@ -477,6 +485,29 @@ pub fn known_ids() -> &'static [usize] {
         ids::SETTINGS,
         ids::SELF_CHECK,
     ]
+}
+
+/// Whether a row can only do something while a phone is connected.
+///
+/// These are the rows whose click reaches the *phone* rather than this machine:
+/// a feature toggle the phone has to honour, a camera switch, a clipboard send.
+/// Everything not listed either works locally (autostart, settings, the camera
+/// install) or is meaningful in every state (reconnect, quit).
+///
+/// Windows-only for the same reason as the rest of this module: the shared
+/// Windows-shaped row set is what it describes.
+#[cfg(windows)]
+pub fn needs_a_connection(id: usize) -> bool {
+    matches!(
+        id,
+        ids::CAMERA
+            | ids::MICROPHONE
+            | ids::TRACKPAD
+            | ids::KEYBOARD
+            | ids::SWITCH_CAMERA
+            | ids::RECORD
+            | ids::CLIPBOARD
+    )
 }
 
 /// Whether a toggle row is currently on.

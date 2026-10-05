@@ -181,6 +181,30 @@ pub fn uninstall_source() -> Result<(), VcamError> {
     Ok(())
 }
 
+/// Whether this Windows build can host a software virtual camera at all.
+///
+/// Windows 11 22H2 and later. Its own question because it is independent of
+/// registration, and the two were being conflated: the installer writes the
+/// CLSID into HKLM unconditionally — the MSI's launch condition allows Windows
+/// 10 1809 — so on Windows 10 the camera reported itself as *registered* while
+/// `MFCreateVirtualCamera` could never present it. The wizard and the settings
+/// window then told the user it was ready, no camera ever appeared, and nothing
+/// anywhere said why.
+///
+/// `false` on any failure, including one from the API itself: "cannot confirm"
+/// and "cannot do it" are the same answer to the only question a caller has.
+pub fn is_supported() -> bool {
+    unsafe {
+        // Media Foundation must be up before the API can answer. The same init
+        // `run_spike` does; both are refcounted and idempotent.
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let _ = MFStartup(MF_VERSION, MFSTARTUP_FULL);
+        MFIsVirtualCameraTypeSupported(MFVirtualCameraType_SoftwareCameraSource)
+            .map(|supported| supported.as_bool())
+            .unwrap_or(false)
+    }
+}
+
 /// Whether the virtual camera is registered **and** points at this build.
 ///
 /// A pure read. It exists because the query used to be

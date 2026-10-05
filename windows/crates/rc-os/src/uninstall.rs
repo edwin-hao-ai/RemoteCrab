@@ -27,6 +27,14 @@ use std::path::{Path, PathBuf};
 pub struct Removed {
     pub run_value: bool,
     pub app_data: bool,
+    /// `%LOCALAPPDATA%\RemoteCrab` — the log, and any downloaded update.
+    ///
+    /// Separate from `app_data` because they are genuinely different
+    /// directories, and only `%APPDATA%` was being removed: an uninstall left
+    /// `RemoteCrab.log` — with device names, file paths and connection timings
+    /// in it — and a staged `RemoteCrab-x.y.z.msi` behind, in a directory
+    /// nothing would ever clean up.
+    pub local_app_data: bool,
     /// Not set here — `rc-app` fills this in, because deleting the CLSID needs
     /// `rc-vcam` and administrator rights.
     pub clsid: bool,
@@ -49,6 +57,11 @@ pub fn appdata_dir() -> PathBuf {
     base("APPDATA", r"C:\Users\Default\AppData\Roaming").join("RemoteCrab")
 }
 
+/// `%LOCALAPPDATA%\RemoteCrab` — the log and the staging directory for updates.
+pub fn local_appdata_dir() -> PathBuf {
+    base("LOCALAPPDATA", r"C:\Users\Default\AppData\Local").join("RemoteCrab")
+}
+
 /// `%ProgramData%\RemoteCrab\vcam-ring.bin` — the NULL-DACL frame ring.
 pub fn ring_path() -> PathBuf {
     base("ProgramData", r"C:\ProgramData")
@@ -68,6 +81,7 @@ pub fn remove_user_state() -> Removed {
     Removed {
         run_value: crate::autostart::set_enabled(false),
         app_data: remove_dir(&appdata_dir()),
+        local_app_data: remove_dir(&local_appdata_dir()),
         ..Default::default()
     }
 }
@@ -136,6 +150,7 @@ mod tests {
         let done = Removed {
             run_value: true,
             app_data: true,
+            local_app_data: true,
             clsid: true,
             ring: true,
         };
@@ -177,6 +192,7 @@ mod tests {
         let user_only = Removed {
             run_value: true,
             app_data: true,
+            local_app_data: true,
             clsid: false,
             ring: false,
         };

@@ -38,6 +38,7 @@ const ID_QUALITY: usize = 18;
 const ID_AUTOSTART: usize = 19;
 const ID_CLOSE: usize = 20;
 const ID_UPDATE: usize = 21;
+const ID_OPEN_LOG: usize = 22;
 
 /// One editor action: change a name list, or refuse with a reason.
 type NameEdit = Box<dyn Fn(&str) -> Result<(), Refusal> + Send + Sync>;
@@ -226,6 +227,13 @@ unsafe extern "system" fn wnd_proc(
                     // `set_update_message` plus `WM_SETTINGS_REFRESH`.
                     with(|a| (a.check_update)());
                     build(hwnd);
+                    LRESULT(0)
+                }
+                ID_OPEN_LOG => {
+                    // Reveal rather than open: a log is a file to hand to
+                    // someone, and Explorer puts it under the cursor so it can
+                    // be attached without hunting for the path.
+                    rc_os::files::reveal(&rc_os::uninstall::local_appdata_dir());
                     LRESULT(0)
                 }
                 _ => DefWindowProcW(hwnd, msg, wparam, lparam),
@@ -531,17 +539,38 @@ unsafe fn build(hwnd: HWND) {
         y += 40;
 
         // --- Camera
+        //
+        // One line or the other, never both. This drew the "registered" line
+        // unconditionally and then drew "not registered" on the same `y` when it
+        // was not, so the two `STATIC`s overlapped and an unregistered user read
+        // both claims stacked on top of each other.
         let cam = with(|a| (a.camera)()).unwrap_or(false);
-        label(
-            hwnd,
-            t(
-                "虚拟摄像头：已注册（在相机、Zoom、OBS 里可选）",
-                "Virtual camera: registered (available in Camera, Zoom, OBS)",
-            ),
-            20,
-            y,
-        );
-        if !cam {
+        if cam {
+            label(
+                hwnd,
+                t(
+                    "虚拟摄像头：已注册（在相机、Zoom、OBS 里可选）",
+                    "Virtual camera: registered (available in Camera, Zoom, OBS)",
+                ),
+                20,
+                y,
+            );
+            y += 22;
+        } else if !crate::vcam::is_supported() {
+            // Registration cannot be the problem, so do not offer to register:
+            // this Windows build has no way to present a software camera, and an
+            // "install" button here would fail with no explanation.
+            label(
+                hwnd,
+                t(
+                    "虚拟摄像头需要 Windows 11 22H2 或更新版本；这个系统版本不支持，装也用不了。",
+                    "The virtual camera needs Windows 11 22H2 or newer. This build cannot present one, so installing would not help.",
+                ),
+                20,
+                y,
+            );
+            y += 22;
+        } else {
             label(
                 hwnd,
                 t(
@@ -564,8 +593,6 @@ unsafe fn build(hwnd: HWND) {
                 26,
             );
             y += 54;
-        } else {
-            y += 22;
         }
 
         // --- Video
@@ -598,6 +625,19 @@ unsafe fn build(hwnd: HWND) {
             ID_UPDATE,
             t("检查更新", "Check for updates"),
             20,
+            y,
+            160,
+            26,
+        );
+        // The log, one click away. A receiver whose whole UI is a tray icon has
+        // no console to read and no window to find, so "the app misbehaved" left
+        // the user with nothing to send us; the file existed and the path was in
+        // nobody's head.
+        button(
+            hwnd,
+            ID_OPEN_LOG,
+            t("打开日志文件夹", "Open the log folder"),
+            190,
             y,
             160,
             26,

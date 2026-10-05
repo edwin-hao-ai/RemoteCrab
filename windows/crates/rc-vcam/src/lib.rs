@@ -42,7 +42,7 @@ pub use error::VcamError;
 
 #[cfg(windows)]
 pub use win::{
-    install_source, is_registered, registered_dll, run_spike, source_dll_path, start_camera,
+    install_source, is_registered, is_supported, registered_dll, run_spike, source_dll_path, start_camera,
     uninstall_source, StartOutcome, VirtualCamera,
 };
 

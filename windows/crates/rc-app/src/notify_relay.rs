@@ -107,7 +107,6 @@ pub fn start_listener(
     if !is_enabled() {
         return None;
     }
-    let r = relay();
     // The set lives on the poll thread; nothing outside needs it, so it is
     // built there rather than returned.
     let seen = rc_notify::SeenSet::default();
@@ -116,15 +115,25 @@ pub fn start_listener(
             // A poll tick, not a subscription: `windows` 0.62 does not project
             // the `NotificationPosted` event, and the list is also the only
             // projection that carries the banner's text.
-            let relay = r.clone();
             let sink = on_banner.clone();
             std::thread::Builder::new()
                 .name("notify-relay".into())
                 .spawn(move || {
                     let mut seen = seen;
                     loop {
+                        // Re-read the settings **every tick**, rather than
+                        // holding the snapshot this used to take at startup.
+                        //
+                        // With a snapshot, turning the switch off in the tray
+                        // left the thread relaying — a privacy control that
+                        // reported "off" while forwarding, which is worse than
+                        // having no control at all — and editing the denylist in
+                        // Settings changed nothing until a restart. Two small
+                        // file reads every two seconds is the cheapest correct
+                        // thing.
+                        let live = relay();
                         let mut cb = |n| sink(n);
-                        rc_notify::poll_once(&listener, &mut seen, &relay, &mut cb);
+                        rc_notify::poll_once(&listener, &mut seen, &live, &mut cb);
                         std::thread::sleep(std::time::Duration::from_secs(2));
                     }
                 })

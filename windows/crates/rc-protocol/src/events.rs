@@ -880,16 +880,15 @@ pub struct Notification {
 
 /// receiver → iPhone: the outcome of a command the phone asked for (kind `0x23`).
 ///
-/// The Mac sends this for `launchApp` / `quitApp` / `showDesktop`, so a Windows
-/// receiver that drops it makes those buttons **do nothing visibly** — which the
-/// user reads as a broken app rather than as a missing reply. Windows does not
-/// *send* it (it does not declare the `commandResult` capability), but it must
-/// still decode one, because the phone talks to both receivers with the same
-/// expectations.
+/// Both receivers send this — the Mac for `launchApp` / `quitApp` /
+/// `showDesktop`, Windows from the same three sites — and a receiver that stayed
+/// silent made those buttons **do nothing visibly**, which the user reads as a
+/// broken app rather than as a missing reply. (This doc used to say Windows did
+/// not send it; the comment outlived the code.)
 ///
-/// `request_id` is opaque to the receiver: it only echoes nothing and uses this
-/// to tell the user what happened. `detail` is already localised on the sender
-/// where possible, so it is passed through rather than re-worded here.
+/// `request_id` is echoed back so the phone can match the answer to the button
+/// that asked. `detail` is already localised on the sender where possible, so it
+/// is passed through rather than re-worded here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandResult {
