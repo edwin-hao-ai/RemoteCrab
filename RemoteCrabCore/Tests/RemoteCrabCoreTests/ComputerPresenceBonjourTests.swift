@@ -7,7 +7,13 @@ final class ComputerPresenceBonjourTests: XCTestCase {
     /// networking and pins the exact keys the Windows side must match.
     func testPresenceTXTRecordHasTheFrozenKeys() {
         let record = IBServiceType.PresenceTXT.record(id: "id-1", name: "Test Mac", platform: "windows")
-        XCTAssertEqual(record, ["id": "id-1", "name": "Test Mac", "platform": "windows"])
+        XCTAssertEqual(record, ["id": "id-1", "name": "Test Mac", "platform": "windows",
+                                "port": String(IBServiceType.knockPort)])
+    }
+
+    func testKnockPortIsTheFixedReceiverPort() {
+        XCTAssertEqual(IBServiceType.knockPort, 8766)
+        XCTAssertEqual(IBServiceType.PresenceTXT.port, "port")
     }
 
     /// Proves the presence service is discoverable with its TXT on a real

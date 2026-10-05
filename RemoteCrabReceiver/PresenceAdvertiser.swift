@@ -14,6 +14,11 @@ final class PresenceAdvertiser: @unchecked Sendable {
     private let platform: String
     private let queue = DispatchQueue(label: "com.remotecrab.presence")
     private var listener: NWListener?
+    /// Called when the phone "knocks" (a short connection to the knock port).
+    /// The receiver then dials the phone immediately, so "tap a computer"
+    /// connects at once instead of waiting for the retry poll. Set on the main
+    /// actor; invoked on a background queue, so it must hop.
+    var onKnock: (@Sendable () -> Void)?
 
     init(id: String, name: String, platform: String = "macos") {
         self.id = id
@@ -24,13 +29,20 @@ final class PresenceAdvertiser: @unchecked Sendable {
     func start() {
         guard listener == nil else { return }
         do {
-            let listener = try NWListener(using: .tcp)
-            let txt = NWTXTRecord(IBServiceType.PresenceTXT.record(id: id, name: name, platform: platform))
+            // Fixed port so the phone can knock without resolving us.
+            guard let port = NWEndpoint.Port(rawValue: IBServiceType.knockPort) else { return }
+            let listener = try NWListener(using: .tcp, on: port)
+            let txt = NWTXTRecord(IBServiceType.PresenceTXT.record(id: id, name: name,
+                                                                  platform: platform))
             listener.service = NWListener.Service(name: name,
                                                   type: IBServiceType.computer,
                                                   domain: IBServiceType.domain,
                                                   txtRecord: txt)
-            listener.newConnectionHandler = { $0.cancel() }
+            listener.newConnectionHandler = { [weak self] connection in
+                // A knock: dial the phone now, then drop the knock connection.
+                self?.onKnock?()
+                connection.cancel()
+            }
             listener.stateUpdateHandler = { state in
                 if case .failed(let error) = state {
                     Self.log.error("presence advertise failed: \(error, privacy: .public)")

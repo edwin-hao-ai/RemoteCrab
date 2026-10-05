@@ -16,15 +16,25 @@ public enum IBServiceType {
 
     /// TXT keys on the presence announcement. Frozen; the Mac, the Windows
     /// receiver, and the phone all agree on these exact strings.
+    /// The fixed TCP port a receiver listens on for the phone's "knock" — a
+    /// short connection whose only meaning is "dial me back now". It is how the
+    /// phone turns "tap a computer" into an immediate connect instead of waiting
+    /// for the computer's own retry poll. With the phone as the server, this is
+    /// the one nudge channel; the data session is still the computer dialing.
+    public static let knockPort: UInt16 = 8766
+
     public enum PresenceTXT {
         public static let id = "id"
         public static let name = "name"
         public static let platform = "platform"
+        /// The receiver's knock port, so the phone does not have to assume it.
+        public static let port = "port"
 
         /// The dictionary an advertiser publishes. One builder so Mac and
         /// Windows cannot drift on key spelling.
-        public static func record(id: String, name: String, platform: String) -> [String: String] {
-            [self.id: id, self.name: name, self.platform: platform]
+        public static func record(id: String, name: String, platform: String,
+                                  port: UInt16 = IBServiceType.knockPort) -> [String: String] {
+            [self.id: id, self.name: name, self.platform: platform, self.port: String(port)]
         }
     }
 }

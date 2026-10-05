@@ -27,6 +27,10 @@ pub const DEFAULT_PORT: u16 = 8765;
 /// browses that one for iPhones, and reusing it would make it dial computers.
 pub const SERVICE_TYPE_COMPUTER: &str = "_remotecrab-computer._tcp.local.";
 
+/// The fixed port the receiver listens on for the phone's "knock" — a short
+/// connection meaning "dial me back now". See the Swift `IBServiceType.knockPort`.
+pub const KNOCK_PORT: u16 = 8766;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
     #[error("mDNS error: {0}")]
@@ -109,6 +113,8 @@ pub fn presence_service_info(
     props.insert("id".to_string(), id.to_string());
     props.insert("name".to_string(), name.to_string());
     props.insert("platform".to_string(), platform.to_string());
+    // The knock port: the phone dials this to say "dial me back now".
+    props.insert("port".to_string(), KNOCK_PORT.to_string());
 
     let info = match local_ipv4_addresses().into_iter().next() {
         Some(ip) => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, ip.as_str(), 0u16, props)?,
@@ -475,6 +481,12 @@ mod tests {
         assert_eq!(props.get("id").map(|p| p.val_str()), Some("id-9"));
         assert_eq!(props.get("name").map(|p| p.val_str()), Some("Test PC"));
         assert_eq!(props.get("platform").map(|p| p.val_str()), Some("windows"));
+        assert_eq!(props.get("port").map(|p| p.val_str()), Some("8766"));
+    }
+
+    #[test]
+    fn knock_port_matches_the_swift_side() {
+        assert_eq!(KNOCK_PORT, 8766);
     }
 
     /// End-to-end over real mDNS. `#[ignore]`: it needs a host whose process

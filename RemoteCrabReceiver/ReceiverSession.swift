@@ -346,6 +346,12 @@ final class ReceiverSession: ObservableObject {
 
         // Tell the phone this computer is online. Independent of any session.
         let advertiser = PresenceAdvertiser(id: macId, name: macName)
+        // The phone "knocks" the port to say "dial me back now" — this is what
+        // makes tapping a computer connect at once instead of after the retry
+        // poll.
+        advertiser.onKnock = { [weak self] in
+            Task { @MainActor in self?.retryNow() }
+        }
         advertiser.start()
         presenceAdvertiser = advertiser
 

@@ -203,6 +203,9 @@ final class CaptureEngine: ObservableObject {
     private var computerBrowser: NWBrowser?
     /// Computers currently announcing themselves, freshest browse snapshot.
     @Published private(set) var onlineComputers: [ComputerPresence] = []
+    /// id → the Bonjour endpoint each online computer announced, so a tap can
+    /// knock it (dial once) instead of waiting for its retry poll.
+    private var computerEndpoints: [String: NWEndpoint] = [:]
     /// The video data output, kept so rotation changes can re-point the
     /// sample-buffer delegate at a rebuilt encoder and set the capture
     /// connection's rotation angle.
@@ -941,23 +944,25 @@ final class CaptureEngine: ObservableObject {
         }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             var found: [ComputerPresence] = []
+            var endpoints: [String: NWEndpoint] = [:]
             var sawBonjour = 0
             for result in results {
                 if case let .bonjour(record) = result.metadata {
                     sawBonjour += 1
                     let id = record.dictionary[IBServiceType.PresenceTXT.id]
-                    Forensic.log("[presence] result bonjour keys=\(record.dictionary.keys.sorted()) id=\(id ?? "nil")")
                     guard let id, !id.isEmpty else { continue }
                     let name = record.dictionary[IBServiceType.PresenceTXT.name] ?? id
                     let platform = record.dictionary[IBServiceType.PresenceTXT.platform] ?? "macos"
                     found.append(ComputerPresence(id: id, name: name, platform: platform))
-                } else {
-                    Forensic.log("[presence] result non-bonjour: \(result.endpoint)")
+                    // Keep the Bonjour endpoint so a tap can knock it (see
+                    // `knockComputer`); the SRV record already carries the port.
+                    endpoints[id] = result.endpoint
                 }
             }
             Forensic.log("[presence] results=\(results.count) bonjour=\(sawBonjour) online=\(found.count)")
             Task { @MainActor [weak self] in
                 self?.onlineComputers = found
+                self?.computerEndpoints = endpoints
             }
         }
         browser.start(queue: queue)
@@ -2425,6 +2430,31 @@ final class CaptureEngine: ObservableObject {
         if ownerMac != nil {
             disconnectCurrentMac()
         }
+        // Wake the chosen computer now so it dials at once — the phone cannot
+        // open the data socket, so this short knock is how "tap to connect"
+        // becomes immediate instead of waiting for the retry poll.
+        knockComputer(id)
+    }
+
+    /// Dial a computer's advertised Bonjour endpoint once and drop it. The
+    /// receiver treats an inbound connection on its knock port as "dial me back
+    /// now". Fire-and-forget: the data session is still the computer dialing us.
+    private func knockComputer(_ id: String) {
+        guard let endpoint = computerEndpoints[id] else { return }
+        let connection = NWConnection(to: endpoint, using: .tcp)
+        // `cancel()` is idempotent, so both the state handler and the timeout
+        // can call it without coordination.
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready, .failed, .cancelled:
+                connection.cancel()
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+        queue.asyncAfter(deadline: .now() + 3) { connection.cancel() }
+        Forensic.log("[knock] dialed \(id.prefix(8))")
     }
 
     /// What the chosen computer's last attempt produced, for the waiting
