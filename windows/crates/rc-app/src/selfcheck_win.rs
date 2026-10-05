@@ -39,7 +39,8 @@ pub fn show(sample: Sample) -> Option<HWND> {
         let hinstance = HINSTANCE(GetModuleHandleW(None).ok()?.0);
         register(hinstance);
         *SAMPLE.lock().ok()? = Some(sample);
-        CreateWindowExW(
+        // Shown once, after it exists — see the note in `wizard_win::show`.
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
             w!("RemoteCrab 自检 / Self-check"),
@@ -53,7 +54,10 @@ pub fn show(sample: Sample) -> Option<HWND> {
             Some(hinstance),
             None,
         )
-        .ok()
+        .ok()?;
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        Some(hwnd)
     }
 }
 

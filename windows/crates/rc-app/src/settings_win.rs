@@ -100,7 +100,10 @@ pub fn show(actions: Actions) -> Option<HWND> {
         let hinstance = HINSTANCE(GetModuleHandleW(None).ok()?.0);
         register(hinstance);
         *STATE.lock().ok()? = Some(actions);
-        CreateWindowExW(
+        // Shown once, after it exists — see the note in `wizard_win::show`.
+        // Created without `WS_VISIBLE` (and `WS_OVERLAPPED` is 0x0), so without
+        // this the window is built, laid out, and never seen.
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
             w!("RemoteCrab 设置 / Settings"),
@@ -114,7 +117,10 @@ pub fn show(actions: Actions) -> Option<HWND> {
             Some(hinstance),
             None,
         )
-        .ok()
+        .ok()?;
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        Some(hwnd)
     }
 }
 

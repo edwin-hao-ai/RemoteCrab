@@ -59,6 +59,9 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
+    # Telling "double-clicked from Explorer" (we own the only console, so hide
+    # it) apart from "run from a shell" (a shell is attached, so leave it).
+    "Win32_System_Console",
 ] }
 
 [build-dependencies]

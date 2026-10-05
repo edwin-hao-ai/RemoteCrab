@@ -123,9 +123,58 @@ impl PreviewWindow {
     }
 }
 
+/// Hide the console window when this process is the only thing attached to it.
+///
+/// `remotecrab.exe` is a console-subsystem binary on purpose: `--help`, `--scan`,
+/// `doctor` and the interactive console all write to stdout, and a
+/// GUI-subsystem binary has no stdout to write to. The cost of that choice is
+/// that a launch from Explorer or the Start Menu gets a console of its own, so
+/// the user double-clicks RemoteCrab and meets a black terminal window — the
+/// single most "this is a developer tool" thing about the install, and the first
+/// thing they see.
+///
+/// `GetConsoleProcessList` separates the two cases cleanly: it returns every
+/// process attached to the console. Exactly one means *we* own it, which means
+/// nobody launched us from a shell and there is nobody to read the output. More
+/// than one means a shell is attached and the user is looking at it, so the
+/// window stays.
+///
+/// Hiding it does not touch stdout. A user who wants the output can still run
+/// `remotecrab --help` from a terminal, where the count is greater than one.
+#[cfg(windows)]
+fn hide_console_if_we_own_it() {
+    use windows::Win32::System::Console::{GetConsoleProcessList, GetConsoleWindow};
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+
+    // A two-element buffer is enough: the function only has to tell "exactly
+    // one" from "more than one", and it reports the true count when the buffer
+    // is too small.
+    let mut pids = [0u32; 2];
+    // SAFETY: `pids` is a valid writable buffer, and the binding passes its
+    // length to the API.
+    let attached = unsafe { GetConsoleProcessList(&mut pids) };
+    if attached > 1 {
+        return;
+    }
+    // SAFETY: no preconditions; returns null when there is no console.
+    let console = unsafe { GetConsoleWindow() };
+    if console.is_invalid() {
+        return;
+    }
+    // SAFETY: `console` is this process's own console window, checked non-null.
+    unsafe {
+        let _ = ShowWindow(console, SW_HIDE);
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
+
+    // Before anything can print: a double-clicked launch should not leave a black
+    // terminal window sitting behind the tray icon.
+    #[cfg(windows)]
+    hide_console_if_we_own_it();
 
     // FIRST, before anything else can fail. If a previous run muted this PC
     // while the phone was playing and then died — a crash, a force-quit, a

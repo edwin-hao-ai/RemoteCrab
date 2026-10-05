@@ -52,7 +52,14 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             action: Some(on_action),
             action_message: None,
         });
-        CreateWindowExW(
+        // `WS_VISIBLE` is deliberately absent from the style and the window is
+        // shown once, below, after it exists. All three of this program's
+        // windows were created without `WS_VISIBLE` and nothing ever showed them,
+        // so every one of them was built, laid out, and left invisible — the
+        // wizard told first-run users what to do from a window they could not
+        // see. `WS_OVERLAPPED` is 0x0, so the style here was really just
+        // caption + system menu.
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
             // "首次设置", not "设置": this window and the Settings window used to
@@ -70,7 +77,10 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             Some(hinstance),
             None,
         )
-        .ok()
+        .ok()?;
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        Some(hwnd)
     }
 }
 
