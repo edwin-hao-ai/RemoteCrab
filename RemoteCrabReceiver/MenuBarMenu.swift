@@ -278,14 +278,14 @@ struct MenuBarMenu: View {
     /// in-flight session and there's at least one phone to pick. First
     /// contact is explicit: the user taps Connect here, then approves
     /// the pairing card on the iPhone.
+    ///
+    /// Shown whenever a phone has been discovered, regardless of state. It used
+    /// to hide in every non-idle state, and since the Mac auto-connects it is
+    /// almost never idle — so the list of devices the user expected was hidden
+    /// and all they saw was "searching". The current state is already shown by
+    /// the status pill above; the list answers "which devices exist".
     private var showsDevicePicker: Bool {
-        if session.discovered.isEmpty { return false }
-        switch session.state {
-        case .streaming, .connecting, .handshaking, .awaitingApproval:
-            return false
-        case .searching, .error:
-            return true
-        }
+        !session.discovered.isEmpty
     }
 
     private var devicesSection: some View {

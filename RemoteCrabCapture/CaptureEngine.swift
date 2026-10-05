@@ -993,6 +993,17 @@ final class CaptureEngine: ObservableObject {
         let linkAlive = connection?.state == .ready
         Self.log.info("foreground: isStreaming=true linkAlive=\(linkAlive, privacy: .public)")
         guard !linkAlive else { return }
+        // If the audio keep-alive is holding the app alive, iOS did NOT
+        // suspend the Bonjour listener — so a full stop/start would only tear
+        // down a perfectly good listener, and the Mac saw "connection reset by
+        // peer" every time the user foregrounded the app (which read as
+        // "reconnect almost never works"). Only rebuild when nothing is
+        // holding the app: keep-alive off, i.e. the listener really may have
+        // been suspended.
+        guard !BackgroundKeepAlive.shared.isActive else {
+            Self.log.info("foreground: keep-alive holds the listener — not rebuilding")
+            return
+        }
         Task {
             stopStreaming()
             await startStreaming()
@@ -1679,6 +1690,7 @@ final class CaptureEngine: ObservableObject {
 
         // The preferred Mac arrived — the switch is done, open the door.
         if let mac, mac.id == pairingStore.preferredId {
+            Forensic.log("[gv] granted: clearing preferred for \(mac.id.prefix(8))")
             pairingStore.clearPreferred()
             refreshPairedMacs()
         }
@@ -2379,6 +2391,7 @@ final class CaptureEngine: ObservableObject {
         let effective = pairingStore.effectivePreferred()
         if preferredMac != nil, effective == nil {
             let gaveUp = preferredMac
+            Forensic.log("[gv] gaveUp set name=\(gaveUp?.name ?? "?") armedAt=\(String(describing: pairingStore.preferredArmedAt))")
             preferredGaveUp = gaveUp
             // Shown once, then it must go away on its own. It used to clear only
             // on the next `refreshPairedMacs` (i.e. when something dialled) or
@@ -2391,6 +2404,7 @@ final class CaptureEngine: ObservableObject {
                 self.preferredGaveUp = nil
             }
         } else if preferredMac == nil {
+            if preferredGaveUp != nil { Forensic.log("[gv] gaveUp cleared") }
             preferredGaveUp = nil
         }
         preferredMac = effective
@@ -2402,6 +2416,7 @@ final class CaptureEngine: ObservableObject {
     /// makes "Choose a Computer" work when the current Mac won't release.
     func setPreferredComputer(id: String) {
         guard ownerMac?.id != id else { return }
+        Forensic.log("[gv] arm preferred id=\(id.prefix(8)) owner=\(ownerMac?.id.prefix(8) ?? "nil")")
         // The name travels with the preference so the policy can name this
         // computer in `busy` even before it has ever been approved — without
         // it the door does not open and the switch silently reverts.
