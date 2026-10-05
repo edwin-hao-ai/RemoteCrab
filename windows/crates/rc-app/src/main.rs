@@ -123,7 +123,7 @@ impl PreviewWindow {
     }
 }
 
-/// Hide the console window when this process is the only thing attached to it.
+/// Detach from the console when this process is the only thing attached to it.
 ///
 /// `remotecrab.exe` is a console-subsystem binary on purpose: `--help`, `--scan`,
 /// `doctor` and the interactive console all write to stdout, and a
@@ -133,18 +133,21 @@ impl PreviewWindow {
 /// single most "this is a developer tool" thing about the install, and the first
 /// thing they see.
 ///
-/// `GetConsoleProcessList` separates the two cases cleanly: it returns every
-/// process attached to the console. Exactly one means *we* own it, which means
-/// nobody launched us from a shell and there is nobody to read the output. More
-/// than one means a shell is attached and the user is looking at it, so the
-/// window stays.
+/// `GetConsoleProcessList` separates the two cases: it returns every process
+/// attached to the console. Exactly one means *we* own it, which means nobody
+/// launched us from a shell and there is nobody to read the output.
 ///
-/// Hiding it does not touch stdout. A user who wants the output can still run
-/// `remotecrab --help` from a terminal, where the count is greater than one.
+/// `FreeConsole` rather than `ShowWindow(SW_HIDE)`: hiding the window returned
+/// by `GetConsoleWindow` does nothing when the console is hosted by Windows
+/// Terminal through a pseudoconsole, which is the default on Windows 11 — the
+/// window that is actually on screen belongs to the terminal, not to us.
+/// Detaching closes the console itself, which is what makes the window go away
+/// under both hosts.
+///
+/// With a shell attached, nothing happens and `--help` still prints.
 #[cfg(windows)]
 fn hide_console_if_we_own_it() {
-    use windows::Win32::System::Console::{GetConsoleProcessList, GetConsoleWindow};
-    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE};
+    use windows::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
 
     // A two-element buffer is enough: the function only has to tell "exactly
     // one" from "more than one", and it reports the true count when the buffer
@@ -156,14 +159,11 @@ fn hide_console_if_we_own_it() {
     if attached > 1 {
         return;
     }
-    // SAFETY: no preconditions; returns null when there is no console.
-    let console = unsafe { GetConsoleWindow() };
-    if console.is_invalid() {
-        return;
-    }
-    // SAFETY: `console` is this process's own console window, checked non-null.
+    // SAFETY: no preconditions. Detaching only removes this process from the
+    // console; the console itself survives if another process still holds it,
+    // which the count above has already ruled out.
     unsafe {
-        let _ = ShowWindow(console, SW_HIDE);
+        let _ = FreeConsole();
     }
 }
 
