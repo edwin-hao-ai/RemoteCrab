@@ -376,6 +376,8 @@ pub struct Parser {
     buffer: Vec<u8>,
     pos: usize,
     frames_parsed: usize,
+    /// Times the framing had to be recovered from a corrupt length.
+    resyncs: u64,
 }
 
 impl Parser {
@@ -402,44 +404,66 @@ impl Parser {
         self.buffer.clear();
         self.pos = 0;
         self.frames_parsed = 0;
+        self.resyncs = 0;
+    }
+
+    /// How many times the stream had to be resynchronised.
+    ///
+    /// A non-zero count means bytes were lost or corrupted in transit and the
+    /// decoder was handed a stream with a hole in it. It used to be
+    /// unobservable: the parser cleared its whole buffer and said nothing, so the
+    /// picture froze and every counter on the console still said "streaming".
+    pub fn resyncs(&self) -> u64 {
+        self.resyncs
     }
 
     fn try_parse_next(&mut self) -> Option<Frame> {
-        let available = self.buffer.len() - self.pos;
-        if available < 4 {
-            return None;
+        // A corrupt length desynchronises the framing: the bytes after it are
+        // still real frames, they are just no longer at a frame boundary. The
+        // old response was `self.buffer.clear()`, which threw away every
+        // complete frame already received behind the corruption, silently — the
+        // stream then froze with the console still reporting "streaming".
+        //
+        // Instead, skip forward a byte at a time until a position that parses as
+        // a header is found. That recovers everything after the damage rather
+        // than everything up to it, and the count makes the loss visible.
+        loop {
+            let available = self.buffer.len() - self.pos;
+            if available < 4 {
+                return None;
+            }
+
+            let header = &self.buffer[self.pos..self.pos + 4];
+            let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
+            if !(1..=MAX_FRAME_LEN).contains(&length) {
+                // 0, or larger than the 64 MiB cap. Either way this cannot be a
+                // frame header, so the next one is at least one byte away.
+                self.resyncs += 1;
+                self.pos += 1;
+                continue;
+            }
+
+            let total = 4 + length as usize;
+            if available < total {
+                return None;
+            }
+
+            let kind_byte = self.buffer[self.pos + 4];
+            let payload = self.buffer[self.pos + 5..self.pos + total].to_vec();
+            self.pos += total;
+            self.frames_parsed += 1;
+
+            // Compact once the consumed prefix dominates the buffer.
+            if self.pos >= 64 * 1024 && self.pos * 2 >= self.buffer.len() {
+                self.buffer.drain(..self.pos);
+                self.pos = 0;
+            }
+
+            return Some(Frame {
+                kind: Kind::from_u8_or_video(kind_byte),
+                payload,
+            });
         }
-
-        let header = &self.buffer[self.pos..self.pos + 4];
-        let length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
-        if !(1..=MAX_FRAME_LEN).contains(&length) {
-            // Refuse frames larger than 64 MiB (or a zero length) —
-            // protects against an infinite loop from corrupt values.
-            self.buffer.clear();
-            self.pos = 0;
-            return None;
-        }
-
-        let total = 4 + length as usize;
-        if available < total {
-            return None;
-        }
-
-        let kind_byte = self.buffer[self.pos + 4];
-        let payload = self.buffer[self.pos + 5..self.pos + total].to_vec();
-        self.pos += total;
-        self.frames_parsed += 1;
-
-        // Compact once the consumed prefix dominates the buffer.
-        if self.pos >= 64 * 1024 && self.pos * 2 >= self.buffer.len() {
-            self.buffer.drain(..self.pos);
-            self.pos = 0;
-        }
-
-        Some(Frame {
-            kind: Kind::from_u8_or_video(kind_byte),
-            payload,
-        })
     }
 }
 
@@ -450,6 +474,130 @@ pub fn decode_ping(frame: &Frame) -> u64 {
         value = (value << 8) | byte as u64;
     }
     value
+}
+
+#[cfg(test)]
+mod resync_tests {
+    use super::{encode_frame, Kind, Parser, MAX_FRAME_LEN};
+
+    fn frame(kind: Kind, payload: &[u8]) -> Vec<u8> {
+        encode_frame(kind, payload)
+    }
+
+    /// The failure this fixes, and the reason it was worth fixing: one corrupt
+    /// length used to throw away **every** complete frame already received
+    /// behind it. The picture then froze with the console still reporting
+    /// "streaming" and no counter anywhere saying why.
+    ///
+    /// Against the old `self.buffer.clear()` this test fails with 0 frames
+    /// recovered; here it must find the frame on the far side.
+    #[test]
+    fn a_corrupt_length_does_not_swallow_the_frames_behind_it() {
+        let mut good = frame(Kind::Metadata, b"before");
+        // A length that cannot be right: over the 64 MiB cap.
+        good.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+        good.extend_from_slice(frame(Kind::Video, b"after").as_slice());
+
+        let mut parser = Parser::new();
+        let frames = parser.append(&good);
+
+        let videos: Vec<_> = frames.iter().filter(|f| f.kind == Kind::Video).collect();
+        assert_eq!(
+            videos.len(),
+            1,
+            "the frame after the corruption must survive, got {:?}",
+            frames.iter().map(|f| f.kind).collect::<Vec<_>>()
+        );
+        assert_eq!(videos[0].payload, b"after");
+        assert!(parser.resyncs() > 0, "the recovery must be counted");
+    }
+
+    /// And the loss has to be visible rather than silent. A stream that resyncs
+    /// is a stream with a hole in it, which is a different situation from one
+    /// that never lost anything, and only the counter tells them apart.
+    #[test]
+    fn recovery_is_counted_so_the_loss_is_not_silent() {
+        let mut stream = frame(Kind::Video, b"a");
+        stream.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // length 0
+        stream.extend_from_slice(frame(Kind::Video, b"b").as_slice());
+
+        let mut parser = Parser::new();
+        let frames = parser.append(&stream);
+        assert_eq!(frames.len(), 2, "both good frames survive: {frames:?}");
+        assert!(
+            parser.resyncs() >= 1,
+            "a zero length is corruption and must be counted"
+        );
+    }
+
+    /// A clean stream must not report any resyncs. Without this the recovery
+    /// could fire on well-formed input and the counter would be noise.
+    #[test]
+    fn a_clean_stream_reports_no_resyncs() {
+        let mut stream = Vec::new();
+        for i in 0..10u8 {
+            stream.extend_from_slice(&frame(Kind::Video, &[i; 4]));
+        }
+        let mut parser = Parser::new();
+        let frames = parser.append(&stream);
+        assert_eq!(frames.len(), 10);
+        assert_eq!(parser.resyncs(), 0, "nothing was corrupt");
+    }
+
+    /// A frame split across reads must still work, and must not be mistaken for
+    /// corruption while its header is only half present. This is the case a
+    /// naive resync breaks: `00 00 00 20` arriving as `00 00` looks like a
+    /// zero-length frame if the parser does not insist on four bytes first.
+    #[test]
+    fn a_frame_arriving_in_pieces_is_not_mistaken_for_corruption() {
+        let whole = frame(Kind::Video, &[7u8; 300]);
+        let mut parser = Parser::new();
+        for chunk in whole.chunks(7) {
+            parser.append(chunk);
+        }
+        let frames = parser.append(&[]);
+        assert_eq!(parser.frames_parsed(), 1);
+        assert_eq!(parser.resyncs(), 0, "a split frame is not corruption");
+        assert_eq!(frames.len(), 0);
+        assert_eq!(parser.frames_parsed(), 1);
+    }
+
+    /// A length at the cap is legal; one past it is not. If the boundary is
+    /// wrong, a legitimate maximum-size frame gets discarded as garbage.
+    #[test]
+    fn the_length_cap_boundary_is_respected() {
+        // Exactly the cap: a header claiming the maximum must be treated as a
+        // real frame awaiting its payload, not as corruption.
+        let mut parser = Parser::new();
+        let header = MAX_FRAME_LEN.to_be_bytes();
+        parser.append(&header);
+        assert_eq!(
+            parser.resyncs(),
+            0,
+            "the maximum legal length must not be counted as corruption"
+        );
+
+        // One past it.
+        let mut parser = Parser::new();
+        parser.append(&(MAX_FRAME_LEN + 1).to_be_bytes());
+        assert!(
+            parser.resyncs() > 0,
+            "one past the cap cannot be a frame and must be recovered from"
+        );
+    }
+
+    /// `reset` has to clear the new counter too, or a reconnect inherits the
+    /// previous link's damage report.
+    #[test]
+    fn reset_clears_the_resync_count() {
+        let mut stream = frame(Kind::Video, b"a");
+        stream.extend_from_slice(&[0, 0, 0, 0]);
+        let mut parser = Parser::new();
+        parser.append(&stream);
+        assert!(parser.resyncs() > 0);
+        parser.reset();
+        assert_eq!(parser.resyncs(), 0);
+    }
 }
 
 #[cfg(test)]

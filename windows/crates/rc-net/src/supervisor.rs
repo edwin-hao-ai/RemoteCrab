@@ -868,6 +868,7 @@ events_tx: &broadcast::Sender<Event>,
                 match read {
                     Ok(0) | Err(_) => return ConnEndKind::Lost,
                     Ok(n) => {
+                        let before = parser.resyncs();
                         for f in parser.append(&buf[..n]) {
                             if f.kind == Kind::Ping {
                                 let sent = rc_protocol::decode_ping(&f);
@@ -908,6 +909,18 @@ events_tx: &broadcast::Sender<Event>,
                             } else {
                                 dispatch_frame(&f, events_tx);
                             }
+                        }
+                        // Say so when the wire was damaged. A corrupt length
+                        // means bytes were lost or reordered in transit, so the
+                        // decoder is being handed a stream with a hole in it —
+                        // which looks exactly like "the picture froze" and used
+                        // to be reported by nothing at all.
+                        if parser.resyncs() != before {
+                            eprintln!(
+                                "[net] wire resynchronised {} time(s) — data was lost or reordered; \
+                                 frames already received behind the damage were recovered",
+                                parser.resyncs() - before
+                            );
                         }
                     }
                 }

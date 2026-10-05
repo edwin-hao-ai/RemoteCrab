@@ -367,18 +367,26 @@ cargo run --release -p rc-render --example vcam_forensics -- \
 Windows 侧的探针已经就位并打印 owner 名，所以这条修复可以在 Mac 上做完立刻验证，
 不需要 Windows 机器配合。
 
-### 顺带发现，尚未修（都不确定是否在你这里发生过）
+### 顺带发现（1 已修，2 已修，3 仍未验证）
 
 1. **iOS 侧 listener 静默不启动。** 手机 IP 正确、ping 通、二层可达，但 8765
-   无任何监听，且 iOS 侧似乎不报错。若确认，这是本 session 发现的**第五处
-   "声称做了但实际没做"**，应加进 `docs/HANDOFF-IOS-QUALITY.md`。
-2. **`Parser::try_parse_next` 静默丢弃整个缓冲区。** 一个坏长度值会
-   `self.buffer.clear()`，把已收的完整帧一起丢掉，**且不计数、不上报**
-   （`crates/rc-protocol/src/wire.rs`）。这会造成**画面卡死**而非花屏，日志里
-   什么都没有。修法应当是丢弃到该帧为止、保留之前的帧、记一次计数。
+   无任何监听，且 iOS 侧似乎不报错。**2026-10-04 补充：这条其实是 listener
+   会「闪断」**——实测连续 13 次 `Connection refused`，中间成功过一次，之后又
+   长时间不通。所以「不启动」和「启动但不持续」要分开看。取证探针现在会自己
+   重试 15 次，不再因此让人重敲命令。
+2. ~~**`Parser::try_parse_next` 静默丢弃整个缓冲区。**~~ **已修**
+   （`b42d50b`）。原实现遇到坏长度就 `self.buffer.clear()`，把损坏点**之后**
+   已收到的完整帧一起丢掉，且不计数不上报 → 画面卡死而控制台一切正常。
+   现在改成**向前逐字节重同步**，恢复损坏之后的帧而不是之前的；新增
+   `Parser::resyncs()` 计数，`rc-net` 的 supervisor 打印
+   `[net] wire resynchronised N time(s)`。6 个测试，其中 2 个通过**恢复旧的
+   `clear()` 行为**反向验证过会红。附带修掉一个隐患：分片到达的帧（先来
+   `00 00`）曾会被误判成零长度损坏。
 3. **`rc-render/src/window.rs:81` 的指针生命周期。** `update_with_buffer(&buffer, …)`
    传切片，minifb 异步持有指针；下一轮若因尺寸变化 `buffer = vec![…]` 重分配，
    minifb 可能正在读已释放内存。1080x1920 恒定所以当前不触发，但切分辨率就会。
+   **仍未验证**——`renderer_fidelity` 复刻了 buffer 的搬运逻辑，但证明不了
+   minifb 在 `update_with_buffer` 返回之后还持有什么。切一次分辨率即可判定。
 
 ## Blocked — needs the user
 
