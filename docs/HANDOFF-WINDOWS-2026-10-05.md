@@ -175,18 +175,25 @@ ffprobe -v error -select_streams v:0 -show_entries stream=profile,has_b_frames -
 
 ---
 
-## 4. 两条 Rust 侧的 bug（在你那个 crate 里，本 session 没碰）
+## 4. 两条 Rust 侧的 bug（在你们的 crate 里）— ✅ **两条都做完了**
 
-`HANDOFF_WINDOWS_MSI.md` §"顺带发现" 里这两条我确认仍然成立，都属于你的代码，
-所以我没改（免得和你正在写的 crate 打架）：
+`HANDOFF_WINDOWS_MSI.md` §"顺带发现" 里这两条我确认成立。本 session 没碰你们的
+crate，等你们自己修；**13:25 和 13:53 两个提交都做了，Mac 侧已复核**：
 
-1. **`Parser::try_parse_next` 会静默丢掉整个缓冲区。** 一个坏长度值触发
-   `self.buffer.clear()`，把**已经收完整**的帧一起丢掉，而且**不计数、不上报**。
-   表现是**画面卡死**而不是花屏，日志里什么都没有。修法：丢弃到该帧为止、
-   保留之前的帧、记一次计数。
-2. **`rc-render/src/window.rs` 的指针生命周期。** `update_with_buffer(&buffer, …)`
-   传切片，minifb 异步持有指针；下一轮若因尺寸变化 `buffer = vec![…]` 重分配，
-   minifb 可能正在读已释放内存。1080x1920 恒定所以不触发，**切分辨率就会**。
+1. **`Parser::try_parse_next` 静默丢掉整个缓冲区** → `b42d50b`。
+   改成逐字节前向重同步（找回损坏**之后**的帧而不是之前的），加 `resyncs()`
+   计数，supervisor 打 `[net] wire resynchronised N time(s)`。
+   **Mac 侧独立复核过**：把旧的 `buffer.clear()` 放回去，
+   `a_corrupt_length_does_not_swallow_the_frames_behind_it` 立刻红，失败信息
+   是 `the frame after the corruption must survive, got [Metadata]` —— 断言
+   是真的会响的，不是摆设。
+2. **`rc-render/src/window.rs` 指针生命周期** → `1744c62`。
+   `BlitBuffer` 退休被替换的 buffer（`RETAIN_SUPERSEDED = 4`，内存有上界），
+   8 条 `window::tests` 全绿，其中 `a_resize_keeps_the_buffer_that_was_handed_over_alive`
+   和 `retained_buffers_stay_bounded` 正是这条 bug 的不变量。
+   另外补了 `tests/damage.rs` **6 条**，把 OpenH264 遇到损坏时的三种行为钉在
+   真实编码上（能预测的解对、不能预测的拒片不出帧、丢了参考图就停），
+   我跑过全绿。**「预览花屏的根因是显示路径而不是解码器」这个结论现在有测试撑着。**
 
 ---
 
@@ -223,8 +230,17 @@ minifb 在 macOS 开不了 Cocoa 窗口），`--no-preview` / `--decode-only` �
 
 ## 7. 交付
 
-- [ ] `0x25` 的发送逻辑接上（§1）—— 现在定义是死的
+- [ ] `0x25` 的发送逻辑接上（§1）—— **协议定义仍然是死的**。13:25 / 13:53
+      两个提交都没碰它，`rc-app`/`rc-net` 里搜不到 `RequestKeyframe`
 - [ ] iPhone ↔ Windows 扬声器出声（§2）—— 唯一没跑过的一段
-- [ ] `try_parse_next` 的缓冲区静默清空（§4.1）
-- [ ] `window.rs` 的指针生命周期（§4.2）
+- [x] `try_parse_next` 的缓冲区静默清空（§4.1）→ `b42d50b`，Mac 侧复核过
+- [x] `window.rs` 的指针生命周期（§4.2）→ `1744c62`，8 条测试 + `damage.rs` 6 条
 - [ ] §5 那条 listener 的歧义，等 iOS 侧补了两行日志再动
+
+### 另一件你们已经修掉、但记录里还写着「没做」的
+
+`docs/HANDOFF-MAC-SIDE-2026-10-04.md` §2「把视频发送移出 VideoToolbox 回调线程」
+**前提是错的，所以没人做，也不该做**：`handleEncodedFrame` 两个调用点都是
+`Task { @MainActor }`，发送早就和编码输出解耦了，那条改动是空操作。
+真正该记的是「发送跑在主线程」这件事本身 —— 那一栏我已经改成实测结论，
+不再是一个待办。

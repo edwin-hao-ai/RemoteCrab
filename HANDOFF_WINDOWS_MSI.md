@@ -482,8 +482,19 @@ Install and uninstall are both proven, not assumed:
 
 ## Drift, deliberately not started
 
-- [ ] Mac/iOS side (`docs/WINDOWS-GAPS-2026-10-03.md`): Windows key row in
+- [x] ~~Mac/iOS side (`docs/WINDOWS-GAPS-2026-10-03.md`): Windows key row in
       `KeyboardScreen.swift`; `ContextProfiles.swift` should match on
-      `AppInfo.name` for Windows. Needs a Mac toolchain — unavailable here.
+      `AppInfo.name` for Windows. Needs a Mac toolchain — unavailable here.~~
+      → **2026-10-05 由 Mac session 复核：两条都早已落地，不是待办。**
+      ① `KeyboardScreen.swift:241` 是
+      `IBModifierBar.visibleModifiers(for: engine.peerPlatform)`，且
+      `IBModifierBar` 的 `platform` **没有默认值**（编译器强制表态，所以四个
+      调用点不可能有一个忘记传）；`meta = "⊞"` 顶替 ⌘，由
+      `visibleModifiers(for:)` 保证两者永不同时出现。
+      ② `ContextProfiles.profile(for:platform:in:)` 在 `.windows` 下走
+      `normalizedProcessName(app.name)` 对 `windowsProcessNames`，在 macOS 下走
+      `bundleIDs.contains(app.id)` —— 正是要的「按进程名匹配」。
+      **仍需真机确认的是那 10 条 §5.6，不是这两条代码。**
 - [ ] The user decided **not** to split the seven oversized files. Recorded in
       `docs/WINDOWS-DECISIONS-2026-10-03.md`. Do not reopen unless asked.
+      （这是一个决定，不是待办；留着是为了下个 session 别把它当漏掉的活。）

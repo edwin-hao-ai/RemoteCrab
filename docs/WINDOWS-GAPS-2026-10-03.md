@@ -293,7 +293,9 @@ Windows 的解析规则归一化，任何两个动作塌缩成同一个注入按
 仍然存在（**故意留的**，不是漏）：
 
 - **Mac 文案**：会话内会读到的 26 条已经全是「the computer / 电脑」
-  （`testNoSessionSurfaceNamesAMac` 守着）。但 onboarding / 权限说明 /
+  （`SessionSurfaceCopyTests.testNoSessionSurfaceStringNamesAMac` 守着 ——
+  2026-10-05 起是它，不是旧的 `testNoSessionSurfaceNamesAMac`，那个 26 键的
+  字面量清单已删，覆盖率是 0）。但 onboarding / 权限说明 /
   「Download for Mac」这些**产品级**文案还写着 Mac —— RemoteCrab 的 Mac 端
   是真实存在、要用户安装的东西，改它是另一个决定，不该顺手带上。
 - ~~**手势教学页**~~ —— **已在 `14045b3` 修掉**：5 行改为按平台分流，

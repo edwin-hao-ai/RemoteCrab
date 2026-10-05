@@ -1340,9 +1340,16 @@ running apps / windows / installed apps —— 根因不是套件表错，是
    删掉 / 我自己的编排），停在「需要新证据」而不是「已排除」。
    关键事实：app 活着（UIKit/VideoToolbox 日志在跑）、`Forensic` 一行没写、
    8765 从不开、TCC 三项（含 local network）都是 `auth_value=2`。
-4. **旧的 `testNoSessionSurfaceNamesAMac` 还在**，
-   和新的 `SessionSurfaceCopyTests` 重叠。该删掉旧的或标注取代 ——
-   两个守卫会让人以为覆盖面是它的两倍。
+4. ~~**旧的 `testNoSessionSurfaceNamesAMac` 还在**，和新的
+   `SessionSurfaceCopyTests` 重叠。~~ → **2026-10-05 已删。** 复核确认新的那条
+   是按界面枚举（40+ key）而不是列 26 个字面量，覆盖面严格更大，且多出两条
+   旧形状表达不了的断言；留着两个守卫会让覆盖面看起来是两倍。
+
+> **2026-10-05 复核**：上面 1–3 条**仍然成立且仍未做**，全部需要真机
+> （iPhone 或 Windows 机器），Mac 侧无法用写代码勾掉。第 4 条已完成。
+> 同 session 还做完了另一批：Windows 10-04 交接的四条（`6fff9d5` 起）、
+> B 帧问题的实测结论（**不要加那个 key**）、给 Windows 的新交接
+> `docs/HANDOFF-WINDOWS-2026-10-05.md`。
 
 `scripts/e2e-parity.sh` 的假手机档实测 handshake + `decode: 150 frames (320x180)`。
 Lessons 142-146._

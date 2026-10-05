@@ -11,6 +11,18 @@
 
 ## 0'. ⭐ 不想等 iPhone？用假手机（推荐先跑这个）
 
+> **2026-10-05 Mac session 审计结论：这份清单里剩下的 37 个框，没有一个是 Mac 侧
+> 能靠写代码勾掉的。** 逐条看过，三类：
+>
+> - **采购 / 签名 / 安装包**（§2 的三个上线阻塞）—— 需要买证书和一台干净 Windows 机器
+> - **真机验证**（§3，以及 `WINDOWS-GAPS-2026-10-03.md` §5.6 的 10 条）——
+>   需要解锁的 iPhone 跑新 iOS build + 这台 Windows 机器
+> - **明确不做**（§4，虚拟显示器 / 虚拟麦克风驱动）—— 是决定，不是漏掉的活
+>
+> Mac / iOS 侧被你 10-04 交接的四条**已全部修完**（`6fff9d5` 起），其中一条
+> （B 帧）**前提被证伪所以没做**，一条（`0x25`）的发送逻辑仍然缺。
+> 见 `docs/HANDOFF-WINDOWS-2026-10-05.md` —— 那是最新的一份，从它开始读。
+
 ```sh
 # 终端 1 —— 一个假的 iPhone，端口固定
 cargo run -p rc-phone-sim -- --port 8765
@@ -99,9 +111,15 @@ cargo test --workspace
 | Windows 交叉编译 | `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` | 0 error / 0 warning |
 | clippy（Mac） | `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | clippy（Windows） | `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` | 0 |
-| Windows 测试 | `cargo test --workspace` | **385 通过 / 31 个二进制** |
-| Swift 侧 | `./scripts/test.sh` | Core **367**（含 8 条跨实现契约）+ iOS app + Mac app 全通过 |
+| Windows 测试 | `cargo test --workspace` | **514 通过 / 37 个二进制** |
+| Swift 侧 | `./scripts/test.sh` | Core **578**（含 11 条跨实现契约）+ iOS app + Mac app 全通过 |
 | 死代码 | Windows 目标下 `never used` | **0**（`notify_relay` 里 14 处 `allow(dead_code)` 已全部改成精确的 `cfg_attr`，Windows 侧现在真的会审计） |
+
+> **2026-10-05 实测过这几个数字，不是抄上一版的。** 上一版这里写的是
+> 「385 通过 / 31 个二进制」和「Core 367」——两个都低了 100 以上，而且低得没道理：
+> 那是继承来的数字，没人重新数过（AGENTS.md 规则 3）。当前工作树里有另一个 session
+> 未提交的 `ApprovalNotificationPolicy` 等测试，所以 **578 含那部分**；
+> 只算已提交的内容是 **567**。要引用就写清楚算的是哪一份。
 
 > **`#[cfg(windows)]` 里也有测试，但一个都没有。** 这是本项目的核心验证方式：
 > 所有 `Win32` 代码只在 Windows 目标下编译，macOS 上编译不到，所以「macOS 测试全绿」

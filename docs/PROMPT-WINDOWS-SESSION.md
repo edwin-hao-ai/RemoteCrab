@@ -25,6 +25,25 @@
    **至少读 95、98、100**，每一条都造成过一整轮的返工。
 3. **`AGENTS.md`** —— 项目规则。中文，重要。
 
+## 这份清单里剩下的 16 个框，全都是「要人眼」而不是「要写代码」
+
+> **2026-10-05 Mac session 逐条过了一遍。** 下面 §「追加」和 §「一个和你有关的坑」
+> 里的每一条，Mac / iOS 侧的**代码都已经落地并测过**了；剩下的全部是
+> 「需要一台解锁的 iPhone 跑新 iOS build + 这台 Windows 机器」的真机确认。
+> 换句话说：**没有一条是 Mac 侧还能靠写代码勾掉的**，所以它们才一直空着。
+>
+> 已经从待办里划掉的两条：
+>
+> - ~~「把视频发送移出 VideoToolbox 回调线程」~~ —— **前提是错的**。Mac 侧实测
+>   `handleEncodedFrame` 两个调用点都是 `Task { @MainActor }`，发送早就和编码
+>   输出解耦了，改了是空操作。真正的暴露是「发送跑在主线程」，那是另一个问题。
+>   详见 `docs/HANDOFF-MAC-SIDE-2026-10-04.md` §6。
+> - ~~「加 `NumberOfBFramesBetweenReferenceFrames: 0`」~~ —— **测出来是 0，不要加。**
+>   `scripts/vt-bframe-probe.swift` 用 `H264Encoder.createSession` 的原样 key
+>   跑真 VideoToolbox：`has_b_frames=0`，对照组（允许重排序）报 2。
+>   那个 demo mp4 是 `demo-video.sh` 用 libx264 生成的，B 帧是 libx264 的。
+>   详见 `docs/HANDOFF-WINDOWS-2026-10-05.md` §3。
+
 ## 第一个动作：启动代码签名证书采购
 
 **这件事周期最长，且所有其他发布工作都排在它后面。** 先确认证书渠道
