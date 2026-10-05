@@ -19,9 +19,21 @@
 >   需要解锁的 iPhone 跑新 iOS build + 这台 Windows 机器
 > - **明确不做**（§4，虚拟显示器 / 虚拟麦克风驱动）—— 是决定，不是漏掉的活
 >
-> **🆕 2026-10-05 新增**：电脑在线状态（presence）。Mac 已实现并合入；Windows 侧
-> `rc-discovery::advertise` 已合入，**只差在 `rc-app` 启动时接一行**。契约与做法
-> 见 `docs/HANDOFF-WINDOWS-2026-10-05.md` §8。
+> **🆕 2026-10-05 新增：电脑在线状态 + 即时连接 + 断开语义 + VPN。**
+> 详细步骤、契约、VPN 破解全在 `docs/HANDOFF-WINDOWS-2026-10-05.md` §8–§12。
+> 这里只放勾选总览（Mac/iOS 侧已做完的已勾）：
+>
+> - [x] **§8 presence**：Mac `PresenceAdvertiser` 已合入；iPhone 浏览 + 在线/离线
+>       （下一步的 `[ ]` 只在 Windows 侧）
+> - [ ] **§8.3** `rc-app` 启动时接一行 `rc_discovery::advertise(..., "windows")`
+> - [x] **§9 `off` 应答**：协议值已加（Swift + Rust，含 round-trip 测试）
+> - [ ] **§9.3** Windows 给 `off` 专属文案 + 5s 慢重试（当前映射成 `Denied`，已能断开）
+> - [x] **§10 knock**：Mac 已监听 8766、iPhone 已会敲门
+> - [ ] **§10.2** Windows 监听 8766，收到就「立刻拨回手机」
+> - [ ] **§11 VPN**：枚举适配器 + `bind`/`IP_UNICAST_IF` 让拨号出物理网卡
+>       （诊断 `route.rs` 已有，能在面板点名网卡）
+> - [ ] **§12** 真机全流程验证（在线显示 → 点一下 ~1s → 断开不再自动重连 →
+>       重选恢复 → 开 VPN 仍能连）
 >
 > Mac / iOS 侧被你 10-04 交接的四条**已全部修完**（`6fff9d5` 起），其中一条
 > （B 帧）**前提被证伪所以没做**。**`0x25 requestKeyframe` 的发送端早就在

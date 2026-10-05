@@ -828,3 +828,59 @@ when two properties are set, do not assume the more obvious one is in charge.
 
 两条覆盖率下限让它变响而不是变绿：`> 400` 个符号被解析、`> 40` 条会话文案被扫。
 （`> 400` 这个数字是量出来的 —— 脚本第一次能跑时解析出 511 个。）
+
+---
+
+154. **`try? await Task.sleep` 在任务被取消时会吞掉取消错误、立刻继续往下跑 —— 于是"取消一个定时器"变成了"立刻执行它"。**
+    手写看门狗/兜底最常见的写法：
+    ```swift
+    task = Task {
+        try? await Task.sleep(for: .seconds(3))   // ← 陷阱
+        guard ... else { return }
+        doTheFallback()
+    }
+    ```
+    单独看没问题。但它和「收到真实信号就 `task.cancel()`」放在一起时是致命的：
+    取消会让 `Task.sleep` **抛 `CancellationError`**，`try?` 把它吞掉，
+    于是**代码继续执行**，兜底逻辑**立刻**跑，而不是永远不跑。
+    这一次的现场：手机有个 3 秒「legacy 兜底」（把没发 hello 的老电脑按 first-come
+    接受）。新加的 `.off` 分支里取消了它 —— 结果**同一条连接先收到 `sessionReply off`、
+    10 毫秒后又收到 `accepted`**，那台刚被拒绝的 Mac 被当成 `Computer (legacy)` 又接了
+    进来。用户的描述是「断开之后又连上、还是个新名字」。
+    **证据怎么拿到的**：手机 `forensic.log` 里每个连接都是
+    `hello → sendSessionReply off → sendSessionReply accepted`；Mac 日志对应
+    `sessionReply: off` 紧跟 `sessionReply: accepted`（差 12ms）。**连接上两个应答
+    是"取消后继续"的指纹。**
+    规则：`try? await Task.sleep` 之后**必须**再检查 `Task.isCancelled`；
+    更稳的写法是
+    ```swift
+    do { try await Task.sleep(...) } catch { return }
+    ```
+    —— 取消即 return，而不是吞掉错误继续。**同类一起审**：同一个文件里
+    `slowRetryTask` 的 15s 轮询也是这个形状（取消后会多跑一次 `retryNow()`），一并修了。
+
+155. **`NWBrowser` 用 `.bonjour` 描述符时，结果里**没有** TXT —— 要么用 `.bonjourWithTXTRecord`，要么拿不到任何 TXT 字段。**
+    手机端浏览 `_remotecrab-computer._tcp` 看谁在线。代码用
+    `NWBrowser(for: .bonjour(type:domain:), using:)`，把结果里
+    `case .bonjour(record) = result.metadata` 当 TXT 读。实测 iPhone 14：
+    **浏览器 `results=1`，但 `metadata` 是 `.none`**，`record.dictionary` 从没被填过，
+    于是每一台都「读不到 id」被跳过、`online=0`。**这不是网络问题** ——
+    同一时刻 `dig @224.0.0.251 -p 5353 ... PTR` 和 `dns-sd -L` 都能看到记录、TXT
+    就在里面（`id=ECBDD7BA… platform=macos`）。
+    修法：描述符换成 **`.bonjourWithTXTRecord(type:domain:)`**，TXT 才进 `metadata`。
+    规则：**`NWBrowser` 默认的 `.bonjour` 描述符不保证带 TXT；需要 TXT 就用
+    `.bonjourWithTXTRecord`。** 用户的「看不到在线状态」在拿到 `results=1 bonjour=0`
+    这一行计数日志之前，看起来和「广播没发出去」一模一样。
+
+156. **保活已经让监听活着时，还去 `stopStreaming()/startStreaming()` 重建它，只会打断所有连接。**
+    手机在回前台时，如果「当前没有连接」，就做一次完整的
+    `stopStreaming(); startStreaming()` —— 目的是恢复「被 iOS 后台挂起的监听」。
+    可我们已经有音频保活（`BackgroundKeepAlive`，`.playback` + 循环静音 buffer），
+    **监听根本没被挂起**。于是每次回前台（用户切到微信再切回来）都白白把一个好的
+    监听拆掉重建，**正在进行的连接全部 `connection reset by peer`**。
+    Mac 日志里就是 `Connection reset by peer` 每十几秒一次、以及
+    「Bonjour endpoint … not ready after 8s」。
+    修法：`handleDidBecomeActive` 只在**没有保活**（保活关闭）时才重建；
+    保活生效时监听本来就在，直接返回。规则：**一个"恢复"动作必须先确认"真的坏了"再动手；
+    无条件执行的恢复，本身就是一种破坏。**（同 lesson 143/130 的家族：
+    清理/恢复代码的早退条件写错，伤害比不做更大。）

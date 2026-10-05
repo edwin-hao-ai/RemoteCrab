@@ -726,7 +726,7 @@ For new event types:
 | **Crash reporting** | OSLog + 3rd-party (Sentry / Bugsnag) | 1 day |
 | **VoiceOver / Dynamic Type — device pass** | Core batch done (2026-09-15, commit 0849338: IBFont → Text Styles on iOS, `IBLocale.A11y` 42 keys bilingual, PiP/ToggleRow/menubar-icon/sidebar/status-card blockers fixed, decorative icons hidden). Remaining: real-device VoiceOver walkthrough (verify #9 Announcement timing, #4 PiP double-tap), pill dynamicTypeSize cap evaluation (#19), keyboard preview lineLimit (#20), onboarding scroll-ification at AX sizes (#21) | 1 day |
 | **iOS-initiated Mac selection** | Today the Mac dials and the iPhone approves; letting the iPhone browse/pick a Mac is an architecture change (iOS-side browser + persisted targets) | 2-3 days |
-| ~~**Computer presence**~~ | ✅ **Implemented** (2026-10-05): receivers also advertise `_remotecrab-computer._tcp` (TXT `id`/`name`/`platform`); the iPhone browses it and the picker shows **Online** (green) / **Offline · last seen …**, deduped by id. Tapping an online computer arms the existing preference and it dials in ~1 s. Mac `PresenceAdvertiser` + iOS `onlineComputers` + `ComputerRoster` merged; Windows `rc-discovery::advertise` merged (rc-app hook handed off). Both apps must list `_remotecrab-computer._tcp` in `NSBonjourServices` or macOS returns `-65555 NoAuth`. On-device presence needs the Mac's Local Network grant (per signing identity). Spec: `docs/superpowers/specs/2026-10-05-computer-presence-design.md` | done |
+| ~~**Computer presence + instant connect**~~ | ✅ **Implemented + user-verified** (2026-10-05): receivers advertise `_remotecrab-computer._tcp` (TXT `id`/`name`/`platform`/`port`); the iPhone browses it (`.bonjourWithTXTRecord`), the picker shows **Online** (green) / **Offline · last seen …** deduped by id. **Tap-to-connect is immediate** via "knock": each receiver listens on fixed port **8766** and dials the phone on any inbound connection; the phone dials it once and drops it. **Disconnect sticks** via a new honest `sessionReply.result = "off"` (a paired computer's auto-reconnect otherwise undoes it). Foreground no longer tears down a keep-alive-held listener. Mac + iOS done; Windows `rc-discovery` advertises (rc-app knock listener + accept hook handed off, `docs/HANDOFF-WINDOWS-2026-10-05.md` §8–§11). Specs: `docs/superpowers/specs/2026-10-05-computer-presence-design.md`, `…-phone-initiated-connection-design.md`. Lessons 152–157 | done |
 
 Done 2026-09-15: real-device e2e (see Tests), camera extension activation (user approved, device publishes), Opus encoding (ed49e8a), localization pass, ASC metadata + screenshots, trackpad pass (two-finger right-click / orientation mapping / drag-select feel), camera off by default, connection-stability fixes.
 
@@ -1010,6 +1010,12 @@ cross-references rather than the file order.
 | 149 | **会输出判决的工具必须能用它自己的输入推翻自己** — B 帧探针的对照组（shipping `0` / reorder `2`）；第一版写出「完美解析、答案全错」的 AVCC 文件 | [`protocol`](docs/lessons/protocol.md) |
 | 150 | **仓库里那个「看起来像产品录制的」文件，根本不是产品录的** — demo mp4 是 libx264 从 macOS 录屏合成的，`1468x1180` vs 产品 `1080x1920` | [`protocol`](docs/lessons/protocol.md) |
 | 151 | **权限可以「已授权」却依然被判为未授权** — TCC.db 的行与 tccd 的实时判定会不一致；Accessibility 在**系统**库不在用户库，且 `AXIsProcessTrusted()` 才是权威 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 152 | **一个「安全的默认值」喂给解码器就不安全** — Swift 的未知 kind 丢弃、Rust 的 `_ => Video` 喂进 H.264 解码器；两端测试还各自把相反行为 pin 住 | [`protocol`](docs/lessons/protocol.md) |
+| 153 | **已配对的电脑会自己重连，抹掉手机端的「断开」** — 修法是新的诚实应答 `sessionReply "off"`，不是补一个按钮；「拒绝」有三种含义，各需不同文案与恢复动作 | [`protocol`](docs/lessons/protocol.md) |
+| 154 | **`try? await Task.sleep` 吞掉取消错误、立刻继续跑** — 「取消定时器」变成「立刻执行它」；同一连接先后收到 `off` 和 `accepted`（隔 12ms）就是指纹 | [`ios-device`](docs/lessons/ios-device.md) |
+| 155 | **`NWBrowser` 的 `.bonjour` 描述符不返回 TXT** — 手机 `results=1` 但 `metadata=.none`，每台都读不到 id 被跳过；要用 `.bonjourWithTXTRecord` | [`ios-device`](docs/lessons/ios-device.md) |
+| 156 | **保活已让监听活着时还去重建它，只会打断所有连接** — 每次回前台 `stopStreaming/startStreaming` 使 Mac 每十几秒 `Connection reset by peer` | [`ios-device`](docs/lessons/ios-device.md) |
+| 157 | **纯服务端也能主动触发「你连我」** — 敲一下固定端口 8766 表示「马上拨回我」，数据方向/握手/配对全不变；角色被动仍可有承载意图的出口 | [`protocol`](docs/lessons/protocol.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1254,6 +1260,18 @@ If you're new, also read:
 - **`RemoteCrabCapture/OnboardingFlow.swift`** — how the user gets into the app
 
 ---
+
+_Last updated: 2026-10-05 (evening, **电脑在线状态 + 即时连接 + 断开语义 —— 全部真机验收通过；并修掉连接体验的根因**). 用户报「选电脑看不到谁在线、切换慢、断开又自动连上、Windows 连不上/VPN 穿透不了」。**一条条先取证再修，六个真 bug 里有两个是我自己前一步「修复」引入的。**
+
+**连不上/切换慢/断开又连上，是同一个结构问题**：iPhone 是服务端、只能被动接受。逐个根因：
+- **`NWBrowser` 的 `.bonjour` 描述符不返回 TXT**（手机实测 `results=1` 但 `metadata=.none`），所以看不到在线——换 `.bonjourWithTXTRecord`（lesson 155）。
+- **`try? await Task.sleep` 吞掉取消错误、立刻继续跑**——我加 `handshakeTask?.cancel()` 后，3 秒 legacy 兜底**立刻**执行，同一连接先 `off`、12ms 后 `accepted`，刚拒绝的电脑被当 `Computer (legacy)` 又接进来（lesson 154）。
+- **前台重建监听打断所有连接**——保活（`BackgroundKeepAlive`）已经让监听活着，`handleDidBecomeActive` 还做 `stopStreaming/startStreaming`，Mac 每十几秒 `Connection reset by peer`（lesson 156）。改成保活生效时不重建。
+- **未知 kind 两端默认相反**：Rust `_ => Video` 把没登记的 kind 喂进 H.264 解码器（lesson 152）。
+- **已配对电脑自动重连会抹掉手机端「断开」**：新增诚实应答 `sessionReply "off"`（lesson 153）。
+- **纯服务端也能触发「你连我」**：新增「敲门」——接收端监听固定端口 8766，任何入站连接=「马上拨回我」；手机点一下拨一次即走（lesson 157）。
+
+**验证**：`./scripts/test.sh` 610 Core + 两端 + Windows 全绿；iPhone 14 真机逐项验收（在线绿点、点一下即时连、断开保持、重选恢复）。Windows 侧 presence/off/knock/VPN 的**可执行步骤与勾选清单**在 `docs/HANDOFF-WINDOWS-2026-10-05.md` §8–§12（含 VPN 三层破解：诊断→`bind`/`IP_UNICAST_IF` 出物理网卡→用户侧排除网段）。Specs：`docs/superpowers/specs/2026-10-05-computer-presence-design.md`、`…-phone-initiated-connection-design.md`。Lessons 152–157.
 
 _Last updated: 2026-10-05 (later, **审计 Windows 的交接 —— 四条真 bug 一条都没做，而第五条「已实现」的前提无效，照做就是修一个不存在的病**). 用户要求「拉取、审计、看看他们做了没有，全部都做」。**先量后答，逐条对着代码核。**
 

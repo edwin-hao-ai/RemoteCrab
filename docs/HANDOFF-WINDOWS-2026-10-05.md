@@ -301,103 +301,179 @@ minifb 在 macOS 开不了 Cocoa 窗口），`--no-preview` / `--decode-only` �
 不再是一个待办。
 ---
 
-## 8. 🆕 电脑在线状态（presence）—— Windows 侧只差接一行
+## 8. 🆕 电脑在线状态（presence）—— 你只差接一行
 
 **背景**：iPhone 的「选择电脑」列的是 `seenComputers`（历史见过的机器），
 看不出哪台**现在在线**——因为它只广播、从不浏览，而 Mac/Windows 只浏览、从不
-广播。修法：接收端**额外广播**一个服务，iPhone 浏览它，列表分「在线/离线」。
+广播。修法：接收端**额外广播**一个服务，iPhone 浏览它，列表分「在线 / 离线」。
 
-**协议契约（Mac 与 Windows 必须逐字节一致）**
+### 8.1 协议契约（Mac 与 Windows 必须逐字节一致）
 
 | | 值 |
 |---|---|
 | 服务类型 | `_remotecrab-computer._tcp.local.` |
-| TXT | `id` / `name` / `platform`（`macos` \| `windows`） |
-| 端口 | `0`（iPhone **不**连接它，只读 TXT） |
+| TXT `id` | 稳定机器 id（与 `clientHello.id` 同值） |
+| TXT `name` | 显示名 |
+| TXT `platform` | `macos` \| `windows` |
+| TXT `port` | 字符串整数，当前 `8766` —— 手机拨它做「敲门」（见 §10） |
+| SRV 端口 | 就是监听口 `8766`（`ServiceInfo` 自动写 SRV） |
 
 ⚠️ **不要**复用 `_remotecrab._tcp.local.`：接收端用那个类型浏览 iPhone，复用会
 把别的电脑当成 iPhone 来拨。
 
-**已合并的 API**（`windows/crates/rc-discovery/src/lib.rs`）
+### 8.2 已合并的 API（`windows/crates/rc-discovery/src/lib.rs`）
+
 - `SERVICE_TYPE_COMPUTER`
+- `KNOCK_PORT`（`8766`）
 - `presence_service_info(instance, id, name, platform) -> Result<ServiceInfo>`
 - `advertise(instance, id, name, platform) -> Result<PresenceAdvertiser>`；退出时
   `PresenceAdvertiser::stop(self)`
-- 纯测试 `presence_service_info_carries_the_frozen_txt_contract` 每次提交都跑；
+- 纯测试 `presence_service_info_carries_the_frozen_txt_contract` 每次提交都跑
+  （已 pin `port=8766`）；`knock_port_matches_the_swift_side` 也跑。
   真 mDNS 浏览测试 `#[ignore]`（本机 CLI 被 local-network 权限拒绝，无法在此验证）。
 
-**要你做的（只有你的机器能验证）**
-1. 在 `rc-app` 启动、已拿到机器 id/名字处（`Session::spawn` 附近）加：
-   ```rust
-   let _presence = rc_discovery::advertise(&instance, &pc_id, &name, "windows")?;
-   ```
-   并让它活到进程结束。
-2. 真机：iPhone 打开「选择电脑」→ 这台 PC 应显示**在线**；结束进程 → 显示**离线 ·
-   最后在线 …**。点它应在约 1 秒内连上。
-3. 若安全软件拦截 mDNS 广播，广播会失败（不影响会话），需在该软件放行。
+### 8.3 你要做的（勾选）
 
-**Mac 侧状态**：`PresenceAdvertiser` 已实现并合并；`NSBonjourServices` 已加入
-`_remotecrab-computer._tcp`（未声明时 macOS 返回 `-65555 NoAuth`）。**真机上的
-在线显示仍待一次 GUI 授权**（macOS 15 的「本地网络」权限按签名身份授予）——
-见本文件顶部的 session 记录。
+- [ ] **1. 广播**：在 `rc-app` 启动、已拿到机器 id/名字处（`Session::spawn` 附近）加：
+      ```rust
+      let _presence = rc_discovery::advertise(&instance, &pc_id, &name, "windows")?;
+      ```
+      并让它活到进程结束（退出时 `.stop()`）。
+- [ ] **2. 确认广播里带 `port=8766`**：收到 presence 的那台 iPhone 会图省事直接读它。
+- [ ] **3. 真机验证**：iPhone 打开「选择电脑」→ 这台 PC 应显示**在线**（绿点）；
+      结束进程 → **离线 · 最后在线 …**。
+- [ ] **4. 若安全软件拦截 mDNS 广播**：广播失败只记日志、不影响会话；
+      在安全软件里放行，否则手机上永远看不到这台在线。
+
+> **Mac 侧状态**：`PresenceAdvertiser` 已实现并合并。`NSBonjourServices` 已加入
+> `_remotecrab-computer._tcp`（**未声明时 macOS 直接返回 `-65555 NoAuth`**，
+> iOS 浏览会静默失败）。macOS 15 的「本地网络」权限按签名身份授予，换签名要重新授权。
 
 ---
 
 ## 9. 🆕 `sessionReply` 新增 `off`：断开要真的断开
 
-**背景**：iPhone 上点「断开连接」只是关掉 socket，但这台电脑已配对，它自己的
+**背景**：iPhone 上点「断开连接」只是关掉 socket，但这台电脑**已配对**，它自己的
 重连循环立刻又拨回来、被自动接受——按钮看起来没反应。
 
-**协议**：`0x0B sessionReply` 的 `result` 新增一个值 **`off`**（`ownerName` 带电脑名）。
-- Swift：`IBSessionReplyResult.off`；Rust：`SessionReplyResult::Off`（已加，serde
-  lowercase → `"off"`，`rc-protocol/tests/wire_keys.rs` 有 round-trip）。
-- iPhone 在用户点断开后记住这台；它再拨时回 `off`；用户重新选中任意电脑即清除。
+### 9.1 协议
 
-**Windows 侧现状（你可以改进，但已能用）**：`supervisor.rs` 把 `Off` 映射成
-`ConnEndKind::Denied`——**停止自动重连**（断开就真的断开），代价是恢复要手动点
-Reconnect（Mac 侧是 15s 礼貌重试）。**TODO(Windows)**：给 `off` 一个专属文案 +
-慢重试，让用户在手机上重新选它后能自动恢复。
+`0x0B sessionReply` 的 `result` 新增一个值 **`off`**（`ownerName` 带电脑名）。
+- Swift：`IBSessionReplyResult.off`；Rust：`SessionReplyResult::Off`
+  （serde lowercase → `"off"`，`rc-protocol/tests/wire_keys.rs` 有 round-trip）。
+- 手机在用户点断开后记住这台；它再拨时回 `off`；用户重新选中任意电脑即清除。
 
-**验证**：在 Windows 上连接 → 在 iPhone「选择电脑」点断开 → 接收端必须**不再自动
-重连**、状态说明「已在 iPhone 上断开」。
+### 9.2 你要做的（勾选）
 
----
-
-## 10. ⚠️ Windows「经常连不上 / 开了 VPN 穿透不了」
-
-**已经有的**：`rc-net/src/route.rs` 会在 `--doctor` 和托盘面板里**点名**接管路由的
-VPN/代理虚拟网卡，并提示「关 TUN 或把局域网加入直连/排除规则」。所以先让用户跑
-`remotecrab --doctor`，面板会说明是哪块网卡。
-
-**需要你在真机上取证的（Mac 侧给不了数字）**：
-1. Windows 防火墙是否挡了 mDNS（`_remotecrab._tcp` 浏览不到手机）→ 只能靠
-   `probe_tcp` 直连 / `/24` 扫描兜底；看 `--doctor` 的 mDNS 段。
-2. 全隧道 VPN（Clash/Mihomo/sing-box TUN）把局域网路由也吞了 → 接收端连手机的
-   局域网 IP 会被拉进隧道。已在 §route 面板点名；这是**用户侧配置**，不是代码能
-   穿透的。
-3. iPhone 把 PC 踢掉后 PC 一直重拨 —— 与 §9 是同一件事，`off` 已解决。
-
-**结论**：这一类**只能在你的 Windows 机器上取到数字**，按交接纪律，Mac session
-不改 Windows 运行时行为，只把协议（`off`）和已存在的 VPN 诊断说明清楚。
+- [x] **1. 协议值**：`SessionReplyResult::Off` 已加、已 pin。
+- [x] **2. 行为（最小可用）**：`supervisor.rs` 已把 `Off` 映射成
+      `ConnEndKind::Denied` —— **停止自动重连**（断开就真的断开）。
+      代价：恢复要手动点 Reconnect（Mac 侧现在是 5s 礼貌重试）。
+- [ ] **3. 改进（可选，推荐）**：给 `off` 一个**专属状态文案**
+      （「已在 iPhone 上断开，请在手机上重新选中本机」）+ **5s 慢重试**，
+      让用户在手机上重新选它后**自动**恢复，不用去点 Reconnect。
+- [ ] **4. 真机验证**：在 Windows 上连接 → 在 iPhone「选择电脑」点断开 →
+      接收端必须**不再自动重连**、状态说明「已在 iPhone 上断开」。
 
 ---
 
-## 11. 🆕 "敲门"（knock）：让"点一下就连"变成即时
+## 10. 🆕 「敲门」（knock）：让「点一下就连」即时
 
-**背景**：iPhone 是服务端、不能主动开数据 socket，所以点一台电脑只能等它自己的
-重试轮询（最长 15s，Mac 已降到 5s）。用户体验差。
+**背景**：iPhone 是服务端、**不能主动开数据 socket**，所以点一台电脑只能等它自己的
+重试轮询（Mac 已降到 5s，Windows 默认更久）。体验差。
 
 **做法（Mac 已实现、已 push）**：接收端在一个**固定端口 8766** 上监听（就是它的
-presence 监听口），TXT 里也广播 `port=8766`。**任何到该端口的入站连接 = “马上拨回
-我”**；接收端收到就立刻拨手机。手机点一下时，拨这个端口一次然后挂断（只是敲门，
-不是会话）。数据会话方向/握手/配对**完全不变**。
+presence 监听口）。**任何到该端口的入站连接 = 「马上拨回我」**；接收端收到就立刻拨
+手机。手机点一下时，拨这个端口一次然后立刻挂断 —— 只是敲门，不是会话。
+**数据会话方向 / 握手 / 配对完全不变。**
 
-**Windows 侧要做的（只有你的机器能验）**：
-1. `rc-discovery` 已加 `KNOCK_PORT = 8766`，`SERVICE_TYPE_COMPUTER` 的 TXT 已带
-   `port`。接收端要在 **8766** 上监听（复用 presence 的 accept 路径）；
-2. 收到入站连接 → 调一次 `retryNow()` 之类的“立刻重连手机”，然后关闭该连接；
-3. 真机：在 iPhone 上点这台 PC，应在约 1 秒内连上（而不是等轮询）。
-   `rc-protocol/tests` 已 pin 了 `off`/`port` 的 wire 约定。
+### 10.1 你要做的（勾选）
 
-**注意**：8766 若被占用，监听失败只记日志、不影响主流程；这时手机会回退到
-“设为首选 + 等它拨”的老行为。
+- [x] **1. `KNOCK_PORT` + TXT `port`**：`rc-discovery` 已加。
+- [ ] **2. 监听 8766**：接收端要在 `8766` 上监听（可复用 presence 的 accept 路径；
+      或单独一个 `TcpListener`）。收到入站连接后：
+      ```rust
+      // 这就是敲门：不做握手，立刻触发一次拨回手机，然后关闭。
+      let _ = session.retry_now();   // 或你现有的“立刻重连”入口
+      stream.shutdown();
+      ```
+- [ ] **3. 端口占用**：8766 若被占用，监听失败只记日志、不影响主流程；
+      这时手机会回退到「设为首选 + 等它拨」的老行为（所以不会更差）。
+- [ ] **4. 真机验证**：iPhone 点这台 PC → 预期**约 1 秒内**连上（而不是等轮询）。
+
+> 这个模式值得记住（lesson 157）：**当一端被架构固定为「只能被动接受」时，
+> 仍可以给它一个「只承载意图、不承载数据」的出口**——它触发对端行动，而不是自己
+> 建立会话。代价几乎为零，且向后兼容。
+
+---
+
+## 11. ⚠️ Windows「经常连不上 / 开了 VPN 穿透不了」—— 怎么破解
+
+这是**你要求写详细的那条**。分三层：先**诊断**，再**代码绕过**，最后**用户侧兜底**。
+
+### 11.1 根因（已经能诊断）
+
+TUN 模式的代理（Clash / Mihomo / sing-box 及大多数「加速器」）**接管了默认路由**，
+于是连一台**同一 WiFi 下的手机**也被拉进隧道、被丢掉。从 app 看和「手机没开」
+完全一样——所以用户不知道该关哪个开关。
+
+`rc-net/src/route.rs` 已经能**点名**接管路由的那块虚拟网卡：
+- `route::classify_route(target, &local_ipv4())` 返回
+  `Direct` / `Tunneled { source }` / `Unknown`；
+- `route::describe` 输出「到目标的连接会被 VPN/代理的虚拟网卡（<ip>）接管。关掉
+  该代理软件的 TUN 模式，或把局域网加入直连/排除规则。」
+- `--doctor` 和托盘面板已经把它显示出来。
+
+**所以第一步永远是：让用户跑 `remotecrab --doctor`，看面板点名的是哪块网卡。**
+
+### 11.2 代码破解（在你们的 crate 里，只有你的机器能验）
+
+目标：**让拨号 socket 从物理网卡出去，而不是隧道**。两条路线，按可用性选：
+
+- [ ] **A. 把出站 socket `bind` 到局域网网卡的本地地址**（推荐先试）：
+      ```rust
+      use tokio::net::TcpSocket;
+      let sock = TcpSocket::new_v4()?;
+      // lan_addr = 物理网卡（WiFi/以太网）的 IPv4，其子网包含手机地址。
+      if let Some(lan) = pick_lan_addr_for(phone_addr) {
+          let _ = sock.bind(std::net::SocketAddr::new(lan.into(), 0));
+      }
+      let stream = sock.connect(phone_addr).await?;
+      ```
+      注意 `route::local_ipv4()` 现在返回的是**默认路由下的地址**，在 TUN 模式下
+      那可能正是隧道的地址 —— 所以 `pick_lan_addr_for` 需要**枚举适配器**
+      （Windows 用 `GetAdaptersAddresses`，通过 `windows` crate；`getifaddrs` 只在
+      Unix），挑出**非隧道**且**子网包含手机**的那块。这块是本条的真正工作量。
+- [ ] **B. `IP_UNICAST_IF`（强制出接口）**：比 `bind` 更直接地绕过路由表。
+      用 `windows` crate 在 socket 上设 `IP_UNICAST_IF` 为物理网卡的 interface
+      index（`GetAdaptersAddresses` 的 `IfIndex`）。对 fake-IP 型 TUN 通常有效。
+- [ ] **C. mDNS 也同样被吞**：TUN 模式下 `_remotecrab._tcp` 常常浏览不到手机，
+      于是只剩 `probe_tcp` 直连 / `/24` 扫描兜底。确保直连路径**也走 A/B 的绑定**，
+      否则兜底同样被拉进隧道。
+
+> **诚实边界**：Mac 侧**无法**验证这三条中的任何一条，所以按交接纪律我只写方案、
+> 不改你们运行时。请在你的 Windows 机器上逐条试，把 `--doctor` 的 `route:` 行
+> 和是否连上，记回 `WINDOWS_TODO.md`。
+
+### 11.3 用户侧兜底（不写代码也能好）
+
+- [ ] 在代理软件里给**手机所在网段**加直连：Clash 例
+      `IP-CIDR,192.168.x.0/24,DIRECT`，并把该网段加入 `dns.fake-ip-filter`；
+- [ ] 或临时**关闭 TUN 模式 / 退出加速器**，确认能连上——这就证明是隧道问题；
+- [ ] 把这条写进托盘面板的「怎么办」里（`route::describe` 已经说了大意，可再补一句
+      「本机网段加直连」）。
+
+---
+
+## 12. Windows 待办总清单（按顺序勾）
+
+- [ ] §8.3 广播 presence（一行 `advertise`，TXT 带 `port`）
+- [ ] §10.1 监听 knock 端口 8766，收到就「立刻拨回手机」
+- [ ] §9.2 `off` 专属文案 + 5s 慢重试（可选，推荐）
+- [ ] §11.2 VPN：枚举适配器 + `bind`/`IP_UNICAST_IF`，让拨号出物理网卡
+- [ ] §11.3 托盘面板补「本机网段加直连」提示
+- [ ] 真机全流程：在线显示 → 点一下 ~1s 连上 → 断开不再自动重连 →
+      手机上重选能恢复 → 开 VPN 后仍能连（或面板正确点名网卡）
+
+> 全部做完后，请回填本文件（把 `[ ]` 改 `[x]`）并把 `WINDOWS_TODO.md` 的
+> 对应项打勾，附上 `--doctor` 的实测输出。**这就是本次交接的闭环。**
