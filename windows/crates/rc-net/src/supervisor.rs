@@ -700,6 +700,58 @@ fn settle_token_key(tokens: &mut TokenStore, learned: &Option<String>, provision
     tokens.rekey_token(provisional, real);
 }
 
+/// Connect to `host:port`, pinned to the physical adapter that shares the
+/// phone's subnet when there is one.
+///
+/// This is the fix for "it connects sometimes": a TUN proxy (Clash / Mihomo /
+/// sing-box and most accelerators) takes over the default route, so a dial to a
+/// phone **on the same WiFi** is pulled into the tunnel and dropped. From the
+/// app that is indistinguishable from the phone being off, which is why users
+/// never find the switch. Binding the socket to the interface that actually
+/// shares the phone's subnet is the one thing the tunnel cannot intercept.
+///
+/// Falls back to an ordinary unbound connect whenever we cannot name such an
+/// interface — before this existed every dial was unbound, so the fallback is
+/// exactly the old behaviour rather than a regression. That covers: a phone on
+/// another subnet (the routing table knows better than we do), a hostname that
+/// does not resolve, and every non-Windows build.
+async fn dial(host: &str, port: u16) -> std::io::Result<TcpStream> {
+    let Some(target) = tokio::net::lookup_host((host, port))
+        .await
+        .ok()
+        .and_then(|mut addrs| addrs.find(std::net::SocketAddr::is_ipv4))
+    else {
+        return TcpStream::connect((host, port)).await;
+    };
+    let std::net::SocketAddr::V4(v4) = target else {
+        return TcpStream::connect((host, port)).await;
+    };
+    let Some(local) = crate::route::lan_source_for(*v4.ip()) else {
+        return TcpStream::connect((host, port)).await;
+    };
+
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.bind(std::net::SocketAddr::new(local.into(), 0))?;
+    // Worth a line: when someone reports "it connects now" or "it still does
+    // not", this is the one fact that says whether the workaround engaged.
+    eprintln!("[net] dialing {host}:{port} from {local} (bound to the LAN adapter)");
+    // The resolved address rather than the hostname: `connect` must not resolve
+    // again, or it could land on a different address than the one we chose the
+    // interface for.
+    match socket.connect(target).await {
+        Ok(stream) => Ok(stream),
+        Err(e) => {
+            // Worth a line: this is the path that exists to work around a
+            // tunnel, so a failure here is the one a user would be asked to
+            // report.
+            eprintln!(
+                "[net] could not dial {host}:{port} from {local} ({e}) — falling back to the default route"
+            );
+            TcpStream::connect((host, port)).await
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_connection(
     config: Config,
@@ -720,12 +772,7 @@ events_tx: &broadcast::Sender<Event>,
     };
 
     // --- TCP connect (with the direct-dial timeout) ---------------------
-    let stream = match tokio::time::timeout(
-        DIRECT_DIAL_TIMEOUT,
-        TcpStream::connect((host.as_str(), port)),
-    )
-    .await
-    {
+    let stream = match tokio::time::timeout(DIRECT_DIAL_TIMEOUT, dial(host.as_str(), port)).await {
         Ok(Ok(s)) => s,
         _ => return ConnEndKind::Lost,
     };

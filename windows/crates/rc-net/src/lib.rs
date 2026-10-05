@@ -221,6 +221,19 @@ impl Session {
         token::TokenStore::load(token::default_token_path()).paired_phones()
     }
 
+    /// This machine's stable id and display name — the pair the `clientHello`
+    /// carries, and the pair presence advertises.
+    ///
+    /// Read from the store, like [`Session::paired_phones`], so a caller does not
+    /// have to own a `TokenStore` or reach into `rc-net`'s internals. The two
+    /// must agree: the phone matches a presence sighting to a pairing by this id,
+    /// so an advert that used a different one would show the computer online and
+    /// then fail to connect to it.
+    pub fn pc_identity() -> (String, String) {
+        let store = token::TokenStore::load(token::default_token_path());
+        (store.pc_id().to_string(), store.pc_name().to_string())
+    }
+
     pub fn spawn(config: Config) -> Session {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (events_tx, _) = broadcast::channel(1024);

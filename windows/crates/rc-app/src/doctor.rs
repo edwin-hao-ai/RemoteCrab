@@ -278,6 +278,30 @@ pub async fn run_doctor(target: Option<&str>) -> std::process::ExitCode {
         ),
         other => println!("  route: {}", rc_net::route::describe(other)),
     }
+
+    // The adapter table. "Which interface would this actually leave from" is the
+    // question a user behind a TUN proxy cannot answer from the summary above,
+    // and it is the one that decides whether the dial workaround can help.
+    #[cfg(windows)]
+    {
+        let adapters = rc_net::route::adapters();
+        if !adapters.is_empty() {
+            println!("  {}:", crate::i18n::t("网卡", "adapters"));
+            for a in &adapters {
+                println!(
+                    "    {:<15} /{:<2} if{:<3}{}",
+                    a.addr.to_string(),
+                    a.prefix_len,
+                    a.index,
+                    if a.tunnel {
+                        crate::i18n::t("  （隧道/回环 —— 永不作为拨号来源）", "  (tunnel or loopback — never a dial source)")
+                    } else {
+                        ""
+                    }
+                );
+            }
+        }
+    }
     if let Some(t) = &evidence.target {
         let open = evidence.tcp_open.unwrap_or(false);
         let state = if open {
