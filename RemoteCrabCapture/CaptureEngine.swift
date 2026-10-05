@@ -928,16 +928,31 @@ final class CaptureEngine: ObservableObject {
         guard computerBrowser == nil else { return }
         let params = NWParameters.tcp
         params.includePeerToPeer = true
-        let browser = NWBrowser(for: .bonjour(type: IBServiceType.computer, domain: nil), using: params)
+        // `.bonjourWithTXTRecord`, not `.bonjour`: the plain descriptor returns
+        // the service with `.none` metadata, so the id/name/platform TXT never
+        // reaches the browse result and every computer looks unknown. Measured
+        // on iPhone 14: `results=1 bonjour=0` with `.bonjour`.
+        let browser = NWBrowser(for: .bonjourWithTXTRecord(type: IBServiceType.computer, domain: nil), using: params)
+        browser.stateUpdateHandler = { state in
+            Forensic.log("[presence] browser state: \(state)")
+        }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             var found: [ComputerPresence] = []
+            var sawBonjour = 0
             for result in results {
-                guard case let .bonjour(record) = result.metadata else { continue }
-                guard let id = record.dictionary[IBServiceType.PresenceTXT.id], !id.isEmpty else { continue }
-                let name = record.dictionary[IBServiceType.PresenceTXT.name] ?? id
-                let platform = record.dictionary[IBServiceType.PresenceTXT.platform] ?? "macos"
-                found.append(ComputerPresence(id: id, name: name, platform: platform))
+                if case let .bonjour(record) = result.metadata {
+                    sawBonjour += 1
+                    let id = record.dictionary[IBServiceType.PresenceTXT.id]
+                    Forensic.log("[presence] result bonjour keys=\(record.dictionary.keys.sorted()) id=\(id ?? "nil")")
+                    guard let id, !id.isEmpty else { continue }
+                    let name = record.dictionary[IBServiceType.PresenceTXT.name] ?? id
+                    let platform = record.dictionary[IBServiceType.PresenceTXT.platform] ?? "macos"
+                    found.append(ComputerPresence(id: id, name: name, platform: platform))
+                } else {
+                    Forensic.log("[presence] result non-bonjour: \(result.endpoint)")
+                }
             }
+            Forensic.log("[presence] results=\(results.count) bonjour=\(sawBonjour) online=\(found.count)")
             Task { @MainActor [weak self] in
                 self?.onlineComputers = found
             }
