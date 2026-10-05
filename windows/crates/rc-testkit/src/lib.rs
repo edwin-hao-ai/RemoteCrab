@@ -62,6 +62,29 @@ pub struct FakeIphone {
     pub hellos: mpsc::UnboundedReceiver<ClientHello>,
     /// Everything else the receiver sent (featureControl, touch, …).
     pub inbound: mpsc::UnboundedReceiver<Frame2>,
+    /// Frames this fake phone sends *to* the receiver.
+    out_tx: tokio::sync::broadcast::Sender<Vec<u8>>,
+}
+
+impl FakeIphone {
+    /// Send a frame to the receiver, the way the phone would.
+    ///
+    /// The mirror of [`FakeIphone::inbound`]: that is what the receiver said to
+    /// us, this is what we say to it. Without it a test could prove the receiver
+    /// *received* a touch but never that it did anything with it — which is the
+    /// whole question for input, clipboard, files and commands, and the reason
+    /// none of those had been exercised against the shipped binary.
+    ///
+    /// Delivery is best-effort: a receiver that has gone away is not an error
+    /// here, and a test that cares checks the consequence (the clipboard
+    /// changed, the file appeared) rather than the send.
+    ///
+    /// Returns whether the frame reached the connection's writer, so a caller
+    /// driving the receiver can tell "queued" from "there was nobody to queue
+    /// it to".
+    pub fn send(&self, frame: Vec<u8>) -> bool {
+        self.out_tx.send(frame).is_ok()
+    }
 }
 
 /// A lightly-typed view of a frame the receiver sent us.
@@ -101,15 +124,22 @@ impl FakeIphone {
         let addr = listener.local_addr()?;
         let (hello_tx, hellos) = mpsc::unbounded_channel();
         let (in_tx, inbound) = mpsc::unbounded_channel();
+        // `broadcast`, not `mpsc`: the accept loop hands a receiver to every
+        // connection, and an `mpsc::UnboundedReceiver` cannot be cloned.
+        let (out_tx, _) = tokio::sync::broadcast::channel(64);
 
+        // The tracker the accept loop subscribes from; `FakeIphone` keeps the
+        // original so the caller can send.
+        let out_tx_for_serve = out_tx.clone();
         tokio::spawn(async move {
             // A `Pending` reply needs a second, delayed `accepted`.
             while let Ok((stream, _)) = listener.accept().await {
                 let cfg = config.clone();
                 let hello_tx = hello_tx.clone();
                 let in_tx = in_tx.clone();
+                let out_rx = out_tx_for_serve.subscribe();
                 tokio::spawn(async move {
-                    serve(stream, cfg, hello_tx, in_tx).await;
+                    serve(stream, cfg, hello_tx, in_tx, out_rx).await;
                 });
             }
         });
@@ -118,6 +148,7 @@ impl FakeIphone {
             addr,
             hellos,
             inbound,
+            out_tx,
         })
     }
 }
@@ -127,6 +158,7 @@ async fn serve(
     cfg: FakeIphoneConfig,
     hello_tx: mpsc::UnboundedSender<ClientHello>,
     in_tx: mpsc::UnboundedSender<Frame2>,
+    mut out_rx: tokio::sync::broadcast::Receiver<Vec<u8>>,
 ) {
     let (mut rd, mut wr) = stream.split();
     let mut parser = rc_protocol::Parser::new();
@@ -244,12 +276,16 @@ async fn serve(
         }
     }
 
-    // 4. Echo pings + forward receiver frames until the socket closes.
-    while let Ok(n) = rd.read(&mut buf).await {
-        if n == 0 {
-            break;
-        }
-        for f in parser.append(&buf[..n]) {
+    // 4. Echo pings, forward receiver frames, and send whatever the caller
+    //    queues with `FakeIphone::send`.
+    loop {
+        tokio::select! {
+            read = rd.read(&mut buf) => {
+                let Ok(n) = read else { break };
+                if n == 0 {
+                    break;
+                }
+                for f in parser.append(&buf[..n]) {
             match f.kind {
                 rc_protocol::Kind::Ping if cfg.echo_pings => {
                     let sent = decode_ping(&f);
@@ -298,6 +334,19 @@ async fn serve(
                 }
                 other => {
                     let _ = in_tx.send(Frame2::Other(other as u8));
+                }
+            }
+                }
+            }
+            // An `Err` means every sender is gone, which disables this branch
+            // rather than ending the connection: the receiver may keep talking
+            // after the test stopped sending.
+            Ok(frame) = out_rx.recv() => {
+                if std::env::var("RC_TESTKIT_TRACE").is_ok() {
+                    eprintln!("[testkit] sending {} bytes to the receiver", frame.len());
+                }
+                if wr.write_all(&frame).await.is_err() {
+                    return;
                 }
             }
         }

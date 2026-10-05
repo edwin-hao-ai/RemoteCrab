@@ -83,6 +83,7 @@ enum Scenario {
     Busy,
     Silent,
     NoToken,
+    Drive,
     Drop,
 }
 
@@ -95,6 +96,7 @@ impl Scenario {
             "off" => Self::Off,
             "busy" => Self::Busy,
             "silent" => Self::Silent,
+            "drive" => Self::Drive,
             "no-token" => Self::NoToken,
             "drop" => Self::Drop,
             _ => return None,
@@ -130,6 +132,9 @@ impl Scenario {
                 c.send_metadata = false;
             }
             Self::NoToken => c.token = None,
+            // `drive` sends nothing extra on connect; its frames are queued by
+            // the main loop once the receiver is up. See `drive()`.
+            Self::Drive => {}
             // Was `Drop => {}` — an empty arm, so this scenario was the happy
             // path with a different name. Every "does the receiver come back?"
             // run had been green without a disconnect ever happening.
@@ -253,6 +258,96 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
+/// Everything the receiver does *because* the phone asked: a clipboard write, a
+/// pointer move, a command it cannot honour, and a file.
+///
+/// This is the half of the protocol `FakeIphone` could not reach before — it
+/// only ever *read* — so input, clipboard, files and commands had never been
+/// exercised against the shipped binary. Each is chosen to be checkable from
+/// outside the receiver's process:
+///
+/// - clipboard: read the Windows clipboard back
+/// - pointer: read the cursor position back
+/// - brightness: the one system command Windows refuses, so what it proves is
+///   the `commandResult` it sends, with no side effect on the machine running
+///   the test
+/// - a file: look in `Downloads\RemoteCrab`
+///
+/// Deliberately **not** sent: anything that leaves a lasting mark on the tester's
+/// machine. Volume and "show desktop" would both work, and would also rearrange
+/// someone's desktop on every run.
+fn drive(phone: &FakeIphone) {
+    println!("rc-phone-sim: driving the receiver (clipboard, pointer, command, file)");
+
+    send(phone, rc_protocol::encode_clipboard(&rc_protocol::Clipboard {
+        text: DRIVE_CLIPBOARD.to_string(),
+    }));
+
+    send(phone, rc_protocol::encode_touch(&rc_protocol::TouchEvent {
+        phase: rc_protocol::TouchPhase::Move,
+        x: 0.5,
+        y: 0.5,
+        dx: 0.0,
+        dy: 0.0,
+        modifiers: 0,
+        momentum: None,
+        timestamp_micros: 0,
+    }));
+
+    send(phone, rc_protocol::encode_system_command(&rc_protocol::SystemCommand {
+        command: rc_protocol::SystemCommandKind::BrightnessUp,
+        argument: None,
+        request_id: Some(DRIVE_REQUEST_ID.to_string()),
+    }));
+
+    send(phone, rc_protocol::encode_file_offer(&rc_protocol::FileOffer {
+        id: DRIVE_FILE_ID.to_string(),
+        name: DRIVE_FILE_NAME.to_string(),
+        size: DRIVE_FILE_BODY.len() as i64,
+    }));
+    // `encode_file_chunk` is the one encoder that takes raw bytes and returns
+    // them framed, so it has no error case.
+    // `encode_file_chunk` is the one encoder with no error case.
+    let chunk = rc_protocol::encode_file_chunk(DRIVE_FILE_BODY);
+    let n = chunk.len();
+    println!("  -> {n} bytes{}", if phone.send(chunk) { " to the receiver" } else { " DROPPED (no connection)" });
+    send(phone, rc_protocol::encode_file_complete(&rc_protocol::FileComplete {
+        id: DRIVE_FILE_ID.to_string(),
+    }));
+}
+
+/// Send one frame, or say why not. The encoders return `Result` — a payload that
+/// cannot be serialised is a bug in this tool, not a reason to panic a test run.
+///
+/// Generic over the error type so this does not have to name `serde_json`, which
+/// this crate does not depend on directly.
+fn send<E: std::fmt::Display>(phone: &FakeIphone, frame: Result<Vec<u8>, E>) {
+    match frame {
+        Ok(bytes) => {
+            let n = bytes.len();
+            if phone.send(bytes) {
+                println!("  -> {n} bytes to the receiver");
+            } else {
+                // Nothing is subscribed: the receiver is not connected yet, or
+                // has gone. Worth saying — a drive that silently reaches nobody
+                // looks exactly like a receiver that ignores it.
+                println!("  -> {n} bytes DROPPED (no connection)");
+            }
+        }
+        Err(e) => println!("rc-phone-sim: could not encode a drive frame: {e}"),
+    }
+}
+
+/// What `drive` puts in the Windows clipboard. Checked by the acceptance script,
+/// so it must not be something a run could plausibly leave behind by accident.
+const DRIVE_CLIPBOARD: &str = "remote-crab drive marker";
+/// The `requestId` the receiver must echo in its `commandResult`.
+pub const DRIVE_REQUEST_ID: &str = "drive-1";
+const DRIVE_FILE_ID: &str = "drive-file";
+/// The file `drive` pushes, and its exact contents.
+pub const DRIVE_FILE_NAME: &str = "remote-crab-drive.txt";
+pub const DRIVE_FILE_BODY: &[u8] = b"written by the fake iPhone\n";
+
 fn main() {
     let args = match parse_args() {
         Ok(a) => a,
@@ -356,20 +451,49 @@ fn main() {
             }
         };
 
+        // `drive` waits for the receiver to actually connect. It cannot wait for
+        // an `inbound` frame: the `clientHello` travels on `hellos`, and
+        // `inbound` stays empty until the receiver's first ping — seconds away,
+        // and nothing guarantees one arrives. The first attempt at this used a
+        // wall-clock delay and fired before the connection existed, so every
+        // frame was dropped and the receiver looked like it was ignoring them.
+        let mut drove = false;
+        let mut connected = false;
+
         loop {
-            let frame = tokio::select! {
-                f = phone.inbound.recv() => f,
-                _ = tokio::time::sleep(Duration::from_millis(250)), if deadline.is_some() => {
-                    // Tick, so the deadline below can be checked.
-                    if let Some(d) = deadline {
-                        if std::time::Instant::now() >= d { break; }
+            tokio::select! {
+                f = phone.inbound.recv() => {
+                    let Some(f) = f else { break };
+                    report(&mut seen, &mut pings, &f);
+                    if args.max_frames.is_some_and(|m| seen >= m) {
+                        break;
                     }
-                    continue;
                 }
-            };
-            let Some(frame) = frame else { break };
-            report(&mut seen, &mut pings, &frame);
-            if args.max_frames.is_some_and(|m| seen >= m) {
+                // Draining `hellos` is what tells us a receiver arrived; before
+                // this, nothing in the sim ever looked at the channel, so the
+                // tool could not tell "connected" from "not yet".
+                h = phone.hellos.recv() => {
+                    let Some(h) = h else { break };
+                    seen += 1;
+                    println!(
+                        "  [{seen}] clientHello  name={:?} id={} token={} caps={:?}",
+                        h.name,
+                        h.id,
+                        if h.token.is_some() { "yes" } else { "NO" },
+                        h.capabilities.as_deref().unwrap_or(&[])
+                    );
+                    connected = true;
+                }
+                // An unconditional tick, so a `--seconds` deadline is honoured
+                // even while the receiver is quiet.
+                _ = tokio::time::sleep(Duration::from_millis(200)) => {}
+            }
+
+            if args.scenario == Scenario::Drive && connected && !drove {
+                drove = true;
+                drive(&phone);
+            }
+            if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
                 break;
             }
         }

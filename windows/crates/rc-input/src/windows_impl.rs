@@ -1,4 +1,4 @@
-﻿//! Windows `SendInput` execution of the neutral actions from [`injector`].
+//! Windows `SendInput` execution of the neutral actions from [`injector`].
 //!
 //! Only compiled on Windows. All the decision logic lives in the pure
 //! modules so this file stays a thin syscall layer.
@@ -12,8 +12,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK,
     MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
 };
+use windows::Win32::Foundation::POINT;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+    SM_YVIRTUALSCREEN,
 };
 
 use crate::injector::{
@@ -199,6 +201,24 @@ impl WindowsInjector {
             self.last_scroll = Some(std::time::Instant::now());
         }
 
+        // Anchor relative motion to where the pointer actually is.
+        //
+        // The translator accumulates `dx`/`dy` onto `last_cursor`, which starts
+        // at **(0, 0)** and is only ever updated by a previous `Move`. So the
+        // first movement of a session was computed from the top-left corner and
+        // the `Move` that followed *teleported* the pointer there — the cursor
+        // did not move by the finger's delta, it jumped to the corner and then
+        // moved relative to that. Measured: the pointer went from (1200, 800) to
+        // (0, 0) on a single zero-delta move.
+        //
+        // The Mac never had this: it posts relative events and lets the window
+        // server track the position. Reading the position first is the same
+        // idea, and it also keeps the clamp's notion of "where we are" honest
+        // after anything else moves the pointer between events.
+        if let Some((x, y)) = self.real_cursor() {
+            self.translator.last_cursor = (x, y);
+        }
+
         let screen = virtual_screen_size();
         let actions = self.translator.touch(event, screen);
         for action in actions {
@@ -267,6 +287,20 @@ impl WindowsInjector {
     /// was received.
     pub fn cursor(&self) -> (f64, f64) {
         self.translator.last_cursor
+    }
+
+    /// Where the pointer **actually** is, from the OS.
+    ///
+    /// Not [`Self::cursor`], which is where the translator believes it last put
+    /// the pointer. The two disagree whenever anything else moves the mouse, and
+    /// they disagreed on the very first event of a session — see `inject_touch`.
+    pub fn real_cursor(&self) -> Option<(f64, f64)> {
+        let mut point = POINT::default();
+        // SAFETY: `point` is a valid writable POINT; the call has no other
+        // preconditions and fails only on a desktop that has no cursor.
+        unsafe { GetCursorPos(&mut point) }
+            .ok()
+            .map(|_| (point.x as f64, point.y as f64))
     }
 
     /// Inject one mirror `ScreenInput` at the window frame `origin`/`size`
