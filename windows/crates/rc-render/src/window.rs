@@ -44,6 +44,81 @@ impl FrameSlot {
     }
 }
 
+/// How many superseded buffers to keep alive.
+///
+/// [`minifb::Window::update_with_buffer`] does not copy. On Windows it stores
+/// the pointer it was given in `draw_params.buffer`, asks for a repaint with
+/// `InvalidateRect`, and dereferences that pointer later, inside the `WM_PAINT`
+/// handler. `InvalidateRect` plus the message loop is not a guarantee that the
+/// paint happens before the call returns — a covered or minimized window defers
+/// `WM_PAINT` indefinitely.
+///
+/// So a buffer handed to `update_with_buffer` must stay alive for as long as a
+/// paint might still reference it. Dropping it early leaves minifb reading freed
+/// memory, which is what painted the band of coloured noise across the top of
+/// the preview: rotating the phone changes the frame size, the resize path
+/// replaced the buffer, and the pending paint read the old, freed allocation.
+/// Retaining a few superseded buffers covers the deferred-paint window without
+/// letting the process grow without bound.
+const RETAIN_SUPERSEDED: usize = 4;
+
+/// Owns the buffer handed to `minifb`, keeping superseded ones alive.
+///
+/// Extracted from the window loop so the lifetime rule can be stated once and
+/// tested without a display.
+#[derive(Debug, Default)]
+struct BlitBuffer {
+    current: Vec<u32>,
+    /// Buffers `minifb` may still be holding a pointer into.
+    retained: Vec<Vec<u32>>,
+    size: (usize, usize),
+}
+
+impl BlitBuffer {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// The slice to hand to `update_with_buffer`. Its contents must not change
+    /// while the call is in flight.
+    fn pixels(&self) -> &[u32] {
+        &self.current
+    }
+
+    fn size(&self) -> (usize, usize) {
+        self.size
+    }
+
+    /// Resize if needed, retiring the buffer just handed out.
+    ///
+    /// Retiring rather than dropping is the whole point: see
+    /// [`RETAIN_SUPERSEDED`].
+    fn resize(&mut self, width: usize, height: usize) -> bool {
+        if self.size == (width, height) && self.current.len() == width * height {
+            return false;
+        }
+        if !self.current.is_empty() {
+            self.retained.push(std::mem::replace(
+                &mut self.current,
+                vec![0u32; width * height],
+            ));
+            if self.retained.len() > RETAIN_SUPERSEDED {
+                self.retained.remove(0);
+            }
+        } else {
+            self.current = vec![0u32; width * height];
+        }
+        self.size = (width, height);
+        true
+    }
+
+    /// True while a buffer previously handed to `minifb` is still owned here.
+    #[cfg(test)]
+    fn holds_superseded(&self) -> bool {
+        !self.retained.is_empty()
+    }
+}
+
 /// Open a preview window and keep it updated from `slot` until closed.
 ///
 /// `shutdown` is set by the app to close the window programmatically.
@@ -54,14 +129,13 @@ pub fn run_preview_window(
     status: Arc<Mutex<String>>,
 ) {
     // Start with a placeholder size; resize to the video on the first frame.
-    let mut width = 960usize;
-    let mut height = 540usize;
-    let mut buffer = vec![0u32; width * height];
+    let mut blit = BlitBuffer::new();
+    blit.resize(960, 540);
 
     let mut window = match Window::new(
         title,
-        width,
-        height,
+        960,
+        540,
         WindowOptions {
             resize: true,
             scale: minifb::Scale::X1,
@@ -84,24 +158,23 @@ pub fn run_preview_window(
         if let Some(frame) = slot.get() {
             let (fw, fh) = (frame.width as usize, frame.height as usize);
             if (fw, fh) != last_size {
-                width = fw;
-                height = fh;
-                buffer = vec![0u32; width * height];
+                blit.resize(fw, fh);
                 last_size = (fw, fh);
                 window.set_title(&format!("{title} — {fw}x{fh}"));
             }
-            buffer.copy_from_slice(&frame.pixels);
+            blit.current.copy_from_slice(&frame.pixels);
             painted = true;
         } else if !painted {
             // No video yet: draw a calm "waiting" background.
             let status_text = status.lock().map(|s| s.clone()).unwrap_or_default();
             window.set_title(&format!("{title} — {status_text}"));
-            for px in buffer.iter_mut() {
+            for px in blit.current.iter_mut() {
                 *px = 0x00101014;
             }
         }
 
-        if let Err(e) = window.update_with_buffer(&buffer, width, height) {
+        let (w, h) = blit.size();
+        if let Err(e) = window.update_with_buffer(blit.pixels(), w, h) {
             eprintln!("preview window update failed: {e}");
             break;
         }
@@ -111,7 +184,7 @@ pub fn run_preview_window(
 
 #[cfg(test)]
 mod tests {
-    use super::FrameSlot;
+    use super::{BlitBuffer, FrameSlot, RETAIN_SUPERSEDED};
     use crate::decoder::RgbaFrame;
     use std::sync::Arc;
 
@@ -197,5 +270,85 @@ mod tests {
     #[test]
     fn an_empty_slot_reads_as_none() {
         assert!(FrameSlot::new().get().is_none());
+    }
+
+    /// The invariant that keeps `minifb` from reading freed memory.
+    ///
+    /// `update_with_buffer` stores the pointer it is given and dereferences it
+    /// later, inside `WM_PAINT`, which `InvalidateRect` does not guarantee runs
+    /// before the call returns. So after a size change the buffer that was just
+    /// handed over must still be owned — a resize that drops it leaves a dangling
+    /// pointer in the window, and the next paint reads freed memory.
+    #[test]
+    fn a_resize_keeps_the_buffer_that_was_handed_over_alive() {
+        let mut blit = BlitBuffer::new();
+        blit.resize(4, 4);
+        for (i, px) in blit.current.iter_mut().enumerate() {
+            *px = 0xAAAA_0000 | i as u32;
+        }
+        let handed_over = blit.pixels().as_ptr();
+
+        // Rotate the phone: new dimensions, so the old buffer is superseded.
+        assert!(blit.resize(8, 8), "a real size change must report a resize");
+        assert_eq!(blit.size(), (8, 8));
+
+        // The superseded buffer must still be ours, at the same address, with its
+        // contents intact — that is what a paint still in flight will read.
+        assert!(
+            blit.holds_superseded(),
+            "the buffer just handed to minifb was dropped; a deferred WM_PAINT \
+             would read freed memory and paint garbage"
+        );
+        let survivor = blit
+            .retained
+            .iter()
+            .find(|b| b.as_ptr() == handed_over)
+            .expect("the superseded buffer was reallocated, not retained");
+        assert_eq!(survivor.len(), 16);
+        for (i, &px) in survivor.iter().enumerate() {
+            assert_eq!(px, 0xAAAA_0000 | i as u32, "survivor was overwritten");
+        }
+    }
+
+    /// Rotation is not the only resize, and a caller must not be able to grow the
+    /// process without bound by cycling sizes.
+    #[test]
+    fn retained_buffers_stay_bounded() {
+        let mut blit = BlitBuffer::new();
+        for n in 2..40usize {
+            blit.resize(n, n);
+        }
+        assert!(
+            blit.retained.len() <= RETAIN_SUPERSEDED,
+            "retained {} buffers, cap is {RETAIN_SUPERSEDED}",
+            blit.retained.len()
+        );
+    }
+
+    /// Most frames arrive at the same size; retiring a buffer every frame would
+    /// churn an 8.3 MB allocation per frame at live resolution.
+    #[test]
+    fn a_steady_size_retires_nothing() {
+        let mut blit = BlitBuffer::new();
+        blit.resize(6, 4);
+        let ptr = blit.pixels().as_ptr();
+        for _ in 0..30 {
+            assert!(!blit.resize(6, 4), "same size must not report a resize");
+            assert_eq!(blit.pixels().as_ptr(), ptr, "buffer was reallocated");
+        }
+        assert!(!blit.holds_superseded());
+    }
+
+    /// The window loop must never be handed a slice that does not match the size
+    /// it claims, which `minifb` turns into an unsound read rather than an error.
+    #[test]
+    fn the_handed_slice_matches_the_reported_size() {
+        let mut blit = BlitBuffer::new();
+        for (w, h) in [(4usize, 4usize), (1920, 1080), (1080, 1920), (2, 2)] {
+            blit.resize(w, h);
+            let (rw, rh) = blit.size();
+            assert_eq!(blit.pixels().len(), rw * rh, "size {rw}x{rh}");
+            assert!(blit.pixels().len() >= rw * rh);
+        }
     }
 }
