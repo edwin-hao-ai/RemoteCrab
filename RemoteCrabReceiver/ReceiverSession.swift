@@ -281,10 +281,10 @@ final class ReceiverSession: ObservableObject {
     /// a stale address otherwise sits in `preparing` for the full ~75 s
     /// TCP timeout and blocks the healthy Bonjour path.
     private var dialWatchdogTask: Task<Void, Never>?
-    /// Which discovery has already had its one WiFi-only retry, so an
-    /// unreachable phone cannot spin: cancel, retry WiFi-only, cancel, retry
-    /// WiFi-only. Cleared when a different phone is dialled.
-    private var peerToPeerRetriedFor: String?
+    /// Which attempt has already spent its one WiFi-only retry. See
+    /// `PeerToPeerRetryLatch` — it was a bare `String?` whose comment promised a
+    /// reset that no code performed, which made the retry once-per-process.
+    private var peerToPeerRetryLatch = PeerToPeerRetryLatch()
     /// One notification per run, and one per *wait* — see
     /// `ApprovalNotificationPolicy` for why the transition and not the state.
     private var didNotifyAboutApprovalThisRun = false
@@ -1411,8 +1411,14 @@ final class ReceiverSession: ObservableObject {
         Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
 
         let conn: NWConnection
-        // Only a WiFi-only attempt is worth not repeating.
-        if peerToPeer == false { peerToPeerRetriedFor = phone.id }
+        // A normal dial clears the latch so THIS attempt earns its own retry;
+        // the WiFi-only retry records itself so it cannot repeat. Both halves
+        // are needed — clearing alone loops, recording alone works once ever.
+        if peerToPeer == false {
+            peerToPeerRetryLatch.retryingWithoutPeerToPeer(phone.id)
+        } else {
+            peerToPeerRetryLatch.diallingNormally(phone.id)
+        }
         if let serviceEndpoint = phone.serviceEndpoint {
             conn = NWConnection(to: serviceEndpoint, using: Self.tcpParameters(peerToPeer: peerToPeer))
         } else {
@@ -1470,7 +1476,7 @@ final class ReceiverSession: ObservableObject {
                 }
             case .retryWithoutPeerToPeer:
                 guard DialWatchdogPolicy.shouldRetryWithoutPeerToPeer(
-                    alreadyRetriedWithoutPeerToPeer: self.peerToPeerRetriedFor == phone.id) else {
+                    alreadyRetriedWithoutPeerToPeer: self.peerToPeerRetryLatch.hasRetried(phone.id)) else {
                     Self.log.info("peer-to-peer and WiFi-only dials both failed for \(phone.name, privacy: .public) — leaving it to the retry loop")
                     conn.cancel()
                     return
