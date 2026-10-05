@@ -117,26 +117,34 @@ code_baseline: fa67529
 
 ---
 
-## 4. Windows 不发 `commandResult`
+## 4. ✅ Windows 已发 `commandResult`（`0cdf67a`）
 
-### 现象
+**2026-10-05 已实现**，这一条从「剩余」移出。
 
-`CommandResult (0x23)` 定义了、能识别，但 Windows 从不发送。iOS 上 Mac 能显示
-「切换/退出应用」的成败，Windows 没有回执，用户点了没反馈也不知道为什么。
+两半，缺一不可：
 
-### 为什么单独列
+1. **接收端**：`ActivateApp` / `QuitApp` / `SystemCommand` 现在会反序列化手机发来的
+   `requestId`（iOS 端 `IBActivateApp` / `IBQuitApp` / `IBSystemCommand` 一直有，
+   Rust 结构体只是忽略了），三处执行完回发 ok/failed。**没有 id 就不回**——这是
+   兼容规则：手机不带 id 说明它读不懂回执，不能告诉它「失败」。
 
-这一条**只差 iOS 消费**，比上面三条简单得多：`rc-app` 执行完
-`ActivateApp` / `QuitApp` / `SystemCommand` 后，按 `IBCommandResult` 的 JSON 形状
-发一帧即可（Swift 侧的结构体在 `IBEvents.swift`，字段可照抄）。
+2. **声明**：手机**不会**给没在 clientHello 里声明 `commandResult` 的接收端发
+   `requestId`。所以只做第 1 半的话，代码永远不会跑，按钮照样没反应——同一个症状，
+   深了一层。`latencyProbe` 一并声明（`rc-net::ping` 确实回显对端发起的探测）。
 
-真正要确认的是：**iOS 收到 Windows 发来的 `commandResult` 会不会报错**——
-如果它假定只来自 Mac，可能要走一遍兼容。这一点需要 iOS 侧确认，所以留给
-能同时改两端的人。
+线格式由测试钉死：capabilities 是裸字符串数组、按声明顺序
+（`["latencyProbe","commandResult"]`），与 Swift 的 `Capability: String` 原始值对应。
+
+**未做端到端验证**：模拟器能观察 `commandResult` 帧，但 testkit 没有对外的发送 API，
+没法让它发一条带 requestId 的命令。最后一跳靠协议测试覆盖，不是真机跑出来的。
+要让它能跑，需要给 `rc-testkit::FakeIphone` 加一个 public send。
+
+**还需要 iOS 侧确认的一件事**：Windows 发来的 `commandResult` 会不会被 iOS 当成
+「来自 Mac」而报错。结构相同、kind 相同，理论上直接可用，但没有实机验证过。
 
 ---
 
-## 已完成的 18 项（code_baseline `fa67529`）
+## 已完成的 19 项（code_baseline `0cdf67a`）
 
 | 项 | 级别 | 提交 |
 |---|---|---|
@@ -164,11 +172,15 @@ code_baseline: fa67529
 
 ## 验证状态
 
-- `cargo test --workspace --release` → **566 passed / 0 failed**
+- `cargo test --workspace --release` → **573 passed / 0 failed**
 - `cargo clippy --workspace --all-targets --release -- -D warnings` → clean
 - 真机实测（本机 Windows 11）：向导可见、无控制台窗口、预览默认关、
   安装完自动启动且**非提权**、默认开机自启、音频 U8 设备可用、日志有完整状态输出
 - MSI 反编译确认 `RemoveFile` 表含 `vcam-ring.bin On="uninstall"`
+- `rc-phone-sim` 七场景（normal / pending / denied / off / busy / silent /
+  no-token / drop）全部跑通，无崩溃——收尾记录里那条 `fatal runtime error`
+  确认不再出现
+- `off` 场景端到端：显示「已断开」而非「拒绝」，且 15 秒后自动重拨
 
 ## 未能验证
 
