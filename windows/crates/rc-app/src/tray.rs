@@ -93,6 +93,17 @@ mod win32 {
     const TRAY_CB: u32 = WM_APP + 1;
     /// Close request marshalled to the tray thread.
     const WM_TRAY_CLOSE: u32 = WM_APP + 2;
+    /// "Open a window", marshalled to the tray thread.
+    ///
+    /// Every window is created here rather than by whoever wants it, for one
+    /// reason: this is the only thread that dispatches messages, and a Win32
+    /// window belongs to the thread that made it. Opening them from the runtime
+    /// thread produced windows that were drawn once and then answered nothing —
+    /// the first-run wizard shipped that way and Windows drew it as
+    /// "(Not Responding)".
+    const WM_OPEN_WIZARD: u32 = WM_APP + 3;
+    const WM_OPEN_SETTINGS: u32 = WM_APP + 4;
+    const WM_OPEN_SELF_CHECK: u32 = WM_APP + 5;
 
     /// Menu ids, handed to the app loop. One scheme only: the ids the shared
     /// menu model (`tray_menu::ids`) puts on the rows.
@@ -202,6 +213,42 @@ mod win32 {
                         WPARAM(0),
                         LPARAM(0),
                     );
+                }
+            }
+        }
+
+        /// Ask the tray thread to open the setup wizard.
+        ///
+        /// A Win32 window belongs to the thread that created it, and only that
+        /// thread can dispatch its messages. The tray thread is the only one in
+        /// this program with a message pump, so a caller on any other thread has
+        /// to ask rather than create — which is exactly what went wrong: the
+        /// first-run wizard was built on the runtime thread, which never pumps,
+        /// so it appeared and then answered nothing. Windows drew it as
+        /// "(Not Responding)" in the title bar.
+        pub fn open_wizard(&self) {
+            // The tray thread publishes its window handle only once the icon
+            // exists, and the first-run caller runs from the moment `start`
+            // returns — so it can lose that race by a few milliseconds. Without
+            // the wait the post goes to handle 0 and is silently dropped, which
+            // is how the first-run wizard stopped appearing at all.
+            //
+            // Bounded: if the tray never comes up there is nothing to open a
+            // window on, and blocking forever would be worse than not showing it.
+            for _ in 0..100 {
+                if self.hwnd_slot.load(Ordering::SeqCst) != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            self.post(WM_OPEN_WIZARD);
+        }
+
+        fn post(&self, msg: u32) {
+            let hwnd = self.hwnd_slot.load(Ordering::SeqCst);
+            if hwnd != 0 {
+                unsafe {
+                    let _ = PostMessageW(Some(HWND(hwnd as *mut _)), msg, WPARAM(0), LPARAM(0));
                 }
             }
         }
@@ -339,8 +386,15 @@ mod win32 {
         hwnd_slot.store(hwnd.0 as isize, Ordering::SeqCst);
 
         // Message pump until WM_QUIT (fired from WM_DESTROY).
+        //
+        // `None`, not `Some(hwnd)`: a filtered pump retrieves only the named
+        // window's messages, and every other window this thread creates — the
+        // settings window, the self-check panel, the setup wizard — then gets
+        // drawn once, by the `CreateWindowExW` call itself, and never dispatched
+        // again. They were painted and immediately (Not Responding), with no
+        // visible clue about why. One thread, one pump, everything on it.
         let mut msg = MSG::default();
-        while GetMessageW(&mut msg, Some(hwnd), 0, 0).as_bool() {
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
@@ -355,6 +409,19 @@ mod win32 {
         match msg {
             WM_TRAY_CLOSE => {
                 let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
+            WM_OPEN_WIZARD => {
+                // On this thread, because this is the thread with the pump.
+                crate::open_wizard();
+                LRESULT(0)
+            }
+            WM_OPEN_SETTINGS => {
+                crate::open_settings();
+                LRESULT(0)
+            }
+            WM_OPEN_SELF_CHECK => {
+                crate::open_self_check();
                 LRESULT(0)
             }
             WM_DESTROY => {
@@ -839,7 +906,7 @@ mod win32 {
 }
 
 #[cfg(windows)]
-pub use win32::{disabled, start};
+pub use win32::{disabled, start, TrayHandle};
 
 // ---------------------------------------------------------------------------
 // No-op stub for non-Windows dev builds (select-arm wiring compiles the same)

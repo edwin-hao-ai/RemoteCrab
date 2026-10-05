@@ -587,12 +587,11 @@ async fn main() -> ExitCode {
     }
 
     println!("RemoteCrab for Windows v{}", env!("CARGO_PKG_VERSION"));
-    // The wizard, before the search: a first-time user is walked through what
-    // this PC needs *before* they start waiting for a phone that cannot connect
-    // yet. It appears once — a wizard that reappears is a nag — and the tray's
-    // "Setup wizard…" row brings it back.
-    maybe_show_wizard();
-    // And an update check, quietly and late. Late because a release host is the
+    // The first-run wizard is opened later, once the tray exists — it has to be
+    // built on the thread that pumps messages, and that thread is the tray's.
+    // See `maybe_show_wizard` and `tray::TrayHandle::open_wizard`.
+    //
+    // An update check, quietly and late. Late because a release host is the
     // least important thing at startup — a home network with no route to it
     // would otherwise compete with discovery for the first seconds — and quietly
     // because the answer is only actionable, not urgent: Settings has the button
@@ -863,6 +862,12 @@ async fn main() -> ExitCode {
     #[cfg(windows)]
     tray.set_autostart(rc_os::autostart::is_enabled());
     tray.set_preview(preview_window.is_open());
+    // Now that there is a thread with a message pump, the first-run wizard can
+    // be built. Before the tray existed this was called from the runtime thread,
+    // which never pumps — so the window was created, shown, and then answered
+    // nothing, and Windows labelled it "(Not Responding)".
+    #[cfg(windows)]
+    maybe_show_wizard(&tray);
     let mut tray_alive = true;
     println!(
         "{}",
@@ -1782,7 +1787,7 @@ fn current_first_run() -> rc_net::firstrun::FirstRun {
     }
 }
 
-/// Open the wizard on the first run, and only then.
+/// Ask the tray thread to open the wizard on the first run, and only then.
 ///
 /// The gate is "has the user seen it", **not** "is something wrong". A wizard
 /// that appears only when it has something to fix is a wizard most first-time
@@ -1790,13 +1795,16 @@ fn current_first_run() -> rc_net::firstrun::FirstRun {
 /// that they learn what it does. A wizard that reappears is a nag, so the flag
 /// is written the moment it opens, not when it is finished: a user who quits
 /// halfway has still been introduced.
+///
+/// It goes through the tray rather than calling `open_wizard` here, because this
+/// runs on the runtime thread and that one never pumps messages.
 #[cfg(windows)]
-fn maybe_show_wizard() {
+fn maybe_show_wizard(tray: &tray::TrayHandle) {
     if notify_relay::wizard_seen() {
         return;
     }
     notify_relay::mark_wizard_seen();
-    open_wizard();
+    tray.open_wizard();
 }
 
 #[cfg(not(windows))]
