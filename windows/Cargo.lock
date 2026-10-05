@@ -1457,6 +1457,7 @@ dependencies = [
 name = "rc-vcam-source"
 version = "1.0.0"
 dependencies = [
+ "png",
  "rc-vcam",
  "windows",
  "windows-core",

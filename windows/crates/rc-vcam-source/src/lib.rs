@@ -17,7 +17,11 @@
 mod activator;
 mod attrs;
 mod exports;
-mod ring;
+/// Public so the ring can be read from outside the Frame Server — the
+/// `dump_ring` example writes the newest frame to a PNG, which is how "does the
+/// virtual camera actually show the phone's picture" gets answered by looking at
+/// something rather than by trusting a byte counter.
+pub mod ring;
 mod source;
 mod stream;
 mod trace;
