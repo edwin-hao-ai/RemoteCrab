@@ -340,3 +340,42 @@ minifb 在 macOS 开不了 Cocoa 窗口），`--no-preview` / `--decode-only` �
 `_remotecrab-computer._tcp`（未声明时 macOS 返回 `-65555 NoAuth`）。**真机上的
 在线显示仍待一次 GUI 授权**（macOS 15 的「本地网络」权限按签名身份授予）——
 见本文件顶部的 session 记录。
+
+---
+
+## 9. 🆕 `sessionReply` 新增 `off`：断开要真的断开
+
+**背景**：iPhone 上点「断开连接」只是关掉 socket，但这台电脑已配对，它自己的
+重连循环立刻又拨回来、被自动接受——按钮看起来没反应。
+
+**协议**：`0x0B sessionReply` 的 `result` 新增一个值 **`off`**（`ownerName` 带电脑名）。
+- Swift：`IBSessionReplyResult.off`；Rust：`SessionReplyResult::Off`（已加，serde
+  lowercase → `"off"`，`rc-protocol/tests/wire_keys.rs` 有 round-trip）。
+- iPhone 在用户点断开后记住这台；它再拨时回 `off`；用户重新选中任意电脑即清除。
+
+**Windows 侧现状（你可以改进，但已能用）**：`supervisor.rs` 把 `Off` 映射成
+`ConnEndKind::Denied`——**停止自动重连**（断开就真的断开），代价是恢复要手动点
+Reconnect（Mac 侧是 15s 礼貌重试）。**TODO(Windows)**：给 `off` 一个专属文案 +
+慢重试，让用户在手机上重新选它后能自动恢复。
+
+**验证**：在 Windows 上连接 → 在 iPhone「选择电脑」点断开 → 接收端必须**不再自动
+重连**、状态说明「已在 iPhone 上断开」。
+
+---
+
+## 10. ⚠️ Windows「经常连不上 / 开了 VPN 穿透不了」
+
+**已经有的**：`rc-net/src/route.rs` 会在 `--doctor` 和托盘面板里**点名**接管路由的
+VPN/代理虚拟网卡，并提示「关 TUN 或把局域网加入直连/排除规则」。所以先让用户跑
+`remotecrab --doctor`，面板会说明是哪块网卡。
+
+**需要你在真机上取证的（Mac 侧给不了数字）**：
+1. Windows 防火墙是否挡了 mDNS（`_remotecrab._tcp` 浏览不到手机）→ 只能靠
+   `probe_tcp` 直连 / `/24` 扫描兜底；看 `--doctor` 的 mDNS 段。
+2. 全隧道 VPN（Clash/Mihomo/sing-box TUN）把局域网路由也吞了 → 接收端连手机的
+   局域网 IP 会被拉进隧道。已在 §route 面板点名；这是**用户侧配置**，不是代码能
+   穿透的。
+3. iPhone 把 PC 踢掉后 PC 一直重拨 —— 与 §9 是同一件事，`off` 已解决。
+
+**结论**：这一类**只能在你的 Windows 机器上取到数字**，按交接纪律，Mac session
+不改 Windows 运行时行为，只把协议（`off`）和已存在的 VPN 诊断说明清楚。
