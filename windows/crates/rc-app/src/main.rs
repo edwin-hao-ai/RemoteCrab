@@ -123,7 +123,8 @@ impl PreviewWindow {
     }
 }
 
-/// Detach from the console when this process is the only thing attached to it.
+/// Detach from the console when this process is the only thing attached to it,
+/// and point the process's own output at the log file first.
 ///
 /// `remotecrab.exe` is a console-subsystem binary on purpose: `--help`, `--scan`,
 /// `doctor` and the interactive console all write to stdout, and a
@@ -144,10 +145,17 @@ impl PreviewWindow {
 /// Detaching closes the console itself, which is what makes the window go away
 /// under both hosts.
 ///
-/// With a shell attached, nothing happens and `--help` still prints.
+/// **The output has to survive the detach.** The first version threw the console
+/// away and with it every status line — `RemoteCrab.log` held nothing but the
+/// launch banner, so a tray app whose entire UI is a tray icon became impossible
+/// to diagnose at the exact moment a user would want to. With the console gone,
+/// the log is the only surface left, so stdout and stderr are repointed at it
+/// before detaching. A shell attachment is untouched: `--help` still prints.
 #[cfg(windows)]
 fn hide_console_if_we_own_it() {
-    use windows::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+    use windows::Win32::System::Console::{
+        FreeConsole, GetConsoleProcessList, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
 
     // A two-element buffer is enough: the function only has to tell "exactly
     // one" from "more than one", and it reports the true count when the buffer
@@ -159,12 +167,48 @@ fn hide_console_if_we_own_it() {
     if attached > 1 {
         return;
     }
+
+    if let Some(handle) = append_log_handle() {
+        // SAFETY: these only swap one process-wide handle for another. The
+        // handle stays open for the life of the process — deliberately, since
+        // every later `println!` writes through it.
+        unsafe {
+            let _ = SetStdHandle(STD_OUTPUT_HANDLE, handle);
+            let _ = SetStdHandle(STD_ERROR_HANDLE, handle);
+        }
+    }
+
     // SAFETY: no preconditions. Detaching only removes this process from the
     // console; the console itself survives if another process still holds it,
     // which the count above has already ruled out.
     unsafe {
         let _ = FreeConsole();
     }
+}
+
+/// A handle to the log file, opened for appending, or `None` if it cannot be
+/// opened. The handle is intentionally leaked into the process: it becomes
+/// stdout, and closing it would turn every later write into a silent failure.
+#[cfg(windows)]
+fn append_log_handle() -> Option<windows::Win32::Foundation::HANDLE> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+
+    let path = diagnostics::log_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()?;
+    let handle = HANDLE(file.as_raw_handle());
+    // The `File` must outlive this function; its handle is now the process's
+    // stdout, so dropping it would close a handle the runtime is still writing
+    // through.
+    std::mem::forget(file);
+    Some(handle)
 }
 
 #[tokio::main]
