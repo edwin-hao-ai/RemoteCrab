@@ -1,13 +1,39 @@
 # Memory: Windows 预览花屏 session（2026-10-04）
 
 > 这份记录写给下一个 session 的人，不写给简历。
-> 核心信息：**花屏不是手机的码率问题，是 Windows 侧解码器的问题**；但还差一步验证。
+>
+> ## ⚠️ 先读这段：下面 §1 的根因已被推翻（2026-10-05）
+>
+> **§1 说「根因是 B 帧」，那是错的。错的不是结论，是证据。**
+>
+> `docs/demo/remotecrab-demo.mp4` **不是产品码流**。它是
+> `scripts/demo-video.sh:99` 用 `-c:v libx264` 生成的 macOS 录屏合成视频——
+> `1468x1180` 并排画面、`High profile`、`has_b_frames=2`，全是 libx264 的产物。
+> 我拿一份**演示视频**当**产品流**分析了一整晚。
+>
+> Mac 侧用真 VideoToolbox 探针（`scripts/vt-bframe-probe.swift`，
+> 对照组 `AllowFrameReordering=true` 报 2，证明探针看得见 B 帧）测出当前
+> build 的配置 **实际产出 `has_b_frames=0`**。B 帧这条路已经关掉。
+>
+> **真正的根因在显示路径，不在解码路径**：`minifb` 的 Windows 后端
+> 保存调用者给的**裸指针**，再用 `InvalidateRect` 触发**异步**重绘，
+> 在 `WM_PAINT` 里解引用。手机转屏 → 帧尺寸变化 → 旧代码
+> `buffer = vec![0u32; w*h]` **drop 掉旧分配** → 待执行的重绘读到已释放内存
+> → 部分覆写的帧缓冲 = 你截图里顶部那条彩色噪带 + 下方内容位移。
+>
+> 已修（`1744c62`），根因确证靠的是**排除法**，见 §1.5。
+>
+> 教训见 `docs/lessons/windows.md`：**我用来下结论的工具，从没在真损坏的
+> 数据上验证过。** 只在合成帧和一份干净录像上跑过。所以「解码器是干净的」
+> 这个结论我信了整整一晚，而它其实没被测过。
 
 ## 结论（全部测出来的，每条带数字）
 
-**1. 根因：OpenH264 的 `DecodeFrameNoDelay` 解不了带 B 帧的流。**
+**1. ~~根因：OpenH264 的 `DecodeFrameNoDelay` 解不了带 B 帧的流。~~ 作废，见上。**
 
-决定性证据是**本产品自己录的** `docs/demo/remotecrab-demo.mp4`，同一份字节：
+下面保留原始测量，因为「为什么会得出这个错误结论」本身比结论更有价值。
+
+决定性证据是 ~~**本产品自己录的**~~ **一份演示视频** `docs/demo/remotecrab-demo.mp4`，同一份字节：
 
 | 解码器 | 结果 |
 |---|---|
@@ -42,6 +68,43 @@ Info:ResetDecoder(), context error code is 16384
 **⚠️ 未验证**：当前 iOS 构建（`AllowFrameReordering:false` + Main profile）
 理论上不该产生 B 帧。demo 那个文件是 High profile + `has_b_frames=2`，录自更早的构建。
 **抓一段当前构建的码流 `ffprobe` 确认 `has_b_frames` 之后再动 iOS。**
+
+**1.5 真正的根因：显示路径读已释放内存（`1744c62` 已修）**
+
+B 帧被排除后，改用**排除法**——把解码器能做的每一种反应都测一遍，看哪一种
+能产出「部分正确 + 彩色噪带」的画面。答案是：**一种都不能**。
+`windows/crates/rc-render/tests/damage.rs` 对真编码流逐条钉死：
+
+| 损坏方式 | OpenH264 的反应 | 屏幕上的结果 |
+|---|---|---|
+| 它**能预测**的丢帧 | 用运动补偿补回来 | 干净，**看不出损坏** |
+| 它**不能**预测的丢帧 | **拒收该 slice**，不出帧 | 画面停在上一帧 |
+| payload 字节被破坏 | **拒收**（实测 `refused > 0`） | 画面停在上一帧 |
+| 丢参考图（B 帧那个 case） | 停机，一个帧都不出 | 画面冻结 |
+
+四种里没有一种会画出「一半正常一半噪点」。**所以花屏不可能来自解码器。**
+
+真正的机制在 minifb（`minifb-0.28.0/src/os/windows/mod.rs:970`）：
+
+```rust
+self.draw_params.buffer = buffer.as_ptr();   // 存裸指针
+InvalidateRect(window, ptr::null_mut(), TRUE); // 异步重绘
+```
+
+`WM_PAINT`（同文件 `:311`）在**之后**才解引用 `draw_params.buffer`。
+`InvalidateRect` + message loop **不保证** paint 在调用返回前完成——
+窗口被遮挡或最小化时 WM_PAINT 会无限期延后。而旧的 resize 路径：
+
+```rust
+buffer = vec![0u32; width * height];   // drop 旧分配
+```
+
+**手机转屏就是尺寸变化。** 于是：转屏 → 重分配 → 旧内存被 free →
+待执行的重绘读到已释放内存 → 部分覆写的帧缓冲。
+截图里「顶部彩色噪带 + 下方内容位移」正是这个形状。
+
+修法：`BlitBuffer` 保留被顶替的 buffer（上限 4 个）而不是丢弃，
+`update_with_buffer` 不复制这件事写在 `RETAIN_SUPERSEDED` 的注释里。
 
 **2. 同时测出三个独立故障（别混在一起报）：**
 
