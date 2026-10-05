@@ -1722,7 +1722,9 @@ final class ReceiverSession: ObservableObject {
         slowRetryTask?.cancel()
         slowRetryTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(15))
+                // A cancelled sleep throws, and `try?` would swallow it and
+                // fall through to a spurious retryNow() — stop here instead.
+                do { try await Task.sleep(for: .seconds(15)) } catch { return }
                 guard let self, self.suppressReconnect else { return }
                 guard UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true
                 else { return }

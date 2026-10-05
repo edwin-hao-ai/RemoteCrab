@@ -1510,7 +1510,17 @@ final class CaptureEngine: ObservableObject {
         // admit it first-come so an upgrade doesn't brick the pairing.
         handshakeTask?.cancel()
         handshakeTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            // `try?` swallows the CancellationError, and a cancelled sleep
+            // returns IMMEDIATELY — so without this guard, cancelling the task
+            // (which `handleHello` now does the moment a hello arrives) made the
+            // fallback run at once instead of not at all: the same connection
+            // got `off` and then `accepted` ~10 ms apart, and the computer was
+            // admitted as "Computer (legacy)". A cancelled task must stop here.
+            do {
+                try await Task.sleep(for: .seconds(3))
+            } catch {
+                return
+            }
             guard let self, self.handshakeToken == token,
                   self.connection == nil, self.pendingConnection == nil else { return }
             Self.log.info("clientHello timeout — admitting legacy Mac")
