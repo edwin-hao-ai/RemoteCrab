@@ -840,7 +840,8 @@ Full detail: `docs/CMIO_SESSION_HANDOFF_2026-09-14.md`.
 |---|---|---|---|
 | Mac → Windows | [`docs/PROMPT-WINDOWS-SESSION.md`](docs/PROMPT-WINDOWS-SESSION.md) | Mac session | iOS 侧改动说明 + 需要 Windows 真机打勾的清单 |
 | Windows → Mac | [`docs/HANDOFF-IOS-QUALITY.md`](docs/HANDOFF-IOS-QUALITY.md) | Windows session | 在 Windows 真机上**量到数字**的 iOS 侧问题 + 验收方法 |
-| **Windows → Mac（新）** | **[`docs/HANDOFF-MAC-SIDE-2026-10-04.md`](docs/HANDOFF-MAC-SIDE-2026-10-04.md)** | Windows session | **预览花屏的根因（OpenH264 `DecodeFrameNoDelay` 解不了 B 帧）、iOS 只发 4fps 的机制、新协议 `0x25 requestKeyframe` 的实现要求。Mac session 从这份开始读——它推翻了上一行的结论** |
+| **Windows → Mac** | [`docs/HANDOFF-MAC-SIDE-2026-10-04.md`](docs/HANDOFF-MAC-SIDE-2026-10-04.md) | Windows session | **~~预览花屏的根因（OpenH264 `DecodeFrameNoDelay` 解不了 B 帧）~~ 已作废，见下行。仍有效：iOS 只发 4fps 的机制、新协议 `0x25 requestKeyframe** |
+| **Mac → Windows（最新，以此为准）** | **[`docs/HANDOFF-WINDOWS-2026-10-05.md`](docs/HANDOFF-WINDOWS-2026-10-05.md)** | Mac session | Mac 结清后的回交。⚠️ 其 §1「`0x25` 没有任何地方调用」写在旧基线 `0e9f423` 上，**已过时**——发送端在 `rc-app/src/main.rs:730`，解码拒绝时 2 秒限流触发 |
 | Windows 待办 | [`docs/WINDOWS_TODO.md`](docs/WINDOWS_TODO.md) · [`HANDOFF_WINDOWS_MSI.md`](HANDOFF_WINDOWS_MSI.md) | Windows session | 安装/发布/虚拟摄像头的验证结果 |
 
 **规矩（两端都适用）**：

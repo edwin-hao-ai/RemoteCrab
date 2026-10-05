@@ -33,7 +33,27 @@ code_baseline: 0e9f423
 
 ---
 
-## 1. 🔴 `0x25`：定义有了，发送逻辑没有
+## 1. ✅ `0x25`：定义有了，发送逻辑**其实已经有了**（`code_baseline: 0e9f423` 已过时）
+
+> **2026-10-05 Windows session 回填**：本节写在旧基线 `0e9f423` 上，
+> 当时 `grep` 确实只能搜到 `rc-protocol` 里的定义和测试。但发送端
+> **早已实现在 `rc-app/src/main.rs:718-738`** —— 上面那条
+> 「没有任何一处调用它」**不成立**，不用再做。
+>
+> 位置与行为（逐条对照你 §1「要满足的三条」）：
+>
+> | 你的要求 | 实现 |
+> |---|---|
+> | 收到 `.video` 但解不出来才触发 | `p.refusals_after_start() > last_keyframe_asked_at_refusals`，即**只在新增拒绝**时触发，不在每帧触发 |
+> | 不能被手机刷屏 | `KEYFRAME_REQUEST_INTERVAL` 限流 2 秒；且只在「新拒绝」时才重新计时 |
+> | payload 为空 | `encode_request_keyframe()` → `encode_frame(Kind::RequestKeyframe, &[])` |
+>
+> 你建议放在 `rc_net/src/dispatch.rs`（那里有 `tx`），我放在 `rc-app`
+> 的解码循环里——同样拿得到 `session.send_frame`，功能等价，只是层次
+> 高一点。**如果你觉得该下沉到 `dispatch.rs`，说一声。**
+>
+> ⚠️ 守卫是 `#[cfg(windows)]`：`rc-app` 在 mac 上也构建（parity harness），
+> 非 Windows 平台不发送，避免 harness 干扰。
 
 你写的是「协议定义**和发送逻辑**」，并指向 `HANDOFF-MAC-SIDE` §4 第 4 条 ——
 第 4 条讲的是另一个话题（声称 vs 实测的报告）。核实结果：
