@@ -1680,11 +1680,12 @@ final class ReceiverSession: ObservableObject {
             suppressReconnect = true
             stopPingLoop()
             state = .error(IBLocale.Error.connectionOff)
-            // Keep asking politely every 15 s: re-picking this computer on the
-            // phone is the way back, and the phone has no channel to nudge us.
-            // Until then every attempt is answered `off` again, so the
-            // disconnect sticks.
-            scheduleSlowRetry()
+            // Keep asking politely, but faster than the busy poll: re-picking
+            // this computer on the phone is the way back and the phone has no
+            // channel to nudge us, so this loop IS the "tap to connect" latency.
+            // Until they do, every attempt is answered `off` and the disconnect
+            // sticks.
+            scheduleSlowRetry(interval: 5)
         }
         // Any reply other than `pending` resolves the wait — including `busy`
         // and `denied`, the phone is no longer asking for a tap. Run here, after
@@ -1718,13 +1719,18 @@ final class ReceiverSession: ObservableObject {
     /// session (which cancels this task) or is refused again, which calls back
     /// into here and starts a fresh one. It also honours the user's
     /// "don't auto-reconnect" preference rather than polling against it.
-    private func scheduleSlowRetry() {
+    /// `interval` defaults to the polite 15 s poll used while another computer
+    /// owns the session. `off` (the phone's user disconnected us) passes a
+    /// shorter interval: re-picking this computer on the phone is the intended
+    /// way back, and the loop is that recovery path — 15 s made the switch feel
+    /// stuck.
+    private func scheduleSlowRetry(interval: Double = 15) {
         slowRetryTask?.cancel()
         slowRetryTask = Task { [weak self] in
             while !Task.isCancelled {
                 // A cancelled sleep throws, and `try?` would swallow it and
                 // fall through to a spurious retryNow() — stop here instead.
-                do { try await Task.sleep(for: .seconds(15)) } catch { return }
+                do { try await Task.sleep(for: .seconds(interval)) } catch { return }
                 guard let self, self.suppressReconnect else { return }
                 guard UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true
                 else { return }

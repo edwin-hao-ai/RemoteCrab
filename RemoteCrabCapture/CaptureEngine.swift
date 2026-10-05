@@ -89,6 +89,9 @@ final class CaptureEngine: ObservableObject {
     /// Set for one refresh when a switch stops holding the door, so the picker
     /// can say so instead of having its banner silently disappear.
     @Published private(set) var preferredGaveUp: PairedMac?
+    /// Auto-clears `preferredGaveUp` so the "gave up" card cannot sit on the
+    /// main screen forever when nothing dials.
+    private var preferredGaveUpAutoClear: Task<Void, Never>?
     /// Name of the Mac currently owning the session, if any.
     @Published private(set) var connectedMacName: String?
     /// Stable id of the owning Mac (matches `PairedMac.id`).
@@ -2375,7 +2378,18 @@ final class CaptureEngine: ObservableObject {
         // buttons that used to say "Safari" on a PC.
         let effective = pairingStore.effectivePreferred()
         if preferredMac != nil, effective == nil {
-            preferredGaveUp = preferredMac
+            let gaveUp = preferredMac
+            preferredGaveUp = gaveUp
+            // Shown once, then it must go away on its own. It used to clear only
+            // on the next `refreshPairedMacs` (i.e. when something dialled) or
+            // the picker's Done button — so with nothing dialling it sat on the
+            // main screen forever and could not be dismissed.
+            preferredGaveUpAutoClear?.cancel()
+            preferredGaveUpAutoClear = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                guard let self, self.preferredGaveUp?.id == gaveUp?.id else { return }
+                self.preferredGaveUp = nil
+            }
         } else if preferredMac == nil {
             preferredGaveUp = nil
         }
@@ -2409,7 +2423,11 @@ final class CaptureEngine: ObservableObject {
     var preferredArmedAt: Date? { pairingStore.preferredArmedAt }
 
     /// Forget the "gave up waiting for X" notice.
-    func clearPreferredGaveUp() { preferredGaveUp = nil }
+    func clearPreferredGaveUp() {
+        preferredGaveUpAutoClear?.cancel()
+        preferredGaveUpAutoClear = nil
+        preferredGaveUp = nil
+    }
 
     /// Called when the picker's wait-out timer fires: re-read the preference
     /// so a lapsed grace is noticed even though nothing knocked.
