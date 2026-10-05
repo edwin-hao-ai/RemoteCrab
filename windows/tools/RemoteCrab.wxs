@@ -58,6 +58,7 @@
       <ComponentGroupRef Id="VcamRegistration" />
       <ComponentGroupRef Id="Shortcuts" />
       <ComponentGroupRef Id="Uninstall" />
+      <ComponentGroupRef Id="RingCleanup" />
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -66,6 +67,13 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ShortcutFolder" Name="RemoteCrab" />
+    </StandardDirectory>
+
+    <!-- Where the virtual camera's shared-memory ring lives. It is not part of
+         the install payload — the app creates it — but the *directory* has to be
+         declared so the uninstall can reach the file inside it. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="RingFolder" Name="RemoteCrab" />
     </StandardDirectory>
 
     <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
@@ -190,12 +198,47 @@
            the problem. -->
       <Component Id="CleanupMarker" Guid="5E1A8B93-2D47-4F60-8C15-7B93E0D4A682" Directory="INSTALLFOLDER">
         <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+        <!-- Start at login, **on by default**.
+
+             This is the one place the product's usefulness depends on the
+             installer's choice rather than the user's. A receiver that is not
+             running cannot be connected to, so an install that leaves the user
+             to discover a tray toggle and then reboot has shipped a thing that
+             "does not work" for everyone who skipped that step. The tray row
+             turns it off again for anyone who wants that. -->
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                       Name="RemoteCrab" Type="string" Value="&quot;[INSTALLFOLDER]remotecrab.exe&quot;" />
         <!-- The autostart entry. No timing attribute: `RemoveRegistryValue` means
              exactly "remove this on uninstall". Writing an empty value instead
              would leave `RemoteCrab` in the Run key pointing at nothing, which
              reads to the user as "on but broken". -->
         <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
                              Name="RemoteCrab" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      The ring file, which the app creates and which the app's own uninstall
+      command would normally delete.
+
+      It is listed separately because that command cannot always run: it is the
+      installed exe (invoked with the machine-uninstall flag), and a user who
+      deleted the exe by hand — or an antivirus that quarantined it, which is a
+      real outcome for a build that injects input — leaves the app's cleanup
+      unreachable. The ring
+      is the one file this matters for: it is mapped by the Frame Server and
+      carries a NULL DACL so that a LocalService process can open it, which means
+      anything on the machine can write to it while it survives.
+
+      `RemoveFile` needs no elevation beyond what the uninstall already has, and
+      deleting a file whose DACL permits everyone is not an obstacle for a
+      process running as SYSTEM.
+    -->
+    <ComponentGroup Id="RingCleanup" Directory="RingFolder">
+      <Component Id="RemoveRingFile" Guid="B71C3E58-9A24-4D06-8F53-2E7A1C4B6D09" Directory="RingFolder">
+        <RemoveFile Id="RingFile" Name="vcam-ring.bin" On="uninstall" />
+        <RemoveFolder Id="RemoveRingFolder" Directory="RingFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="RingCleanup" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
@@ -252,12 +295,34 @@
                   Execute="deferred"
                   Return="ignore" />
 
+    <!--
+      Launch it once the install finishes, **as the user**.
+
+      `WixShellExec` is the point: it runs the target through the shell, which
+      holds the unelevated token, so the receiver starts at medium integrity.
+      That matters here rather than being tidiness — the installer is perMachine
+      and therefore elevated, an immediate custom action inherits that token, and
+      the first version of this launched the receiver as administrator. That is
+      the one configuration the product's own first-run page exists to talk
+      about, and it would have shipped silently.
+
+      `asyncNoWait` because the installer must not wait for a tray app that never
+      exits. Not on uninstall, and not during the removal half of an upgrade,
+      where launching would race the incoming version's files.
+    -->
+    <Property Id="WixShellExecTarget" Value="[#remotecrab.exe]" />
+    <CustomAction Id="LaunchApp"
+                  BinaryRef="Wix4UtilCA_X64"
+                  DllEntry="WixShellExec"
+                  Impersonate="yes" />
+
     <InstallExecuteSequence>
       <!-- Both before RemoveFiles: the exe has to still be there to be run.
            User state first — it needs no rights, so a failure there cannot
            affect the machine-wide half that does. -->
       <Custom Action="UninstallUserState" Before="RemoveFiles" />
       <Custom Action="UninstallMachineState" Before="RemoveFiles" />
+      <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE OR UPGRADINGPRODUCTCODE)" />
     </InstallExecuteSequence>
   </Package>
 </Wix>

@@ -48,7 +48,20 @@ fn error_text(reason: &str) -> String {
             i18n::t("iPhone 拒绝了连接", "The iPhone declined the connection").to_string()
         }
         "" => i18n::t("连接失败", "the connection failed").to_string(),
-        other => other.to_string(),
+        // Anything unmatched is a developer-facing English literal from `rc-net`,
+        // and this function exists precisely so a user never reads one — the
+        // `other => other.to_string()` that used to be here was the very thing
+        // the doc comment above warned about. The literal is still worth having,
+        // so it goes to the log, which since the console was detached is a real
+        // surface rather than a place nobody looks.
+        other => {
+            eprintln!("[status] unmapped failure reason: {other}");
+            i18n::t(
+                "连接失败（详情见日志）",
+                "the connection failed — see the log for details",
+            )
+            .to_string()
+        }
     }
 }
 

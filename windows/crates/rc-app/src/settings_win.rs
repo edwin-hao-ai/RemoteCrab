@@ -100,10 +100,21 @@ pub fn show(actions: Actions) -> Option<HWND> {
         let hinstance = HINSTANCE(GetModuleHandleW(None).ok()?.0);
         register(hinstance);
         *STATE.lock().ok()? = Some(actions);
-        CreateWindowExW(
+        // Shown once, after it exists — see the note in `wizard_win::show`.
+        // Created without `WS_VISIBLE` (and `WS_OVERLAPPED` is 0x0), so without
+        // this the window is built, laid out, and never seen.
+        // The title is built at runtime rather than a compile-time bilingual
+        // literal. "RemoteCrab 设置 / Settings" drew both languages at once,
+        // which is a translation key leaking into the chrome — the user picked a
+        // language in Settings, and the window should honour it.
+        let title = windows::core::HSTRING::from(format!(
+            "RemoteCrab — {}",
+            crate::i18n::t("设置", "Settings")
+        ));
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("RemoteCrab 设置 / Settings"),
+            PCWSTR(title.as_ptr()),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -114,7 +125,10 @@ pub fn show(actions: Actions) -> Option<HWND> {
             Some(hinstance),
             None,
         )
-        .ok()
+        .ok()?;
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        Some(hwnd)
     }
 }
 
@@ -447,7 +461,12 @@ unsafe fn build(hwnd: HWND) {
         button(
             hwnd,
             ID_FORGET,
-            t("忘记这台电脑", "Forget this computer"),
+            // "this computer" was wrong: the button forgets the phone selected in
+            // the list above it, and forgetting "this computer" is not a thing
+            // this window can do. A user reading the old label and clicking with
+            // nothing selected got silence, which reads as the button being
+            // broken rather than as there being nothing to forget.
+            t("忘记选中的手机", "Forget the selected phone"),
             20,
             y,
             180,
@@ -498,8 +517,8 @@ unsafe fn build(hwnd: HWND) {
         label(
             hwnd,
             t(
-                &format!("画质：{}（点此切换）", q.label()),
-                &format!("Quality: {} (click to change)", q.label()),
+                &format!("画质：{}（点此切换）", q.label(true)),
+                &format!("Quality: {} (click to change)", q.label(false)),
             ),
             20,
             y,

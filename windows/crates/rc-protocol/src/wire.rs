@@ -52,10 +52,13 @@ pub enum Kind {
     WindowListRequest = 0x17,
     WindowList = 0x18,
     SystemCommand = 0x19,
-    // App-window mirror (the iOS/Mac screen-share feature). The Windows
-    // receiver does not implement the mirror yet, but it MUST recognise
-    // these kinds: an unknown byte falls through to `Video`, and a mirror
-    // NAL would then be fed to the camera decoder, corrupting the stream.
+    // App-window mirror (the screen-share feature). The Windows receiver
+    // **does** implement this now — see `rc-mirror` and the `mirror` modules in
+    // `rc-app` — but the recognition requirement outlives that: an unknown byte
+    // falls through to `Video`, so a mirror NAL would be fed to the camera
+    // decoder and corrupt the stream. That is true for a build with the mirror
+    // compiled out, and it is why this comment used to say "does not implement
+    // yet" without the note going stale being harmless.
     ScreenVideo = 0x1A,
     ScreenSps = 0x1B,
     ScreenPps = 0x1C,
@@ -65,14 +68,14 @@ pub enum Kind {
     InstalledAppsRequest = 0x20,
     InstalledApps = 0x21,
     // Mac → iPhone notification relay (`IBNotification`, JSON). The Windows
-    // receiver does not relay notifications, but it MUST recognise the kind
-    // for the same reason as the mirror kinds above: an unknown byte decodes
-    // as `Video`, and this JSON payload would be handed to the H.264 decoder.
+    // receiver **relays notifications now** (`rc-app`'s `notify_relay`), and the
+    // recognition requirement is the same as above: an unknown byte decodes as
+    // `Video`, and this JSON payload would be handed to the H.264 decoder.
     Notification = 0x22,
     // Mac → iPhone command outcome (`IBCommandResult`, JSON). The Windows
-    // receiver does not send these yet, but it MUST recognise the kind for
-    // the same reason as 0x20–0x22 above: an unknown byte decodes as `Video`
-    // and this JSON would go to the H.264 decoder.
+    // receiver **does not send these yet** — a current limitation, not a design
+    // one — but it must still recognise the kind: an unknown byte decodes as
+    // `Video` and this JSON would go to the H.264 decoder.
     CommandResult = 0x23,
     /// receiver → iPhone: the computer's own audio, for playback on the
     /// phone speaker ("use the iPhone as the speaker"). The Windows

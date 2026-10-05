@@ -56,24 +56,41 @@ pub struct Finding {
 /// Rank the evidence into findings, most likely first. Returns an empty vector
 /// when everything checks out.
 ///
+/// `zh` selects the language of the prose. It used to have no parameter and
+/// return Chinese unconditionally, which meant `remotecrab doctor` printed a
+/// wall of Chinese to an English user — and doctor is the command a user runs
+/// *because* something is wrong, so it is the worst place to be unreadable.
+///
 /// Ordering rationale: a hijacked route explains *every* symptom at once, so it
 /// outranks everything; a reachable phone with a closed port is a phone-side
 /// problem; no advertisements at all is a network-side problem.
-pub fn rank(evidence: &Evidence) -> Vec<Finding> {
+pub fn rank(evidence: &Evidence, zh: bool) -> Vec<Finding> {
     let mut out = Vec::new();
     let mut rank = 1;
 
     if let RouteVerdict::Tunneled { source } = evidence.route {
         out.push(Finding {
             rank,
-            problem: format!(
-                "到 iPhone 的连接被 VPN/代理的虚拟网卡接管（源地址 {source}）——\
-                 这会让同一 WiFi 下的手机完全连不上"
+            problem: t(
+                zh,
+                &format!(
+                    "到 iPhone 的连接被 VPN/代理的虚拟网卡接管（源地址 {source}）——\
+                     这会让同一 WiFi 下的手机完全连不上"
+                ),
+                &format!(
+                    "the route to the iPhone is being taken over by a VPN/proxy tun device \
+                     (source {source}) — a phone on the same WiFi cannot be reached at all"
+                ),
             ),
-            fix: "关掉 Clash / Mihomo / sing-box 等的 TUN（虚拟网卡）模式，\
-                  或在配置里把局域网直连：rules 加 IP-CIDR,192.168.0.0/16,DIRECT,no-resolve，\
-                  tun 加 route-exclude-address: [192.168.0.0/16]"
-                .to_string(),
+            fix: t(
+                zh,
+                "关掉 Clash / Mihomo / sing-box 等的 TUN（虚拟网卡）模式，\
+                 或在配置里把局域网直连：rules 加 IP-CIDR,192.168.0.0/16,DIRECT,no-resolve，\
+                 tun 加 route-exclude-address: [192.168.0.0/16]",
+                "turn off TUN mode in Clash / Mihomo / sing-box, or exempt the LAN in its \
+                 config: add IP-CIDR,192.168.0.0/16,DIRECT,no-resolve to rules and \
+                 route-exclude-address: [192.168.0.0/16] to tun",
+            ),
         });
         rank += 1;
     }
@@ -82,29 +99,46 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
         Some(true) if evidence.handshake_failed => {
             out.push(Finding {
                 rank,
-                problem: "端口 8765 是通的，但握手没完成".to_string(),
-                fix: "在 iPhone 上打开 RemoteCrab 并点「开始推流」，\
-                      然后在弹出的卡片上允许这台电脑"
-                    .to_string(),
+                problem: t(zh, "端口 8765 是通的，但握手没完成", "port 8765 is reachable, but the handshake did not finish"),
+                fix: t(
+                    zh,
+                    "在 iPhone 上打开 RemoteCrab 并点「开始推流」，\
+                     然后在弹出的卡片上允许这台电脑",
+                    "open RemoteCrab on the iPhone, tap \"Start\", and allow this computer on the \
+                     card that appears",
+                ),
             });
         }
         Some(false) if evidence.mdns.is_empty() => {
             out.push(Finding {
                 rank,
-                problem: "iPhone 所在网段没有任何设备在广播 RemoteCrab".to_string(),
-                fix: "确认 iPhone 与本机连的是同一个 WiFi（不是访客网络——访客网默认与主网隔离）；\
-                      在 iPhone 打开 设置 → 隐私与安全性 → 本地网络，允许 RemoteCrab；\
-                      再回到 app 点「开始推流」"
-                    .to_string(),
+                problem: t(
+                    zh,
+                    "iPhone 所在网段没有任何设备在广播 RemoteCrab",
+                    "nothing on the iPhone's network is advertising RemoteCrab",
+                ),
+                fix: t(
+                    zh,
+                    "确认 iPhone 与本机连的是同一个 WiFi（不是访客网络——访客网默认与主网隔离）；\
+                     在 iPhone 打开 设置 → 隐私与安全性 → 本地网络，允许 RemoteCrab；\
+                     再回到 app 点「开始推流」",
+                    "check the iPhone and this PC are on the same WiFi (not a guest network — those \
+                     are isolated by default); on the iPhone open Settings → Privacy & Security → \
+                     Local Network and allow RemoteCrab; then tap \"Start\" in the app again",
+                ),
             });
         }
         Some(false) => {
             out.push(Finding {
                 rank,
-                problem: "能找到 iPhone，但 8765 端口没开".to_string(),
-                fix: "iPhone 上 RemoteCrab 必须先点「开始推流」才会绑定端口；\
-                      同时确认 设置 → 隐私与安全性 → 本地网络 已允许"
-                    .to_string(),
+                problem: t(zh, "能找到 iPhone，但 8765 端口没开", "the iPhone is visible, but port 8765 is closed"),
+                fix: t(
+                    zh,
+                    "iPhone 上 RemoteCrab 必须先点「开始推流」才会绑定端口；\
+                     同时确认 设置 → 隐私与安全性 → 本地网络 已允许",
+                    "RemoteCrab on the iPhone binds the port only after \"Start\"; also confirm \
+                     Settings → Privacy & Security → Local Network allows it",
+                ),
             });
         }
         // An open port with a healthy handshake is the good case: nothing to
@@ -116,11 +150,16 @@ pub fn rank(evidence: &Evidence) -> Vec<Finding> {
     if evidence.tcp_open.is_none() && evidence.mdns.is_empty() && !evidence.mdns_skipped {
         out.push(Finding {
             rank,
-            problem: "mDNS 什么都没发现".to_string(),
-            fix: "本机没有收到任何 _remotecrab._tcp 广播：\
-                  iPhone 可能不在本机所在网段，或代理/防火墙拦了组播。\
-                  可以先用 --connect <iPhone 的 IP> 绕过发现"
-                .to_string(),
+            problem: t(zh, "mDNS 什么都没发现", "mDNS found nothing"),
+            fix: t(
+                zh,
+                "本机没有收到任何 _remotecrab._tcp 广播：\
+                 iPhone 可能不在本机所在网段，或代理/防火墙拦了组播。\
+                 可以先用 --connect <iPhone 的 IP> 绕过发现",
+                "no _remotecrab._tcp advertisement reached this PC: the iPhone may be on a \
+                 different subnet, or a proxy/firewall is blocking multicast. You can bypass \
+                 discovery with --connect <the iPhone's IP>",
+            ),
         });
     }
 
@@ -260,7 +299,7 @@ pub async fn run_doctor(target: Option<&str>) -> std::process::ExitCode {
         println!("  mDNS: {}", evidence.mdns.join(", "));
     }
 
-    let findings = rank(&evidence);
+    let findings = rank(&evidence, crate::i18n::is_chinese());
     if findings.is_empty() {
         println!(
             "\n{}",
@@ -570,7 +609,7 @@ mod tests {
         e.target = Some("192.168.31.5:8765".into());
         e.tcp_open = Some(true);
         e.mdns_skipped = true;
-        assert!(rank(&e).is_empty(), "{:?}", rank(&e));
+        assert!(rank(&e, true).is_empty(), "{:?}", rank(&e, true));
     }
 
     /// An open port is good news on its own — the phone is right there.
@@ -578,7 +617,7 @@ mod tests {
     fn an_open_port_alone_is_not_a_finding() {
         let mut e = base();
         e.tcp_open = Some(true);
-        assert!(rank(&e).is_empty(), "{:?}", rank(&e));
+        assert!(rank(&e, true).is_empty(), "{:?}", rank(&e, true));
     }
 
     /// …and only becomes a finding once we know the handshake is what failed.
@@ -587,7 +626,7 @@ mod tests {
         let mut e = base();
         e.tcp_open = Some(true);
         e.handshake_failed = true;
-        let findings = rank(&e);
+        let findings = rank(&e, true);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].fix.contains("允许"), "{findings:?}");
     }
@@ -599,7 +638,7 @@ mod tests {
             source: "198.18.0.1".parse().unwrap(),
         };
         e.tcp_open = Some(false);
-        let findings = rank(&e);
+        let findings = rank(&e, true);
         assert!(findings.len() >= 2, "{findings:?}");
         assert!(findings[0].problem.contains("VPN"), "{:?}", findings[0]);
         assert_eq!(findings[0].rank, 1);
@@ -617,7 +656,7 @@ mod tests {
     fn no_advertisements_points_at_the_phone_side_settings() {
         let mut e = base();
         e.tcp_open = Some(false);
-        let findings = rank(&e);
+        let findings = rank(&e, true);
         let joined = findings.iter().map(|f| f.fix.as_str()).collect::<String>();
         assert!(joined.contains("本地网络"), "{findings:?}");
         assert!(joined.contains("访客网络"), "{findings:?}");
@@ -628,7 +667,7 @@ mod tests {
         let mut e = base();
         e.mdns = vec!["iPhone 192.168.31.5:8765".into()];
         e.tcp_open = Some(false);
-        let findings = rank(&e);
+        let findings = rank(&e, true);
         assert!(findings[0].problem.contains("8765"), "{findings:?}");
         assert!(findings[0].fix.contains("开始推流"), "{findings:?}");
         assert!(
@@ -642,15 +681,43 @@ mod tests {
         let mut e = base();
         e.tcp_open = Some(true);
         e.handshake_failed = true;
-        let findings = rank(&e);
+        let findings = rank(&e, true);
         assert!(findings[0].fix.contains("允许"), "{findings:?}");
     }
 
     #[test]
     fn silence_with_no_target_reports_only_the_discovery_problem() {
-        let findings = rank(&base());
+        let findings = rank(&base(), true);
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].problem.contains("mDNS"), "{findings:?}");
+    }
+
+    /// Both languages have to come out of `rank`, because the same function
+    /// feeds an English user's `remotecrab doctor`. This used to be Chinese-only
+    /// and no test noticed, since every test passed the Chinese wording through
+    /// and asserted on Chinese substrings.
+    #[test]
+    fn the_english_findings_are_english() {
+        let mut narrated = base();
+        narrated.mdns = vec!["iPhone 192.168.31.5:8765".into()];
+        narrated.tcp_open = Some(false);
+        let english = rank(&narrated, false);
+        let joined = english
+            .iter()
+            .map(|f| format!("{} {}", f.problem, f.fix))
+            .collect::<String>();
+        assert!(joined.contains("8765"), "{english:?}");
+        assert!(joined.contains("Start"), "{english:?}");
+        assert!(
+            !joined.contains("开始推流") && !joined.contains("访客"),
+            "an English finding must not contain Chinese prose: {english:?}"
+        );
+
+        // And the discovery-only case, which is the one a user hits with no
+        // phone configured at all.
+        let english = rank(&base(), false);
+        assert!(english[0].problem.contains("mDNS"), "{english:?}");
+        assert!(english[0].fix.contains("multicast"), "{english:?}");
     }
 
     // -----------------------------------------------------------------------

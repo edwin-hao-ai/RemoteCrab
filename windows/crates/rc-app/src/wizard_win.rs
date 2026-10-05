@@ -52,14 +52,25 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             action: Some(on_action),
             action_message: None,
         });
-        CreateWindowExW(
+        // `WS_VISIBLE` is deliberately absent from the style and the window is
+        // shown once, below, after it exists. All three of this program's
+        // windows were created without `WS_VISIBLE` and nothing ever showed them,
+        // so every one of them was built, laid out, and left invisible — the
+        // wizard told first-run users what to do from a window they could not
+        // see. `WS_OVERLAPPED` is 0x0, so the style here was really just
+        // caption + system menu.
+        // And built at runtime, so the title draws one language rather than both
+        // — see the note in `settings_win::show`.
+        let title =
+            windows::core::HSTRING::from(format!("RemoteCrab — {}", t("首次设置", "Setup")));
+        let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
+            PCWSTR(title.as_ptr()),
             // "首次设置", not "设置": this window and the Settings window used to
             // share the Chinese title "设置", so two different windows looked
             // identical in the taskbar and in any screenshot. The English halves
             // were already distinct.
-            w!("RemoteCrab 首次设置 / Setup"),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -70,7 +81,10 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             Some(hinstance),
             None,
         )
-        .ok()
+        .ok()?;
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+        Some(hwnd)
     }
 }
 

@@ -124,13 +124,13 @@ fn capture_loop(
     if let Err(e) = result {
         fail(&diag, e);
     }
-    let mut d = diag.lock().expect("diag mutex poisoned");
+    let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
     d.running = false;
     result
 }
 
 fn fail(diag: &Arc<Mutex<Diagnostics>>, e: LoopbackError) {
-    let mut d = diag.lock().expect("diag mutex poisoned");
+    let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
     d.running = false;
     d.failure = Some(e);
 }
@@ -158,7 +158,7 @@ fn run_capture(
     // which mixes 48000 Hz 2ch float" is — and they cost nothing to record
     // early. A probe that reported only "0 frames" sent the reader guessing.
     {
-        let mut d = diag.lock().expect("diag mutex poisoned");
+        let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
         d.running = true;
         d.mix = Some(mix);
         d.endpoint_id = endpoint_id;
@@ -197,7 +197,7 @@ fn run_capture(
         if let Ok(Some(previous)) = endpoint_master_volume() {
             if set_endpoint_master_volume(0.0).is_ok() {
                 muted = true;
-                let mut d = diag.lock().expect("diag mutex poisoned");
+                let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
                 d.muted = true;
                 d.volume_before_mute = Some(previous);
             }
@@ -212,13 +212,13 @@ fn run_capture(
     // a *process* crash is recoverable on the next launch.
     if muted {
         let previous = {
-            let d = diag.lock().expect("diag mutex poisoned");
+            let d = diag.lock().unwrap_or_else(|e| e.into_inner());
             d.volume_before_mute
         };
         if let Some(v) = previous {
             let _ = set_endpoint_master_volume(v);
         }
-        let mut d = diag.lock().expect("diag mutex poisoned");
+        let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
         d.muted = false;
     }
     unsafe {
@@ -279,7 +279,7 @@ fn pump(
                     ring.push_frames(&pcm);
                 }
             }
-            let mut d = diag.lock().expect("diag mutex poisoned");
+            let mut d = diag.lock().unwrap_or_else(|e| e.into_inner());
             d.captured_frames += frames as u64;
             if silent {
                 d.silent_buffers += 1;

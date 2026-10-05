@@ -130,14 +130,20 @@ fn parse_args_from(raw: &[String]) -> Args {
         print_help();
         std::process::exit(0);
     }
-// The preview window opens by default; `--no-preview` is the opt-out.
-// `--decode-only` is an opt-out too, and that is the whole point of it: a
-// mode called "decode only" that also opens a window is not decode-only, and
-// on a machine with no display the window is the thing that kills the
-// process. Passing `--decode-only --preview` explicitly still opens it —
-// an explicit request wins over a default.
-if !args.no_preview && !args.decode_only {
-        args.preview = true;
+    // The preview window is **opt-in**.
+    //
+    // It shows the *phone's* screen on the PC, which is a diagnostic. The
+    // product runs the other way: the PC's camera, microphone and input reach
+    // the phone. Opening it unasked means every user's first impression is a
+    // window they did not request, competing with the setup wizard for
+    // attention — and on a machine with no display the window is the thing that
+    // kills the process.
+    //
+    // `--preview` asks for it; the tray's "Show Preview Window" does too, at
+    // runtime. `--no-preview` still wins over an explicit `--preview`, so a
+    // wrapper can pass both and get the quiet one.
+    if args.no_preview {
+        args.preview = false;
     }
     args
 }
@@ -171,10 +177,20 @@ mod arg_tests {
         assert!(!a.doctor && !a.scan && !a.selftest);
     }
 
+    /// The preview window is opt-in, not opt-out.
+    ///
+    /// It used to be on by default, which meant a first-run user met a video
+    /// window they never asked for before they met the setup wizard. The window
+    /// is a diagnostic — it mirrors the phone's screen, not the product — so it
+    /// waits to be requested.
     #[test]
-    fn the_preview_window_is_on_unless_opted_out() {
-        assert!(args(&[]).preview, "preview is the default");
+    fn the_preview_window_waits_to_be_asked_for() {
+        assert!(!args(&[]).preview, "no flag means no window");
         assert!(!args(&["--no-preview"]).preview);
+        assert!(args(&["--preview"]).preview, "asking for it opens it");
+        // A wrapper that passes both gets the quiet one: `--no-preview` is the
+        // stronger statement, and the one a script reaches for to be sure.
+        assert!(!args(&["--preview", "--no-preview"]).preview);
     }
 
     /// `--decode-only` exists because the decode pipeline and the preview

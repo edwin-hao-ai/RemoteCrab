@@ -170,9 +170,19 @@ impl Quality {
             .unwrap_or(Self::default())
     }
 
-    /// What the choice is called.
-    pub fn label(&self) -> &'static str {
-        Self::CHOICES[self.index()].1
+    /// What the choice is called, in the language the caller is drawing in.
+    ///
+    /// The parameter is the whole fix: this used to return the *Chinese* half
+    /// unconditionally, so an English user's Settings window read
+    /// `Quality: 自动 (click to change)`. The tuple has carried both languages
+    /// all along; only the accessor was monolingual.
+    pub fn label(&self, chinese: bool) -> &'static str {
+        let (_, zh, en) = Self::CHOICES[self.index()];
+        if chinese {
+            zh
+        } else {
+            en
+        }
     }
 }
 

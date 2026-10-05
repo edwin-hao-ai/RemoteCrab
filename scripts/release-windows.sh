@@ -310,7 +310,14 @@ EOF
     # install the version that does not provide it.
     if command -v wix >/dev/null 2>&1; then
         note "WiX v4 CLI"
-        wix build "$wxs" -o "$wmsi" -arch x64 -d MsvcBuild=true || die "MSI build failed (wix v4)"
+        # `-ext` is not optional in v4: the extension is not discovered from the
+        # manifest's xmlns alone, and without it `BinaryRef="Wix4UtilCA_X64"`
+        # fails with WIX0094 against a binary the extension would have supplied.
+        # `WixToolset.Util.wixext` provides the shell-exec action the installer
+        # uses to launch the app as the user rather than as the elevated
+        # installer.
+        wix build "$wxs" -o "$wmsi" -arch x64 -d MsvcBuild=true \
+            -ext WixToolset.Util.wixext || die "MSI build failed (wix v4)"
     elif command -v candle >/dev/null 2>&1 && command -v light >/dev/null 2>&1; then
         note "WiX v3 candle + light"
         local wobj; wobj="$(win_path "$stage/RemoteCrab.wixobj")"

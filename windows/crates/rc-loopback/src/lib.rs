@@ -205,6 +205,15 @@ pub struct CaptureStats {
 /// any order.
 pub struct LoopbackCapture {
     ring: Arc<ring::PcmRing>,
+    /// Shared diagnostics, deliberately **poison-recovering** at every site
+    /// (`unwrap_or_else(|e| e.into_inner())`) rather than `expect`.
+    ///
+    /// The capture thread touches this every ~10 ms, and the mute watch does
+    /// too. A panic anywhere else poisons the mutex, and `expect("diag mutex
+    /// poisoned")` would then turn that unrelated panic into a second one on the
+    /// audio thread — which stops the computer's audio from ever reaching the
+    /// phone again, with no way back short of a restart. The guarded value is a
+    /// plain struct of counters, so a poisoned lock still holds valid data.
     shared: Arc<std::sync::Mutex<Diagnostics>>,
     watch: MuteWatch,
     #[cfg(windows)]
@@ -241,7 +250,7 @@ impl LoopbackCapture {
         self.mute_broke_audio = false;
         self.ring.reset();
         {
-            let mut d = self.shared.lock().expect("diag mutex poisoned");
+            let mut d = self.shared.lock().unwrap_or_else(|e| e.into_inner());
             *d = Diagnostics::default();
         }
         self.watch = MuteWatch::new(mute.is_muting());
@@ -274,7 +283,7 @@ impl LoopbackCapture {
             #[cfg(windows)]
             {
                 let previous = {
-                    let d = self.shared.lock().expect("diag mutex poisoned");
+                    let d = self.shared.lock().unwrap_or_else(|e| e.into_inner());
                     d.volume_before_mute
                 };
                 if let Some(v) = previous {
@@ -316,7 +325,7 @@ impl LoopbackCapture {
         #[cfg(windows)]
         {
             let previous = {
-                let d = self.shared.lock().expect("diag mutex poisoned");
+                let d = self.shared.lock().unwrap_or_else(|e| e.into_inner());
                 d.volume_before_mute
             };
             if let Some(v) = previous {
@@ -340,7 +349,7 @@ impl LoopbackCapture {
     }
 
     pub fn stats(&self) -> CaptureStats {
-        let d = self.shared.lock().expect("diag mutex poisoned");
+        let d = self.shared.lock().unwrap_or_else(|e| e.into_inner());
         CaptureStats {
             running: d.running,
             captured_frames: d.captured_frames,
@@ -358,7 +367,7 @@ impl LoopbackCapture {
     /// Whether the capture thread has died since the last check, with the
     /// reason. The app layer turns this into the status the user reads.
     pub fn failure(&self) -> Option<LoopbackError> {
-        self.shared.lock().expect("diag mutex poisoned").failure
+        self.shared.lock().unwrap_or_else(|e| e.into_inner()).failure
     }
 
     /// Put this PC's volume back if a previous run left it at zero.

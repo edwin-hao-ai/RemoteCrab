@@ -128,7 +128,11 @@ impl ScreenEncoder {
             return Vec::new();
         }
         let mut rgb = vec![0u8; w * h * 3];
-        for (i, px) in bgra.chunks_exact(4).enumerate() {
+        // `take(w * h)`: the length check above only rejects a buffer that is too
+        // *small*. A larger one would iterate past `rgb` and panic on the write,
+        // because `chunks_exact` yields a chunk per four bytes of whatever it is
+        // given.
+        for (i, px) in bgra.chunks_exact(4).take(w * h).enumerate() {
             rgb[i * 3] = px[2];
             rgb[i * 3 + 1] = px[1];
             rgb[i * 3 + 2] = px[0];

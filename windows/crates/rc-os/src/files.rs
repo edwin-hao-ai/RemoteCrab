@@ -63,6 +63,16 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{stem}-{}", std::process::id()))
 }
 
+/// Largest transfer this receiver will accept, whether declared in the offer or
+/// accumulated by the chunks.
+///
+/// Generous on purpose — the feature exists to move photos and screen
+/// recordings, so a few gigabytes is normal use — but finite, because the
+/// alternative is a peer that can write until the disk fills. That matters
+/// today: sessions are not mutually authenticated yet, so anything that can
+/// reach the port is a potential sender.
+pub const MAX_FILE_BYTES: i64 = 8 * 1024 * 1024 * 1024;
+
 /// Receives one file at a time from the iPhone.
 pub struct FileReceiver {
     dir: PathBuf,
@@ -83,6 +93,16 @@ impl FileReceiver {
 
     /// Begin a transfer. Returns the ack to send back.
     pub fn begin(&mut self, offer: FileOffer) -> FileAck {
+        if offer.size < 0 || offer.size > MAX_FILE_BYTES {
+            // The peer's declaration is a hint, but a hint that is larger than we
+            // will ever accept is a refusal, not something to start.
+            return FileAck {
+                id: offer.id.clone(),
+                status: FileAckStatus::Error,
+                received_bytes: 0,
+                path: None,
+            };
+        }
         if std::fs::create_dir_all(&self.dir).is_err() {
             return FileAck {
                 id: offer.id.clone(),
@@ -120,6 +140,24 @@ impl FileReceiver {
     /// Append a chunk. Returns None when no transfer is active.
     pub fn append(&mut self, data: &[u8]) -> Option<FileAck> {
         let active = self.active.as_mut()?;
+        // The declared size is a hint and the chunks are the truth, so enforce
+        // both. A peer that keeps sending after its own declaration — or declared
+        // nothing at all — would otherwise write until the disk filled, and the
+        // session that can do this is not authenticated yet (see the mutual-auth
+        // handoff), so the cap is the only thing bounding it.
+        let limit = if active.offer.size > 0 {
+            active.offer.size
+        } else {
+            MAX_FILE_BYTES
+        };
+        if active.received + data.len() as i64 > limit {
+            return Some(FileAck {
+                id: active.offer.id.clone(),
+                status: FileAckStatus::Error,
+                received_bytes: active.received,
+                path: None,
+            });
+        }
         if active.file.write_all(data).is_err() {
             return Some(FileAck {
                 id: active.offer.id.clone(),
@@ -271,6 +309,72 @@ mod tests {
             size: 1,
         });
         assert!(rx.complete("other").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The peer's declared size is a hint it writes itself, so a peer that
+    /// declares more than we accept must not get as far as creating a file.
+    #[test]
+    fn an_offer_larger_than_the_cap_is_refused_before_any_write() {
+        let dir = std::env::temp_dir().join(format!("rc-os-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut rx = FileReceiver::new(dir.clone());
+
+        let ack = rx.begin(FileOffer {
+            id: "big".to_string(),
+            name: "huge.bin".to_string(),
+            size: MAX_FILE_BYTES + 1,
+        });
+        assert_eq!(ack.status, FileAckStatus::Error);
+        assert!(!dir.join("huge.bin").exists(), "nothing should be created");
+        assert!(rx.append(b"x").is_none(), "and no transfer is active");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// And the chunks are the part that actually consumes disk, so they are
+    /// bounded by the declaration rather than trusted alongside it.
+    #[test]
+    fn a_chunk_past_the_declared_size_is_refused() {
+        let dir = std::env::temp_dir().join(format!("rc-os-overrun-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut rx = FileReceiver::new(dir.clone());
+
+        rx.begin(FileOffer {
+            id: "f1".to_string(),
+            name: "small.bin".to_string(),
+            size: 4,
+        });
+        let ok = rx.append(b"1234").unwrap();
+        assert_eq!(ok.status, FileAckStatus::Progress);
+
+        // One byte past what was declared.
+        let over = rx.append(b"5").unwrap();
+        assert_eq!(over.status, FileAckStatus::Error);
+        assert_eq!(over.received_bytes, 4, "the refusal reports what was written");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A peer that declares nothing gets the cap rather than a free pass, since
+    /// a zero declaration is not evidence that the transfer is small.
+    #[test]
+    fn a_zero_declaration_is_capped_rather_than_unbounded() {
+        let dir = std::env::temp_dir().join(format!("rc-os-zero-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut rx = FileReceiver::new(dir.clone());
+
+        // Still accepted (some senders do not know the size up front)…
+        let ack = rx.begin(FileOffer {
+            id: "f1".to_string(),
+            name: "unknown.bin".to_string(),
+            size: 0,
+        });
+        assert_eq!(ack.status, FileAckStatus::Progress);
+        // …and the small chunk that follows is not what the cap is for; the
+        // point is only that the limit is `MAX_FILE_BYTES` and not infinity.
+        assert_eq!(rx.append(b"x").unwrap().status, FileAckStatus::Progress);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

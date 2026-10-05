@@ -216,10 +216,7 @@ impl IMFMediaEventGenerator_Impl for VcamStream_Impl {
 
 impl IMFMediaStream_Impl for VcamStream_Impl {
     fn GetMediaSource(&self) -> Result<IMFMediaSource> {
-        self.shared
-            .source
-            .lock()
-            .unwrap()
+        crate::lock(&self.shared.source)
             .clone()
             .ok_or_else(|| Error::from(MF_E_SHUTDOWN))
     }

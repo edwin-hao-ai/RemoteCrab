@@ -25,6 +25,20 @@ mod trace;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
+/// Lock that survives a poisoned mutex.
+///
+/// This DLL runs inside the Windows Frame Server, so a panic does not stay
+/// local: `extern "system"` is not unwind-safe, and a panic crossing it aborts
+/// the process — which is the Frame Server for *every* camera consumer, not
+/// just ours. `lock().unwrap()` is the mechanism that turns one unrelated panic
+/// into exactly that, because the next call after a poisoned lock panics again.
+///
+/// The guarded values are plain fields and an `Option`, so a poisoned lock still
+/// holds valid data. Recover the guard and carry on.
+pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 use windows::core::{Interface, Result, GUID, IUnknown};
 use windows::Win32::Foundation::S_OK;
 use windows::Win32::Media::KernelStreaming::{
@@ -132,7 +146,7 @@ impl StreamCore {
     /// Queue the newest ring frame as `MEMediaSample`.
     pub(crate) fn feed_once(&self, token: Option<&IUnknown>) -> Result<bool> {
         let frame = {
-            let mut guard = self.reader.lock().unwrap();
+            let mut guard = lock(&self.reader);
             // The camera source may be activated before the app has created
             // the ring (the user opens the Camera app first); open it lazily.
             if guard.is_none() {
@@ -268,7 +282,7 @@ pub(crate) fn build_source() -> Result<IMFMediaSource> {
     // implements IMFAttributes). The frame server reads `MF_DEVICESTREAM_*`
     // through it and also expects to be able to query IMFMediaStream2.
     let stream_attrs: IMFAttributes = stream.cast()?;
-    *shared.stream_attrs.lock().unwrap() = Some(stream_attrs);
+        *lock(&shared.stream_attrs) = Some(stream_attrs);
 
     let sd = unsafe { stream.GetStreamDescriptor()? };
     let presentation = unsafe { MFCreatePresentationDescriptor(Some(&[Some(sd.clone())]))? };
@@ -276,7 +290,7 @@ pub(crate) fn build_source() -> Result<IMFMediaSource> {
     unsafe {
         let _ = presentation.SelectStream(0);
     }
-    *shared.presentation.lock().unwrap() = Some(presentation.clone());
+        *lock(&shared.presentation) = Some(presentation.clone());
 
     let source_impl = VcamSource::new(
         inner,
@@ -288,6 +302,6 @@ pub(crate) fn build_source() -> Result<IMFMediaSource> {
     );
     let source_ex: IMFMediaSourceEx = source_impl.into();
     let source: IMFMediaSource = source_ex.cast()?;
-    *shared.source.lock().unwrap() = Some(source.clone());
+        *lock(&shared.source) = Some(source.clone());
     Ok(source)
 }

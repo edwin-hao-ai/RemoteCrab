@@ -1,4 +1,4 @@
-﻿//! RemoteCrab for Windows — receiver CLI + status window.
+//! RemoteCrab for Windows — receiver CLI + status window.
 //!
 //! Wires the crates together exactly like the Mac receiver's `ReceiverSession`
 //! does: discovery → TCP handshake → stream → input injection. For the first
@@ -99,7 +99,12 @@ impl PreviewWindow {
         let status = self.status.clone();
         let shutdown = self.shutdown.clone();
         self.handle = Some(std::thread::spawn(move || {
-            rc_render::window::run_preview_window("RemoteCrab Preview", slot, shutdown, status);
+            rc_render::window::run_preview_window(
+                i18n::t("RemoteCrab 预览", "RemoteCrab Preview"),
+                slot,
+                shutdown,
+                status,
+            );
         }));
     }
 
@@ -123,9 +128,116 @@ impl PreviewWindow {
     }
 }
 
+/// Detach from the console when this process is the only thing attached to it,
+/// and point the process's own output at the log file first.
+///
+/// `remotecrab.exe` is a console-subsystem binary on purpose: `--help`, `--scan`,
+/// `doctor` and the interactive console all write to stdout, and a
+/// GUI-subsystem binary has no stdout to write to. The cost of that choice is
+/// that a launch from Explorer or the Start Menu gets a console of its own, so
+/// the user double-clicks RemoteCrab and meets a black terminal window — the
+/// single most "this is a developer tool" thing about the install, and the first
+/// thing they see.
+///
+/// `GetConsoleProcessList` separates the two cases: it returns every process
+/// attached to the console. Exactly one means *we* own it, which means nobody
+/// launched us from a shell and there is nobody to read the output.
+///
+/// `FreeConsole` rather than `ShowWindow(SW_HIDE)`: hiding the window returned
+/// by `GetConsoleWindow` does nothing when the console is hosted by Windows
+/// Terminal through a pseudoconsole, which is the default on Windows 11 — the
+/// window that is actually on screen belongs to the terminal, not to us.
+/// Detaching closes the console itself, which is what makes the window go away
+/// under both hosts.
+///
+/// **The output has to survive the detach.** The first version threw the console
+/// away and with it every status line — `RemoteCrab.log` held nothing but the
+/// launch banner, so a tray app whose entire UI is a tray icon became impossible
+/// to diagnose at the exact moment a user would want to. With the console gone,
+/// the log is the only surface left, so stdout and stderr are repointed at it
+/// before detaching. A shell attachment is untouched: `--help` still prints.
+#[cfg(windows)]
+fn hide_console_if_we_own_it() {
+    use windows::Win32::System::Console::{
+        FreeConsole, GetConsoleProcessList, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+
+    // A two-element buffer is enough: the function only has to tell "exactly
+    // one" from "more than one", and it reports the true count when the buffer
+    // is too small.
+    let mut pids = [0u32; 2];
+    // SAFETY: `pids` is a valid writable buffer, and the binding passes its
+    // length to the API.
+    let attached = unsafe { GetConsoleProcessList(&mut pids) };
+    if attached > 1 {
+        return;
+    }
+
+    if let Some(handle) = append_log_handle() {
+        // SAFETY: these only swap one process-wide handle for another. The
+        // handle stays open for the life of the process — deliberately, since
+        // every later `println!` writes through it.
+        unsafe {
+            let _ = SetStdHandle(STD_OUTPUT_HANDLE, handle);
+            let _ = SetStdHandle(STD_ERROR_HANDLE, handle);
+        }
+    }
+
+    // SAFETY: no preconditions. Detaching only removes this process from the
+    // console; the console itself survives if another process still holds it,
+    // which the count above has already ruled out.
+    unsafe {
+        let _ = FreeConsole();
+    }
+}
+
+/// A handle to the log file, opened for appending, or `None` if it cannot be
+/// opened. The handle is intentionally leaked into the process: it becomes
+/// stdout, and closing it would turn every later write into a silent failure.
+#[cfg(windows)]
+fn append_log_handle() -> Option<windows::Win32::Foundation::HANDLE> {
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+
+    let path = diagnostics::log_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .ok()?;
+    let handle = HANDLE(file.as_raw_handle());
+    // The `File` must outlive this function; its handle is now the process's
+    // stdout, so dropping it would close a handle the runtime is still writing
+    // through.
+    std::mem::forget(file);
+    Some(handle)
+}
+
+/// Send a file-transfer acknowledgement, and say so if it cannot be encoded.
+///
+/// The callers used `encode_file_ack(&ack).unwrap_or_default()`, and
+/// `unwrap_or_default()` on an error is a **zero-length** frame. The phone then
+/// reads an empty body where a JSON ack should be: at best it ignores it, at
+/// worst it desynchronises the transfer, and either way nothing anywhere says
+/// why the file stopped moving. Sending nothing is both correct and visible.
+fn send_file_ack(session: &rc_net::Session, ack: &rc_protocol::FileAck) {
+    match encode_file_ack(ack) {
+        Ok(frame) => session.send_frame(frame),
+        Err(e) => eprintln!("  file: could not encode a transfer ack — {e}"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
+
+    // Before anything can print: a double-clicked launch should not leave a black
+    // terminal window sitting behind the tray icon.
+    #[cfg(windows)]
+    hide_console_if_we_own_it();
 
     // FIRST, before anything else can fail. If a previous run muted this PC
     // while the phone was playing and then died — a crash, a force-quit, a
@@ -351,7 +463,9 @@ async fn main() -> ExitCode {
         None
     };
     let frame_slot = rc_render::window::FrameSlot::new();
-    let status_text = std::sync::Arc::new(std::sync::Mutex::new("Waiting for video…".to_string()));
+    let status_text = std::sync::Arc::new(std::sync::Mutex::new(
+        i18n::t("等待画面…", "Waiting for video…").to_string(),
+    ));
     // The preview window is toggleable at runtime (tray → Show/Hide Preview),
     // so it owns its own thread + shutdown flag instead of one launched here.
     let mut preview_window = PreviewWindow::new(frame_slot.clone(), status_text.clone());
@@ -917,20 +1031,20 @@ async fn main() -> ExitCode {
                             }
                             Event::FileOffer(offer) => {
                                 let ack = file_rx.begin(offer.clone());
-                                session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                send_file_ack(&session, &ack);
                                 println!("  file: receiving {} ({} bytes)…", offer.name, offer.size);
                             }
                             Event::FileChunk(data) => {
                                 if let Some(ack) = file_rx.append(&data) {
                                     // Only ack progress periodically to avoid flooding.
                                     if ack.received_bytes % (256 * 1024) < data.len() as i64 {
-                                        session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                        send_file_ack(&session, &ack);
                                     }
                                 }
                             }
                             Event::FileComplete(done) => {
                                 if let Some((ack, path)) = file_rx.complete(&done.id) {
-                                    session.send_frame(encode_file_ack(&ack).unwrap_or_default());
+                                    send_file_ack(&session, &ack);
                                     println!("  file: saved to {}", path.display());
                                     #[cfg(windows)]
                                     {
