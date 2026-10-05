@@ -252,8 +252,16 @@ final class CaptureEngine: ObservableObject {
     private var candidate: NWConnection?
     private var candidateParser: IBWire.Parser?
     /// Connection whose `clientHello` is waiting on the user's approval.
+    ///
+    /// The three pending fields and `pendingSince` are written **only** by
+    /// `setPending` / `clearPending`. They used to be assigned inline at seven
+    /// sites, which is how a slot outlived the connection holding it: nothing
+    /// tied the timestamp to the connection, so there was nothing to expire and
+    /// nothing to assert.
     private var pendingConnection: NWConnection?
     private var pendingHello: IBClientHello?
+    private var pendingSince: Date?
+    private var pendingWatchdog: Timer?
     /// Identifies the in-flight candidate read so late callbacks from a
     /// superseded connection can't admit the wrong Mac.
     private var handshakeToken: UUID?
@@ -895,9 +903,7 @@ final class CaptureEngine: ObservableObject {
         candidate = nil
         candidateParser = nil
         pendingConnection?.cancel()
-        pendingConnection = nil
-        pendingHello = nil
-        pendingMacName = nil
+        clearPending()
         connection?.cancel()
         clearOwner(reason: .disconnected)
         isStreaming = false
@@ -1510,9 +1516,7 @@ final class CaptureEngine: ObservableObject {
                 let incumbent = pendingMacName ?? "another computer"
                 Forensic.log("[hs] paired newcomer takes the pending slot from \(incumbent)")
                 pending.cancel()
-                pendingConnection = nil
-                pendingHello = nil
-                pendingMacName = nil
+                clearPending()
             } else {
                 replyBusy(on: conn, ownerName: pendingMacName ?? "another computer")
                 return
@@ -1534,9 +1538,7 @@ final class CaptureEngine: ObservableObject {
             guard let mac = pairingStore.paired.first(where: { $0.id == hello.id }) else {
                 // Shouldn't happen, but never strand the Mac.
                 sendSessionReply(IBSessionReply(result: .pending), on: conn)
-                pendingConnection = conn
-                pendingHello = hello
-                pendingMacName = hello.name
+                setPending(connection: conn, hello: hello, name: hello.name)
                 return
             }
             sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
@@ -1545,16 +1547,12 @@ final class CaptureEngine: ObservableObject {
             // Headless e2e: auto-approve so a run needs no phone tap.
             if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUTOPAIR"] == "1" {
                 sendSessionReply(IBSessionReply(result: .pending), on: conn)
-                pendingConnection = conn
-                pendingHello = hello
-                pendingMacName = hello.name
+                setPending(connection: conn, hello: hello, name: hello.name)
                 approvePendingMac()
                 return
             }
             sendSessionReply(IBSessionReply(result: .pending), on: conn)
-            pendingConnection = conn
-            pendingHello = hello
-            pendingMacName = hello.name
+            setPending(connection: conn, hello: hello, name: hello.name)
         case .busy(let ownerName):
             replyBusy(on: conn, ownerName: ownerName)
         }
@@ -1587,9 +1585,7 @@ final class CaptureEngine: ObservableObject {
         handshakeToken = nil
         candidate = nil
         candidateParser = nil
-        pendingConnection = nil
-        pendingHello = nil
-        pendingMacName = nil
+        clearPending()
 
         // The preferred Mac arrived — the switch is done, open the door.
         if let mac, mac.id == pairingStore.preferredId {
@@ -1644,8 +1640,17 @@ final class CaptureEngine: ObservableObject {
         }
         // The speaker is resumed the way the camera is: it only takes effect
         // once a session exists, so restoring it here cannot capture anything
-        // on a Mac we are not connected to.
-        if UserDefaults.standard.bool(forKey: Self.speakerHabitKey), !features.speakerOn {
+        // on a computer we are not connected to.
+        //
+        // NOT on Windows, and that is the whole point of the policy: there the
+        // speaker entry was hidden, so resuming the habit switched the
+        // microphone off with no control anywhere to switch it back on
+        // (`AudioModeArbiter` ranks the speaker above the mic).
+        if SpeakerRestorePolicy.shouldResume(
+            habit: UserDefaults.standard.bool(forKey: Self.speakerHabitKey),
+            alreadyOn: features.speakerOn,
+            connectedIsWindows: connectedIsWindows
+        ) {
             features.set(feature: .microphone, enabled: false)
             features.set(feature: .speaker, enabled: true)
         }
@@ -1898,12 +1903,23 @@ final class CaptureEngine: ObservableObject {
         switch state {
         case .failed, .cancelled:
             handshakeTask?.cancel()
+            // Read the dying connection's identity BEFORE clearing anything.
+            //
+            // This compared `pendingConnection === candidate` *after* setting
+            // `candidate = nil`, so the question was always "is nil the slot
+            // holder?" — never true, and the three cleanup lines below were
+            // dead code. A computer that died mid-approval therefore kept
+            // answering `busy` to every other computer, naming itself, until
+            // the app was restarted.
+            let dying = candidate.map(ObjectIdentifier.init)
+            let holder = pendingConnection.map(ObjectIdentifier.init)
+            let wasHoldingTheSlot = PendingSlotPolicy.isHeld(byDying: dying, pending: holder)
             candidate = nil
             candidateParser = nil
-            if pendingConnection === candidate {
-                pendingConnection = nil
-                pendingHello = nil
-                pendingMacName = nil
+            if wasHoldingTheSlot {
+                let name = pendingMacName ?? "the computer"
+                Forensic.log("[hs] \(name) disconnected while awaiting approval — releasing the slot")
+                clearPending()
             }
         default:
             break
@@ -1942,9 +1958,7 @@ final class CaptureEngine: ObservableObject {
         pairingStore.noteOutcome(.denied, for: hello.id)
         refreshPairedMacs()
         sendSessionReply(IBSessionReply(result: .denied), on: conn)
-        pendingConnection = nil
-        pendingHello = nil
-        pendingMacName = nil
+        clearPending()
         queue.asyncAfter(deadline: .now() + 0.4) { conn.cancel() }
     }
 
@@ -2118,6 +2132,25 @@ final class CaptureEngine: ObservableObject {
     private func stopCommandExpiry() {
         commandExpiryTimer?.invalidate()
         commandExpiryTimer = nil
+    }
+
+    /// A receiver says it can no longer decode what it has (wire kind 0x25).
+    ///
+    /// The answer is an IDR, not an error and not silence: a receiver that has
+    /// lost a reference frame will otherwise keep displaying a plausible-looking
+    /// wrong picture, which is worse than a visible glitch because the user
+    /// cannot tell it is wrong. OpenH264's own guidance for a decoder that has
+    /// fallen behind is `ForceIntraFrame` (issues #1998, #1163).
+    private func handleKeyframeRequest() {
+        guard KeyframeRequestPolicy.shouldForceIntraFrame(
+            sessionActive: connection != nil,
+            cameraOn: features.cameraOn
+        ) else {
+            Forensic.log("[video-forensic] keyframe request ignored (session=\(connection != nil) camera=\(features.cameraOn))")
+            return
+        }
+        encoder.requestForceIntraFrame()
+        Forensic.log("[video-forensic] keyframe request honoured — asking VideoToolbox for an IDR")
     }
 
     private func resolveCommand(_ result: IBCommandResult) {
@@ -2508,6 +2541,50 @@ final class CaptureEngine: ObservableObject {
         startLatencyProbes()
     }
 
+    // MARK: - The approval slot
+
+    /// Put a connection in the approval slot, or empty it.
+    ///
+    /// One writer for all four fields, so "a slot exists" and "a slot has a
+    /// timestamp and a watchdog" cannot drift apart — the drift is what let a
+    /// dead connection keep the slot and answer `busy` to every computer.
+    private func setPending(connection: NWConnection?,
+                            hello: IBClientHello?,
+                            name: String?) {
+        pendingConnection = connection
+        pendingHello = hello
+        pendingMacName = name
+        pendingSince = connection == nil ? nil : Date()
+        pendingWatchdog?.invalidate()
+        pendingWatchdog = nil
+        guard connection != nil else { return }
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkPendingLiveness() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pendingWatchdog = timer
+    }
+
+    private func clearPending() {
+        setPending(connection: nil, hello: nil, name: nil)
+    }
+
+    /// Release an approval request nobody ever answered.
+    ///
+    /// Identity alone is not enough: `NWConnection` does not deliver
+    /// `.cancelled` on every exit path, and a slot with no timer has no second
+    /// line of defence. This is the pending half of what
+    /// `checkOwnerLiveness` does for the owner.
+    private func checkPendingLiveness() {
+        guard let since = pendingSince, let conn = pendingConnection else { return }
+        let waited = Date().timeIntervalSince(since)
+        guard PendingSlotPolicy.isExpired(waited: waited) else { return }
+        let name = pendingMacName ?? "another computer"
+        Forensic.log("[hs] approval request from \(name) timed out after \(Int(waited))s — releasing the slot")
+        clearPending()
+        conn.cancel()
+    }
+
     private func stopOwnerWatchdog() {
         ownerWatchdog?.invalidate()
         ownerWatchdog = nil
@@ -2612,6 +2689,8 @@ final class CaptureEngine: ObservableObject {
                 if let result = try? IBWire.decodeCommandResult(frame) {
                     resolveCommand(result)
                 }
+            case .requestKeyframe:
+                handleKeyframeRequest()
             case .speakerAudio:
                 // Payload is PCM (see IBWire.encode(speakerAudio:)), so the
                 // bytes go straight into the player — no decoder on this path.
@@ -2916,7 +2995,7 @@ final class CaptureEngine: ObservableObject {
                     // 20 ms x 50 = every second. This is the line that proves
                     // audio actually moved, rather than the control merely
                     // reporting itself as on.
-                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) queued=\(self.speakerPlayer.queuedPackets) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pcmPeak=\(self.speakerPlayer.receivedPeak) \(self.speakerPlayer.playbackQualityText) envelope=\(self.speakerPlayer.envelopeText)")
+                    Forensic.log("[e2e] speaker audio enqueued=\(self.speakerPlayer.packetsEnqueued) played=\(self.speakerPlayer.packetsScheduled) silence=\(self.speakerPlayer.silencePacketsScheduled) queued=\(self.speakerPlayer.queuedPackets) starved=\(self.speakerPlayer.starvedDrops) pcmRms=\(Int(self.speakerPlayer.receivedRms)) pktRms=\(Int(self.speakerPlayer.latestPacketRms)) pcmPeak=\(self.speakerPlayer.receivedPeak) \(self.speakerPlayer.playbackQualityText) envelope=\(self.speakerPlayer.envelopeText)")
                 }
             }
         }
