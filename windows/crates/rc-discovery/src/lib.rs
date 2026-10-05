@@ -9,7 +9,7 @@
 use std::net::IpAddr;
 use std::time::Duration;
 
-use mdns_sd::{ServiceDaemon, ServiceEvent};
+use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -20,6 +20,12 @@ pub const HOTSPOT_GATEWAY: &str = "172.20.10.1";
 
 /// The fixed TCP port the iOS app listens on.
 pub const DEFAULT_PORT: u16 = 8765;
+
+/// The service type a receiver advertises so the phone can see it online.
+///
+/// MUST stay distinct from the phone's `_remotecrab._tcp.local.`: the receiver
+/// browses that one for iPhones, and reusing it would make it dial computers.
+pub const SERVICE_TYPE_COMPUTER: &str = "_remotecrab-computer._tcp.local.";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
@@ -73,6 +79,59 @@ pub fn browse(service_type: &str) -> Result<UnboundedReceiver<DiscoveryEvent>, D
     });
 
     Ok(rx)
+}
+
+/// A running presence announcement. Dropping it does not unregister; call
+/// [`PresenceAdvertiser::stop`] so the phone sees the computer go offline
+/// promptly instead of waiting for the record's TTL.
+pub struct PresenceAdvertiser {
+    daemon: ServiceDaemon,
+    fullname: String,
+}
+
+impl PresenceAdvertiser {
+    pub fn stop(self) {
+        let _ = self.daemon.unregister(&self.fullname);
+    }
+}
+
+/// Build the service this computer announces. Pure enough to test the TXT
+/// contract without a network. Port 0: the phone reads the TXT, it never
+/// connects here.
+pub fn presence_service_info(
+    instance: &str,
+    id: &str,
+    name: &str,
+    platform: &str,
+) -> Result<ServiceInfo, DiscoveryError> {
+    let host = format!("{}.local.", instance.replace(' ', "-"));
+    let mut props = std::collections::HashMap::new();
+    props.insert("id".to_string(), id.to_string());
+    props.insert("name".to_string(), name.to_string());
+    props.insert("platform".to_string(), platform.to_string());
+
+    let info = match local_ipv4_addresses().into_iter().next() {
+        Some(ip) => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, ip.as_str(), 0u16, props)?,
+        None => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, (), 0u16, props)?,
+    };
+    Ok(info)
+}
+
+/// Announce this computer on the LAN so an iPhone can show it as online.
+///
+/// The TXT keys/values are the same contract the Mac `PresenceAdvertiser`
+/// publishes; the phone parses one format.
+pub fn advertise(
+    instance: &str,
+    id: &str,
+    name: &str,
+    platform: &str,
+) -> Result<PresenceAdvertiser, DiscoveryError> {
+    let daemon = ServiceDaemon::new()?;
+    let info = presence_service_info(instance, id, name, platform)?;
+    let fullname = info.get_fullname().to_string();
+    daemon.register(info)?;
+    Ok(PresenceAdvertiser { daemon, fullname })
 }
 
 fn phone_from_resolved(info: &mdns_sd::ResolvedService) -> DiscoveredPhone {
@@ -400,4 +459,44 @@ mod tests {
         assert!(!is_usable_dial_address("127.0.0.1"));
     }
 
+    #[test]
+    fn presence_service_type_is_distinct_from_the_phone_service() {
+        assert_eq!(SERVICE_TYPE_COMPUTER, "_remotecrab-computer._tcp.local.");
+        assert_ne!(SERVICE_TYPE_COMPUTER, "_remotecrab._tcp.local.");
+    }
+
+    /// The TXT contract the phone parses, pinned as data so Mac and Windows
+    /// cannot drift on key spelling.
+    #[test]
+    fn presence_service_info_carries_the_frozen_txt_contract() {
+        let info = presence_service_info("rc-presence-test", "id-9", "Test PC", "windows").unwrap();
+        assert_eq!(info.get_type(), SERVICE_TYPE_COMPUTER);
+        let props = info.get_properties();
+        assert_eq!(props.get("id").map(|p| p.val_str()), Some("id-9"));
+        assert_eq!(props.get("name").map(|p| p.val_str()), Some("Test PC"));
+        assert_eq!(props.get("platform").map(|p| p.val_str()), Some("windows"));
+    }
+
+    /// End-to-end over real mDNS. `#[ignore]`: it needs a host whose process
+    /// may bind multicast (some CI/sandbox hosts refuse it), so it does not
+    /// gate every commit. Run it explicitly with
+    /// `cargo test -p rc-discovery -- --ignored an_advertised_computer`.
+    #[tokio::test]
+    #[ignore]
+    async fn an_advertised_computer_is_found_by_a_browser() {
+        let adv = advertise("rc-presence-test", "id-9", "Test PC", "windows").unwrap();
+        let mut rx = browse(SERVICE_TYPE_COMPUTER).unwrap();
+        let found = tokio::time::timeout(Duration::from_secs(15), async {
+            while let Some(ev) = rx.recv().await {
+                if let DiscoveryEvent::Found(p) = ev {
+                    if p.name == "Test PC" {
+                        return;
+                    }
+                }
+            }
+        })
+        .await;
+        assert!(found.is_ok(), "browser never found the advertised computer");
+        adv.stop();
+    }
 }
