@@ -447,3 +447,96 @@ so a cross-reference from another lesson still resolves.
     验证方式值得抄：把真的 `IBShortcutBar` 塞进 `NSWindow` 截图
     （`ImageRenderer` 不给 `ScrollView` 布局，会静默不画内容），
     **双向确认**——改回旧代码渲染出 `⌃⌥⌘⇧`，改回来才出 `Ctrl Alt ⊞ Shift`。
+
+## 148 · 交接文档里的「**没做**」也是断言 —— 而且比「做了」更容易过期
+
+2026-10-06，接 lesson 117 的反面。lesson 117 讲的是「交接文档里的『已实现』是
+最强的断言，因为别人无法验证」；这一条是它的镜像，而且**更隐蔽**：
+
+我在 `docs/HANDOFF-WINDOWS-2026-10-05.md` 写下「`0x25 requestKeyframe`
+**没有任何地方发送**」，依据是一条 `grep -rn "RequestKeyframe" rc-app rc-net`
+返回空。Windows session 回填：发送端在 `rc-app/src/main.rs:718-738`，而且
+满足我列的全部三条要求。我复核 —— **他们是对的，我错了**。
+
+**差别只在于我在一棵没拉取的树上 grep。** 我整个 session 都在审计「别人声称做了
+但其实没做」，然后自己在**已经做了**的事上写了「没做」，而且用的是**同一种
+证据形式**（一次 grep）。
+
+**为什么负面断言更危险**：
+
+* 「已做」被推翻时，有人会发现 —— 功能坏了，对不上。
+* 「没做」被推翻时，**没有任何东西会坏**。它只是让下一个人**重新实现一遍**，
+  或者像我这次一样，把一条已经完成的活又写进待办。
+* 而「没做」的证据（一次 grep、一个 `ls`）看起来和「做了」的证据**一样硬**。
+
+**规则**：**断言别人的东西「没做」之前，先 `git fetch`，并在拉取后的树上确认；
+把这个基线 commit 号写进文档**（我写了 `code_baseline: 0e9f423`，而那条断言就是
+在那个基线上做的 —— 有用的信息本来就在手边，没用上）。
+**并且：把「没做」写成「我没找到证据它做了，基线是 X」，而不是「它没做」。**
+
+## 149 · 会输出判决的工具，必须能用**它自己的输入**推翻自己的判决
+
+2026-10-06。「预览花屏的根因是 B 帧」这个结论，是靠在
+`docs/demo/remotecrab-demo.mp4` 上跑 OpenH264 得来的。要判断 iOS 要不要加
+`NumberOfBFramesBetweenReferenceFrames: 0`，最直接的办法就是让真实的编码器回答。
+
+`scripts/vt-bframe-probe.swift` 拿 `H264Encoder.createSession` 的**原样 7 个 key**
+跑真VideoToolbox，150 帧确定性噪声，输出 Annex-B 给 ffprobe：
+
+| mode | `AllowFrameReordering` | `has_b_frames` |
+|---|---|---|
+| `shipping`（线上那套 key） | `false` | **0** |
+| `reorder`（**对照组**） | `true` | **2** |
+
+**对照组才是这个工具存在的理由。** 如果两档都打 0，那不是「线上配置没有 B 帧」，
+而是「这个探针看不见 B 帧」—— 而这两种情况在输出上**完全一样**。
+lesson 76/111 是同一个形状：断言必须能反向失败。
+
+（顺带：`reorder` 的 **2** 和那个 demo 文件的 `has_b_frames=2` 一模一样 ——
+说明那个文件就是一个「允许重排序」的编码结果，也就是 libx264 的默认值。
+见 lesson 150。）
+
+另外两条同源的：
+
+* 探针**先读 `H264Encoder.swift` 确认那 7 个 key 还在**，对不上就退出。
+  否则它会安静地测量上个月的配置，而**输出的数字仍然看起来完全正常**——
+  这是 lesson 141「手机报告的是它自己以为的事」的同构版。
+* 第一版探针有**两个 bug，都是跑出来的**：VideoToolbox 回的是
+  **AVCC（长度前缀）**，我直接写文件，ffprobe 读出来是
+  `profile=unknown width=0 has_b_frames=0` —— **一个完美解析、答案全错的文件**。
+  而 NAL 普查是空的，正好是「错」的第一个信号。第二个是
+  `CMVideoFormatDescriptionGetH264ParameterSetAtIndex` 的**返回值是 OSStatus 不是
+  数量**，我拿它当 count，于是 SPS/PPS 一个没取到，ffprobe 报
+  `non-existing PPS 0 referenced`。**一个工具写出无人能解析的产物，而产物本身
+  看起来是有内容的** —— 所以「产出非零」不等于「产出可读」。
+
+## 150 · 仓库里那个「看起来像产品录制的」文件，可能**根本不是产品录的**
+
+2026-10-06，接 lesson 141。`docs/demo/remotecrab-demo.mp4` 被当作
+「本产品自己录的 demo」用来**证明产品的码流有 B 帧**。它不是。
+
+它是 `scripts/demo-video.sh:99` 用 **`-c:v libx264 -preset medium -crf 20`**
+生成的，输入是 `screencapture -V 33` 录的 **macOS 屏幕**（模拟器窗口 + Mac
+接收端窗口并排）：
+
+```
+$ ffprobe -v error -select_streams v:0 -show_entries stream=profile,has_b_frames,width,height \
+    -of default=nw=1 docs/demo/remotecrab-demo.mp4
+profile=High        has_b_frames=2        width=1468   height=1180
+```
+
+三条各自都足以推翻它：
+
+* `High profile` + `has_b_frames=2` 是 **libx264 的默认值**，不是 VideoToolbox 的；
+* **1468x1180 是并排合成画面**，而产品的码流是 **1080x1920** —— 尺寸上就不可能；
+* 输入是 **macOS 录屏**，模拟器**没有摄像头**，所以它连手机的画面都不是。
+
+**而它的数字全部可复现**：`decode_file` 27 帧 / 728 NAL / 694 无输出 / refused 1388，
+我逐个重跑一帧不差。**工具是对的、测量是对的、结论是错的** —— 因为输入不是
+被测对象。所以「我复现了你的数字」根本不构成「你的结论成立」的证据。
+
+**规则**：**引用仓库里任何文件作为产品行为的证据之前，先问「它是谁生成的」。**
+`screencapture` / `ffmpeg` / 拼图 / 缩放 / 转码，都会在产物里留下**不是产品的**
+指纹。凡是「我们录的」「我们导出的」这类描述，都应该能指到**生成它的命令**；
+指不到就不该被当证据。这和 lesson 141（「`IBStreamMetadata` 报的是请求的码率」）
+是同一条：**测量的对象必须真的是被测的那个东西。**

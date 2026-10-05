@@ -1,14 +1,23 @@
 ---
-title: 交接给 Windows session —— Mac 侧做完了，剩下四件只有你的机器能量
+title: 交接给 Windows session —— Mac 侧做完了，剩下三件只能在你那台机器上量
 type: handoff
 status: current
 last_verified: 2026-10-05
-code_baseline: 0e9f423
+code_baseline: 25cd33f
 ---
 
-# 交接：Mac 侧四条已修完，剩下四件只能在你那台 Windows 机器上做
+# 交接：Mac 侧四条已修完，剩下三件只能在你那台 Windows 机器上做
 
 读者：**Windows session**。写的人：**Mac session**（2026-10-05）。
+
+> **你就是那个要拉一下看这份文档的人。先读这一段就够开工：**
+>
+> 1. **§2 是唯一一件真正等你动手的新活**（iPhone ↔ Windows 扬声器出声）。
+> 2. **§1、§4 你已经做完了**（`0x25` 发送逻辑、解析器、minifb）—— 别重做。
+> 3. **§3 已经作废**：iOS **不要**加 `NumberOfBFramesBetweenReferenceFrames: 0`。
+> 4. **§5 排最后**：它需要一个手机侧还不存在的日志，不是你能在本机了结的。
+>
+> 拉取之后先 `git log --oneline -1` 确认基线是 `25cd33f` 或更新。
 
 先说清楚**已经不用你做的**，免得你重做：
 
@@ -18,6 +27,7 @@ code_baseline: 0e9f423
 | 4d 形状断言用累计平均，数学上不可能通过 | ✅ 已修（`SpeakerEnvelope`，6 测试） |
 | iOS 接收 `0x25 requestKeyframe` | ✅ 已实现（`0x25` + `ForceIntraFrame`） |
 | 「加 `NumberOfBFramesBetweenReferenceFrames: 0`」 | 🔴 **别做**，前提无效，见 §3 |
+| 你说「需要 Mac toolchain 故意没做」的两条 Mac 侧漂移 | ✅ **早就做完了**，已复核，见 §6 |
 
 ---
 
@@ -243,13 +253,29 @@ crate，等你们自己修；**13:25 和 13:53 两个提交都做了，Mac 侧�
 
 ## 6. 本 session 在 Mac 侧做完的（可以对照着看）
 
-`6fff9d5` + 后续提交，**560 Core 测试**（本轮 +20）、两个 app target、
+`6fff9d5` 起的一串提交，**578 Core 测试**（本轮 +38）、两个 app target、
 Windows 套件、`cargo build --workspace` 全绿；每一条新断言都反向验过
 （改坏生产值看它变红，再还原）。
 
 另外一条你现在可以拿去用的实测：**Windows 上 `fatal runtime error: Rust cannot
 catch foreign exceptions` 是托管方式不是 Windows 缺陷**（`--preview` 默认开，
 minifb 在 macOS 开不了 Cocoa 窗口），`--no-preview` / `--decode-only` 立刻正常。
+
+### 6.1 你说「需要 Mac toolchain 故意没做」的那两条 —— **复核后：早就做完了**
+
+`HANDOFF_WINDOWS_MSI.md` §Drift 里那条「Mac/iOS side：Windows key row in
+`KeyboardScreen.swift`；`ContextProfiles.swift` should match on `AppInfo.name`」
+被记成**故意没做**。两条都早已落地：
+
+* `KeyboardScreen.swift:241` 是 `IBModifierBar.visibleModifiers(for: engine.peerPlatform)`，
+  且 `IBModifierBar` 的 `platform` **没有默认值**（编译器强制四个调用点表态，
+  所以不可能有一个忘记传）；`meta = "⊞"` 顶替 ⌘，由 `visibleModifiers(for:)`
+  保证两者永不同时出现。
+* `ContextProfiles.profile(for:platform:in:)` 在 `.windows` 下走
+  `normalizedProcessName(app.name)` 对 `windowsProcessNames`，macOS 下走
+  `bundleIDs.contains(app.id)` —— 正是要的「按进程名匹配」。
+
+**仍然需要真机的是 `docs/WINDOWS-GAPS-2026-10-03.md` §5.6 那 10 条，不是这两行代码。**
 
 ## 7. 交付
 

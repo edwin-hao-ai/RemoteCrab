@@ -1004,6 +1004,10 @@ cross-references rather than the file order.
 | 144 | **按例子写的守测试，覆盖率是 0** — 26 个 key 全都已经是干净的；换成按界面枚举后当场抓到 4 条中英不一致 | [`ios-device`](docs/lessons/ios-device.md) |
 | 145 | **一个悄悄什么都没扫的解析器，和一张干净的健康报告长得一模一样** — 四次解析器 bug 全靠「未解析即硬失败」逼出来 | [`ios-device`](docs/lessons/ios-device.md) |
 | 146 | **一个会误报的 preflight 比没有更糟**，因为它教你忽略它 — LITERAL 与 MARKER 必须分开 | [`windows`](docs/lessons/windows.md) |
+| 147 | **共享 index：一个提交可以只装下别人的文件，而说明和内容毫无关系** — 显式 pathspec 提交 + 每次核对 `git show --name-status` | [`windows`](docs/lessons/windows.md) |
+| 148 | **交接文档里的「没做」也是断言，而且比「做了」更容易过期** — 我在一棵没拉取的树上 grep 就断言 `0x25` 没发送，被对方当场纠正 | [`protocol`](docs/lessons/protocol.md) |
+| 149 | **会输出判决的工具必须能用它自己的输入推翻自己** — B 帧探针的对照组（shipping `0` / reorder `2`）；第一版写出「完美解析、答案全错」的 AVCC 文件 | [`protocol`](docs/lessons/protocol.md) |
+| 150 | **仓库里那个「看起来像产品录制的」文件，根本不是产品录的** — demo mp4 是 libx264 从 macOS 录屏合成的，`1468x1180` vs 产品 `1080x1920` | [`protocol`](docs/lessons/protocol.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1248,6 +1252,25 @@ If you're new, also read:
 - **`RemoteCrabCapture/OnboardingFlow.swift`** — how the user gets into the app
 
 ---
+
+_Last updated: 2026-10-05 (later, **审计 Windows 的交接 —— 四条真 bug 一条都没做，而第五条「已实现」的前提无效，照做就是修一个不存在的病**). 用户要求「拉取、审计、看看他们做了没有，全部都做」。**先量后答，逐条对着代码核。**
+
+**交接 ≠ 已实现（lesson 117 的实测）**：Windows 10-04 交接的四条**全部未修** —— 死掉的 pending 锁死手机（`handleCandidateState` 逐字还是那段死代码）、扬声器习惯静默关麦克风、4d 包络用累计平均、iOS 接收 `0x25`。而他们**「已完成」的那些基本是真的**（三个工具实跑数字一帧不差、`0x24` 确有发送路径、门禁已补）—— **所以不是交接全都不可信，是不可信的恰好是最关键那条，而它写得最确定**。
+
+**B 帧问题在一台 Mac 上答完了**：那个「决定性实验」解码的是 `docs/demo/remotecrab-demo.mp4`，而那是 `scripts/demo-video.sh:99` 用 `-c:v libx264` 从 **macOS 录屏**生成的（`1468x1180` 并排合成 vs 产品 `1080x1920`）。**编码器完全由 key 配置，所以不需要手机** —— `scripts/vt-bframe-probe.swift` 拿 `H264Encoder` 的原样 7 个 key 跑真 VideoToolBox，**带对照组**：`shipping has_b_frames=0` / `reorder has_b_frames=2`。**对照组是重点**：两档都打 0 就是「探针看不见」，和「线上没 B 帧」输出上完全一样（lessons 76/111/149）。结论：**别加那个 key**。诚实边界：macOS 的 VideoToolBox，能否证不能证明。
+
+**顺带查出没人写下来的更危险的一条**：`IBWire` 对不认识的 kind 回退 `.video`，所以**任何本 build 不认识的 kind 都被当成 H.264 NAL 喂进解码器**（含 `0x24`/`0x25`）—— Windows 侧给 `from_u8_or_video` 加了守卫测试，Swift 侧当时什么都没有。
+
+**我自己的错更值得记**：
+① **一件已经做了的事我写了「没做」** —— 断言 `0x25` 没有任何地方发送，Windows 回填发送端在 `rc-app/src/main.rs:718-738`，复核**他们对的**。区别只在于**我在一棵没拉取的树上 grep** → lesson 148（交接里的「没做」也是断言，比「做了」更容易过期，因为没有任何东西会坏，只是让下个人重做一遍）。
+② **共享 index 把代码卷走两次** —— 一次 add 8 个提交出 11 个；一次**对方的提交只装了我的 6 个文档而源码不在里面**，说明和内容毫无关系 → lesson 147（`git commit -F <file> -- <明确路径>`，`-F` 必须在 `--` **之前**；发现卷进来用 `git reset --soft`，**绝不 `--hard`**）。
+③ **我自己的 diff 有两个真缺陷**：注释重复两遍（正是我刚批评的那种）和两行并成一行 —— **审自己的 diff 是独立工序**。
+
+**待办全部过了一遍并更新**：MSI 里派给 Mac 的那条（标着「需要 Mac toolchain 故意没做」）**早已完成**（`KeyboardScreen.swift:241` 是 `visibleModifiers(for: engine.peerPlatform)` 且 `platform` 无默认值；`ContextProfiles` 在 Windows 下按进程名匹配）→ 打勾并附证据。`WINDOWS_TODO.md` 写「385 个 Windows 测试、Core 367」→ 实测 **514 / 37 个二进制** 和 **578**，低了 100 多且没人重数 → 改并标注算的是哪份树。剩下 **37 + 16 + 10** 个框逐条看过：**没有一个是 Mac 侧能靠写代码勾掉的**，每份文档现在都写明了这点。
+
+**新的交接 `docs/HANDOFF-WINDOWS-2026-10-05.md`**（`PROMPT-WINDOWS-SESSION.md` 的第 0 项，从它开始读）。**Windows 那边还剩**：扬声器 iPhone↔Windows 出声（唯一没跑过的一段）、`§5.6` 那 10 条真机项、以及 listener 那条 —— 标成**未复现也未排除**（「从没启动」和「启动了又被停」从外面完全一样），了结它需要手机侧**还不存在**的两行日志，所以明说排最后。
+
+Lessons 147-150._
 
 _Last updated: 2026-10-05 (**Windows 端终于能在 Mac 上被联调了 —— 而修它的过程里，
 我的第一个修复是错的，还是门禁放行的**). 用户问「有什么办法可以好好联调 Windows 和 Mac」。
