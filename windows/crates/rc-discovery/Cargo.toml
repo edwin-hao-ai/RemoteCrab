@@ -9,3 +9,21 @@ license.workspace = true
 mdns-sd.workspace = true
 tokio.workspace = true
 thiserror.workspace = true
+
+# Enumerating adapters, so an address we advertise (or dial from) is a physical
+# interface rather than whatever the routing table picks — which under a TUN
+# proxy is the tunnel. See `lan_addresses`.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_SystemInformation",
+] }
+
+[dev-dependencies]
+# mdns-sd logs its internal failures through `log`, and nothing was installing a
+# logger — so a registration that silently did nothing looked exactly like one
+# that worked. The diagnostic tests install this to see what it says.
+log = "0.4"

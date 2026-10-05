@@ -1337,9 +1337,11 @@ dependencies = [
 name = "rc-discovery"
 version = "1.0.0"
 dependencies = [
+ "log",
  "mdns-sd",
  "thiserror 2.0.21",
  "tokio",
+ "windows",
 ]
 
 [[package]]

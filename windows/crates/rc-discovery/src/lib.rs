@@ -31,10 +31,231 @@ pub const SERVICE_TYPE_COMPUTER: &str = "_remotecrab-computer._tcp.local.";
 /// connection meaning "dial me back now". See the Swift `IBServiceType.knockPort`.
 pub const KNOCK_PORT: u16 = 8766;
 
+// ---------------------------------------------------------------------------
+// Adapters
+//
+// The addresses this machine can actually be reached on. Everything that
+// answers "which address is mine" by asking the *routing table* gives the wrong
+// answer under a TUN proxy: Clash / Mihomo / sing-box take over the default
+// route, so a probe to a public address comes back with the tunnel's own
+// address. That address is in no peer's subnet, so an advertisement carrying it
+// is unusable and a dial from it is dropped.
+// ---------------------------------------------------------------------------
+
+/// One IPv4 address on one interface, as the OS's adapter table describes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Adapter {
+    /// `IfIndex`, which is also what `IP_UNICAST_IF` wants.
+    pub index: u32,
+    pub addr: std::net::Ipv4Addr,
+    pub prefix_len: u8,
+    /// The OS classifies this interface as a tunnel (TUN/TAP/WAN Miniport),
+    /// loopback, or a proxy by name.
+    pub tunnel: bool,
+}
+
+impl Adapter {
+    /// Whether `target` is on this adapter's own subnet.
+    pub fn covers(&self, target: std::net::Ipv4Addr) -> bool {
+        let mask = prefix_mask(self.prefix_len);
+        u32::from(self.addr) & mask == u32::from(target) & mask
+    }
+}
+
+/// A prefix length as a network-order mask. Out-of-range values are clamped
+/// rather than trusted: a bad `OnLinkPrefixLength` from the OS would otherwise
+/// shift-overflow, which panics in debug and is worse in release.
+pub fn prefix_mask(prefix_len: u8) -> u32 {
+    match prefix_len {
+        0 => 0,
+        32.. => u32::MAX,
+        n => u32::MAX << (32 - n),
+    }
+}
+
+/// Every address this machine has, excluding loopback and link-local.
+///
+/// **Use this, not a routing probe, when the address will be given to a peer.**
+/// A routing probe answers "where would a packet to 8.8.8.8 leave from", and
+/// under a TUN the answer is the tunnel.
+pub fn lan_addresses() -> Vec<std::net::Ipv4Addr> {
+    adapters()
+        .into_iter()
+        .filter(|a| !a.tunnel && a.addr != std::net::Ipv4Addr::LOCALHOST && !a.addr.is_link_local())
+        .map(|a| a.addr)
+        .collect()
+}
+
+/// The local address a connection to `target` should leave from.
+///
+/// Only an address that is **on the target's own subnet** and **not a tunnel**
+/// will do, and that combination is the whole point: under a TUN proxy the
+/// routing table sends a same-WiFi destination into the tunnel, so the only way
+/// to reach the peer is to ask a physical interface to carry it — and the
+/// interface that shares the peer's subnet is the one that can.
+///
+/// `None` when nothing qualifies, which leaves the caller on the ordinary route.
+pub fn lan_source_for(target: std::net::Ipv4Addr) -> Option<std::net::Ipv4Addr> {
+    pick_lan(&adapters(), target)
+}
+
+/// The selection itself, over a list the caller supplies.
+///
+/// Split out so the decision is a unit test: `adapters()` reaches the OS, and a
+/// test that needs a tunnel and a WiFi adapter on the same subnet should not
+/// need either to exist on the machine running it.
+pub fn pick_lan(adapters: &[Adapter], target: std::net::Ipv4Addr) -> Option<std::net::Ipv4Addr> {
+    adapters
+        .iter()
+        // Loopback first: it covers plenty of subnets by prefix and can never
+        // reach a peer.
+        .filter(|a| !a.tunnel && a.addr != std::net::Ipv4Addr::LOCALHOST && !a.addr.is_link_local())
+        .filter(|a| a.covers(target))
+        // Longest prefix wins, so a machine with both a /16 and a /24 on the
+        // same link picks the more specific one rather than whichever the OS
+        // happened to enumerate first.
+        .max_by_key(|a| a.prefix_len)
+        .map(|a| a.addr)
+}
+
+/// Name fragments that are proxies or tunnels in practice.
+///
+/// A heuristic, and the *second* signal rather than the first: `IfType` is the
+/// authoritative answer. But a WinTun-based proxy — Mihomo, sing-box, a
+/// WireGuard client in its wintun mode — reports itself as an ordinary Ethernet
+/// adapter, so for the class of software this exists to work around the name is
+/// all that is left to go on.
+///
+/// Over-matching is the safe direction: worst case a real adapter is excluded as
+/// a source, and the caller falls back to the plain routing behaviour.
+pub fn named_like_a_tunnel(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "tun", "tap", "wintun", "wireguard", "openvpn", "clash", "mihomo", "sing-box", "singbox",
+        "v2ray", "shadowsocks", "vpn",
+    ]
+    .iter()
+    .any(|needle| lower.contains(needle))
+}
+
+#[cfg(windows)]
+pub fn adapters() -> Vec<Adapter> {
+    use windows::Win32::NetworkManagement::IpHelper::{
+        GetAdaptersAddresses, GAA_FLAG_INCLUDE_PREFIX, GAA_FLAG_SKIP_ANYCAST,
+        GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
+    };
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_UNSPEC, SOCKADDR_IN};
+
+    /// `IF_TYPE_SOFTWARE_LOOPBACK` / `IF_TYPE_TUNNEL`, from `ipifcons.h`. Spelled
+    /// as numbers because the `windows` crate exposes them under a feature this
+    /// crate does not otherwise need.
+    const IF_TYPE_SOFTWARE_LOOPBACK: u32 = 24;
+    const IF_TYPE_TUNNEL: u32 = 131;
+
+    // `GAA_FLAG_INCLUDE_PREFIX` is not optional: without it Windows leaves
+    // `OnLinkPrefixLength` as zero, every adapter then covers nothing, and the
+    // whole thing silently does nothing.
+    let flags = GAA_FLAG_SKIP_ANYCAST
+        | GAA_FLAG_SKIP_MULTICAST
+        | GAA_FLAG_SKIP_DNS_SERVER
+        | GAA_FLAG_INCLUDE_PREFIX;
+
+    // Two calls by design: the first sizes the buffer and is expected to fail
+    // with ERROR_BUFFER_OVERFLOW.
+    let mut size: u32 = 0;
+    unsafe {
+        let _ = GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size);
+    }
+    if size == 0 {
+        return Vec::new();
+    }
+
+    let mut buffer = vec![0u8; size as usize];
+    let first = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
+    let rc =
+        unsafe { GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, Some(first), &mut size) };
+    if rc != 0 {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    let mut node = first;
+    while !node.is_null() {
+        // SAFETY: `node` walks the linked list the API filled in `buffer`, and
+        // every node is null-terminated.
+        let adapter = unsafe { &*node };
+        let description = wide_to_string(adapter.Description);
+        let tunnel = adapter.IfType == IF_TYPE_TUNNEL
+            || adapter.IfType == IF_TYPE_SOFTWARE_LOOPBACK
+            || named_like_a_tunnel(&description);
+
+        let mut unicast = adapter.FirstUnicastAddress;
+        while !unicast.is_null() {
+            // SAFETY: as above — this list is inside the same buffer.
+            let entry = unsafe { &*unicast };
+            let sockaddr = entry.Address.lpSockaddr;
+            if !sockaddr.is_null() && unsafe { (*sockaddr).sa_family } == AF_INET {
+                // SAFETY: an `AF_INET` sockaddr is a `SOCKADDR_IN`; the family
+                // check just above is what makes that true.
+                let v4 = unsafe { &*(sockaddr as *const SOCKADDR_IN) };
+                // `S_addr` is the address in network order. Going through its
+                // *memory* bytes is endianness-proof in a way that reading the
+                // `u32` and swapping is not.
+                let bytes = unsafe { v4.sin_addr.S_un.S_addr.to_ne_bytes() };
+                out.push(Adapter {
+                    // `IfIndex` lives in the first union member, alongside `Length`.
+                    index: unsafe { adapter.Anonymous1.Anonymous.IfIndex },
+                    addr: std::net::Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]),
+                    prefix_len: entry.OnLinkPrefixLength,
+                    tunnel,
+                });
+            }
+            unicast = entry.Next;
+        }
+        node = adapter.Next;
+    }
+    out
+}
+
+/// Off Windows there is no adapter table to walk without pulling in `getifaddrs`
+/// or a crate. Empty means every caller falls back to the routing behaviour,
+/// which is what it did before this existed.
+#[cfg(not(windows))]
+pub fn adapters() -> Vec<Adapter> {
+    Vec::new()
+}
+
+/// A `PWSTR` from the adapter table as a `String`. The API guarantees
+/// null-termination; a null pointer is an adapter with no description.
+#[cfg(windows)]
+fn wide_to_string(p: windows::core::PWSTR) -> String {
+    if p.is_null() {
+        return String::new();
+    }
+    let mut len = 0usize;
+    // SAFETY: the API's own strings are NUL-terminated and live in the buffer we
+    // allocated, which outlives this call.
+    unsafe {
+        while *p.0.add(len) != 0 {
+            len += 1;
+            // A runaway pointer would otherwise walk off the end of the process.
+            if len > 1024 {
+                break;
+            }
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(p.0, len))
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
     #[error("mDNS error: {0}")]
     Mdns(#[from] mdns_sd::Error),
+    /// A bad argument, rather than something the network did. Its own variant
+    /// because the two are read by different people: one is a bug in a caller,
+    /// the other is a fact about the LAN.
+    #[error("{0}")]
+    Msg(String),
 }
 
 /// A discovered (or manually entered) iPhone.
@@ -116,9 +337,16 @@ pub fn presence_service_info(
     // The knock port: the phone dials this to say "dial me back now".
     props.insert("port".to_string(), KNOCK_PORT.to_string());
 
+    // The SRV port is the knock port too, not 0. The TXT is what the phone is
+    // documented to read, but an SRV record with port 0 is the mDNS way of
+    // saying "no service here", and a browser is entitled to drop it before the
+    // TXT is ever consulted — which is exactly what happened: the advertisement
+    // was registered and never found, and the test that would have said so had a
+    // broken assertion (see `an_advertised_computer_is_found_by_a_browser`).
+    let port = KNOCK_PORT;
     let info = match local_ipv4_addresses().into_iter().next() {
-        Some(ip) => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, ip.as_str(), 0u16, props)?,
-        None => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, (), 0u16, props)?,
+        Some(ip) => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, ip.as_str(), port, props)?,
+        None => ServiceInfo::new(SERVICE_TYPE_COMPUTER, instance, &host, (), port, props)?,
     };
     Ok(info)
 }
@@ -134,6 +362,18 @@ pub fn advertise(
     platform: &str,
 ) -> Result<PresenceAdvertiser, DiscoveryError> {
     let daemon = ServiceDaemon::new()?;
+    // mdns-sd's default cap is 15 bytes and it is applied to the service **type**,
+    // whose first label here is `_remotecrab-computer` — 21 bytes. So every
+    // registration was rejected, from inside the daemon thread, where `register`
+    // has already returned `Ok` and the only trace is a `log` line nobody has a
+    // logger for. The Windows advertisement therefore never reached the network
+    // at all, which is why the phone showed no green dot while the app printed
+    // "advertising as ...".
+    //
+    // 21 is a perfectly ordinary DNS label (the wire limit is 63); mdns-sd's
+    // default is conservative because it is really about *instance* names, and
+    // it allows raising it to 30.
+    daemon.set_service_name_len_max(30)?;
     let info = presence_service_info(instance, id, name, platform)?;
     let fullname = info.get_fullname().to_string();
     daemon.register(info)?;
@@ -184,6 +424,16 @@ pub async fn probe_tcp(host: &str, port: u16, timeout: Duration) -> bool {
 /// to a public address — the OS picks the egress interface, whose local
 /// address is our primary LAN IP.
 pub fn local_ipv4_addresses() -> Vec<String> {
+    // The adapter table first. The routing probe below cannot be the primary
+    // answer any more: under a TUN proxy it returns the tunnel's own address,
+    // and an advertisement carrying that is one no peer can act on — the phone
+    // showed the computer as offline for exactly this reason.
+    let lan: Vec<String> = lan_addresses().iter().map(|a| a.to_string()).collect();
+    if !lan.is_empty() {
+        return lan;
+    }
+
+    // Fallback for a host where the adapter table is unavailable (off Windows).
     use std::net::UdpSocket;
 
     let mut out = Vec::new();
@@ -475,7 +725,7 @@ mod tests {
     /// cannot drift on key spelling.
     #[test]
     fn presence_service_info_carries_the_frozen_txt_contract() {
-        let info = presence_service_info("rc-presence-test", "id-9", "Test PC", "windows").unwrap();
+        let info = presence_service_info("rc-presence", "id-9", "Test PC", "windows").unwrap();
         assert_eq!(info.get_type(), SERVICE_TYPE_COMPUTER);
         let props = info.get_properties();
         assert_eq!(props.get("id").map(|p| p.val_str()), Some("id-9"));
@@ -489,19 +739,81 @@ mod tests {
         assert_eq!(KNOCK_PORT, 8766);
     }
 
+    /// The service type's first label is what mdns-sd's length cap applies to,
+    /// and `_remotecrab-computer` is 21 bytes against a default of 15.
+    ///
+    /// Not a style rule: mdns-sd enforces it inside its daemon thread, where a
+    /// rejection is a `log` line nobody reads and `register` has already
+    /// returned `Ok`. Every Windows advertisement was rejected that way, so the
+    /// phone never showed a green dot while the app printed "advertising as ..."
+    /// and every test stayed green. `advertise` raises the cap to 30; this
+    /// asserts the type still fits under it, so a future rename of the service
+    /// cannot quietly reintroduce the same silence.
+    #[test]
+    fn the_service_type_fits_mdns_sds_raised_cap() {
+        // The value `advertise` sets. Mirrored here rather than shared because
+        // mdns-sd owns the constant and it is already a literal at the call.
+        const CAP: usize = 30;
+        let label = SERVICE_TYPE_COMPUTER
+            .split('.')
+            .next()
+            .expect("a service type has a first label");
+        assert!(
+            label.len() <= CAP,
+            "{label:?} is {} bytes; mdns-sd will reject every registration",
+            label.len()
+        );
+        assert!(
+            label.len() > 15,
+            "if this ever fits the default, drop the set_service_name_len_max call"
+        );
+    }
+
+    /// Route mdns-sd's own `log` output to stdout.
+    ///
+    /// MDNS-SD's `register` hands its work to a daemon thread, so a failure
+    /// there never reaches the caller: `advertise` returns `Ok` for a
+    /// registration that did nothing at all. Without a logger installed, that is
+    /// indistinguishable from success — which is how the advertisement shipped
+    /// doing nothing while every test stayed green.
+    fn install_logger() {
+        struct Print;
+        impl log::Log for Print {
+            fn enabled(&self, _: &log::Metadata) -> bool {
+                true
+            }
+            fn log(&self, r: &log::Record) {
+                println!("[mdns {}] {}", r.level(), r.args());
+            }
+            fn flush(&self) {}
+        }
+        static PRINT: Print = Print;
+        let _ = log::set_logger(&PRINT);
+        log::set_max_level(log::LevelFilter::Debug);
+    }
+
     /// End-to-end over real mDNS. `#[ignore]`: it needs a host whose process
     /// may bind multicast (some CI/sandbox hosts refuse it), so it does not
     /// gate every commit. Run it explicitly with
     /// `cargo test -p rc-discovery -- --ignored an_advertised_computer`.
+    ///
+    /// It asserts on the mDNS **instance**, not on the TXT `name`. `browse` maps
+    /// every service through `phone_from_resolved`, which takes the display name
+    /// from the instance — for the presence service that is the machine id, and
+    /// the readable name travels in the TXT where the phone reads it. The test
+    /// used to wait for `p.name == "Test PC"`, which this mapping can never
+    /// produce, so it timed out no matter what: it had never once checked that
+    /// advertising works, which is why nobody noticed that it does not.
     #[tokio::test]
     #[ignore]
     async fn an_advertised_computer_is_found_by_a_browser() {
-        let adv = advertise("rc-presence-test", "id-9", "Test PC", "windows").unwrap();
+        install_logger();
+        let adv = advertise("rc-presence", "id-9", "Test PC", "windows").unwrap();
         let mut rx = browse(SERVICE_TYPE_COMPUTER).unwrap();
         let found = tokio::time::timeout(Duration::from_secs(15), async {
             while let Some(ev) = rx.recv().await {
                 if let DiscoveryEvent::Found(p) = ev {
-                    if p.name == "Test PC" {
+                    if p.name == "rc-presence" {
                         return;
                     }
                 }
@@ -510,5 +822,54 @@ mod tests {
         .await;
         assert!(found.is_ok(), "browser never found the advertised computer");
         adv.stop();
+    }
+
+    /// Print the record this machine would advertise. For diagnosing "the
+    /// browser finds other computers but not this one".
+    #[test]
+    #[ignore]
+    fn print_presence_service_info() {
+        let info = presence_service_info("rc-diag", "id-9", "EDWIN", "windows").unwrap();        println!("fullname : {}", info.get_fullname());
+        println!("hostname : {}", info.get_hostname());
+        println!("port     : {}", info.get_port());
+        println!("addresses: {:?}", info.get_addresses());
+        for p in info.get_properties().iter() {
+            println!("txt      : {} = {}", p.key(), p.val_str());
+        }
+        println!("local_ipv4_addresses: {:?}", local_ipv4_addresses());
+    }
+
+    /// Browse only, and print every event. For diagnosing an advertisement that
+    /// comes from *another* process:
+    ///
+    /// ```sh
+    /// # terminal 1: the receiver, which advertises
+    /// remotecrab.exe --no-tray
+    /// # terminal 2
+    /// cargo test -p rc-discovery --release -- --ignored browse_computers --nocapture
+    /// ```
+    ///
+    /// Split from the round-trip test because one process that advertises and
+    /// browses the same service type has two `ServiceDaemon`s in it, which is a
+    /// different situation from the product's and is not a diagnosis of it.
+    #[tokio::test]
+    #[ignore]
+    async fn browse_computers_and_print_events() {
+        install_logger();
+        let mut rx = browse(SERVICE_TYPE_COMPUTER).unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+        loop {
+            match tokio::time::timeout_at(deadline, rx.recv()).await {
+                Ok(Some(ev)) => println!("EVENT: {ev:?}"),
+                Ok(None) => {
+                    println!("channel closed");
+                    break;
+                }
+                Err(_) => {
+                    println!("timed out with no events");
+                    break;
+                }
+            }
+        }
     }
 }

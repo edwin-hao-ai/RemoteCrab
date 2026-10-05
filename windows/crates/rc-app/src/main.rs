@@ -621,7 +621,13 @@ async fn main() -> ExitCode {
     #[cfg(windows)]
     let _presence = {
         let (id, name) = rc_net::Session::pc_identity();
-        match rc_discovery::advertise(&id, &id, &name, "windows") {
+        // A short, stable instance key. Not a correctness requirement — the
+        // failure that kept this advertisement off the network was mdns-sd's cap
+        // on the service *type*, fixed in `rc-discovery::advertise` — but a
+        // 36-byte UUID is what a generic mDNS browser would show, and the
+        // readable name is already in the TXT where the phone reads it.
+        let instance: String = format!("rc-{}", id.chars().take(8).collect::<String>());
+        match rc_discovery::advertise(&instance, &id, &name, "windows") {
             Ok(advertiser) => {
                 println!("  presence: advertising as {name} ({id})");
                 Some(advertiser)
