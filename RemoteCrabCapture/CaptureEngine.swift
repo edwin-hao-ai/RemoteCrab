@@ -195,6 +195,11 @@ final class CaptureEngine: ObservableObject {
 
     private var encoder = H264Encoder()
     private var listener: NWListener?
+    /// Discovers computers announcing `_remotecrab-computer._tcp`, so the picker
+    /// can show which are online right now. Independent of the listener/session.
+    private var computerBrowser: NWBrowser?
+    /// Computers currently announcing themselves, freshest browse snapshot.
+    @Published private(set) var onlineComputers: [ComputerPresence] = []
     /// The video data output, kept so rotation changes can re-point the
     /// sample-buffer delegate at a rebuilt encoder and set the capture
     /// connection's rotation angle.
@@ -873,6 +878,7 @@ final class CaptureEngine: ObservableObject {
         do {
             try startListener()
             Forensic.log("[e2e] listener started OK")
+            startComputerBrowser()
             isStreaming = true
             lastVideoFrameAt = Date()
             hasProducedVideoFrame = false
@@ -894,6 +900,7 @@ final class CaptureEngine: ObservableObject {
 
     func stopStreaming() {
         BackgroundKeepAlive.shared.stop()
+        stopComputerBrowser()
         listener?.cancel()
         listener = nil
         handshakeTask?.cancel()
@@ -912,6 +919,40 @@ final class CaptureEngine: ObservableObject {
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
+    // MARK: - Computer presence
+
+    /// Browse `_remotecrab-computer._tcp` so the picker can show which computers
+    /// are online. Read-only: we never connect to this service, the computer
+    /// still dials us.
+    private func startComputerBrowser() {
+        guard computerBrowser == nil else { return }
+        let params = NWParameters.tcp
+        params.includePeerToPeer = true
+        let browser = NWBrowser(for: .bonjour(type: IBServiceType.computer, domain: nil), using: params)
+        browser.browseResultsChangedHandler = { [weak self] results, _ in
+            var found: [ComputerPresence] = []
+            for result in results {
+                guard case let .bonjour(record) = result.metadata else { continue }
+                guard let id = record.dictionary[IBServiceType.PresenceTXT.id], !id.isEmpty else { continue }
+                let name = record.dictionary[IBServiceType.PresenceTXT.name] ?? id
+                let platform = record.dictionary[IBServiceType.PresenceTXT.platform] ?? "macos"
+                found.append(ComputerPresence(id: id, name: name, platform: platform))
+            }
+            Task { @MainActor [weak self] in
+                self?.onlineComputers = found
+            }
+        }
+        browser.start(queue: queue)
+        computerBrowser = browser
+        Self.log.info("browsing \(IBServiceType.computer, privacy: .public)")
+    }
+
+    private func stopComputerBrowser() {
+        computerBrowser?.cancel()
+        computerBrowser = nil
+        onlineComputers = []
+    }
+
     /// Called on every return to the foreground (scenePhase == .active).
     /// iOS suspends the Bonjour listener while the app is backgrounded,
     /// so a previously-streaming app comes back with a dead
@@ -920,6 +961,10 @@ final class CaptureEngine: ObservableObject {
     /// re-register; the Mac side auto-reconnects once we're visible.
     func handleDidBecomeActive() {
         guard isStreaming else { return }
+        // The browse is suspended in the background too — refresh it so the
+        // picker is not stale the moment the user returns.
+        stopComputerBrowser()
+        startComputerBrowser()
         if !captureSession.isRunning {
             // Backgrounding interrupts the capture session; audio
             // (separate AVAudioEngine) survives but video stays dead
