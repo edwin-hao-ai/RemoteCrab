@@ -247,6 +247,9 @@ final class ReceiverSession: ObservableObject {
     /// Stable identity for this Mac, persisted across launches.
     private var macId: String = ReceiverSession.loadMacId()
     private var macName: String = ReceiverSession.loadMacName()
+    /// Announces this Mac on `_remotecrab-computer._tcp` so the iPhone can show
+    /// which computers are online right now.
+    private var presenceAdvertiser: PresenceAdvertiser?
     /// iPhone-name → pairing token, persisted across launches. Lets the
     /// iPhone recognise this Mac without re-prompting.
     private var tokenStore: [String: String] = ReceiverSession.loadTokens()
@@ -340,6 +343,11 @@ final class ReceiverSession: ObservableObject {
         audioPlayer.start()
         Self.log.info("accessibility trusted: \(AXIsProcessTrusted(), privacy: .public)")
         start()
+
+        // Tell the phone this computer is online. Independent of any session.
+        let advertiser = PresenceAdvertiser(id: macId, name: macName)
+        advertiser.start()
+        presenceAdvertiser = advertiser
 
         // Debug: dump the window-capture result and exit. Lets a human (or
         // a script) verify the picker's data without a paired iPhone.
