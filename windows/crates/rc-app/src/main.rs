@@ -492,8 +492,17 @@ fn spawn_knock_listener(session: rc_net::Session) {
                 continue;
             }
             last_acted = std::time::Instant::now();
-            println!("[knock] {peer} asked us to dial back");
-            session.retry_now();
+
+            // **Dial the address that knocked.** A knock is one fact and it is
+            // the useful one: the phone just reached us from there, so it is
+            // reachable there right now. Retrying the *stored* endpoint instead
+            // — which is what this did — meant that after the phone had been on
+            // a different network once, "tap to connect" sat dialing that dead
+            // address forever while the phone was right there on the WiFi. The
+            // stored address is a memory; the source address is a measurement.
+            let host = peer.ip().to_string();
+            println!("[knock] {peer} asked us to dial back — dialing {host} now");
+            session.connect_manual(&host, rc_net::DEFAULT_PORT);
         }
     });
 }
