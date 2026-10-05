@@ -1542,6 +1542,14 @@ final class CaptureEngine: ObservableObject {
         Forensic.log("[hs] hello id=\(hello.id) ownerSet=\(connection != nil) sameToken=\(handshakeToken == token)")
         guard handshakeToken == token else { return }
 
+        // A hello arrived, so this is not a legacy Mac — disarm the 3 s
+        // first-come fallback for this connection. Without this, the `off` /
+        // `busy` replies above did not cancel it, and 3 s later it admitted the
+        // very computer we had just refused as "Computer (legacy)" — which is
+        // why Disconnect appeared to reconnect under a new name.
+        handshakeTask?.cancel()
+        handshakeTask = nil
+
         // Remember every computer that reaches us — before any approval —
         // so "Choose a Computer" can list a machine that has never paired
         // (e.g. this Windows PC on its first connect).
@@ -1617,8 +1625,10 @@ final class CaptureEngine: ObservableObject {
         case .busy(let ownerName):
             replyBusy(on: conn, ownerName: ownerName)
         case .off(let name):
-            // The user disconnected this computer; tell it to stand down.
+            // The user disconnected this computer; tell it to stand down, then
+            // close so it does not sit on an open socket.
             sendSessionReply(IBSessionReply(result: .off, ownerName: name), on: conn)
+            queue.asyncAfter(deadline: .now() + 0.4) { conn.cancel() }
         }
     }
 
