@@ -50,6 +50,7 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             first_run,
             page: Page::Welcome,
             action: Some(on_action),
+            action_message: None,
         });
         CreateWindowExW(
             WINDOW_EX_STYLE::default(),
@@ -233,6 +234,27 @@ unsafe fn build_controls(hwnd: HWND) {
                 None,
                 None,
             );
+
+            // What the last click of that button actually did. Without it, a user
+            // who declines the UAC prompt sees the button come straight back with
+            // no explanation, and the wizard's own text tells them to click again —
+            // which is the advice that cannot work, because the prompt was refused.
+            if let Some((zh, en)) = crate::wizard::action_message() {
+                let _ = CreateWindowExW(
+                    WINDOW_EX_STYLE::default(),
+                    w!("STATIC"),
+                    &windows::core::HSTRING::from(t(zh, en)),
+                    WINDOW_STYLE(0x0001 | 0x0020), // WS_CHILD | WS_VISIBLE
+                    20,
+                    280,
+                    460,
+                    34,
+                    Some(hwnd),
+                    Some(HMENU(std::ptr::null_mut())),
+                    None,
+                    None,
+                );
+            }
         }
 
         let back = CreateWindowExW(

@@ -1,4 +1,4 @@
-//! RemoteCrab for Windows — receiver CLI + status window.
+﻿//! RemoteCrab for Windows — receiver CLI + status window.
 //!
 //! Wires the crates together exactly like the Mac receiver's `ReceiverSession`
 //! does: discovery → TCP handshake → stream → input injection. For the first
@@ -1414,7 +1414,12 @@ fn open_settings() {
         // a second UAC flow that behaves slightly differently from the other two
         // and nobody would notice until it failed.
         install_camera: Box::new(|| {
-            vcam::install_with_elevation();
+            // The button exists only while the camera is unregistered, so its
+            // two failure outcomes are the ones worth a sentence. Discarding the
+            // result -- which is what this used to do -- means a user who clicks
+            // "No" at the UAC prompt watches the button come straight back with
+            // no explanation at all.
+            wizard::install_outcome(vcam::install_with_elevation())
         }),
     });
 }
@@ -1504,7 +1509,9 @@ fn open_wizard() {
             // The action on the camera page: the same one-click, UAC-raising path
             // the tray's install row uses. The wizard does not get a private way
             // to do it, so the two cannot drift.
-            vcam::install_with_elevation();
+            wizard::record_action(wizard::install_outcome(
+                vcam::install_with_elevation(),
+            ))
         }),
     );
 }

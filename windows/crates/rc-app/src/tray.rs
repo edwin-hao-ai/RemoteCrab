@@ -1,4 +1,4 @@
-//! System-tray icon + context menu.
+﻿//! System-tray icon + context menu.
 //!
 //! Follows the Mac menu-bar popover (`MenuBarMenu.swift`) rather than the
 //! Win32 default: a status header, a **labelled section per group**, an icon
@@ -556,36 +556,20 @@ mod win32 {
             #[cfg(windows)]
             ids::INSTALL_VCAM => {
                 let outcome = crate::vcam::install_with_elevation();
-                let msg = match outcome {
-                    crate::elevate::Elevation::PromptAccepted => crate::i18n::t(
-                        "已允许管理员提示 — 正在确认注册结果…",
-                        "Administrator prompt accepted — confirming the registration…",
-                    ),
-                    crate::elevate::Elevation::Declined => crate::i18n::t(
-                        "你取消了管理员提示，所以虚拟摄像头还没有安装。需要时再点这里。",
-                        "You declined the administrator prompt, so the virtual camera is not \
-                         installed. This row will be here when you want it.",
-                    ),
-                    crate::elevate::Elevation::Unavailable => crate::i18n::t(
-                        "这台电脑不允许弹出管理员提示（可能是组策略）。请让管理员运行一次 \
-                         remotecrab.exe --install-vcam。",
-                        "This PC will not show an administrator prompt (a group policy may block \
-                         it). Ask an administrator to run remotecrab.exe --install-vcam once.",
-                    ),
-                    // Only reachable if the tray itself is somehow already
-                    // elevated, in which case the write should have succeeded.
-                    // Say that rather than implying a prompt is needed.
-                    crate::elevate::Elevation::AlreadyElevated => crate::i18n::t(
-                        "已经在管理员权限下运行，但注册仍然失败。",
-                        "Already running as administrator, and the registration still failed.",
-                    ),
-                };
+                // The wording lives in one place, shared with the wizard and the
+                // settings window. Three private copies is three chances to say
+                // something slightly different about the same refusal, and the
+                // copy nobody edits is the one a user reads.
+                if let Some((zh, en)) = crate::wizard::install_outcome(outcome) {
+                    println!("  {}", crate::i18n::t(zh, en));
+                } else {
+                    println!("  administrator prompt accepted - confirming the registration");
+                }
                 // No toast, no status overwrite: the row vanishing from the
                 // next popup *is* the confirmation, because `is_registered` is
                 // re-read every time the menu is built. Overwriting the
                 // connection status with a camera message would be a lie about
                 // the thing the user is actually looking at.
-                println!("  {}", msg);
                 None
             }
             #[cfg(not(windows))]
