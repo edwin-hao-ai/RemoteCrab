@@ -504,7 +504,14 @@ pub(crate) async fn supervisor(
                             eprintln!("[net] ignoring the stored address {h} — not a LAN address");
                         }
                     }
-                    candidates.push(rc_discovery::HOTSPOT_GATEWAY.to_string());
+                    // The hotspot gateway is a dial target only when we are a
+                    // client of the hotspot ourselves. From any other network it
+                    // is an unrelated address, and probing it every tick is what
+                    // put `正在连接 iPhone (172.20.10.1)` in the log on a machine
+                    // whose phone was on 192.168.31.x the whole time.
+                    if rc_discovery::on_iphone_hotspot() {
+                        candidates.push(rc_discovery::HOTSPOT_GATEWAY.to_string());
+                    }
 
                     let mut hit: Option<String> = None;
                     for host in &candidates {
@@ -716,37 +723,13 @@ fn settle_token_key(tokens: &mut TokenStore, learned: &Option<String>, provision
 /// another subnet (the routing table knows better than we do), a hostname that
 /// does not resolve, and every non-Windows build.
 async fn dial(host: &str, port: u16) -> std::io::Result<TcpStream> {
-    let Some(target) = tokio::net::lookup_host((host, port))
-        .await
-        .ok()
-        .and_then(|mut addrs| addrs.find(std::net::SocketAddr::is_ipv4))
-    else {
-        return TcpStream::connect((host, port)).await;
-    };
-    let std::net::SocketAddr::V4(v4) = target else {
-        return TcpStream::connect((host, port)).await;
-    };
-    let Some(local) = crate::route::lan_source_for(*v4.ip()) else {
-        return TcpStream::connect((host, port)).await;
-    };
-
-    let socket = tokio::net::TcpSocket::new_v4()?;
-    socket.bind(std::net::SocketAddr::new(local.into(), 0))?;
-    // Worth a line: when someone reports "it connects now" or "it still does
-    // not", this is the one fact that says whether the workaround engaged.
-    eprintln!("[net] dialing {host}:{port} from {local} (bound to the LAN adapter)");
-    // The resolved address rather than the hostname: `connect` must not resolve
-    // again, or it could land on a different address than the one we chose the
-    // interface for.
-    match socket.connect(target).await {
+    match rc_discovery::connect_bound(host, port).await {
         Ok(stream) => Ok(stream),
         Err(e) => {
             // Worth a line: this is the path that exists to work around a
             // tunnel, so a failure here is the one a user would be asked to
             // report.
-            eprintln!(
-                "[net] could not dial {host}:{port} from {local} ({e}) — falling back to the default route"
-            );
+            eprintln!("[net] could not dial {host}:{port} ({e}) — falling back to the default route");
             TcpStream::connect((host, port)).await
         }
     }

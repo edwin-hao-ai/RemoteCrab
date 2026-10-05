@@ -18,6 +18,19 @@ use tokio::sync::mpsc::UnboundedReceiver;
 /// so probing this address is the escape hatch.
 pub const HOTSPOT_GATEWAY: &str = "172.20.10.1";
 
+/// Whether this machine is itself a client of the iPhone-hotspot network.
+///
+/// The hotspot escape hatch is only an escape hatch from *inside* it. Dialing
+/// `172.20.10.1` from a WiFi the phone is nowhere near cannot succeed, yet the
+/// fallback probed it on every tick — which is how a Windows log filled with
+/// `正在连接 iPhone (172.20.10.1)` while the phone was sitting on 192.168.31.x,
+/// making a working network look broken.
+pub fn on_iphone_hotspot() -> bool {
+    local_ipv4_addresses()
+        .iter()
+        .any(|a| a.starts_with("172.20.10."))
+}
+
 /// The fixed TCP port the iOS app listens on.
 pub const DEFAULT_PORT: u16 = 8765;
 
@@ -412,9 +425,35 @@ fn first_ipv4(addrs: &std::collections::HashSet<mdns_sd::ScopedIp>) -> Option<St
 /// Used by the direct-IP fallback to decide whether a known address is live.
 pub async fn probe_tcp(host: &str, port: u16, timeout: Duration) -> bool {
     matches!(
-        tokio::time::timeout(timeout, TcpStream::connect((host, port))).await,
+        tokio::time::timeout(timeout, connect_bound(host, port)).await,
         Ok(Ok(_))
     )
+}
+
+/// Connect to `host:port` from the adapter that shares the destination's subnet,
+/// when there is one.
+///
+/// **Unbound is not good enough anywhere a TUN proxy might be running.** The
+/// routing table sends a same-LAN destination into the tunnel, and the tunnel
+/// accepts the connection and then fails it — so an unbound probe reports a
+/// *hit* for every address it tries. That is what made the `/24` sweep announce
+/// a phone at whatever host it reached first, and sent the receiver off to dial
+/// a machine with nothing on it. The same reasoning as `lan_source_for`, applied
+/// to every connect rather than only to the session dial.
+pub async fn connect_bound(host: &str, port: u16) -> std::io::Result<TcpStream> {
+    let Ok(ip) = host.parse::<std::net::Ipv4Addr>() else {
+        // A hostname: we cannot know its subnet without resolving, and resolving
+        // is what the unbound path does anyway.
+        return TcpStream::connect((host, port)).await;
+    };
+    let Some(local) = lan_source_for(ip) else {
+        return TcpStream::connect((host, port)).await;
+    };
+    let socket = tokio::net::TcpSocket::new_v4()?;
+    socket.bind(std::net::SocketAddr::new(local.into(), 0))?;
+    socket
+        .connect(std::net::SocketAddr::new(ip.into(), port))
+        .await
 }
 
 /// The machine's own IPv4 addresses (excluding loopback + link-local).
@@ -766,6 +805,23 @@ mod tests {
         assert!(
             label.len() > 15,
             "if this ever fits the default, drop the set_service_name_len_max call"
+        );
+    }
+
+    /// A probe must still find a listener that is really there.
+    ///
+    /// The fix next to this makes probes bind to the LAN adapter, because under
+    /// a TUN an unbound probe reports a hit for every address it tries. The risk
+    /// of a fix like that is over-correcting into "never finds anything", which
+    /// would silently turn the `/24` fallback off — so the positive case is
+    /// pinned here.
+    #[tokio::test]
+    async fn a_probe_finds_a_real_listener() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(
+            probe_tcp("127.0.0.1", port, Duration::from_millis(800)).await,
+            "a bound probe must still reach a listener on the loopback"
         );
     }
 
