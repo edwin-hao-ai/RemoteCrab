@@ -116,6 +116,7 @@ final class WindowsWireContractTests: XCTestCase {
         // hard-codes the constant it is checking cannot catch it moving.
         XCTAssertEqual(IBWire.Kind.notification.rawValue, 0x22)
         XCTAssertEqual(IBWire.Kind.commandResult.rawValue, 0x23)
+        XCTAssertEqual(IBWire.Kind.requestKeyframe.rawValue, 0x25)
     }
 
     /// And the Rust side, read out of the workspace rather than repeated.
@@ -133,6 +134,73 @@ final class WindowsWireContractTests: XCTestCase {
             wire.contains("CommandResult = 0x23"),
             "the Rust kind for command results is no longer 0x23"
         )
+        XCTAssertTrue(
+            wire.contains("RequestKeyframe = 0x25"),
+            "the Rust kind for keyframe requests is no longer 0x25"
+        )
+    }
+
+    // MARK: - 0x25 request keyframe (receiver → iPhone)
+
+    /// An empty frame, the way the receiver sends it.
+    func test_a_keyframe_request_round_trips() throws {
+        let data = try IBWire.encodeRequestKeyframe()
+        let frames = IBWire.Parser().append(data)
+
+        XCTAssertEqual(frames.count, 1)
+        XCTAssertEqual(frames[0].kind, .requestKeyframe)
+        XCTAssertTrue(frames[0].payload.isEmpty)
+    }
+
+    /// The reason this kind exists at all.
+    ///
+    /// A receiver that has lost a reference frame asks for an IDR rather than
+    /// displaying a plausible-looking wrong picture, so the phone's half of the
+    /// contract is "turn this into `ForceIntraFrame` on the encoder".
+    func test_the_phone_can_act_on_a_keyframe_request() {
+        XCTAssertEqual(
+            KeyframeRequestPolicy.shouldForceIntraFrame(
+                sessionActive: true, cameraOn: true),
+            true)
+        // With the camera off there is no encoder to ask, and forcing a keyframe
+        // on a session that is not streaming would start one.
+        XCTAssertEqual(
+            KeyframeRequestPolicy.shouldForceIntraFrame(
+                sessionActive: false, cameraOn: true),
+            false)
+        XCTAssertEqual(
+            KeyframeRequestPolicy.shouldForceIntraFrame(
+                sessionActive: true, cameraOn: false),
+            false)
+    }
+
+    // MARK: - The fallback that turns any typo into video
+
+    /// An unrecognised kind byte used to be labelled `.video`.
+    ///
+    /// That is the same class of bug the Rust side already guards: its
+    /// `from_u8_or_video` returns a real kind for `0x24`/`0x25` precisely so a
+    /// speaker packet or a keyframe request is never mistaken for an H.264 NAL
+    /// and handed to the decoder. This side had no such guard, so every kind
+    /// this build did not know about — including the two above — became a video
+    /// frame. A frame this build cannot name must be dropped, not guessed at.
+    func test_an_unknown_kind_is_never_reported_as_video() {
+        // 0x7F is not a kind. Framed exactly like a real one: 4-byte length
+        // (kind byte + 1 payload byte), then the kind, then the payload.
+        var data = Data([0x00, 0x00, 0x00, 0x02, 0x7F, 0xAA])
+        let frames = IBWire.Parser().append(data)
+
+        XCTAssertEqual(frames.count, 1, "the frame itself must still be consumed")
+        XCTAssertNotEqual(frames[0].kind, .video,
+                          "an unknown kind must not be handed to the video decoder")
+        XCTAssertEqual(frames[0].kind, .unknown)
+
+        // …and the stream must stay in sync afterwards, or one unknown frame
+        // would swallow every frame behind it.
+        data.append(contentsOf: [0x00, 0x00, 0x00, 0x02, 0x01, 0x65])
+        let both = IBWire.Parser().append(data)
+        XCTAssertEqual(both.count, 2)
+        XCTAssertEqual(both[1].kind, .video, "the frame after an unknown one must still parse")
     }
 
     /// The Rust wire source.

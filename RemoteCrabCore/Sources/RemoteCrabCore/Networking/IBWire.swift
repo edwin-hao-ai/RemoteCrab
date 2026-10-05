@@ -59,6 +59,21 @@ public enum IBWire {
         /// `AudioPacket` shape as `.audio`, but PCM with `channels: 2` —
         /// see the note on `encode(speakerAudio:)`.
         case speakerAudio  = 0x24
+        /// receiver → iPhone: "send an IDR now". A receiver that has lost a
+        /// reference frame would otherwise keep displaying a plausible-looking
+        /// wrong picture; OpenH264's own answer to that is `ForceIntraFrame`
+        /// (issues #1998, #1163). Empty payload — the phone needs nothing from
+        /// the request, it needs to act on it. Same number as
+        /// `rc_protocol::Kind::RequestKeyframe`.
+        case requestKeyframe = 0x25
+        /// A frame whose kind byte this build does not recognise.
+        ///
+        /// Not a real wire kind: it is what the parser produces instead of
+        /// guessing. The fallback used to be `.video`, which meant every kind a
+        /// given build had not heard of was handed to the H.264 decoder as if
+        /// it were a NAL unit — the Rust side guards the same hazard in
+        /// `from_u8_or_video`, and this is that guard on this side.
+        case unknown        = 0xFF
     }
 
     // MARK: - Encoding
@@ -105,6 +120,12 @@ public enum IBWire {
     public static func encode(featureState: FeatureStateSnapshot) throws -> Data {
         let json = try JSONEncoder().encode(featureState)
         return encodeFrame(kind: .featureState, payload: json)
+    }
+
+    /// Ask the phone for an IDR. Empty payload: the receiver is reporting that
+    /// it can no longer decode what it has, not asking a question.
+    public static func encodeRequestKeyframe() -> Data {
+        encodeFrame(kind: .requestKeyframe, payload: Data())
     }
 
     /// Encode a ping frame. Payload is the 8-byte big-endian sender
@@ -323,7 +344,7 @@ public enum IBWire {
             buffer.removeFirst(Int(length) - 1)
 
             return Frame(
-                kind: Kind(rawValue: kindByte) ?? .video,
+                kind: Kind(rawValue: kindByte) ?? .unknown,
                 payload: Data(payload)
             )
         }

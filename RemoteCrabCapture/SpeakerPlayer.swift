@@ -54,11 +54,20 @@ final class SpeakerPlayer {
     private(set) var packetsScheduled = 0
     private(set) var silencePacketsScheduled = 0
     private(set) var starvedDrops = 0
-    /// Signal energy of everything received, and the peak sample. Without
+    /// The loudest packet received so far, and the peak sample. Without
     /// these, "packets arrived" and "audible sound arrived" look identical —
     /// a run where the Mac's system output is digital silence passes every
     /// packet-count assertion while the user hears nothing.
+    ///
+    /// A **peak-hold, not an average.** This answers "did any sound arrive
+    /// during this capture", and only a maximum answers that without going
+    /// flaky: it was a running mean, which cannot report the level of any
+    /// individual packet, and the device e2e samples it once at the end of a
+    /// run — where a per-packet value would land on a gap as often as not.
+    /// `latestPacketRms` is the instantaneous reading.
     private(set) var receivedRms: Double = 0
+    /// The most recent packet's RMS — what the envelope digit is drawn from.
+    private(set) var latestPacketRms: Double = 0
     /// One character per packet: the level, mapped to 0-9. Drawn as a string
     /// it is the SHAPE of the audio that arrived — so a run that received a
     /// melody prints a waveform, and one that received a flat tone prints a
@@ -70,8 +79,6 @@ final class SpeakerPlayer {
 
     var envelopeText: String { String(envelope) }
     private(set) var receivedPeak: Int = 0
-    private var energySum: Double = 0
-    private var energyCount: Int = 0
 
     /// **PLANAR**, and that is not a preference.
     ///
@@ -145,8 +152,7 @@ final class SpeakerPlayer {
         starvedDrops = 0
         receivedRms = 0
         receivedPeak = 0
-        energySum = 0
-        energyCount = 0
+        latestPacketRms = 0
         envelope.removeAll()
         isRunning = true
         os_log("speaker player started", Self.log)
@@ -212,17 +218,17 @@ final class SpeakerPlayer {
                 if a > peak { peak = a }
             }
         }
-        energySum += sum
-        energyCount += count
         if peak > receivedPeak { receivedPeak = peak }
-        receivedRms = energyCount > 0 ? (energySum / Double(energyCount)).squareRoot() : 0
-        // Log scale, and NORMALISED FIRST: `receivedRms` is in Int16 units,
-        // so 20*log10(1958) is +66 dB and every audible packet saturates the
-        // digit at 9 — which reads as a flat line, i.e. exactly the "tone or
-        // fragment" verdict the envelope exists to catch. Divide by full
-        // scale before taking the log, then span -60..0 dBFS.
-        let db = 20 * log10(max(receivedRms / 32_768.0, 1e-6))
-        let digit = max(0, min(9, Int((db + 60) / 6)))
+        // THIS packet, not a running mean over the capture. The digit below is
+        // the envelope, and the envelope exists to show the gaps between notes —
+        // a cumulative mean converges to the level of the loudest thing it has
+        // seen and cannot represent a gap, so every run printed the same flat
+        // plateau and the shape assertion could not pass for arithmetic
+        // reasons. `SpeakerEnvelope` is the tested half of this.
+        let packetRms = count > 0 ? (sum / Double(count)).squareRoot() : 0
+        latestPacketRms = packetRms
+        if packetRms > receivedRms { receivedRms = packetRms }
+        let digit = SpeakerEnvelope.digit(packetRms: packetRms)
         envelope.append(Character(String(digit)))
         if envelope.count > Self.envelopeLength { envelope.removeFirst() }
         packetsEnqueued += 1

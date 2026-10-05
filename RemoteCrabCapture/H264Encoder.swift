@@ -40,6 +40,35 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
     private var recreationPending = false
     private var lastRecreationAt = Date.distantPast
 
+    /// Set when the receiver asks for an IDR (wire kind 0x25).
+    ///
+    /// Written from the main actor, read and cleared on the capture queue, so
+    /// it is a lock rather than a bare `Bool`: the encoder's own counters are
+    /// unsynchronised because only the capture queue touches them, and this one
+    /// has two writers on two threads — which is the shape that produced a ring
+    /// buffer with two writers to one index (lesson 125).
+    private let forceIntraLock = NSLock()
+    private var forceIntraRequested = false
+
+    /// Ask for the next encoded frame to be an IDR.
+    ///
+    /// Coalescing, not queueing: several requests before the next frame are one
+    /// request, because the answer is the same frame.
+    func requestForceIntraFrame() {
+        forceIntraLock.lock()
+        forceIntraRequested = true
+        forceIntraLock.unlock()
+    }
+
+    /// Consume the request. One caller, one index — the capture queue.
+    private func takeForceIntraRequest() -> Bool {
+        forceIntraLock.lock()
+        defer { forceIntraLock.unlock() }
+        guard forceIntraRequested else { return false }
+        forceIntraRequested = false
+        return true
+    }
+
     init(width: Int32 = 1920,
          height: Int32 = 1080,
          fps: Int = 30,
@@ -167,6 +196,17 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let duration = CMTime(value: 1, timescale: Int32(fps))
 
+        // A receiver that has lost a reference frame asks for an IDR (wire
+        // kind 0x25) rather than keep decoding into a plausible-looking wrong
+        // picture. The flag is consumed here, on the capture queue, and cleared
+        // whether or not this frame is the one that satisfies it — the next
+        // frame must be an IDR, not this one if it was already on its way.
+        var frameProperties: CFDictionary?
+        if takeForceIntraRequest() {
+            frameProperties = [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
+            Self.forensic("force intra frame requested by the receiver — next frame is an IDR")
+        }
+
         // iOS 26 SDK: encoder callback signature is
         //   (OSStatus, VTEncodeInfoFlags, CMSampleBuffer?) -> Void
         let status = VTCompressionSessionEncodeFrame(
@@ -174,7 +214,7 @@ final class H264Encoder: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate,
             imageBuffer: imageBuffer,
             presentationTimeStamp: pts,
             duration: duration,
-            frameProperties: nil,
+            frameProperties: frameProperties,
             infoFlagsOut: nil,
             outputHandler: { [weak self] callbackStatus, _, outputBuffer in
                 guard let self else { return }

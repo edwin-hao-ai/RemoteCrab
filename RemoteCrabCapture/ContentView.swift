@@ -744,19 +744,15 @@ struct ContentView: View {
             // use. The checkmark idiom is copied from the mirror menu below,
             // which is the existing precedent for "two sources, one
             // dropdown".
-            // The Windows receiver does not send kind 0x24 yet, so the
-            // speaker entry is hidden there rather than shipped as a control
-            // that does nothing — the same call the mirror menu makes for
-            // Extended Display. A feature that half-works is worse than one
-            // that is absent, because the user cannot tell which half they
-            // got. Re-enable this the moment the Windows receiver captures
-            // loopback audio.
-            // The Windows receiver does not send kind 0x24 yet, so the
-            // speaker entry is hidden there rather than shipped as a control
-            // that does nothing — the same call the mirror menu makes for
-            // Extended Display. Re-enable it the moment the Windows receiver
-            // captures loopback audio.
-            let speakerAvailable = !engine.connectedIsWindows
+            //
+            // Unavailable on neither platform any more. This used to be
+            // `!engine.connectedIsWindows`, on the grounds that the Windows
+            // receiver sent no kind 0x24 — it does now (WASAPI loopback,
+            // verified on real hardware: 125 packets / 2.5 s = exactly 20 ms
+            // each, rms 497, dropped 0). The gate stayed after that landed,
+            // which is the failure mode worth avoiding: a stale gate is
+            // indistinguishable from a missing feature.
+            let speakerAvailable = true
 
             // TWO independent features behind one button, exactly like the
             // mirror menu below: the microphone streams this phone's input to
