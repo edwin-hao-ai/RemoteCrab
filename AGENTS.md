@@ -826,6 +826,31 @@ bump `CFBundleVersion` in `project-mac.yml` (currently 6) + re-approve.
 `systemextensionsctl uninstall/gc` hang waiting for a GUI auth prompt —
 don't script them.
 
+**⚠️ Replacing `/Applications/RemoteCrab.app` with a *differently-signed*
+build has three side effects, all of which look like regressions:**
+
+1. **Accessibility reset** — `AXIsProcessTrusted()` goes `false`, so trackpad /
+   keyboard injection silently stops until the user re-ticks RemoteCrab in
+   System Settings → Privacy & Security → Accessibility. So does **Screen
+   Recording** for the speaker/mirror unless the signing identity is unchanged
+   (a Developer ID build keeps the grant; an Apple-Development/dev build does
+   **not** — lesson 158 is the speaker version of this).
+2. **The camera system extension is deactivated** — `ensureRegistered()` reads
+   the new binary as "the host moved/changed" and *submits a deactivation
+   request* (`submitted deactivation request for …Camera` → `deactivation
+   finished`). The user's approval is gone.
+3. **The extension enable-toggle moved** — on macOS 15+ it is **General → Login
+   Items & Extensions → Camera Extensions**, *not* Privacy & Security.
+   `SetupStatus.openExtensionSettings()` deep-links there most-precise-first
+   (`…LoginItems-Settings.extension?CameraExtensions` → `?ExtensionItems` →
+   bare pane → old Extensions pane → Privacy & Security); all of it is
+   undocumented URL-scheme territory, so it is best-effort. The Setup Assistant
+   copy names the exact path so the user is not hunting.
+
+When you replace the app for a device test, expect to re-grant Accessibility
+(and Screen Recording / the camera extension) afterwards, and **don't** report
+"the camera/accessibility broke" without checking the signature.
+
 **Verifying the picture**: a CLI process has no camera TCC
 (`notDetermined`), so AVFoundation probes silently return zero frames
 even for the FaceTime camera — build a tiny ad-hoc-signed `.app` with
@@ -1017,6 +1042,7 @@ cross-references rather than the file order.
 | 156 | **保活已让监听活着时还去重建它，只会打断所有连接** — 每次回前台 `stopStreaming/startStreaming` 使 Mac 每十几秒 `Connection reset by peer` | [`ios-device`](docs/lessons/ios-device.md) |
 | 157 | **纯服务端也能主动触发「你连我」** — 敲一下固定端口 8766 表示「马上拨回我」，数据方向/握手/配对全不变；角色被动仍可有承载意图的出口 | [`protocol`](docs/lessons/protocol.md) |
 | 158 | **一段「长得像代码 bug」的静音，可能是 coreaudiod 卡死** — 逐包 rms 0.4s 后归零、连续正弦音也一样；累计平均 rms 是红鲱鱼；修法是 `sudo killall coreaudiod` | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 159 | **换签名替换 `/Applications` 的 app 会打掉辅助功能授权 + 注销系统扩展** — 三条都像「功能被改坏」；相机扩展开关在「登录项与扩展→相机扩展」不在隐私与安全性；深链是未文档化的 best-effort | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via

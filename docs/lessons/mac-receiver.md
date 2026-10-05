@@ -938,3 +938,27 @@ codesign -d --verbose=4 /Applications/X.app | grep CDHash
     音频、TCC、网络这些**有状态的系统服务**卡死时，产物的形状和「代码 bug」一模一样。
     区分它要一个**与内容无关**的输入（连续正弦音 vs 网页视频），并且要能看见**计数在动但数据是 0**
     （IOProc 每 10.7ms 触发、frames 一直涨，但每包 rms=0 —— 回调在跑、数据是空的）。
+
+---
+
+159. **把 `/Applications` 里的 app 换成「不同签名」的构建，会同时打掉辅助功能授权、注销系统扩展 —— 而且这三件事都长得像「功能被改坏了」。**
+    为了验证扬声器，我把它换成新签名的正式版后，同一台机上立刻发生：
+    - `accessibility trusted: false` —— 触控板/键盘注入静默失效（要重新在
+      「隐私与安全性 → 辅助功能」勾选）。
+    - **`submitted deactivation request for …Camera` → `deactivation finished`** ——
+      相机系统扩展被**注销**，用户之前的批准没了。
+    - 「屏幕录制」授权按**签名身份**保留/丢失：Developer ID 会保留，Apple
+      Development/dev 构建**不会**（同一份代码，换个签名就「没声音」——lesson 158）。
+    **这三条都是「换签名」的产物，不是代码回归。** 现象上它们和「我昨晚把功能改坏了」
+    一模一样。
+    **应对**：
+    1. 换 app 做设备测试后，**预期**要重新授权辅助功能 / 屏幕录制 / 相机扩展；
+       报「相机坏了/辅助功能坏了」之前先 `codesign -dv` 看签名有没有变。
+    2. 相机扩展的开关在 **macOS 15+ 的「通用 → 登录项与扩展 → 相机扩展」**，
+       **不在**隐私与安全性（这一点很多教程还写错）。app 的 `openExtensionSettings()`
+       按「最精确优先」深链过去：
+       `…LoginItems-Settings.extension?CameraExtensions` → `?ExtensionItems` → 裸面板
+       → 旧 Extensions 面板 → 隐私与安全性。**全是未文档化的 URL scheme 领域**，
+       所以是 best-effort；Setup Assistant 的文案把确切路径也写出来，用户不用自己找。
+    3. 部署规则（AGENTS「Deploy rules」）要**显式**列出这三条副作用，否则下一个人
+       会把它们当成新 bug 再查一遍。

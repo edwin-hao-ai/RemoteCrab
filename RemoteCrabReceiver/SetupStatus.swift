@@ -118,12 +118,24 @@ final class SetupStatus: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Take the user straight to where the camera system extension is enabled,
+    /// not to a generic pane they then have to navigate.
+    ///
+    /// macOS 15+ moved system extensions out of Privacy & Security into
+    /// **General → Login Items & Extensions**, and the extension itself is
+    /// enabled under the **Camera Extensions** section there. The anchors below
+    /// are undocumented URL-scheme territory, so this is best-effort and
+    /// ordered most-precise first: `?CameraExtensions` (jump to the section),
+    /// `?ExtensionItems` (the extensions list), the bare Login Items pane,
+    /// then the old Extensions pane and finally Privacy & Security. Any
+    /// candidate that opens *something* stops the loop, so the user lands as
+    /// close as the OS allows rather than on the wrong pane.
     static func openExtensionSettings() {
-        // Prefer the Camera Extensions pane; fall back to Login Items &
-        // Extensions, then to the Security pane.
         let candidates = [
-            "x-apple.systempreferences:com.apple.ExtensionsPreferences",
+            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension?CameraExtensions",
+            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension?ExtensionItems",
             "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+            "x-apple.systempreferences:com.apple.ExtensionsPreferences",
             "x-apple.systempreferences:com.apple.preference.security"
         ]
         for candidate in candidates {
