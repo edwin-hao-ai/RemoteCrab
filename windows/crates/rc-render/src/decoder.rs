@@ -241,12 +241,11 @@ impl RgbaFrame {
     /// honour alpha never see a transparent frame; `RgbaFrame` itself carries
     /// no alpha (`0x00RRGGBB`).
     pub fn to_bgra(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(self.pixels.len() * 4);
-        for &p in &self.pixels {
-            out.push((p & 0xFF) as u8); // B
-            out.push(((p >> 8) & 0xFF) as u8); // G
-            out.push(((p >> 16) & 0xFF) as u8); // R
-            out.push(0xFF); // A
+        let mut out = vec![0xFFu8; self.pixels.len() * 4];
+        for (dst, &p) in out.chunks_exact_mut(4).zip(self.pixels.iter()) {
+            dst[0] = p as u8;
+            dst[1] = (p >> 8) as u8;
+            dst[2] = (p >> 16) as u8;
         }
         out
     }

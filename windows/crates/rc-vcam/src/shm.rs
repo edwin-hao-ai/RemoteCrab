@@ -332,6 +332,23 @@ mod tests {
         assert!(!h.is_consistent());
     }
 
+    /// 4K is a format the capture app actually offers
+    /// (`CaptureEngine.swift` -> `.hd4K3840x2160`), so the ring has to accept
+    /// its geometry rather than merely not overflowing. 31.6 MiB per frame and
+    /// 63.3 MiB of mapping is unremarkable on a 64-bit host, but
+    /// "unremarkable" is exactly the kind of claim that stops being true the
+    /// first time someone adds a cap.
+    #[test]
+    fn a_4k_frame_is_a_legal_ring_geometry() {
+        let (w, h) = (3840u32, 2160u32);
+        let hdr = header_at(w, h, w * 4, 0);
+        assert!(hdr.is_consistent());
+        assert_eq!(hdr.frame_bytes(), Some(33_177_600));
+        // Two slots plus the header: the size `writer` must be able to map.
+        assert_eq!(hdr.required_size(), Some(HEADER_SIZE + 66_355_200));
+        assert!(hdr.buf_offset(1).unwrap() > hdr.buf_offset(0).unwrap());
+    }
+
     #[test]
     fn an_overflowing_frame_size_is_rejected() {
         let h = Header {
