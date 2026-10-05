@@ -7,7 +7,20 @@ public enum IBServiceType {
     /// The DNS-SD service type advertised by RemoteCrabCapture.
     /// Always use this exact string for both publishing and browsing.
     public static let tcp = "_remotecrab._tcp"
+    /// The DNS-SD service type a *receiver* (Mac/Windows) advertises so the
+    /// phone can see which computers are online. MUST stay distinct from
+    /// `.tcp`: the receiver browses `.tcp` for iPhones, and reusing it would
+    /// make it dial other computers.
+    public static let computer = "_remotecrab-computer._tcp"
     public static let domain = "local."
+
+    /// TXT keys on the presence announcement. Frozen; the Mac, the Windows
+    /// receiver, and the phone all agree on these exact strings.
+    public enum PresenceTXT {
+        public static let id = "id"
+        public static let name = "name"
+        public static let platform = "platform"
+    }
 }
 
 /// Connection / stream metadata exchanged at the start of every
