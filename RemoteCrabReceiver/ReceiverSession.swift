@@ -2013,8 +2013,8 @@ final class ReceiverSession: ObservableObject {
                 }
             case .systemCommand:
                 if let command = try? IBWire.decodeSystemCommand(frame) {
-                    SystemCommandHandler.handle(command)
-                    reply(command.requestId, .ok)
+                    let status = SystemCommandHandler.handle(command)
+                    reply(command.requestId, status)
                     // "Show Desktop" from the switcher: also point the live
                     // mirror at the whole display, so the phone actually sees
                     // the desktop instead of staying on the old window.

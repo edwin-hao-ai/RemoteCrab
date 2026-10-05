@@ -22,30 +22,51 @@ enum SystemCommandHandler {
     private static let nxNext: Int32 = 17
     private static let nxPrevious: Int32 = 18
 
-    static func handle(_ command: IBSystemCommand) {
+    /// Execute the command and report whether it actually did anything.
+    ///
+    /// Returns the `IBCommandResult.status` the receiver sends back. It used to
+    /// return `Void` and the caller replied `ok` unconditionally, so a
+    /// `launchApp` for a missing bundle id — which `NSWorkspace` refuses — told
+    /// the phone the launch had succeeded. That status is the phone's only
+    /// failure signal (`CaptureEngine.resolveCommand`), so the "say why a
+    /// command did nothing" channel was dead for exactly the command it was
+    /// added for.
+    ///
+    /// The media/volume/brightness keys are posted best-effort: they are
+    /// step-based with no read-back channel, so `.ok` means "posted".
+    static func handle(_ command: IBSystemCommand) -> IBCommandResult.Status {
         switch command.command {
-        case .volumeUp:       postSystemKey(nxSoundUp)
-        case .volumeDown:     postSystemKey(nxSoundDown)
-        case .volumeMute:     postSystemKey(nxMute)
-        case .brightnessUp:   postSystemKey(nxBrightnessUp)
-        case .brightnessDown: postSystemKey(nxBrightnessDown)
-        case .mediaPlayPause: postSystemKey(nxPlay)
-        case .mediaNext:      postSystemKey(nxNext)
-        case .mediaPrevious:  postSystemKey(nxPrevious)
+        case .volumeUp:       postSystemKey(nxSoundUp);       return .ok
+        case .volumeDown:     postSystemKey(nxSoundDown);     return .ok
+        case .volumeMute:     postSystemKey(nxMute);          return .ok
+        case .brightnessUp:   postSystemKey(nxBrightnessUp);  return .ok
+        case .brightnessDown: postSystemKey(nxBrightnessDown); return .ok
+        case .mediaPlayPause: postSystemKey(nxPlay);          return .ok
+        case .mediaNext:      postSystemKey(nxNext);          return .ok
+        case .mediaPrevious:  postSystemKey(nxPrevious);      return .ok
         case .launchApp:
-            if let bundleID = command.argument {
-                let ok = NSWorkspace.shared.launchApplication(withBundleIdentifier: bundleID,
-                                                              options: [],
-                                                              additionalEventParamDescriptor: nil,
-                                                              launchIdentifier: nil)
-                if !ok { log.error("launchApp failed: \(bundleID, privacy: .public)") }
+            guard let bundleID = command.argument else {
+                log.error("launchApp with no bundle id")
+                return .failed
             }
+            let ok = NSWorkspace.shared.launchApplication(withBundleIdentifier: bundleID,
+                                                          options: [],
+                                                          additionalEventParamDescriptor: nil,
+                                                          launchIdentifier: nil)
+            if !ok {
+                log.error("launchApp failed: \(bundleID, privacy: .public)")
+                return .failed
+            }
+            return .ok
         case .openURL:
-            if let raw = command.argument, let url = URL(string: raw) {
-                NSWorkspace.shared.open(url)
+            guard let raw = command.argument, let url = URL(string: raw) else {
+                log.error("openURL with no/invalid url")
+                return .failed
             }
+            return NSWorkspace.shared.open(url) ? .ok : .failed
         case .showDesktop:
             showDesktop()
+            return .ok
         }
     }
 
