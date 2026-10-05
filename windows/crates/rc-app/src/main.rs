@@ -99,7 +99,12 @@ impl PreviewWindow {
         let status = self.status.clone();
         let shutdown = self.shutdown.clone();
         self.handle = Some(std::thread::spawn(move || {
-            rc_render::window::run_preview_window("RemoteCrab Preview", slot, shutdown, status);
+            rc_render::window::run_preview_window(
+                i18n::t("RemoteCrab 预览", "RemoteCrab Preview"),
+                slot,
+                shutdown,
+                status,
+            );
         }));
     }
 
@@ -458,7 +463,9 @@ async fn main() -> ExitCode {
         None
     };
     let frame_slot = rc_render::window::FrameSlot::new();
-    let status_text = std::sync::Arc::new(std::sync::Mutex::new("Waiting for video…".to_string()));
+    let status_text = std::sync::Arc::new(std::sync::Mutex::new(
+        i18n::t("等待画面…", "Waiting for video…").to_string(),
+    ));
     // The preview window is toggleable at runtime (tray → Show/Hide Preview),
     // so it owns its own thread + shutdown flag instead of one launched here.
     let mut preview_window = PreviewWindow::new(frame_slot.clone(), status_text.clone());

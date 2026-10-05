@@ -103,10 +103,18 @@ pub fn show(actions: Actions) -> Option<HWND> {
         // Shown once, after it exists — see the note in `wizard_win::show`.
         // Created without `WS_VISIBLE` (and `WS_OVERLAPPED` is 0x0), so without
         // this the window is built, laid out, and never seen.
+        // The title is built at runtime rather than a compile-time bilingual
+        // literal. "RemoteCrab 设置 / Settings" drew both languages at once,
+        // which is a translation key leaking into the chrome — the user picked a
+        // language in Settings, and the window should honour it.
+        let title = windows::core::HSTRING::from(format!(
+            "RemoteCrab — {}",
+            crate::i18n::t("设置", "Settings")
+        ));
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("RemoteCrab 设置 / Settings"),
+            PCWSTR(title.as_ptr()),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

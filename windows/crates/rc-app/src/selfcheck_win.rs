@@ -10,7 +10,9 @@ use rc_net::selfcheck::{Health, SelfCheck};
 use std::sync::Mutex;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
+use windows::Win32::Graphics::Gdi::{
+    RedrawWindow, COLOR_WINDOW, HBRUSH, RDW_ALLCHILDREN, RDW_ERASE, RDW_INVALIDATE,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -39,11 +41,15 @@ pub fn show(sample: Sample) -> Option<HWND> {
         let hinstance = HINSTANCE(GetModuleHandleW(None).ok()?.0);
         register(hinstance);
         *SAMPLE.lock().ok()? = Some(sample);
+        // Built at runtime so the window honours the chosen language rather than
+        // drawing both (see the note in `settings_win::show`).
+        let title =
+            windows::core::HSTRING::from(format!("RemoteCrab — {}", crate::i18n::t("自检", "Self-check")));
         // Shown once, after it exists — see the note in `wizard_win::show`.
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CLASS,
-            w!("RemoteCrab 自检 / Self-check"),
+            PCWSTR(title.as_ptr()),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -95,7 +101,21 @@ unsafe extern "system" fn wnd_proc(
                 LRESULT(0)
             }
             WM_TIMER => {
+                // The panel rebuilds its labels rather than mutating them, which
+                // is fine at this size — but it did so without suppressing
+                // redraw, so every 200 ms the window blanked its children and
+                // painted them again. On a panel whose whole job is to be read at
+                // a glance, that reads as the panel flickering rather than as a
+                // value changing. Freeze, swap, repaint once.
+                let _ = SendMessageW(hwnd, WM_SETREDRAW, Some(WPARAM(0)), None);
                 build(hwnd);
+                let _ = SendMessageW(hwnd, WM_SETREDRAW, Some(WPARAM(1)), None);
+                let _ = RedrawWindow(
+                    Some(hwnd),
+                    None,
+                    None,
+                    RDW_ERASE | RDW_INVALIDATE | RDW_ALLCHILDREN,
+                );
                 LRESULT(0)
             }
             WM_COMMAND => {
