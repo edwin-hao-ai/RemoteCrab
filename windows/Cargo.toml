@@ -53,6 +53,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 thiserror = "2"
+# Update integrity. Verification only — signing happens at release time, with
+# openssl, so the private key never has to exist in this program or on a build
+# machine that merely compiles.
+#
+# Ed25519 with a public key pinned in the binary, which is the same shape the
+# Mac already uses for Sparkle (`SUPublicEDKey`): no certificate authority, no
+# trust chain, nothing to expire. The app trusts exactly one key, and an update
+# that is not signed by it is not an update.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# HTTPS for the release feed. Blocking and small; the two requests it makes run
+# inside `spawn_blocking`, so it never sits on the runtime.
+ureq = { version = "2", features = ["tls"] }
 jpeg-encoder = "0.7"
 png = "0.17"
 mp4 = "0.14"

@@ -336,6 +336,59 @@ EOF
         note "NOT signing the MSI (RC_ALLOW_UNSIGNED) — 'verify' will report it as UNSIGNED"
     fi
 
+    # --- The auto-updater's half of the release -------------------------
+    #
+    # Not Authenticode: the in-app updater verifies an Ed25519 signature over
+    # the MSI bytes against a key pinned in the binary, which is the same shape
+    # the Mac already uses for Sparkle. That is a *separate* guarantee from code
+    # signing, and it is the one that actually gates an update — a certificate
+    # authority has nothing to say about a file the app downloads for itself.
+    #
+    # `pkeyutl -sign -rawin` is the whole signer. Ed25519 is deterministic and
+    # takes no parameters, so there is no signature format to get subtly wrong
+    # and nothing that expires.
+    local key="$REPO/secrets/windows-update-signing.pem"
+    if [[ -f "$key" ]]; then
+        command -v openssl >/dev/null 2>&1 \
+            || die "openssl not found, and it is what signs the update (Git for Windows ships one)"
+        note "signing the update (Ed25519, key: secrets/windows-update-signing.pem)"
+        MSYS_NO_PATHCONV=1 openssl pkeyutl -sign -rawin \
+            -inkey "$(win_path "$key")" \
+            -in "$(win_path "$msi")" \
+            -out "$(win_path "$msi.sig")" || die "update signing failed"
+        [[ "$(wc -c < "$msi.sig")" -eq 64 ]] \
+            || die "an Ed25519 signature is 64 bytes; got $(wc -c < "$msi.sig")"
+
+        # The feed. Plain JSON because nothing on this side consumes it beyond
+        # four fields, and the *signature* is what authenticates the payload —
+        # signing the manifest too would be a second thing to verify without a
+        # second thing gained.
+        local base="${RC_UPDATE_BASE:-https://vgoapp.com/downloads/windows}"
+        local name; name="$(basename "$msi")"
+        cat > "$out/manifest.json" <<EOF
+{
+  "version": "$v",
+  "msi": "$base/$name",
+  "sig": "$base/$name.sig"
+}
+EOF
+        note "feed written: $out/manifest.json"
+        echo
+        echo "To publish, copy these three files next to the Mac's appcast on the host:"
+        echo "  $name"
+        echo "  $name.sig"
+        echo "  $out/manifest.json   ->  $base/manifest.json"
+        echo
+        echo "The feed URL is baked at build time (RC_UPDATE_FEED); the default is"
+        echo "  https://vgoapp.com/downloads/windows/manifest.json"
+    else
+        echo
+        echo "NOTE: no update signing key at secrets/windows-update-signing.pem, so"
+        echo "      this build cannot auto-update — and a build *without* a newer feed"
+        echo "      can never be reached by one that has it, so publish a signed"
+        echo "      release before relying on the updater at all."
+    fi
+
     note "done: $msi"
     echo
     echo "Before shipping, run these on a clean Windows VM:"

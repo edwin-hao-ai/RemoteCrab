@@ -54,7 +54,7 @@ mod status;
 mod stream_stats;
 mod tray;
 mod tray_menu;
-#[cfg(windows)]
+mod updater;
 mod vcam;
 
 /// Owns the toggleable preview window thread (tray → Show/Hide Preview).
@@ -279,6 +279,148 @@ fn send_command_result(session: &rc_net::Session, request_id: Option<&str>, ok: 
     }
 }
 
+/// Check the release feed, and install a newer release if the user agrees.
+///
+/// Runs on a worker thread, because `updater` is blocking and both callers —
+/// the Settings button and the launch-time check — are on threads that must not
+/// wait for a network.
+///
+/// `interactive` decides how much the user is asked:
+///
+/// * from Settings, an update is confirmed before anything is downloaded, and
+///   the outcome is written into the window;
+/// * at launch, the check is silent and only its failure is worth a word —
+///   nobody wants a dialog on startup because a release host is unreachable.
+#[cfg(windows)]
+fn spawn_update_check(interactive: bool) {
+    std::thread::spawn(move || {
+        if !interactive {
+            // Late, and off the startup path: see the call site.
+            std::thread::sleep(std::time::Duration::from_secs(20));
+        }
+        let current = env!("CARGO_PKG_VERSION");
+        let key = updater::UPDATE_PUBLIC_KEY;
+
+        let line = match updater::check(current) {
+            Ok(None) => {
+                if interactive {
+                    Some(i18n::t(
+                        "已经是最新版本。",
+                        "RemoteCrab is up to date.",
+                    )
+                    .to_string())
+                } else {
+                    None
+                }
+            }
+            Ok(Some(manifest)) => install_offered(&manifest, current, &key, interactive),
+            Err(e) => {
+                // A failed check is not worth a dialog at launch, but it is
+                // worth a line in the log — "it never updates" is otherwise
+                // indistinguishable from "there is never an update".
+                eprintln!("[update] check failed: {e}");
+                if interactive {
+                    Some(
+                        i18n::t("检查更新失败（详情见日志）。", "The update check failed — see the log.")
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            }
+        };
+
+        if let Some(line) = line {
+            settings_win::set_update_message(line);
+            settings_win::refresh_if_open();
+        }
+    });
+}
+
+/// A release is published: say so, and install it if the user says yes.
+///
+/// The confirmation comes **before** the download, not after: asking someone to
+/// approve a 2 MB download and then an install in two steps is two chances to
+/// change their mind for no reason, and the version number is the only fact they
+/// need to decide.
+#[cfg(windows)]
+fn install_offered(
+    manifest: &updater::Manifest,
+    current: &str,
+    key: &[u8; 32],
+    interactive: bool,
+) -> Option<String> {
+    let found = i18n::t(
+        &format!("有可用的新版本 {}（当前 {current}）。", manifest.version),
+        &format!("Version {} is available (you have {current}).", manifest.version),
+    )
+    .to_string();
+    eprintln!("[update] {} {}", found, manifest.notes.as_deref().unwrap_or(""));
+
+    if !interactive {
+        // Launch-time: report, do not act. An update that installs itself while
+        // the user is in the middle of something is a worse product than one
+        // that waits to be asked.
+        return None;
+    }
+
+    let question = match &manifest.notes {
+        Some(notes) => format!("{found}\n\n{notes}\n\n{}", i18n::t("现在安装？", "Install now?")),
+        None => format!("{found}\n\n{}", i18n::t("现在安装？", "Install now?")),
+    };
+    if !confirm(&question) {
+        return Some(i18n::t("已跳过这次更新。", "Update skipped.").to_string());
+    }
+
+    let staged = match updater::stage(manifest, &updater::update_dir(), key) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("[update] {e}");
+            return Some(
+                i18n::t(
+                    "更新包校验失败，已放弃（详情见日志）。",
+                    "The update failed verification and was discarded — see the log.",
+                )
+                .to_string(),
+            );
+        }
+    };
+    if let Err(e) = updater::install(&staged) {
+        eprintln!("[update] {e}");
+        return Some(
+            i18n::t("安装没能启动（详情见日志）。", "The installer could not be started — see the log.")
+                .to_string(),
+        );
+    }
+    // The installer has been handed control. Windows will not replace a running
+    // executable, so this process has to be gone before it finishes.
+    std::process::exit(0);
+}
+
+/// Yes/no dialog. `MB_ICONINFORMATION` rather than a warning: an update is not
+/// a problem.
+#[cfg(windows)]
+fn confirm(question: &str) -> bool {
+    use windows::core::{HSTRING, PCWSTR};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, IDYES, MB_ICONINFORMATION, MB_YESNO,
+    };
+
+    let text = HSTRING::from(question);
+    let title = HSTRING::from(i18n::t("RemoteCrab 更新", "RemoteCrab update"));
+    // SAFETY: both strings outlive the call; no parent window means the box is
+    // owned by the thread, which is what we want from a worker.
+    let answer = unsafe {
+        MessageBoxW(
+            None,
+            PCWSTR(text.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            MB_YESNO | MB_ICONINFORMATION,
+        )
+    };
+    answer == IDYES
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
@@ -373,6 +515,12 @@ async fn main() -> ExitCode {
     // yet. It appears once — a wizard that reappears is a nag — and the tray's
     // "Setup wizard…" row brings it back.
     maybe_show_wizard();
+    // And an update check, quietly and late. Late because a release host is the
+    // least important thing at startup — a home network with no route to it
+    // would otherwise compete with discovery for the first seconds — and quietly
+    // because the answer is only actionable, not urgent: Settings has the button
+    // when someone wants to act on it.
+    spawn_update_check(false);
     println!(
         "{}\n",
         i18n::t(
@@ -1590,6 +1738,7 @@ fn open_settings() {
             // no explanation at all.
             wizard::install_outcome(vcam::install_with_elevation())
         }),
+        check_update: Box::new(|| spawn_update_check(true)),
     });
 }
 

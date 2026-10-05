@@ -37,6 +37,7 @@ const ID_CAMERA: usize = 17;
 const ID_QUALITY: usize = 18;
 const ID_AUTOSTART: usize = 19;
 const ID_CLOSE: usize = 20;
+const ID_UPDATE: usize = 21;
 
 /// One editor action: change a name list, or refuse with a reason.
 type NameEdit = Box<dyn Fn(&str) -> Result<(), Refusal> + Send + Sync>;
@@ -78,6 +79,10 @@ pub struct Actions {
     /// so a refusal is reported rather than swallowed; [`crate::wizard::install_outcome`]
     /// decides what each outcome deserves to say.
     pub install_camera: Box<dyn Fn() -> Option<(&'static str, &'static str)> + Send + Sync>,
+    /// Start a background update check. The window cannot wait for the network,
+    /// so this returns immediately and the result arrives through
+    /// [`set_update_message`].
+    pub check_update: Box<dyn Fn() + Send + Sync>,
 }
 
 static STATE: Mutex<Option<Actions>> = Mutex::new(None);
@@ -215,8 +220,22 @@ unsafe extern "system" fn wnd_proc(
                     let _ = DestroyWindow(hwnd);
                     LRESULT(0)
                 }
+                ID_UPDATE => {
+                    // Fire-and-forget: the check talks to the network and the
+                    // message loop cannot wait. The answer arrives by way of
+                    // `set_update_message` plus `WM_SETTINGS_REFRESH`.
+                    with(|a| (a.check_update)());
+                    build(hwnd);
+                    LRESULT(0)
+                }
                 _ => DefWindowProcW(hwnd, msg, wparam, lparam),
             },
+            WM_SETTINGS_REFRESH => {
+                // Posted by a worker thread. Windows are thread-affine, so the
+                // worker cannot redraw this one; it asks instead.
+                build(hwnd);
+                LRESULT(0)
+            }
             WM_CLOSE => {
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
@@ -241,6 +260,43 @@ fn draft() -> String {
 fn set_draft_error(e: Option<(&'static str, &'static str)>) {
     if let Ok(mut d) = DRAFT.lock() {
         d.1 = e;
+    }
+}
+
+/// What the last update check said, as one line under its button.
+///
+/// A module-level `Mutex` for the same reason `DRAFT` is: the check runs on a
+/// worker thread, and the window has no channel into it — Win32 owns the message
+/// loop, so the result is parked here and the worker pokes the window to repaint.
+static UPDATE_MESSAGE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Called from the update worker with a finished sentence.
+pub fn set_update_message(text: String) {
+    if let Ok(mut m) = UPDATE_MESSAGE.lock() {
+        *m = Some(text);
+    }
+}
+
+fn with_update<R>(f: impl FnOnce(&Option<String>) -> R) -> R {
+    match UPDATE_MESSAGE.lock() {
+        Ok(g) => f(&g),
+        Err(_) => f(&None),
+    }
+}
+
+/// Ask an open settings window to redraw, from any thread.
+///
+/// `WM_APP + 1` because the range above `WM_APP` is reserved for applications —
+/// the same reason the tray uses one. Posting rather than calling `build`
+/// directly: a Win32 window belongs to the thread that created it, and a
+/// cross-thread redraw is a class of bug that only shows up under load.
+const WM_SETTINGS_REFRESH: u32 = WM_APP + 1;
+
+pub fn refresh_if_open() {
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(CLASS, None) {
+            let _ = PostMessageW(Some(hwnd), WM_SETTINGS_REFRESH, WPARAM(0), LPARAM(0));
+        }
     }
 }
 
@@ -525,6 +581,28 @@ unsafe fn build(hwnd: HWND) {
         );
         button(hwnd, ID_QUALITY, t("切换", "Change"), 200, y - 4, 90, 26);
         y += 30;
+
+        // --- Updates
+        //
+        // The line comes before the button so it reads as what happened, not as
+        // a label for it, and it is only drawn when there is something to say —
+        // an empty "no update yet" line is the kind of permanent furniture
+        // people stop seeing.
+        let update_line = with_update(|m| m.clone()).unwrap_or_default();
+        if !update_line.is_empty() {
+            label(hwnd, &update_line, 20, y);
+            y += 20;
+        }
+        button(
+            hwnd,
+            ID_UPDATE,
+            t("检查更新", "Check for updates"),
+            20,
+            y,
+            160,
+            26,
+        );
+        y += 34;
 
         // --- Startup
         checkbox(
