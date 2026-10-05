@@ -31,6 +31,18 @@ pub struct Args {
     pub unmute: bool,
     pub record: bool,
     pub version: bool,
+    /// One-shot: capture this PC's system audio for a couple of seconds and
+    /// report what arrived, then exit.
+    ///
+    /// NOT behind the `selftest` feature, deliberately: the question it answers
+    /// — "does WASAPI loopback actually hear anything on *this* machine" — can
+    /// only be answered by the shipping binary on the user's own hardware, and a
+    /// diagnostic you have to rebuild to run is a diagnostic nobody runs.
+    ///
+    /// It is also the only thing that turns "the speaker is silent" into a
+    /// number: it found a real `E_INVALIDARG` (0x80070057) that three layers of
+    /// prose had described identically to "this machine has no audio output".
+    pub speaker_probe: bool,
     /// One-shot, elevated: register the virtual camera's COM source, exit.
     /// Reached two ways — the tray's `runas`, and typed by a user who self-elevates.
     pub install_vcam: bool,
@@ -93,6 +105,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--version" | "-V" => args.version = true,
+            "--speaker-probe" => args.speaker_probe = true,
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
