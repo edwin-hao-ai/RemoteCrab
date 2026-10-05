@@ -10351,6 +10351,54 @@
           }
         }
       }
+    },
+    "The iPhone is waiting for you": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The iPhone is waiting for you"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 正在等你操作"
+          }
+        }
+      }
+    },
+    "Tap Allow on the iPhone to connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap Allow on the iPhone to connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 iPhone 上点「允许」以连接"
+          }
+        }
+      }
+    },
+    "The iPhone is waiting for approval to connect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The iPhone is waiting for approval to connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone 正在等待连接批准"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

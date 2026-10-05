@@ -20,6 +20,65 @@ final class ReceiverSession: ObservableObject {
     /// state without depending on any view's lifetime.
     static let shared = ReceiverSession()
 
+    /// The Core policy works on a platform-free mirror of the state, because
+    /// `ReceiverSession` is macOS-only and cannot be imported from the package.
+    /// A new case here must be added there too, or this will not compile —
+    /// which is the intended alarm rather than a silent default.
+    private var stateKind: ReceiverStateKind {
+        switch state {
+        case .searching: return .searching
+        case .connecting: return .connecting
+        case .handshaking: return .handshaking
+        case .awaitingApproval: return .awaitingApproval
+        case .streaming: return .streaming
+        case .error: return .error
+        }
+    }
+
+    /// Raise a desktop notification the first time this run needs a tap on the
+    /// phone.
+    ///
+    /// The phone's approval card is a 5-inch screen you may not be holding, and
+    /// the Mac's only cue is a menu-bar row. Without this, the run sits in
+    /// `awaitingApproval` until something times out and the visible symptom is
+    /// "it didn't connect" with no hint that a tap was the missing step.
+    /// Drop the alert once the wait resolves, so a solved problem does not leave
+    /// a notification lying around claiming otherwise.
+    private func clearApprovalNoticeIfResolved(previous: State) {
+        guard ApprovalNotificationPolicy.shouldResetAfterExit(
+            previous: stateKind(of: previous), next: stateKind) else { return }
+        notifiedAboutCurrentWait = false
+        ApprovalNotifier.clear()
+    }
+
+    private func noteApprovalNeededIfFirstTime(previous: State) {
+        let decision = ApprovalNotificationPolicy.shouldNotify(
+            previous: stateKind(of: previous),
+            next: stateKind,
+            isFirstEntryThisSession: !didNotifyAboutApprovalThisRun,
+            alreadyNotifiedForThisWait: notifiedAboutCurrentWait)
+        guard decision else { return }
+        didNotifyAboutApprovalThisRun = true
+        notifiedAboutCurrentWait = true
+        let phone = currentPhoneName() ?? ""
+        let body = phone.isEmpty
+            ? IBLocale.Connection.awaitingApprovalGeneric
+            : String(format: IBLocale.Connection.awaitingApprovalNamed, phone)
+        Self.log.info("notifying: the iPhone is waiting for approval")
+        ApprovalNotifier.post(title: IBLocale.Connection.awaitingApprovalTitle, body: body)
+    }
+
+    private func stateKind(of s: State) -> ReceiverStateKind {
+        switch s {
+        case .searching: return .searching
+        case .connecting: return .connecting
+        case .handshaking: return .handshaking
+        case .awaitingApproval: return .awaitingApproval
+        case .streaming: return .streaming
+        case .error: return .error
+        }
+    }
+
     enum State: Equatable {
         case searching
         case connecting(name: String)
@@ -222,6 +281,14 @@ final class ReceiverSession: ObservableObject {
     /// a stale address otherwise sits in `preparing` for the full ~75 s
     /// TCP timeout and blocks the healthy Bonjour path.
     private var dialWatchdogTask: Task<Void, Never>?
+    /// Which discovery has already had its one WiFi-only retry, so an
+    /// unreachable phone cannot spin: cancel, retry WiFi-only, cancel, retry
+    /// WiFi-only. Cleared when a different phone is dialled.
+    private var peerToPeerRetriedFor: String?
+    /// One notification per run, and one per *wait* — see
+    /// `ApprovalNotificationPolicy` for why the transition and not the state.
+    private var didNotifyAboutApprovalThisRun = false
+    private var notifiedAboutCurrentWait = false
     /// Abandons a connection that reaches TCP `.ready` but never gets a
     /// `sessionReply` (the phone backgrounded mid-handshake). Without
     /// this the Mac stays in `.handshaking` with `connection != nil`
@@ -1257,9 +1324,17 @@ final class ReceiverSession: ObservableObject {
 
     /// TCP parameters for dialing the iPhone, with AWDL (peer-to-peer
     /// Wi-Fi) enabled unless the user turned it off in Preferences.
-    private static func tcpParameters() -> NWParameters {
+    /// `peerToPeer` overrides the stored preference **for this one dial only**.
+    ///
+    /// AWDL is how the phone stays reachable with no router at all, so it stays
+    /// enabled — the dial watchdog simply asks the same resolver for a WiFi-only
+    /// answer once, when the peer-to-peer endpoint did not route in the budget
+    /// and there is no remembered address to fall back to. Nothing here writes
+    /// the preference, so the next ordinary dial is peer-to-peer again.
+    private static func tcpParameters(peerToPeer: Bool? = nil) -> NWParameters {
         let parameters = NWParameters.tcp
-        parameters.includePeerToPeer = UserDefaults.standard.object(forKey: "remotecrab.mac.peerToPeer") as? Bool ?? true
+        parameters.includePeerToPeer = peerToPeer
+            ?? (UserDefaults.standard.object(forKey: "remotecrab.mac.peerToPeer") as? Bool ?? true)
         return parameters
     }
 
@@ -1312,7 +1387,9 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
-    private func connect(to phone: DiscoveredPhone) {
+    /// - Parameter peerToPeer: overrides the AWDL preference for this dial only.
+    ///   `nil` means "use the preference". See `tcpParameters(peerToPeer:)`.
+    private func connect(to phone: DiscoveredPhone, peerToPeer: Bool? = nil) {
         connection?.cancel()
         connection = nil
         // Tear down the old capture now: nil-ing the connection makes the
@@ -1334,13 +1411,15 @@ final class ReceiverSession: ObservableObject {
         Self.log.info("connecting to \(phone.name, privacy: .public) (serviceEndpoint: \(phone.serviceEndpoint != nil, privacy: .public))")
 
         let conn: NWConnection
+        // Only a WiFi-only attempt is worth not repeating.
+        if peerToPeer == false { peerToPeerRetriedFor = phone.id }
         if let serviceEndpoint = phone.serviceEndpoint {
-            conn = NWConnection(to: serviceEndpoint, using: Self.tcpParameters())
+            conn = NWConnection(to: serviceEndpoint, using: Self.tcpParameters(peerToPeer: peerToPeer))
         } else {
             conn = NWConnection(
                 host: NWEndpoint.Host(phone.endpoint),
                 port: NWEndpoint.Port(rawValue: phone.port) ?? .any,
-                using: Self.tcpParameters()
+                using: Self.tcpParameters(peerToPeer: peerToPeer)
             )
         }
         conn.stateUpdateHandler = { [weak self] newState in
@@ -1376,20 +1455,30 @@ final class ReceiverSession: ObservableObject {
             let elapsed = budget
             guard DialWatchdogPolicy.shouldAbandon(
                 isReady: false, isDirectDial: isDirectDial, elapsed: elapsed) else { return }
-            switch DialWatchdogPolicy.nextStep(isDirectDial: isDirectDial) {
+            let hasKnownDirectIP = !self.fallbackCandidates().isEmpty
+            switch DialWatchdogPolicy.nextStep(isDirectDial: isDirectDial,
+                                              hasKnownDirectIP: hasKnownDirectIP) {
             case .abandonOnly:
                 Self.log.info("direct dial to \(phone.endpoint, privacy: .public) not ready after \(Int(budget))s — abandoning")
                 conn.cancel()
             case .tryDirectIP:
-                let label = isDirectDial ? phone.endpoint : (phone.serviceEndpoint.map(String.init(describing:)) ?? phone.endpoint)
-                Self.log.info("Bonjour endpoint for \(phone.name, privacy: .public) not ready after \(Int(budget))s (\(label, privacy: .public)) — abandoning it and trying the direct address")
+                Self.log.info("Bonjour endpoint for \(phone.name, privacy: .public) not ready after \(Int(budget))s — abandoning it and trying the direct address")
                 conn.cancel()
-                // Only if we actually know one, or this spins.
-                if DialWatchdogPolicy.fallbackIsPossible(
-                    hasKnownDirectIP: !self.fallbackCandidates().isEmpty) {
+                if DialWatchdogPolicy.fallbackIsPossible(hasKnownDirectIP: hasKnownDirectIP) {
                     self.connection = nil
                     Task { await self.probeFallbackCandidates() }
                 }
+            case .retryWithoutPeerToPeer:
+                guard DialWatchdogPolicy.shouldRetryWithoutPeerToPeer(
+                    alreadyRetriedWithoutPeerToPeer: self.peerToPeerRetriedFor == phone.id) else {
+                    Self.log.info("peer-to-peer and WiFi-only dials both failed for \(phone.name, privacy: .public) — leaving it to the retry loop")
+                    conn.cancel()
+                    return
+                }
+                Self.log.info("Bonjour endpoint for \(phone.name, privacy: .public) not ready after \(Int(budget))s — retrying once without peer-to-peer (the preference is unchanged)")
+                conn.cancel()
+                self.connection = nil
+                self.connect(to: phone, peerToPeer: false)
             }
         }
     }
@@ -1476,6 +1565,11 @@ final class ReceiverSession: ObservableObject {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         Self.log.info("sessionReply: \(reply.result.rawValue, privacy: .public) owner=\(reply.ownerName ?? "-", privacy: .public)")
+        // Any reply other than `pending` resolves the wait, including `busy`
+        // and `denied` — the phone is no longer asking for a tap.
+        if reply.result != .pending {
+            clearApprovalNoticeIfResolved(previous: state)
+        }
         switch reply.result {
         case .accepted:
             suppressReconnect = false
@@ -1521,7 +1615,9 @@ final class ReceiverSession: ObservableObject {
         case .pending:
             sessionGranted = false
             if let name = currentPhoneName() {
+                let previous = state
                 state = .awaitingApproval(name: name)
+                noteApprovalNeededIfFirstTime(previous: previous)
             }
 
         case .busy:

@@ -71,18 +71,47 @@ final class DialWatchdogPolicyTests: XCTestCase {
     // MARK: - What happens next
 
     /// The case this policy exists for: Bonjour gave us an endpoint that does
-    /// not route, so cancelling is not enough — try the address we can reach.
-    func testAnUnroutableBonjourEndpointFallsBackToTheDirectPath() {
+    /// not route, so cancelling is not enough — the next attempt must not be a
+    /// blind re-resolve of the same thing.
+    func testAnUnroutableBonjourEndpointNeverJustRetriesItself() {
+        for known in [true, false] {
+            XCTAssertNotEqual(
+                DialWatchdogPolicy.nextStep(isDirectDial: false, hasKnownDirectIP: known),
+                .abandonOnly,
+                "known=\(known): a Bonjour endpoint that did not route must lead somewhere")
+        }
+    }
+
+    /// With a remembered address, that address is the second attempt: it does
+    /// not go through Bonjour at all.
+    func testAKnownAddressIsTheSecondAttemptWhenWeHaveOne() {
         XCTAssertEqual(
-            DialWatchdogPolicy.nextStep(isDirectDial: false),
-            .tryDirectIP,
-            "re-resolving the same endpoint will produce the same unroutable answer")
+            DialWatchdogPolicy.nextStep(isDirectDial: false, hasKnownDirectIP: true),
+            .tryDirectIP)
     }
 
     /// A stale direct address must NOT immediately retry itself, or the
     /// fallback loop never gets to try the next candidate.
     func testAStaleDirectAddressIsJustCancelled() {
         XCTAssertEqual(DialWatchdogPolicy.nextStep(isDirectDial: true), .abandonOnly)
+    }
+
+    /// AWDL stays ON — it is how the phone is reachable with no router at all,
+    /// and turning it off would trade a real feature for this edge case. So when
+    /// the peer-to-peer dial does not route, the retry is the *same* discovery
+    /// with peer-to-peer excluded for that one attempt. If that works, AWDL was
+    /// the problem; if it does not, the phone is genuinely gone and the ordinary
+    /// loop resumes with AWDL on.
+    func testAPeerToPeerDialIsRetriedOnceOverWifiOnly() {
+        XCTAssertEqual(DialWatchdogPolicy.nextStep(isDirectDial: false), .retryWithoutPeerToPeer)
+    }
+
+    func testTheWifiOnlyRetryHappensAtMostOncePerDiscovery() {
+        XCTAssertTrue(DialWatchdogPolicy.shouldRetryWithoutPeerToPeer(
+            alreadyRetriedWithoutPeerToPeer: false))
+        XCTAssertFalse(DialWatchdogPolicy.shouldRetryWithoutPeerToPeer(
+            alreadyRetriedWithoutPeerToPeer: true),
+            "an unbounded retry over WiFi would just wedge differently")
     }
 
     func testTheFallbackStepIsOnlyOfferedWhenAnAddressIsActuallyKnown() {
