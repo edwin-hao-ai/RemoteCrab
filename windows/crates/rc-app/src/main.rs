@@ -169,7 +169,14 @@ fn hide_console_if_we_own_it() {
     // SAFETY: `pids` is a valid writable buffer, and the binding passes its
     // length to the API.
     let attached = unsafe { GetConsoleProcessList(&mut pids) };
-    if attached > 1 {
+    // **Exactly one.** Not "more than one is fine", which is what this first
+    // said: `GetConsoleProcessList` returns 0 when the process has no console at
+    // all, which is the case for anything started with redirected handles — a
+    // pipe, a build script, `Start-Process -RedirectStandardOutput`. Treating 0
+    // as "we own the console" made the program hijack stdout that the caller had
+    // explicitly pointed somewhere else, so `remotecrab --scan | grep …` printed
+    // nothing anywhere the caller could see.
+    if attached != 1 {
         return;
     }
 
