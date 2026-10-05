@@ -198,6 +198,7 @@ mod dispatch_tests {
         let bytes = encode_activate_app(&ActivateApp {
             id: "pid:42".to_string(),
             window_title: None,
+            request_id: None,
         })
         .unwrap();
         let (tx, mut rx) = broadcast::channel(16);
@@ -213,6 +214,7 @@ mod dispatch_tests {
         let bytes = encode_quit_app(&QuitApp {
             id: "pid:7".to_string(),
             force: true,
+            request_id: None,
         })
         .unwrap();
         let (tx, mut rx) = broadcast::channel(16);

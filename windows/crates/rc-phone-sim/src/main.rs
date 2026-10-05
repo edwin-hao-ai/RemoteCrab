@@ -313,11 +313,17 @@ fn main() {
                 Frame2::ClientHello(h) => {
                     *pings = 0;
                     println!(
-                        "  [{}] clientHello  name={:?} id={} token={}",
+                        "  [{}] clientHello  name={:?} id={} token={} caps={:?}",
                         *seen,
                         h.name,
                         &h.id[..h.id.len().min(8)],
-                        if h.token.is_some() { "yes" } else { "NO" }
+                        if h.token.is_some() { "yes" } else { "NO" },
+                        // Printed because the phone gates on this: it does not
+                        // send a `requestId` to a receiver that has not declared
+                        // `commandResult`, so a receiver that answers commands
+                        // but omits the declaration is never asked and its
+                        // buttons look dead.
+                        h.capabilities.as_deref().unwrap_or(&[])
                     );
                 }
                 Frame2::Ping(_) => {

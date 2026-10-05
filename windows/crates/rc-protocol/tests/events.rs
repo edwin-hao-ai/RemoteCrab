@@ -375,6 +375,7 @@ fn client_hello_round_trip_with_optional_platform() {
         token: Some("tok".to_string()),
         app_version: "0.1.0".to_string(),
         platform: Some("windows".to_string()),
+        capabilities: None,
     };
     let json = serde_json::to_string(&hello).unwrap();
     assert!(json.contains("\"platform\":\"windows\""));
@@ -407,6 +408,7 @@ fn system_command_open_url_wire_value() {
     let cmd = SystemCommand {
         command: SystemCommandKind::OpenUrl,
         argument: Some("https://example.com".to_string()),
+        request_id: None,
     };
     let json = serde_json::to_string(&cmd).unwrap();
     // Swift's raw value is "openURL" (not camelCase "openUrl").
@@ -416,6 +418,7 @@ fn system_command_open_url_wire_value() {
     let vol = SystemCommand {
         command: SystemCommandKind::VolumeUp,
         argument: None,
+        request_id: None,
     };
     assert!(serde_json::to_string(&vol).unwrap().contains("\"volumeUp\""));
 }
@@ -587,6 +590,7 @@ fn system_command_show_desktop_wire_value() {
     let value = serde_json::to_value(SystemCommand {
         command: SystemCommandKind::ShowDesktop,
         argument: None,
+        request_id: None,
     })
     .unwrap();
     assert_eq!(value["command"], "showDesktop");
