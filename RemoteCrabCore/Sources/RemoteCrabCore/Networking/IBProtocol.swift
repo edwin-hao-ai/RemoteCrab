@@ -20,6 +20,12 @@ public enum IBServiceType {
         public static let id = "id"
         public static let name = "name"
         public static let platform = "platform"
+
+        /// The dictionary an advertiser publishes. One builder so Mac and
+        /// Windows cannot drift on key spelling.
+        public static func record(id: String, name: String, platform: String) -> [String: String] {
+            [self.id: id, self.name: name, self.platform: platform]
+        }
     }
 }
 
