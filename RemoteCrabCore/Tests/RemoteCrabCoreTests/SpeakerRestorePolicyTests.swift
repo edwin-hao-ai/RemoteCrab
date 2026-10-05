@@ -43,4 +43,26 @@ final class SpeakerRestorePolicyTests: XCTestCase {
             SpeakerRestorePolicy.shouldResume(habit: true, alreadyOn: false, connectedIsWindows: false),
             SpeakerRestorePolicy.shouldResume(habit: true, alreadyOn: false, connectedIsWindows: true))
     }
+    /// The headless microphone request outranks a remembered speaker habit.
+    ///
+    /// It did not, and the failure was misattributed for a while: the flag was
+    /// applied first, this restore undid it a few lines later, and
+    /// `scripts/e2e-device.sh` then reported "audio packets received" as
+    /// missing — pointing at the audio path when the cause was a stale
+    /// preference from an earlier interactive session.
+    func testAForcedMicrophoneSuppressesTheRememberedSpeakerHabit() {
+        XCTAssertFalse(SpeakerRestorePolicy.shouldResume(
+            habit: true, alreadyOn: false, connectedIsWindows: false,
+            e2eForcedMicrophone: true),
+            "the speaker would take the audio session and the microphone would stand down")
+    }
+
+    /// And it changes nothing when no headless run is asking.
+    func testTheForcedMicrophoneFlagDefaultsToOff() {
+        XCTAssertEqual(
+            SpeakerRestorePolicy.shouldResume(habit: true, alreadyOn: false, connectedIsWindows: false),
+            SpeakerRestorePolicy.shouldResume(habit: true, alreadyOn: false, connectedIsWindows: false,
+                                              e2eForcedMicrophone: false))
+    }
+
 }

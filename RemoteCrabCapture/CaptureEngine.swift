@@ -1649,7 +1649,8 @@ final class CaptureEngine: ObservableObject {
         if SpeakerRestorePolicy.shouldResume(
             habit: UserDefaults.standard.bool(forKey: Self.speakerHabitKey),
             alreadyOn: features.speakerOn,
-            connectedIsWindows: connectedIsWindows
+            connectedIsWindows: connectedIsWindows,
+            e2eForcedMicrophone: ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MIC"] == "1"
         ) {
             features.set(feature: .microphone, enabled: false)
             features.set(feature: .speaker, enabled: true)
