@@ -1329,6 +1329,21 @@ running apps / windows / installed apps —— 根因不是套件表错，是
 **也失败**（TextEdit 那步），所以阻塞是环境层面的。**但「另一个脚本也失败」
 不是打印绿表的许可**，所以那一档明说并退出非零。
 540 Core 测试 + 两 target + Windows 套件 + 新的 host-build 步全绿；
+**🔒 本轮未完成（Mac 侧，不要当成「已收工」）**：
+
+1. **访达修复没在真机验过。** 15 个测试 + 反向验证证明的是不变量，
+   不是用户会看到什么。规则 5 要求在报出问题的那台东西上验证 —— 需要
+   Mac → Windows 切一次，情景模式面板表头不能出现上一个电脑的 app 名。
+2. **4 条文案没在真机看过。** 测试证明 catalog，不证明屏幕。
+3. **`e2e-parity.sh --input simulator` 档的真因未知。** 试过四个假设全被否
+   （只怪 TCC / 只怪 boot-cycle / 把真正需要的 `REMOTECRAB_AUTOSTREAM=1`
+   删掉 / 我自己的编排），停在「需要新证据」而不是「已排除」。
+   关键事实：app 活着（UIKit/VideoToolbox 日志在跑）、`Forensic` 一行没写、
+   8765 从不开、TCC 三项（含 local network）都是 `auth_value=2`。
+4. **旧的 `testNoSessionSurfaceNamesAMac` 还在**，
+   和新的 `SessionSurfaceCopyTests` 重叠。该删掉旧的或标注取代 ——
+   两个守卫会让人以为覆盖面是它的两倍。
+
 `scripts/e2e-parity.sh` 的假手机档实测 handshake + `decode: 150 frames (320x180)`。
 Lessons 142-146._
 
