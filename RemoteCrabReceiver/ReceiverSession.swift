@@ -221,7 +221,7 @@ final class ReceiverSession: ObservableObject {
     /// Abandons a direct-IP dial that hasn't reached `.ready` in 8 s —
     /// a stale address otherwise sits in `preparing` for the full ~75 s
     /// TCP timeout and blocks the healthy Bonjour path.
-    private var directDialTimeoutTask: Task<Void, Never>?
+    private var dialWatchdogTask: Task<Void, Never>?
     /// Abandons a connection that reaches TCP `.ready` but never gets a
     /// `sessionReply` (the phone backgrounded mid-handshake). Without
     /// this the Mac stays in `.handshaking` with `connection != nil`
@@ -1354,27 +1354,50 @@ final class ReceiverSession: ObservableObject {
         connection = conn
         connectedPhoneName = phone.name
 
-        // A direct-IP dial to a stale address can sit in `preparing`
-        // for the full TCP timeout (~75 s). Give up much sooner — the
-        // fallback loop and Bonjour keep running, so abandoning just
-        // costs one probe cycle.
-        directDialTimeoutTask?.cancel()
-        if phone.serviceEndpoint == nil {
-            directDialTimeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(8))
-                guard let self, !Task.isCancelled,
-                      let conn = self.connection, self.connectedIsDirect,
-                      case .connecting = self.state else { return }
-                Self.log.info("direct dial to \(phone.endpoint, privacy: .public) not ready after 8s — abandoning")
+        // A dial that has not become ready can sit in `preparing` for the full
+        // TCP timeout (~75 s), and that is true of a Bonjour *service endpoint*
+        // just as much as of a stale address — an endpoint resolved to an AWDL
+        // interface never routes. This watchdog used to be armed ONLY for direct
+        // dials, so the common case had no watchdog at all and the receiver
+        // wedged until the user relaunched it. See `DialWatchdogPolicy`.
+        //
+        // The direct-IP fallback cannot rescue that on its own: it is gated on
+        // "Bonjour empty", and Bonjour was not empty — it had found a phone
+        // whose address did not work. A discovery result is not a promise that
+        // the address routes.
+        dialWatchdogTask?.cancel()
+        let isDirectDial = phone.serviceEndpoint == nil
+        dialWatchdogTask = Task { [weak self] in
+            let budget = DialWatchdogPolicy.budget
+            try? await Task.sleep(for: .seconds(budget))
+            guard let self, !Task.isCancelled,
+                  let conn = self.connection, self.connectedIsDirect == isDirectDial,
+                  case .connecting = self.state else { return }
+            let elapsed = budget
+            guard DialWatchdogPolicy.shouldAbandon(
+                isReady: false, isDirectDial: isDirectDial, elapsed: elapsed) else { return }
+            switch DialWatchdogPolicy.nextStep(isDirectDial: isDirectDial) {
+            case .abandonOnly:
+                Self.log.info("direct dial to \(phone.endpoint, privacy: .public) not ready after \(Int(budget))s — abandoning")
                 conn.cancel()
+            case .tryDirectIP:
+                let label = isDirectDial ? phone.endpoint : (phone.serviceEndpoint.map(String.init(describing:)) ?? phone.endpoint)
+                Self.log.info("Bonjour endpoint for \(phone.name, privacy: .public) not ready after \(Int(budget))s (\(label, privacy: .public)) — abandoning it and trying the direct address")
+                conn.cancel()
+                // Only if we actually know one, or this spins.
+                if DialWatchdogPolicy.fallbackIsPossible(
+                    hasKnownDirectIP: !self.fallbackCandidates().isEmpty) {
+                    self.connection = nil
+                    Task { await self.probeFallbackCandidates() }
+                }
             }
         }
     }
 
     private func handleConnectionState(_ newState: NWConnection.State) {
         Self.log.info("connection state: \(String(describing: newState), privacy: .public)")
-        directDialTimeoutTask?.cancel()
-        directDialTimeoutTask = nil
+        dialWatchdogTask?.cancel()
+        dialWatchdogTask = nil
         switch newState {
         case .ready:
             // TCP is up but we are NOT the session owner yet: identify
