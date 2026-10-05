@@ -102,6 +102,7 @@ fn main() {
     let handled = system_keys::handle(&SystemCommand {
         command: SystemCommandKind::VolumeUp,
         argument: None,
+        request_id: None,
     });
     println!(
         "{}  system key volumeUp (audible/volume change; not auto-verified)",

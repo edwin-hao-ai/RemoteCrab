@@ -153,10 +153,45 @@ fn client_hello_keys() {
         token: Some("t".into()),
         app_version: "v".into(),
         platform: Some("windows".into()),
+        capabilities: None,
     };
     // `platform` is the additive field this port introduced; it must serialize
     // as exactly "platform" so iOS (which now reads it) sees it.
     assert_keys(&h, &["name", "id", "token", "appVersion", "platform"]);
+}
+
+/// The receiver's declared capabilities, which the phone reads before it relies
+/// on them.
+///
+/// `commandResult` is load-bearing: the phone does not send a `requestId` to a
+/// receiver that has not named it, so a receiver that answers commands but
+/// forgets to declare this is never asked — and its buttons do nothing visible,
+/// which the user reads as the app being broken. `latencyProbe` is why the phone
+/// can measure its own round trip.
+#[test]
+fn client_hello_declares_capabilities() {
+    let h = ClientHello {
+        name: "n".into(),
+        id: "i".into(),
+        token: None,
+        app_version: "v".into(),
+        platform: Some("windows".into()),
+        capabilities: Some(vec!["latencyProbe".into(), "commandResult".into()]),
+    };
+    assert_keys(
+        &h,
+        &[
+            "name",
+            "id",
+            "appVersion",
+            "platform",
+            "capabilities",
+        ],
+    );
+    let json = serde_json::to_string(&h).unwrap();
+    // Plain strings, in declaration order, because that is what the Swift
+    // `Capability: String` raw values decode from.
+    assert!(json.contains(r#""capabilities":["latencyProbe","commandResult"]"#), "{json}");
 }
 
 #[test]
@@ -236,12 +271,12 @@ fn file_keys() {
 
 #[test]
 fn misc_command_keys() {
-    assert_keys(&ActivateApp { id: "i".into(), window_title: Some("t".into()) }, &["id", "windowTitle"]);
-    assert_keys(&QuitApp { id: "i".into(), force: true }, &["id", "force"]);
+    assert_keys(&ActivateApp { id: "i".into(), window_title: Some("t".into()), request_id: None }, &["id", "windowTitle"]);
+    assert_keys(&QuitApp { id: "i".into(), force: true, request_id: None }, &["id", "force"]);
     assert_keys(&Clipboard { text: "x".into() }, &["text"]);
     assert_keys(&CameraCommand { position: CameraPosition::Front }, &["position"]);
     assert_keys(&TextCommandMessage { command: TextCommand::Uppercase }, &["command"]);
-    assert_keys(&SystemCommand { command: SystemCommandKind::VolumeUp, argument: None }, &["command"]);
+    assert_keys(&SystemCommand { command: SystemCommandKind::VolumeUp, argument: None, request_id: None }, &["command"]);
     assert_keys(&FeatureControl { feature: Feature::Camera, enabled: true }, &["feature", "enabled"]);
 }
 
@@ -255,6 +290,7 @@ fn enum_raw_values() {
         let json = serde_json::to_string(&SystemCommand {
             command: SystemCommandKind::OpenUrl,
             argument: None,
+            request_id: None,
         })
         .unwrap();
         assert!(json.contains(&format!("\"{wire}\"")), "{what}: {json}");

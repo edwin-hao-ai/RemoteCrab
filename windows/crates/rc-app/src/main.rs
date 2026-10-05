@@ -248,6 +248,37 @@ fn send_file_ack(session: &rc_net::Session, ack: &rc_protocol::FileAck) {
     }
 }
 
+/// Tell the phone how a command it asked for turned out.
+///
+/// The Mac has always sent this (`launchApp` / `quitApp` / `showDesktop`), so a
+/// Windows receiver that stayed silent made those buttons look broken: the user
+/// taps, nothing visibly happens on the phone, and the app is blamed. Windows
+/// did not send one at all.
+///
+/// Silently does nothing when the request carried no `requestId`. That is not a
+/// shortcut — it is the compatibility rule: a phone that omits the id predates
+/// `commandResult` and cannot read the answer, and the Mac receiver treats that
+/// same silence as "your receiver is too old to confirm" rather than as a
+/// failure. Inventing an id would make this side look newer than it is.
+fn send_command_result(session: &rc_net::Session, request_id: Option<&str>, ok: bool) {
+    let Some(request_id) = request_id else {
+        return;
+    };
+    let result = rc_protocol::CommandResult {
+        request_id: request_id.to_string(),
+        status: if ok {
+            rc_protocol::CommandStatus::Ok
+        } else {
+            rc_protocol::CommandStatus::Failed
+        },
+        detail: None,
+    };
+    match rc_protocol::encode_command_result(&result) {
+        Ok(frame) => session.send_frame(frame),
+        Err(e) => eprintln!("  command result: could not encode — {e}"),
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args = parse_args();
@@ -1135,6 +1166,7 @@ async fn main() -> ExitCode {
                                     stats.unsupported_commands.push(name);
                                     tray.set_details(tray_rows(&stats, &speaker));
                                 }
+                                send_command_result(&session, cmd.request_id.as_deref(), handled);
                                 #[cfg(not(windows))]
                                 let _ = &cmd;
                             }
@@ -1183,10 +1215,12 @@ async fn main() -> ExitCode {
                                 println!("  app switch requested: {}", a.id);
                                 #[cfg(windows)]
                                 {
+                                    let mut switched = false;
                                     if args.no_input {
                                         println!("  app switch ignored (--no-input)");
                                     } else if rc_os::apps::activate_id_with_title(&a.id, a.window_title.as_deref()) {
                                         println!("  activated app {}", a.id);
+                                        switched = true;
                                         // Republish without icons: the phone reuses its
                                         // cached ones. The Mac does the same from its
                                         // activation observer, and without it the
@@ -1197,6 +1231,7 @@ async fn main() -> ExitCode {
                                     } else {
                                         println!("  app switch failed: {}", a.id);
                                     }
+                                    send_command_result(&session, a.request_id.as_deref(), switched);
                                 }
                                 #[cfg(not(windows))]
                                 let _ = &a;
@@ -1204,10 +1239,12 @@ async fn main() -> ExitCode {
                             Event::QuitApp(q) => {
                                 #[cfg(windows)]
                                 {
+                                    let mut quit = false;
                                     if args.no_input {
                                         println!("  app quit ignored (--no-input)");
                                     } else if rc_os::apps::quit_id(&q.id, q.force) {
                                         println!("  quit app {}", q.id);
+                                        quit = true;
                                         // A quitting app must leave the phone's
                                         // window picker, or it stays tappable until the
                                         // user reopens the sheet. The Mac republishes
@@ -1223,6 +1260,7 @@ async fn main() -> ExitCode {
                                     } else {
                                         println!("  app quit failed: {}", q.id);
                                     }
+                                    send_command_result(&session, q.request_id.as_deref(), quit);
                                 }
                                 #[cfg(not(windows))]
                                 let _ = &q;

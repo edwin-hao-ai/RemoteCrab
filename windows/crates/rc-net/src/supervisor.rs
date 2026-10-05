@@ -744,6 +744,16 @@ events_tx: &broadcast::Sender<Event>,
         token,
         app_version: config.app_version.clone(),
         platform: Some("windows".to_string()),
+        // What this receiver can be relied on for. The phone reads this before
+        // it sends a `requestId`, so `commandResult` here is the difference
+        // between the launch/quit/desktop buttons reporting success and doing
+        // nothing visible. `latencyProbe` because `rc-net::ping` echoes a probe
+        // this side did not originate, which is how the phone measures its own
+        // round trip.
+        capabilities: Some(vec![
+            "latencyProbe".to_string(),
+            "commandResult".to_string(),
+        ]),
     };
     let Ok(frame) = encode_client_hello(&hello) else {
         return ConnEndKind::Lost;

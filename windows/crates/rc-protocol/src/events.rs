@@ -304,6 +304,21 @@ pub struct ClientHello {
     /// present the right modifier symbols + shortcut chords.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform: Option<String>,
+    /// Declared abilities, so the phone can rely on them.
+    ///
+    /// `commandResult` is the one that matters here: the phone deliberately does
+    /// **not** send a `requestId` to a receiver that has not named it, so that an
+    /// older receiver is never handed an answer it cannot produce. That means a
+    /// receiver which answers commands but forgets to declare this is never asked
+    /// — and the phone's buttons stay silent, which is what the user sees as
+    /// "broken". `latencyProbe` is the other: this receiver echoes probes it did
+    /// not originate (`rc-net::ping`), which is what lets the phone measure its
+    /// own round trip.
+    ///
+    /// Strings rather than an enum so an unknown value from a newer phone decodes
+    /// rather than failing the handshake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
 }
 
 /// iPhone → receiver: the ownership decision for a `clientHello`
@@ -382,6 +397,16 @@ pub struct ActivateApp {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_title: Option<String>,
+    /// Correlates the `commandResult` this request should produce.
+    ///
+    /// Optional in both directions on purpose, and the reason is compatibility:
+    /// a phone that predates `commandResult` omits it, and the receiver then
+    /// stays silent — which the phone reads as "that receiver is too old to
+    /// confirm" rather than as a failure. An explicit `rename` rather than
+    /// relying on the struct-level `camelCase`, so the field cannot drift if
+    /// that attribute is ever removed.
+    #[serde(default, rename = "requestId", skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 /// iPhone → receiver: quit the identified app (kind `0x16`).
@@ -390,6 +415,9 @@ pub struct QuitApp {
     pub id: String,
     #[serde(default)]
     pub force: bool,
+    /// See [`ActivateApp::request_id`].
+    #[serde(default, rename = "requestId", skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -587,6 +615,9 @@ pub struct SystemCommand {
     pub command: SystemCommandKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub argument: Option<String>,
+    /// See [`ActivateApp::request_id`].
+    #[serde(default, rename = "requestId", skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -913,7 +944,7 @@ impl std::fmt::Display for CommandStatus {
 
 #[cfg(test)]
 mod command_result_tests {
-    use super::{CommandResult, CommandStatus};
+    use super::{ActivateApp, CommandResult, CommandStatus, QuitApp, SystemCommand};
 
     /// The wire values are the phone's contract, so they are asserted as
     /// literals rather than as `Debug` output.
@@ -957,5 +988,40 @@ mod command_result_tests {
         let result: CommandResult =
             serde_json::from_str(r#"{"requestId":"a1","status":"failed"}"#).expect("parse");
         assert_eq!(result.request_id, "a1");
+    }
+
+    /// The *request* half of the same contract. The receiver can only answer a
+    /// command if it can see the id, and the phone sends it under exactly this
+    /// key (see `IBActivateApp.requestId`). An id that silently decodes to nil
+    /// means the answer is never sent — which is the bug this exists to fix,
+    /// wearing a different hat.
+    #[test]
+    fn a_command_request_carries_its_request_id() {
+        let a: ActivateApp =
+            serde_json::from_str(r#"{"id":"a.b","windowTitle":null,"requestId":"r1"}"#)
+                .expect("parse ActivateApp");
+        assert_eq!(a.request_id.as_deref(), Some("r1"));
+
+        let q: QuitApp = serde_json::from_str(r#"{"id":"a.b","force":false,"requestId":"r2"}"#)
+            .expect("parse QuitApp");
+        assert_eq!(q.request_id.as_deref(), Some("r2"));
+
+        let s: SystemCommand = serde_json::from_str(r#"{"command":"showDesktop","requestId":"r3"}"#)
+            .expect("parse SystemCommand");
+        assert_eq!(s.request_id.as_deref(), Some("r3"));
+    }
+
+    /// A phone that predates `commandResult` omits it, and that must not fail
+    /// the frame — the command still has to run, just unacknowledged.
+    #[test]
+    fn a_command_without_a_request_id_still_parses() {
+        let a: ActivateApp = serde_json::from_str(r#"{"id":"a.b"}"#).expect("parse");
+        assert_eq!(a.request_id, None);
+
+        let q: QuitApp = serde_json::from_str(r#"{"id":"a.b"}"#).expect("parse");
+        assert_eq!(q.request_id, None);
+
+        let s: SystemCommand = serde_json::from_str(r#"{"command":"volumeUp"}"#).expect("parse");
+        assert_eq!(s.request_id, None);
     }
 }

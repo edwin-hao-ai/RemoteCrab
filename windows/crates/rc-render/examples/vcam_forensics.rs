@@ -194,6 +194,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         token: None,
         app_version: "0".into(),
         platform: Some("windows".into()),
+        // The probe declares what it can answer, exactly as the receiver does,
+        // so what the phone sends back matches what a real run would get.
+        capabilities: Some(vec![
+            "latencyProbe".to_string(),
+            "commandResult".to_string(),
+        ]),
     })
     .map_err(|e| format!("encode_client_hello: {e}"))?;
     wr.write_all(&hello).await?;
