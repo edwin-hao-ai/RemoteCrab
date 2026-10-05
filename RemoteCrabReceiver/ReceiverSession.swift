@@ -1072,6 +1072,14 @@ final class ReceiverSession: ObservableObject {
             // nothing is the failure mode rule 1 exists to prevent.
             speakerStatus = (error as? LocalizedError)?.errorDescription ?? "\(error)"
             Self.log.error("speaker tap failed: \(String(describing: error), privacy: .public)")
+            // The tap only *preflights* Screen Recording, so without this the
+            // speaker just produced no sound and the user had no way to grant
+            // it — the reported "it worked yesterday, today it can't" was the
+            // same code running under a build whose grant was missing. Ask for
+            // it here, like the mirror already does.
+            if case SystemAudioTapError.screenRecordingNotGranted = error {
+                _ = CGRequestScreenCaptureAccess()
+            }
             return
         }
 
