@@ -71,8 +71,8 @@ final class CommandLedgerTests: XCTestCase {
     func testEachFailureHasItsOwnSentence() {
         let cases: [(IBCommandResult.Status, String)] = [
             (.noPermission, "Your Mac needs Accessibility permission to control apps."),
-            (.noWindow, "That window isn't open on your Mac anymore."),
-            (.failed, "Your Mac refused that request."),
+            (.noWindow, "That window isn't open on your computer anymore."),
+            (.failed, "Your computer refused that request."),
         ]
         for (status, expected) in cases {
             let m = IBCommandOutcome(requestId: "r", state: .failed(status: status)).message()

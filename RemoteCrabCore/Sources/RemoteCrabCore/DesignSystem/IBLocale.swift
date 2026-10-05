@@ -101,7 +101,7 @@ public enum IBLocale {
 
     public enum App {
         public static let name = IBL("RemoteCrab")
-        public static let tagline = IBL("Mac receiver")
+        public static let tagline = IBL("Computer receiver")
         public static let captureName = IBL("RemoteCrab")
         public static let receiverName = IBL("RemoteCrab Receiver")
         /// Overflow-menu button label.
@@ -134,19 +134,19 @@ public enum IBLocale {
 
     public enum Permission {
         public static let camera = IBL("Camera Access")
-        public static let cameraReason = IBL("RemoteCrab turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded.")
+        public static let cameraReason = IBL("RemoteCrab turns your iPhone's camera into a high-quality webcam for your computer. We use it in real time — nothing is recorded or uploaded.")
 
         public static let microphone = IBL("Microphone Access")
-        public static let microphoneReason = IBL("RemoteCrab can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime.")
+        public static let microphoneReason = IBL("RemoteCrab can stream your iPhone's microphone to your computer. This is optional — toggle it off in the camera screen anytime.")
 
         public static let localNetwork = IBL("Local Network Access")
-        public static let localNetworkReason = IBL("RemoteCrab uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other.")
+        public static let localNetworkReason = IBL("RemoteCrab uses Bonjour to find your computer on the same WiFi. Without this, the two devices can't talk to each other.")
 
         public static let speech = IBL("Speech Recognition")
-        public static let speechReason = IBL("Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature.")
+        public static let speechReason = IBL("Hold the voice button to dictate text into your computer. Recognition happens on your iPhone — audio never leaves your device for this feature.")
 
         public static let photos = IBL("Photos Access")
-        public static let photosReason = IBL("RemoteCrab can send your latest screenshots straight to the Mac. Only the screenshots you send are read — nothing is uploaded.")
+        public static let photosReason = IBL("RemoteCrab can send your latest screenshots straight to the computer. Only the screenshots you send are read — nothing is uploaded.")
 
         public static let accessibility = IBL("Accessibility Permission")
         public static let accessibilityReason = IBL("We need Accessibility to drive your Mac's cursor and keyboard from your iPhone.")
@@ -420,9 +420,9 @@ public enum IBLocale {
         }
         public static let scrollSpeed = IBL("Scroll Speed")
         public static let naturalScroll = IBL("Natural Scrolling")
-        public static let naturalScrollHint = IBL("Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.")
+        public static let naturalScrollHint = IBL("Content follows your fingers, like the computer's natural scrolling. Turn off if it uses the classic direction.")
         public static let backgroundKeepAlive = IBL("Stay connected in the background")
-        public static let backgroundKeepAliveHint = IBL("Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio.")
+        public static let backgroundKeepAliveHint = IBL("Keeps RemoteCrab reachable when you switch apps or lock the screen, so your computer can always connect. Plays silent audio.")
         public static let hapticStrength = IBL("Haptic Feedback")
         public static let hapticHint = IBL("iOS pauses haptics while the microphone or hold-to-talk is active.")
         public static let hapticOff = IBL("Off")
@@ -666,8 +666,8 @@ public enum IBLocale {
     /// Offline demo mode (App Review can explore without a Mac).
     public enum Demo {
         public static let title = IBL("Demo Mode")
-        public static let footer = IBL("Shows sample camera content so you can explore RemoteCrab without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.")
-        public static let explainer = IBL("Demo Mode — sample content. No Mac connected.")
+        public static let footer = IBL("Shows sample camera content so you can explore RemoteCrab without a computer. Live streaming, trackpad and keyboard need the computer receiver running.")
+        public static let explainer = IBL("Demo Mode — sample content. No computer connected.")
         public static let badge = IBL("DEMO")
     }
 
@@ -710,12 +710,12 @@ public enum IBLocale {
         public static let quit = IBL("Quit")
         public static let forceQuit = IBL("Force Quit")
         public static let forceQuitConfirmTitle = IBL("Force Quit App?")
-        public static let forceQuitConfirmMessage = IBL("This immediately ends the app on the Mac. Unsaved changes will be lost.")
-        public static let permissionHint = IBL("Showing app icons — allow Screen Recording on the Mac to see window previews.")
+        public static let forceQuitConfirmMessage = IBL("This immediately ends the app on the computer. Unsaved changes will be lost.")
+        public static let permissionHint = IBL("Showing app icons — allow Screen Recording on the computer to see window previews.")
         public static func quitStillRunning(_ name: String) -> String {
-            String(format: IBL("If “%@” is still open, it may be waiting for a save confirmation on the Mac."), name)
+            String(format: IBL("If “%@” is still open, it may be waiting for a save confirmation on the computer."), name)
         }
-        public static let hint = IBL("Switch to a running app on the Mac")
+        public static let hint = IBL("Switch to a running app on the computer")
         public static let chordAppSwitcher = IBL("Switch apps")
         public static let chordCycleWindows = IBL("Cycle windows")
         public static let chordMissionControl = IBL("Mission Control")
@@ -753,7 +753,7 @@ public enum IBLocale {
     public enum Context {
         public static let open = IBL("App shortcuts")
         public static let systemSection = IBL("System")
-        public static let footer = IBL("Buttons send keyboard or system events to your Mac")
+        public static let footer = IBL("Buttons send keyboard or system events to your computer")
         /// The Mac wording above names the wrong computer on Windows.
         public static let footerWindows = IBL("Buttons send keyboard or system events to your computer")
         /// Shown under the suite title when it came from a file the user
@@ -790,16 +790,16 @@ public enum IBLocale {
 
     /// File transfer (iPhone → Mac).
     public enum Transfer {
-        public static let sendTitle = IBL("Send to Mac")
+        public static let sendTitle = IBL("Send to Computer")
         public static let photo = IBL("Photo or Video")
         public static let file = IBL("File")
         public static let sending = IBL("Sending…")
         public static let showInFinder = IBL("Show in Finder")
         public static let lastReceived = IBL("Last received file")
-        public static let clipboardToMac = IBL("Send Clipboard to Mac")
+        public static let clipboardToMac = IBL("Send Clipboard to Computer")
         public static let clipboardToiPhone = IBL("Send Clipboard to iPhone")
-        public static let clipboardHelp = IBL("Copy the Mac clipboard to the iPhone")
-        public static let sendHint = IBL("Send a photo, video, or file to the Mac")
+        public static let clipboardHelp = IBL("Copy the computer's clipboard to the iPhone")
+        public static let sendHint = IBL("Send a photo, video, or file to the computer")
         public static let latestScreenshot = IBL("Latest Screenshot")
         public static let noScreenshot = IBL("No screenshot found in your library.")
         public static let photosDenied = IBL("Photos access is off. Enable it in iOS Settings → Privacy → Photos, or pick a photo instead.")
@@ -909,10 +909,10 @@ public enum IBLocale {
         public static let noCameraPermission = IBL("Camera permission denied. Enable in iOS Settings → Privacy → Camera.")
         public static let noMicPermission = IBL("Microphone permission denied. Enable in iOS Settings → Privacy → Microphone.")
         public static let noLocalNetwork = IBL("Local network permission denied. Enable in iOS Settings → Privacy → Local Network.")
-        public static let searchingHint = IBL("Make sure the Mac app is running, both are on the same WiFi, and keep this app in the foreground.")
+        public static let searchingHint = IBL("Make sure the desktop app is running, both are on the same WiFi, and keep this app in the foreground.")
         /// Title of the idle/waiting card: the iPhone is the TCP server,
         /// so it can only WAIT for a Mac — "connecting" misleads.
-        public static let waitingForMac = IBL("Waiting for your Mac")
+        public static let waitingForMac = IBL("Waiting for your computer")
         /// Waiting-card subtitle once the WiFi address is known: gives
         /// the user the manual-connect escape hatch when Bonjour is
         /// blocked (VPN, client isolation, hotspot).
@@ -920,9 +920,9 @@ public enum IBLocale {
             String(format: IBL("On the Mac: menu bar → RemoteCrab → Connect by IP → %@"), address)
         }
         public static let resumedAfterBackground = IBL("Video stopped in the background — tap the camera icon to turn it back on.")
-        public static let noMacFound = IBL("No Mac found on the WiFi network. Make sure RemoteCrab Receiver is running.")
+        public static let noMacFound = IBL("No computer found on the WiFi network. Make sure RemoteCrab Receiver is running.")
         public static let bonjourFailed = IBL("Bonjour discovery failed. Check that both devices are on the same WiFi.")
-        public static let connectionLost = IBL("Connection to Mac lost. Reconnecting…")
+        public static let connectionLost = IBL("Connection to the computer lost. Reconnecting…")
         /// Mac-side counterpart of `connectionLost` (the peer that went
         /// away from the receiver's perspective is the iPhone).
         public static let iPhoneConnectionLost = IBL("Connection to your iPhone was lost. Waiting for it to reconnect…")
@@ -932,10 +932,10 @@ public enum IBLocale {
         /// ask over. Without it the tap was acknowledged by a haptic and
         /// then nothing ever happened, with the UI still claiming to be
         /// connected.
-        public static let notConnectedToMac = IBL("Not connected to your Mac right now.")
+        public static let notConnectedToMac = IBL("Not connected to your computer right now.")
         /// Raised once when the measured round trip settles into "poor" and
         /// retracted when it recovers — see `CaptureEngine.updateLatencyHint`.
-        public static let slowConnection = IBL("The connection to your Mac is slow. Video and input may lag.")
+        public static let slowConnection = IBL("The connection to your computer is slow. Video and input may lag.")
         /// A failure that is not about the Mac at all — the old single
         /// "Connection to Mac lost" sentence sent users looking at Wi-Fi
         /// while the camera was the problem.
@@ -957,7 +957,7 @@ public enum IBLocale {
         public static func iphoneBusy(_ owner: String) -> String {
             String(format: IBL("This iPhone is being used by %@ — pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing."), owner)
         }
-        public static let iphoneBusyUnknown = IBL("This iPhone is already in use by another Mac")
+        public static let iphoneBusyUnknown = IBL("This iPhone is already in use by another computer")
         public static let connectionDenied = IBL("The iPhone denied the connection")
         /// The phone's user tapped Disconnect. Says what happened AND what to do
         /// (AGENTS rule 1): pick this computer again on the phone.
@@ -972,10 +972,10 @@ public enum IBLocale {
     public enum Command {
         /// The receiver never answered, so it is too old to know the request
         /// id. Wording matters — it is a capability gap, not a failure.
-        public static let unconfirmed = IBL("Couldn't confirm with your Mac — its app may be out of date.")
+        public static let unconfirmed = IBL("Couldn't confirm with your computer — its app may be out of date.")
         public static let noPermission = IBL("Your Mac needs Accessibility permission to control apps.")
-        public static let noWindow = IBL("That window isn't open on your Mac anymore.")
-        public static let refused = IBL("Your Mac refused that request.")
+        public static let noWindow = IBL("That window isn't open on your computer anymore.")
+        public static let refused = IBL("Your computer refused that request.")
         public static func appNotRunning(_ name: String) -> String {
             String(format: IBL("“%@” is no longer running."), name)
         }
@@ -1010,7 +1010,7 @@ public enum IBLocale {
 
         // Touch surfaces (full-screen trackpad + keyboard mini trackpad).
         public static let trackpadSurface = IBL("Trackpad surface")
-        public static let trackpadSurfaceHint = IBL("Touch directly to move the Mac cursor")
+        public static let trackpadSurfaceHint = IBL("Touch directly to move the computer cursor")
         public static let miniTrackpad = IBL("Mini trackpad")
 
         // iOS camera surface + PiP.
@@ -1060,7 +1060,7 @@ public enum IBLocale {
         // iOS settings.
         public static let frameRate = IBL("Frame rate")
         public static let trackpadSensitivity = IBL("Trackpad sensitivity")
-        public static let streamMicHint = IBL("Stream the iPhone microphone to your Mac")
+        public static let streamMicHint = IBL("Stream the iPhone microphone to your computer")
         public static let keepScreenOnHint = IBL("Prevents the iPhone from auto-locking during a streaming session")
         public static let airMouseHint = IBL("Hold the floating button on the trackpad and tilt your iPhone to move the cursor")
         public static let wheelScrollHint = IBL("Hold the edge button on the trackpad and draw circles to scroll")
@@ -1091,8 +1091,8 @@ public enum IBLocale {
 
         public static let cameraSubtitle = IBL("Live iPhone feed")
         public static let micSubtitle = IBL("Stream iPhone mic")
-        public static let trackpadSubtitle = IBL("Control Mac cursor")
-        public static let keyboardSubtitle = IBL("Type on the Mac")
+        public static let trackpadSubtitle = IBL("Control computer cursor")
+        public static let keyboardSubtitle = IBL("Type on the computer")
 
         public static let openControlPanel = IBL("Open Control Panel")
         public static let openControlPanelHelp = IBL("Show the floating control panel")

@@ -970,7 +970,7 @@
         }
       }
     },
-    "If “%@” is still open, it may be waiting for a save confirmation on the Mac.": {
+    "If “%@” is still open, it may be waiting for a save confirmation on the computer.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -982,7 +982,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "如果「%@」仍未退出，可能正在等待 电脑 上的保存确认。"
+            "value": "如果「%@」仍未退出，可能正在等待电脑上的保存确认。"
           }
         }
       }
@@ -1004,7 +1004,7 @@
         }
       }
     },
-    "This immediately ends the app on the Mac. Unsaved changes will be lost.": {
+    "This immediately ends the app on the computer. Unsaved changes will be lost.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1016,12 +1016,12 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这会立即结束 电脑 上的该应用，未保存的内容将丢失。"
+            "value": "这会立即结束电脑上的该应用，未保存的内容将丢失。"
           }
         }
       }
     },
-    "Showing app icons — allow Screen Recording on the Mac to see window previews.": {
+    "Showing app icons — allow Screen Recording on the computer to see window previews.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1033,7 +1033,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前只显示应用图标——在 电脑 上允许「屏幕录制」即可看到窗口预览。"
+            "value": "当前只显示应用图标——在电脑上允许「屏幕录制」即可看到窗口预览。"
           }
         }
       }
@@ -1157,7 +1157,7 @@
         }
       }
     },
-    "Buttons send keyboard or system events to your Mac": {
+    "Buttons send keyboard or system events to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1169,7 +1169,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按键将作为键盘或系统事件发送到 电脑"
+            "value": "按钮会向你的电脑发送键盘或系统事件"
           }
         }
       }
@@ -1633,19 +1633,19 @@
         }
       }
     },
-    "Connection to Mac lost. Reconnecting…": {
+    "Connection to the computer lost. Reconnecting…": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connection lost. Reconnecting…"
+            "value": "Connection to the computer lost. Reconnecting…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连接已断开，正在重连…"
+            "value": "与电脑的连接已断开，正在重连…"
           }
         }
       }
@@ -1735,7 +1735,7 @@
         }
       }
     },
-    "Control Mac cursor": {
+    "Control computer cursor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1747,7 +1747,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "控制 电脑 光标"
+            "value": "控制电脑光标"
           }
         }
       }
@@ -1769,19 +1769,19 @@
         }
       }
     },
-    "Copy the Mac clipboard to the iPhone": {
+    "Copy the computer's clipboard to the iPhone": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy the computer clipboard to the iPhone"
+            "value": "Copy the computer's clipboard to the iPhone"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把 电脑 剪贴板复制到 iPhone"
+            "value": "把电脑剪贴板复制到 iPhone"
           }
         }
       }
@@ -1871,7 +1871,7 @@
         }
       }
     },
-    "Demo Mode — sample content. No Mac connected.": {
+    "Demo Mode — sample content. No computer connected.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -1883,7 +1883,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "演示模式 —— 示例画面，未连接 电脑。"
+            "value": "演示模式——示例画面，未连接电脑。"
           }
         }
       }
@@ -2891,7 +2891,7 @@
         }
       }
     },
-    "Hold the voice button to dictate text into your Mac. Recognition happens on your iPhone — audio never leaves your device for this feature.": {
+    "Hold the voice button to dictate text into your computer. Recognition happens on your iPhone — audio never leaves your device for this feature.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2903,7 +2903,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按住语音按钮即可向 电脑 听写文字。识别在你的 iPhone 上完成——此功能的音频不会离开你的设备。"
+            "value": "按住语音按钮即可向电脑听写文字。识别在你的 iPhone 上完成——此功能的音频不会离开你的设备。"
           }
         }
       }
@@ -3333,7 +3333,7 @@
         }
       }
     },
-    "Make sure the Mac app is running, both are on the same WiFi, and keep this app in the foreground.": {
+    "Make sure the desktop app is running, both are on the same WiFi, and keep this app in the foreground.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3367,7 +3367,7 @@
         }
       }
     },
-    "Mac receiver": {
+    "Computer receiver": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3379,7 +3379,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "电脑 接收端"
+            "value": "电脑接收端"
           }
         }
       }
@@ -3605,7 +3605,7 @@
         }
       }
     },
-    "No Mac found on the WiFi network. Make sure RemoteCrab Receiver is running.": {
+    "No computer found on the WiFi network. Make sure RemoteCrab Receiver is running.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4659,7 +4659,7 @@
         }
       }
     },
-    "RemoteCrab can stream your iPhone's microphone to your Mac. This is optional — toggle it off in the camera screen anytime.": {
+    "RemoteCrab can stream your iPhone's microphone to your computer. This is optional — toggle it off in the camera screen anytime.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4671,7 +4671,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 可将 iPhone 麦克风串流到 电脑。此功能可选，随时可在相机页面关闭。"
+            "value": "RemoteCrab 可将 iPhone 麦克风串流到电脑。此功能可选，随时可在相机页面关闭。"
           }
         }
       }
@@ -4778,7 +4778,7 @@
         }
       }
     },
-    "RemoteCrab turns your iPhone's camera into a high-quality webcam for your Mac. We use it in real time — nothing is recorded or uploaded.": {
+    "RemoteCrab turns your iPhone's camera into a high-quality webcam for your computer. We use it in real time — nothing is recorded or uploaded.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4790,12 +4790,12 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 将你的 iPhone 摄像头变成 电脑 的高质量摄像头，实时使用，不录制、不上传。"
+            "value": "RemoteCrab 将你的 iPhone 摄像头变成电脑的高质量摄像头，实时使用，不录制、不上传。"
           }
         }
       }
     },
-    "RemoteCrab uses Bonjour to find your Mac on the same WiFi. Without this, the two devices can't talk to each other.": {
+    "RemoteCrab uses Bonjour to find your computer on the same WiFi. Without this, the two devices can't talk to each other.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -4807,7 +4807,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 使用 Bonjour 在同一 WiFi 上查找你的 电脑。没有此权限，两台设备无法通信。"
+            "value": "RemoteCrab 使用 Bonjour 在同一 WiFi 上查找你的电脑。没有此权限，两台设备无法通信。"
           }
         }
       }
@@ -4964,19 +4964,19 @@
         }
       }
     },
-    "Send Clipboard to Mac": {
+    "Send Clipboard to Computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send Clipboard to computer"
+            "value": "Send Clipboard to Computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送剪贴板到 电脑"
+            "value": "发送剪贴板到电脑"
           }
         }
       }
@@ -4998,7 +4998,7 @@
         }
       }
     },
-    "Send a photo, video, or file to the Mac": {
+    "Send a photo, video, or file to the computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5010,24 +5010,24 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "把照片、视频或文件发送到 电脑"
+            "value": "把照片、视频或文件发送到电脑"
           }
         }
       }
     },
-    "Send to Mac": {
+    "Send to Computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to computer"
+            "value": "Send to Computer"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "发送到 电脑"
+            "value": "发送到电脑"
           }
         }
       }
@@ -5219,7 +5219,7 @@
         }
       }
     },
-    "Shows sample camera content so you can explore RemoteCrab without a Mac. Live streaming, trackpad and keyboard need the Mac receiver running.": {
+    "Shows sample camera content so you can explore RemoteCrab without a computer. Live streaming, trackpad and keyboard need the computer receiver running.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5231,7 +5231,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在未连接 电脑 时显示示例摄像头画面，方便你体验 RemoteCrab。实时推流、触控板和键盘需要运行 电脑 接收端。"
+            "value": "在未连接电脑时显示示例摄像头画面，方便你体验 RemoteCrab。实时推流、触控板和键盘需要运行电脑接收端。"
           }
         }
       }
@@ -5593,7 +5593,7 @@
         }
       }
     },
-    "Stream the iPhone microphone to your Mac": {
+    "Stream the iPhone microphone to your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5605,7 +5605,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将 iPhone 麦克风流式传输到你的 电脑"
+            "value": "将 iPhone 麦克风流式传输到你的电脑"
           }
         }
       }
@@ -5729,7 +5729,7 @@
         }
       }
     },
-    "Switch to a running app on the Mac": {
+    "Switch to a running app on the computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5741,7 +5741,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换到 电脑 上正在运行的应用"
+            "value": "切换到电脑上正在运行的应用"
           }
         }
       }
@@ -5882,7 +5882,7 @@
         }
       }
     },
-    "This iPhone is already in use by another Mac": {
+    "This iPhone is already in use by another computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5916,7 +5916,7 @@
         }
       }
     },
-    "Touch directly to move the Mac cursor": {
+    "Touch directly to move the computer cursor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -5928,7 +5928,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "直接触摸以移动 电脑 光标"
+            "value": "直接触摸以移动电脑光标"
           }
         }
       }
@@ -6086,7 +6086,7 @@
         }
       }
     },
-    "Type on the Mac": {
+    "Type on the computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6098,7 +6098,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 电脑 上输入"
+            "value": "在电脑上输入"
           }
         }
       }
@@ -6426,7 +6426,7 @@
         }
       }
     },
-    "Waiting for your Mac": {
+    "Waiting for your computer": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6438,7 +6438,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "等待 电脑 连接"
+            "value": "等待电脑连接"
           }
         }
       }
@@ -6731,7 +6731,7 @@
         }
       }
     },
-    "RemoteCrab can send your latest screenshots straight to the Mac. Only the screenshots you send are read — nothing is uploaded.": {
+    "RemoteCrab can send your latest screenshots straight to the computer. Only the screenshots you send are read — nothing is uploaded.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -6743,7 +6743,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "RemoteCrab 可以把你的最新截图直接发送到 电脑。只有你发送的截图会被读取，绝不上传。"
+            "value": "RemoteCrab 可以把你的最新截图直接发送到电脑。只有你发送的截图会被读取，绝不上传。"
           }
         }
       }
@@ -7088,19 +7088,19 @@
         }
       }
     },
-    "Content follows your fingers, like the Mac's natural scrolling. Turn off if your Mac uses the classic direction.": {
+    "Content follows your fingers, like the computer's natural scrolling. Turn off if it uses the classic direction.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Content follows your fingers, like the computer's natural scrolling. Turn off if your computer uses the classic direction."
+            "value": "Content follows your fingers, like the computer's natural scrolling. Turn off if it uses the classic direction."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "内容跟随手指移动，与 电脑 的「自然滚动」一致。若你的 电脑 用的是传统方向，请关闭此项。"
+            "value": "内容跟随手指移动，与电脑的「自然滚动」一致。若电脑用的是传统方向，请关闭此项。"
           }
         }
       }
@@ -7122,7 +7122,7 @@
         }
       }
     },
-    "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your Mac can always connect. Plays silent audio.": {
+    "Keeps RemoteCrab reachable when you switch apps or lock the screen, so your computer can always connect. Plays silent audio.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -7134,7 +7134,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换 App 或锁屏后仍保持可连接，让 电脑 随时能找到。会播放静音音频。"
+            "value": "切换 App 或锁屏后仍保持可连接，让电脑随时能找到。会播放静音音频。"
           }
         }
       }
@@ -9179,7 +9179,7 @@
         }
       }
     },
-    "Not connected to your Mac right now.": {
+    "Not connected to your computer right now.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9315,7 +9315,7 @@
         }
       }
     },
-    "The connection to your Mac is slow. Video and input may lag.": {
+    "The connection to your computer is slow. Video and input may lag.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9366,7 +9366,7 @@
         }
       }
     },
-    "Couldn't confirm with your Mac — its app may be out of date.": {
+    "Couldn't confirm with your computer — its app may be out of date.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9378,7 +9378,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法与电脑确认结果 — 电脑端 App 可能版本过旧。"
+            "value": "无法与电脑确认结果——电脑端 App 可能版本过旧。"
           }
         }
       }
@@ -9400,7 +9400,7 @@
         }
       }
     },
-    "That window isn't open on your Mac anymore.": {
+    "That window isn't open on your computer anymore.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9417,7 +9417,7 @@
         }
       }
     },
-    "Your Mac refused that request.": {
+    "Your computer refused that request.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -9889,23 +9889,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "与电脑对话"
-          }
-        }
-      }
-    },
-    "Buttons send keyboard or system events to your computer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buttons send keyboard or system events to your computer"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按钮会向你的电脑发送键盘或系统事件"
           }
         }
       }
