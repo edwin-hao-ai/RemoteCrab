@@ -74,8 +74,10 @@ pub struct Actions {
     pub autostart: Box<dyn Fn() -> bool + Send + Sync>,
     pub set_autostart: Box<dyn Fn(bool) + Send + Sync>,
     /// Install the virtual camera — the same UAC-raising path the wizard and
-    /// the tray row use, so the three cannot drift.
-    pub install_camera: Box<dyn Fn() + Send + Sync>,
+    /// the tray row use, so the three cannot drift. Returns what the attempt did
+    /// so a refusal is reported rather than swallowed; [`crate::wizard::install_outcome`]
+    /// decides what each outcome deserves to say.
+    pub install_camera: Box<dyn Fn() -> Option<(&'static str, &'static str)> + Send + Sync>,
 }
 
 static STATE: Mutex<Option<Actions>> = Mutex::new(None);
@@ -170,11 +172,14 @@ unsafe extern "system" fn wnd_proc(
                     // Run outside the lock: installing raises a UAC dialog, and
                     // holding a mutex across a modal dialog is how a process
                     // deadlocks.
-                    if let Ok(g) = STATE.lock() {
-                        if let Some(a) = g.as_ref() {
-                            (a.install_camera)();
-                        }
-                    }
+                    let outcome = match STATE.lock() {
+                        Ok(g) => match g.as_ref() {
+                            Some(a) => (a.install_camera)(),
+                            None => None,
+                        },
+                        Err(_) => None,
+                    };
+                    set_draft_error(outcome);
                     build(hwnd);
                     LRESULT(0)
                 }

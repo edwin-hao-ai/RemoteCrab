@@ -95,6 +95,10 @@ pub struct State {
     pub(crate) first_run: rc_net::firstrun::FirstRun,
     pub(crate) page: Page,
     pub(crate) action: Option<Box<dyn Fn() + Send + Sync>>,
+    /// What the last action reported, drawn under the camera page's button.
+    /// `None` is also "nothing reported yet", which is why [`set_page`] clears
+    /// it — see the tests at the bottom of this file.
+    pub(crate) action_message: Option<(&'static str, &'static str)>,
 }
 
 /// The one window's state. A process is not going to run two wizards, and a
@@ -113,8 +117,75 @@ pub(crate) fn set_page(p: Page) {
     if let Ok(mut g) = STATE.lock() {
         if let Some(s) = g.as_mut() {
             s.page = p;
+            // A message about the camera belongs to the camera page. Carrying it
+            // across a navigation would attribute an old refusal to whatever the
+            // user is looking at now.
+            s.action_message = None;
         }
     }
+}
+
+/// One home for the wording of a camera-install attempt.
+///
+/// The tray used to carry its own copy of these four sentences, and the wizard
+/// and the settings window carried none at all — they discarded the outcome
+/// entirely. A user who declined the UAC prompt in the wizard watched the button
+/// return with nothing said, while the wizard's own text told them to click
+/// again: exactly the advice that cannot work when the prompt was refused.
+///
+/// `None` means success, and is silent on purpose. The button disappearing *is*
+/// the confirmation — `is_registered` is re-read on every paint — so a "done"
+/// line would outlive the thing it describes.
+#[cfg_attr(not(windows), allow(dead_code))] // the two Win32 windows and the tests
+pub(crate) fn install_outcome(
+    outcome: crate::elevate::Elevation,
+) -> Option<(&'static str, &'static str)> {
+    match outcome {
+        crate::elevate::Elevation::PromptAccepted => None,
+        crate::elevate::Elevation::Declined => Some((
+            "你取消了管理员提示，所以虚拟摄像头还没有安装。需要时再点这里。",
+            "You declined the administrator prompt, so the virtual camera is not installed. \
+             This row will be here when you want it.",
+        )),
+        crate::elevate::Elevation::Unavailable => Some((
+            "这台电脑不允许弹出管理员提示（可能是组策略）。请让管理员运行一次 \
+             remotecrab.exe --install-vcam。",
+            "This PC will not show an administrator prompt (a group policy may block it). \
+             Ask an administrator to run remotecrab.exe --install-vcam once.",
+        )),
+        // Only reachable if this process is somehow already elevated, in which
+        // case the write should have succeeded. Say that rather than implying a
+        // prompt is needed.
+        crate::elevate::Elevation::AlreadyElevated => Some((
+            "已经在管理员权限下运行，但注册仍然失败。",
+            "Already running as administrator, and the registration still failed.",
+        )),
+    }
+}
+
+/// Stash what the action reported so `wizard_win` can paint it.
+///
+/// Separate from [`install_outcome`] because the window runs its action through
+/// a `Box<dyn Fn()>` that cannot return a value back to the message loop — see
+/// [`run_action`]. That lifetime trick is why this is a module-level `Mutex`
+/// rather than something the caller threads through.
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn record_action(outcome: Option<(&'static str, &'static str)>) {
+    if let Ok(mut g) = STATE.lock() {
+        if let Some(s) = g.as_mut() {
+            s.action_message = outcome;
+        }
+    }
+}
+
+/// The line the camera page draws under its button, if the last click left one.
+///
+/// Flattened because `with_state` reports "no wizard" as `None` too, and a wizard
+/// with nothing to say is also `None` — the window cannot draw for a wizard that
+/// is not open, so the two are the same answer.
+#[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
+pub(crate) fn action_message() -> Option<(&'static str, &'static str)> {
+    with_state(|s| s.action_message).flatten()
 }
 
 #[cfg_attr(not(windows), allow(dead_code))] // the Win32 window
@@ -212,7 +283,10 @@ mod tests {
 
 #[cfg(test)]
 mod action_tests {
-    use super::{current_page, run_action, set_page, Page, State, STATE};
+    use super::{
+    action_message, current_page, install_outcome, record_action, run_action, set_page, Page, State,
+    STATE,
+};
     use rc_net::firstrun::{Camera, FirstRun, Integrity};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -241,6 +315,7 @@ mod action_tests {
                 action: Some(Box::new(|| {
                     RUNS.fetch_add(1, Ordering::Relaxed);
                 })),
+                action_message: None,
             });
         }
         run_action();
@@ -275,6 +350,7 @@ mod action_tests {
                 first_run: ok_state(),
                 page: Page::Welcome,
                 action: None,
+                action_message: None,
             });
         }
         set_page(Page::Camera);
@@ -283,6 +359,103 @@ mod action_tests {
         assert_eq!(current_page(), Page::Input);
         if let Ok(mut g) = STATE.lock() {
             *g = None;
+        }
+    }
+
+    /// A refusal has to be reported *and* stay reported.
+    ///
+    /// Both halves were broken, in different places. The wizard's action is a
+    /// `Box<dyn Fn()>` that cannot return a value to the message loop, so the
+    /// outcome had nowhere to go even once it was being collected; and the
+    /// wizard's own text tells a user who declined the UAC prompt to click
+    /// again, which is precisely the advice that cannot work when the prompt was
+    /// refused.
+    #[test]
+    fn a_refusal_is_reported_and_survives_redraws() {
+        let refusal = ("declined, so it is not installed", "declined, so it is not installed");
+        if let Ok(mut g) = STATE.lock() {
+            *g = Some(State {
+                first_run: ok_state(),
+                page: Page::Camera,
+                action: None,
+                action_message: None,
+            });
+        }
+        assert_eq!(action_message(), None, "nothing has been clicked yet");
+        record_action(Some(refusal));
+        assert_eq!(action_message(), Some(refusal));
+        // A draw reads the message without consuming it. The window repaints
+        // every 200 ms, so a read that took the value would blank the line
+        // several times a second.
+        assert_eq!(action_message(), Some(refusal));
+        assert_eq!(
+            current_page(),
+            Page::Camera,
+            "reporting an outcome must not navigate away from the page that has it"
+        );
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
+    }
+
+    /// Succeeding is silence, not a message. The button disappears on the next
+    /// paint because `is_registered` is re-read, so a "done" line would outlive
+    /// the thing it describes.
+    #[test]
+    fn a_successful_install_leaves_nothing_to_draw() {
+        if let Ok(mut g) = STATE.lock() {
+            *g = Some(State {
+                first_run: ok_state(),
+                page: Page::Camera,
+                action: None,
+                action_message: None,
+            });
+        }
+        record_action(install_outcome(crate::elevate::Elevation::PromptAccepted));
+        assert_eq!(action_message(), None);
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
+    }
+
+    /// A message about the camera must not follow the user to another page, or an
+    /// old refusal gets attributed to whatever they are now looking at.
+    #[test]
+    fn leaving_the_camera_page_drops_its_message() {
+        if let Ok(mut g) = STATE.lock() {
+            *g = Some(State {
+                first_run: ok_state(),
+                page: Page::Camera,
+                action: None,
+                action_message: None,
+            });
+        }
+        record_action(Some(("declined", "declined")));
+        set_page(Page::Input);
+        assert_eq!(action_message(), None);
+        if let Ok(mut g) = STATE.lock() {
+            *g = None;
+        }
+    }
+
+    /// Every outcome except success earns a sentence, and success earns none.
+    ///
+    /// This is the guard on the bug itself: a silent `None` for a *failure* is how
+    /// two of the three surfaces ended up mute. Adding a variant to `Elevation`
+    /// makes the loop below miss it and the assertion fail, rather than silently
+    /// producing nothing.
+    #[test]
+    fn only_success_is_silent() {
+        use crate::elevate::Elevation;
+        assert!(install_outcome(Elevation::PromptAccepted).is_none());
+        for outcome in [
+            Elevation::Declined,
+            Elevation::Unavailable,
+            Elevation::AlreadyElevated,
+        ] {
+            let (zh, en) =
+                install_outcome(outcome).unwrap_or_else(|| panic!("{outcome:?} must say something"));
+            assert!(!zh.is_empty() && !en.is_empty(), "{outcome:?} said nothing");
         }
     }
 }
