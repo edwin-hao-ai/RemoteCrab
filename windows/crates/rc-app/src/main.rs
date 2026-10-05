@@ -42,7 +42,6 @@ mod wizard;
 mod wizard_win;
 
 mod doctor;
-#[cfg(windows)]
 mod elevate;
 mod help;
 mod i18n;

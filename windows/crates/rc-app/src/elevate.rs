@@ -24,9 +24,20 @@
 //! "copy this DLL into the registry yourself" instructions, and no telling the
 //! user to run a terminal. One row, one prompt, one obvious action.
 
+// The Windows APIs, and only these. `Elevation` and the argument quoting below
+// are plain data, and `is_elevated` goes through `notify_relay`, which already
+// compiles on every host — so the module itself does not need a platform gate.
+// Gating the whole `mod elevate` is what broke `cargo build --workspace` off
+// Windows: `wizard.rs` is compiled everywhere and names `Elevation`, and the
+// crate's own `#[cfg_attr(not(windows), allow(dead_code))]` on those functions
+// says compiling them here was the intent all along.
+#[cfg(windows)]
 use windows::core::HSTRING;
+#[cfg(windows)]
 use windows::Win32::Foundation::GetLastError;
+#[cfg(windows)]
 use windows::Win32::UI::Shell::ShellExecuteW;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 /// What the user experienced, so the caller can say something true.
@@ -80,8 +91,18 @@ pub fn run_elevated(flag: &str) -> Elevation {
     elevate(&exe, flag)
 }
 
+/// Off Windows there is no `ShellExecuteW` and no UAC, so the honest answer is
+/// `Unavailable` — the same thing Windows reports when a policy blocks the
+/// prompt. Not a stub that pretends: nobody can install the virtual camera here
+/// either way, and a fabricated `PromptAccepted` would read as success.
+#[cfg(not(windows))]
+fn elevate(_exe: &std::path::Path, _flag: &str) -> Elevation {
+    Elevation::Unavailable
+}
+
 /// Split out so the argument-building and the `ShellExecuteW` call can be
 /// reasoned about (and tested) separately from the process-wide bits.
+#[cfg(windows)]
 fn elevate(exe: &std::path::Path, flag: &str) -> Elevation {
     // `ShellExecuteW` takes a *quoted* command line. An install path with a
     // space in it — `C:\Program Files\RemoteCrab\` is the normal one — is the
