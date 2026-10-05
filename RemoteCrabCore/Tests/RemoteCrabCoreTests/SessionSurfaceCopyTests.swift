@@ -182,6 +182,16 @@ final class SessionSurfaceCopyTests: XCTestCase {
          "Screen Recording is a macOS-only permission; 'the computer' would be a category error"),
         ("macOS caches this permission per running app — if you already turned it on but the status won't update, restart RemoteCrab once and it will be detected.",
          "explains a macOS-specific caching behaviour the user would otherwise read as a bug"),
+        ("Screen Recording is needed to play the Mac's audio on the iPhone. Use “Finish Setup…” above.",
+         """
+         Mac receiver's own menu bar, so "the Mac" is the accurate name — this app only ever runs on
+         macOS. The rule this list exists to protect is the *opposite* one: the iPhone's copy says
+         "computer", because a user reading it may be on Windows. Do not “fix” this one to match.
+         """),
+        ("This Mac did not provide an audio tap (error %d). Update macOS and try again.",
+         "Mac receiver's own menu, and “this Mac” is the machine reporting on itself"),
+        ("The audio tap could not be opened for reading (error %d). Reconnect or restart the Mac's audio and try again.",
+         "Mac receiver's own menu — the audio being described is the Mac's own output"),
         ("Relay non-denylisted Mac notification banners to your iPhone",
          "the notification relay only exists on macOS; it sends nothing on Windows, so this names the mechanism it is for"),
         ("Your Mac needs Accessibility permission to control apps.",

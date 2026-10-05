@@ -10399,6 +10399,134 @@
           }
         }
       }
+    },
+    "Connect your iPhone to switch this on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect your iPhone to switch this on"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 iPhone 后才能开启"
+          }
+        }
+      }
+    },
+    "On — switch it off on your iPhone": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On — switch it off on your iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已开启 — 在 iPhone 上关闭"
+          }
+        }
+      }
+    },
+    "Off — switch it on from your iPhone's sound menu": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off — switch it on from your iPhone's sound menu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已关闭 — 在 iPhone 的声音菜单里开启"
+          }
+        }
+      }
+    },
+    "Screen Recording is needed to play the Mac's audio on the iPhone. Use “Finish Setup…” above.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording is needed to play the Mac's audio on the iPhone. Use “Finish Setup…” above."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要屏幕录制权限才能把电脑声音放到 iPhone 上，请用上方的「完成设置…」。"
+          }
+        }
+      }
+    },
+    "This Mac did not provide an audio tap (error %d). Update macOS and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac did not provide an audio tap (error %d). Update macOS and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台电脑没有提供音频采集（错误 %d），请更新 macOS 后重试。"
+          }
+        }
+      }
+    },
+    "The audio tap could not be opened for reading (error %d). Reconnect or restart the Mac's audio and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The audio tap could not be opened for reading (error %d). Reconnect or restart the Mac's audio and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取音频采集（错误 %d），请重新连接或重启电脑音频后重试。"
+          }
+        }
+      }
+    },
+    "Already capturing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Already capturing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已经在采集了。"
+          }
+        }
+      }
+    },
+    "Not connected — the phone cannot play audio from a computer that is not connected.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected — the phone cannot play audio from a computer that is not connected."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未连接 — 手机无法播放未连接的电脑的声音。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -28,6 +28,7 @@
 import AVFoundation
 import CoreAudio
 import CoreGraphics
+import RemoteCrabCore
 import Foundation
 import os.log
 
@@ -48,13 +49,18 @@ public enum SystemAudioTapError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .screenRecordingNotGranted:
-            return "Screen Recording access is required to capture the Mac's audio. Grant it in System Settings → Privacy & Security → Screen & System Audio Recording, then try again."
+            // Localized, and short. This string is drawn as a menu-bar subtitle:
+            // it used to be a three-sentence English paragraph, so a Chinese menu
+            // showed English, and two rows rendering it at once overlapped into
+            // an unreadable block. The action it names — "Finish Setup…" — is a
+            // row of its own at the top of the same menu.
+            return String(IBLocale.Speaker.tapNeedsScreenRecording)
         case .tapUnavailable(let status):
-            return "This Mac did not provide an audio tap (error \(status)). Update macOS and try again."
+            return String(format: IBLocale.Speaker.tapUnavailable, Int(status))
         case .noReadableDevice(let status):
-            return "The audio tap could not be opened for reading (error \(status)). Reconnect or restart the Mac's audio and try again."
+            return String(format: IBLocale.Speaker.tapNotReadable, Int(status))
         case .alreadyRunning:
-            return "Already capturing."
+            return String(IBLocale.Speaker.tapAlreadyRunning)
         }
     }
 }

@@ -356,18 +356,13 @@ struct MenuBarMenu: View {
                                          : LocalizedStringKey(IBLocale.Status.connectIPhoneFirst),
                       isOn: featureBinding(.microphone, \.micOn),
                       isEnabled: connected)
-            // A live "it isn't working" line, not a silent toggle: the most
-            // common reason for silence is that Screen Recording was never
-            // granted, and that is fixable in one click.
-            .overlay(alignment: .bottomLeading) {
-                if let status = session.speakerStatus {
-                    Text(status)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.leading, 38)
-                }
-            }
+            // The speaker's failure used to be drawn HERE as well as on the
+            // speaker row below, inside a `.overlay` carrying
+            // `fixedSize(vertical: true)`. An overlay does not participate in
+            // layout, so the text grew past this row and painted over both its
+            // own subtitle and the speaker row's — a Chinese menu with a
+            // three-line English paragraph across two rows. One row owns this
+            // state, and it is the row that reports it.
             Divider().opacity(0.3).padding(.leading, 38)
             // "Play sound on the iPhone". Mutually exclusive with the mic
             // above: both claim the phone's one audio session in opposite

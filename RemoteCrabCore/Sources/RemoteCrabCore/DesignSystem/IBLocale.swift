@@ -228,6 +228,15 @@ public enum IBLocale {
         public static let on = IBL("Speaker on")
         public static let off = IBL("Speaker off")
         public static let listeningCheck = IBL("If you hear nothing, check this phone's volume — the computer is not playing through its own speakers right now.")
+        // The audio tap's failures. Short on purpose: this text is a menu
+        // subtitle, and the action it needs ("Finish Setup…") is a row of its
+        // own at the top of the very same menu. A three-sentence paragraph in a
+        // menu row is what made two rows overlap in the first place.
+        public static let tapNeedsScreenRecording = IBL("Screen Recording is needed to play the Mac's audio on the iPhone. Use “Finish Setup…” above.")
+        public static let tapUnavailable = IBL("This Mac did not provide an audio tap (error %d). Update macOS and try again.")
+        public static let tapNotReadable = IBL("The audio tap could not be opened for reading (error %d). Reconnect or restart the Mac's audio and try again.")
+        public static let tapAlreadyRunning = IBL("Already capturing.")
+        public static let notConnectedNoAudio = IBL("Not connected — the phone cannot play audio from a computer that is not connected.")
         /// The Mac menu row for this feature is a *status*, not a control:
         /// the phone is where the user decides whether their computer's audio
         /// should reach it, and a switch on the other machine is a second

@@ -1046,7 +1046,7 @@ final class ReceiverSession: ObservableObject {
         let mute = mute ?? (speakerMutesLocal ? SystemAudioTapMute.muteWhileTapped
                                               : SystemAudioTapMute.keepLocalAudio)
         guard sessionGranted, let connection, connection.state == .ready else {
-            speakerStatus = "Not connected — the phone cannot play audio from a Mac that is not connected."
+            speakerStatus = String(IBLocale.Speaker.notConnectedNoAudio)
             return
         }
         if speakerTap.running { return }
