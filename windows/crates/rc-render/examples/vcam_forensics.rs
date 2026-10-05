@@ -424,6 +424,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("  The phone refused this probe. Remove it from the paired computers on");
                 println!("  the phone and try again.");
             }
+            Some(rc_protocol::SessionReplyResult::Off) => {
+                println!();
+                println!("  The phone has this computer switched OFF — its user tapped Disconnect");
+                println!("  for it. Not a refusal: pick this computer again on the phone's");
+                println!("  \"choose a computer\" screen and re-run.");
+            }
             Some(rc_protocol::SessionReplyResult::Accepted) => {
                 println!();
                 println!("  The phone accepted this probe, then sent no video. That is a different");

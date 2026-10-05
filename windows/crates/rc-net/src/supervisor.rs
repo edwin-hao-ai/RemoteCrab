@@ -26,8 +26,8 @@ use super::token::TokenStore;
 use super::{emit, set_health, set_state, Health};
 use super::{
     Command, Config, ConnEndKind, ConnMsg, Event, State, Target, BUSY_RETRY_DELAY,
-    DIRECT_DIAL_TIMEOUT, DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, PING_INTERVAL,
-    PONG_TIMEOUT, RECONNECT_DELAY,
+    DIRECT_DIAL_TIMEOUT, DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, OFF_RETRY_DELAY,
+    PING_INTERVAL, PONG_TIMEOUT, RECONNECT_DELAY,
 };
 
 pub(crate) struct ActiveConn {
@@ -411,6 +411,19 @@ pub(crate) async fn supervisor(
                             &state_tx,
                             &events_tx,
                             State::Error("The iPhone denied the connection".to_string()),
+                        );
+                    }
+                    ConnEndKind::Off => {
+                        // Deliberately **not** `suppress_auto`: the whole point is
+                        // that re-picking this computer on the phone brings it
+                        // back by itself.
+                        if !suppress_auto {
+                            reconnect_at = Some(tokio::time::Instant::now() + OFF_RETRY_DELAY);
+                        }
+                        set_state(
+                            &state_tx,
+                            &events_tx,
+                            State::Error("The iPhone disconnected this computer".to_string()),
                         );
                     }
                 }
@@ -851,13 +864,18 @@ events_tx: &broadcast::Sender<Event>,
         SessionReplyResult::Denied => {
             return ConnEndKind::Denied;
         }
-        // The phone's user disconnected us. Stop auto-reconnecting (same as
-        // Denied); re-picking this computer on the phone is the way back, and
-        // the user can also hit Reconnect. TODO(Windows): a dedicated message
-        // instead of the denied copy, and a slow retry so re-picking recovers
-        // without touching this machine.
+        // The phone's user disconnected this computer. Not a refusal — they
+        // turned *this* machine off from a list — so it must not wear the denied
+        // copy, which reads as something the user did wrong.
+        //
+        // A slow retry rather than none: the iPhone clears the `off` state as
+        // soon as its user picks a computer, so this is what makes re-picking
+        // this PC recover without anyone walking to the machine. Matches the
+        // Mac receiver; the previous behaviour (stop until a manual Retry, with
+        // a `TODO(Windows)` where this comment is) left the phone's own
+        // "choose a computer" screen looking broken.
         SessionReplyResult::Off => {
-            return ConnEndKind::Denied;
+            return ConnEndKind::Off;
         }
     };
 
