@@ -175,7 +175,9 @@ struct ComputerPickerView: View {
                     .font(IBFont.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(roster) { entry in
+                // The connected computer is already shown above with its
+                // Disconnect control; listing it again here was a duplicate row.
+                ForEach(roster.filter { $0.id != engine.connectedMacId }) { entry in
                     let isConnected = engine.connectedMacId == entry.id
                     let isPaired = engine.pairedMacs.contains { $0.id == entry.id }
                     let seen = engine.seenComputers.first { $0.id == entry.id }
