@@ -241,13 +241,23 @@ Windows 抄 4c/4d，**Windows 那边已经改成按包测了**；Mac 侧建议�
 
 ## 5. 验收清单
 
-- [ ] `SpeakerRestorePolicy` 四条测试绿，`CaptureEngine` 改用它
-- [ ] 连 Windows，手机声音菜单里扬声器项**可见**
-- [ ] 手机开扬声器 → **电脑声音从手机出来**（这是唯一还没验过的环节）
-- [ ] 手机关扬声器 → 电脑声音回到本机
-- [ ] **用 Mac 开过一次扬声器，然后连 Windows** → 麦克风**照常工作**（第 1 项的回归）
-- [ ] `./scripts/e2e-speaker.sh` 的 4d 不再是长平台（第 3 项）
-- [ ] `0x25 requestKeyframe` 按 `docs/HANDOFF-MAC-SIDE-2026-10-04.md` §6 打勾
+- [x] `SpeakerRestorePolicy` 四条测试绿，`CaptureEngine` 改用它
+- [x] 连 Windows，手机声音菜单里扬声器项**可见**（入口已开：
+      `ContentView.swift` 的 `speakerAvailable = true`；真机确认仍需要 Windows）
+- [ ] 手机开扬声器 → **电脑声音从手机出来**（这是唯一还没验过的环节，**需要 Windows**）
+- [ ] 手机关扬声器 → 电脑声音回到本机（同上）
+- [ ] **用 Mac 开过一次扬声器，然后连 Windows** → 麦克风**照常工作**
+      （策略已修 + 5 条测试；**行为本身仍需真机**）
+- [x] `./scripts/e2e-speaker.sh` 的 4d 不再是长平台（第 3 项）
+      → 已修，但**有一处和你要抄的版本不同**：`receivedRms` 我改成了
+      **peak-hold 而不是每包值**，因为 e2e 只在一次运行末尾采样一次，
+      每包值会随机落在间隙上让 4c 变 flaky。4c 问「有没有收到过声音」（要
+      peak），4d 问「长什么样」（要每包）。另加了 `pktRms=` 输出。
+      **以 `RemoteCrabCapture/SpeakerPlayer.swift` 现状为准，两边同一个断言
+      不能有两种含义。**
+- [x] `0x25 requestKeyframe` 按 `docs/HANDOFF-MAC-SIDE-2026-10-04.md` §6 打勾
+      → Mac 侧已实现接收；**发送逻辑在你那边**（`rc-protocol` 有定义，
+      `rc-net`/`rc-app` 零处发送），见 `docs/HANDOFF-WINDOWS-2026-10-05.md` §1
 
 ---
 

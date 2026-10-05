@@ -51,4 +51,27 @@ final class PendingSlotPolicyTests: XCTestCase {
         XCTAssertFalse(PendingSlotPolicy.isHeld(byDying: 7, pending: nil as Int?))
         XCTAssertFalse(PendingSlotPolicy.isHeld(byDying: nil as Int?, pending: nil as Int?))
     }
+
+    /// The bug itself, written out as the two orders it can happen in.
+    ///
+    /// `handleCandidateState` needs a live `NWConnection`, so the ordering at
+    /// that call site is not unit-testable directly. What *is* testable — and
+    /// what actually went wrong — is that the answer depends entirely on which
+    /// value you compare, and the old code compared the one it had just
+    /// erased. Reading the identity first is the whole fix; this pins why.
+    func test_clearing_before_comparing_is_what_made_the_cleanup_dead_code() {
+        let dyingConnection = 7
+        let slotHolder = 7
+
+        // What the fixed code does: read the identity, then clear.
+        XCTAssertTrue(PendingSlotPolicy.isHeld(byDying: dyingConnection, pending: slotHolder))
+
+        // What the old code did: clear, then read — and got `false` forever,
+        // so the pending slot was never released and the phone answered `busy`
+        // to every computer until the app was restarted.
+        var candidate: Int? = dyingConnection
+        candidate = nil
+        XCTAssertFalse(PendingSlotPolicy.isHeld(byDying: candidate, pending: slotHolder),
+                       "erasing the identity before comparing must be observably wrong")
+    }
 }

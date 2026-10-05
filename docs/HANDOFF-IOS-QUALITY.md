@@ -331,14 +331,20 @@ if UserDefaults.standard.bool(forKey: Self.speakerHabitKey),
 path still unfixed, removing that gate gives a Windows user a speaker toggle they
 cannot switch off. Fix the gate, then open the entry.
 
+> **RESOLVED on the Mac side 2026-10-05** (`6fff9d5`). The policy landed as
+> `RemoteCrabCore/Sources/RemoteCrabCore/Audio/SpeakerRestorePolicy.swift` with
+> five tests, `CaptureEngine.grant` calls it, **and the iOS entry is now open**
+> (`ContentView.swift`, `speakerAvailable = true`) — in that order, as required
+> above. The gate is one line if it ever needs reverting.
+
 ### 6.2 The 4d shape assertion cannot pass, and the reason is a running average
 
 `SpeakerPlayer.swift:203-214`: the envelope character is derived from
 `receivedRms`, which is a **cumulative average over the whole capture**
 (`energySum += sum`, `energyCount += count`, reset only in `start()`).
 
-A cumulative mean of "eight notes with gaps" converges to the notes' level, so the
-gap can never appear — **the plateau is arithmetic, not "the tap missed the
+A cumulative mean of "eight notes with gaps" converges to the notes' level, so
+the gap can never appear — **the plateau is arithmetic, not "the tap missed the
 gaps"**. The per-packet `sum` and `count` are already computed in `enqueue` (for
 `peak`), so using `sqrt(sum/count)` for the digit gives the shape directly:
 a gap lands on 0, a note near 7.
@@ -351,3 +357,52 @@ so it stays high after the audio stops and cannot detect "the sound stopped". Si
 **Why this session did not patch it**: no Swift toolchain on this machine, so not
 even a compile was possible. AGENTS.md's own rule — a change you cannot verify is
 worse than a handoff with numbers — wins over the urge to just do it.
+
+> **RESOLVED on the Mac side 2026-10-05** (`6fff9d5`, and the follow-up in
+> `AGENTS.md`'s "本轮未完成" list). Both 6.1 and 6.2 are fixed, and 6.2's fix
+> differs from the text above in one deliberate way: **`receivedRms` became a
+> peak-hold, not a per-packet value.** The device e2e samples it once at the end
+> of a run, where a per-packet number lands on a gap as often as not and makes
+> 4c flaky. 4c asks "did any sound arrive" (a maximum); 4d asks "what did it look
+> like" (per packet). The envelope digit is now `SpeakerEnvelope.digit(packetRms:)`
+> in Core, tested; the instantaneous reading is logged as `pktRms=`.
+> **If you copied 4c/4d from this section, copy them from
+> `RemoteCrabCapture/SpeakerPlayer.swift` instead** — the two ends must not mean
+> different things by the same assertion.
+
+---
+
+## 7. 🔴 Never filed by the session that found it: the iOS listener sometimes never starts
+
+> Recorded 2026-10-05 by the Mac session.
+> `HANDOFF_WINDOWS_MSI.md` §"顺带发现，尚未修" item 1 said this *should* be added
+> here. It was not, which is how a fifth "claimed done, actually not" went
+> unrecorded. Filing it here so it is findable.
+
+**Symptom, as observed from the Windows side**: the phone's IP is correct, it
+answers `ping`, it is reachable at layer 2 — and **nothing is listening on 8765**.
+No listener, no error on the phone, and (on one run) the app was visibly alive
+with UIKit and VideoToolbox logging.
+
+**Status: NOT reproduced, NOT excluded.** This is filed as *unexamined*, not as
+ruled out (AGENTS.md rule 3). The same session hit it while a `vcam_forensics`
+run was in flight, which is also exactly when the phone is most likely to be
+holding a session, changing its address, or being backgrounded — so "the listener
+never started" and "the listener started and then stopped" are not yet separated.
+
+**What would settle it, cheaply, from either side:**
+
+1. On the phone, `Forensic.log("[hs] …")` and the listener-start line are the
+   ground truth. If `[hs] listener up` never appears, the listener genuinely
+   never started; if it appears and then a teardown line follows, it started and
+   was stopped. **The iOS side needs to log both**, which today it does not — that
+   gap is the reason this is still open.
+2. The phone's own log is more decisive than the port: a phone can refuse a
+   connection for a dozen reasons that all look like "nothing is listening" from
+   the outside.
+3. A `v2`/multi-hypothesis reading is required. Do not record this as excluded
+   on the strength of a probe that happened to succeed.
+
+**Do not spend a session on this before** the 0x25 send path and the speaker
+playback leg (both handed to the Windows session 2026-10-05), which are
+mechanical and already scoped.

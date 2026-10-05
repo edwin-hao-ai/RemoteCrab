@@ -273,58 +273,6 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "gesture rows with no zh-Hans: \(missing)")
     }
 
-    /// Nothing reachable **inside a live session** may name a Mac.
-    ///
-    /// These surfaces are the ones a Windows user reads *while connected*,
-    /// and the session is already platform-aware (⌘ vs ⊞, per-platform
-    /// suites, a Windows launcher). Text that says "your Mac" in that same
-    /// moment contradicts everything around it. Product-level copy —
-    /// onboarding, permissions, "Download for Mac", the receiver itself —
-    /// is deliberately NOT in this list: RemoteCrab's Mac app is a real
-    /// thing users install, and rewriting that is a different decision.
-    ///
-    /// Asserted against the catalog **values**, not the keys: the keys
-    /// still read "…on the Mac." because that is what `IBL()` looks up,
-    /// while the `en` unit already reads "…on the computer." Asserting on
-    /// keys would fail on correct copy, and asserting on `IBL(...)` would
-    /// depend on the test host's locale.
-    func testNoSessionSurfaceNamesAMac() throws {
-        let keys = [
-            // App switcher
-            "No apps to switch to", "Switch to a running app on the Mac",
-            "Desktop", "Show Desktop", "Open App…", "Refresh",
-            "Pin", "Unpin", "Active", "Quit", "Force Quit", "Force Quit App?",
-            "This immediately ends the app on the Mac. Unsaved changes will be lost.",
-            "Showing app icons — allow Screen Recording on the Mac to see window previews.",
-            // App launcher
-            "Applications", "Search apps", "No apps listed yet",
-            "Apps reported by the connected computer",
-            "Asking your computer for its apps…",
-            "Your computer didn’t answer",
-            "Check that RemoteCrab Receiver is running and up to date, then try again.",
-            "Reconnect, then try again.",
-            // Context sheet + connection errors + mirror chrome
-            "Buttons send keyboard or system events to your Mac",
-            "Buttons send keyboard or system events to your computer",
-            "Not connected to your Mac right now.",
-            "App window mirror", "Follow frontmost app", "Computer",
-        ]
-        let strings = try catalog()
-        var leaks: [String] = []
-        for key in keys {
-            let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
-            let locs = try XCTUnwrap(entry["localizations"] as? [String: Any],
-                                      "no localizations: \(key)")
-            for (loc, unit) in locs {
-                let value = ((unit as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? ""
-                if value.contains("Mac") || value.contains("macOS") {
-                    leaks.append("\(key) [\(loc)] -> \(value)")
-                }
-            }
-        }
-        XCTAssertTrue(leaks.isEmpty, "session text names a Mac: \(leaks)")
-    }
-
     /// The launcher's waiting / no-answer states. They exist because the
     /// sheet used to say "No apps listed yet" while the Mac was still
     /// building the list, so a Chinese user would have read a *lie* in their

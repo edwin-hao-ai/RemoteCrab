@@ -228,9 +228,42 @@ Windows 侧我已经加了协议定义和发送逻辑（见 §「已经做完」
 
 ## 6. 验收清单（Mac 侧做完之后）
 
-- [ ] 抓当前构建的码流，`ffprobe` 确认 `has_b_frames`
-- [ ] 如果 > 0：加 `NumberOfBFramesBetweenReferenceFrames: 0` 进 `VideoEncodingPolicy` + 断言 + 测试
+- [x] 抓当前构建的码流，`ffprobe` 确认 `has_b_frames`
+      → **2026-10-05 做了，而且不需要手机**：`scripts/vt-bframe-probe.swift`
+      拿 `H264Encoder.createSession` 的原样 key 跑真实 VideoToolbox，
+      `has_b_frames=0`，对照组（`AllowFrameReordering=true`）报 **2**
+      —— 探针看得见 B 帧，所以 0 是读数。见 `docs/HANDOFF-WINDOWS-2026-10-05.md` §3
+- [x] ~~如果 > 0：加 `NumberOfBFramesBetweenReferenceFrames: 0`~~
+      → **测出来是 0，所以这一条作废，不要加。** 下面那条「为什么这个文件不算数」
+      才是真正的答案：`docs/demo/remotecrab-demo.mp4` 是
+      `scripts/demo-video.sh:99` 用 `-c:v libx264` 从 macOS 录屏生成的，
+      ffprobe 读出 `1468x1180` 的并排合成画面，而产品码流是 `1080x1920`。
+      `High profile` / `has_b_frames=2` 是 libx264 的产物。
+      另外「Main profile 本身不允许 B 帧」这个理由本身也不对 —— Main 是允许
+      B-slice 的，真正压制它们的是 `AllowFrameReordering: false` + `RealTime: true`
 - [ ] 重装 iOS app，Windows 侧再跑一次 `decode_file`，帧数与 ffmpeg 对得上
-- [ ] `handleEncodedFrame` 的发送移出 VideoToolbox 回调线程，加丢弃计数
-- [ ] 实现接收 `0x25 requestKeyframe`
+      → **需要 Windows 机器**，已交出去
+- [ ] ~~`handleEncodedFrame` 的发送移出 VideoToolbox 回调线程~~
+      → **这一条的前提是错的，没有做。** `handleEncodedFrame` 根本不在
+      VideoToolbox 回调线程上：两个调用点都是 `Task { @MainActor in … }`
+      （`CaptureEngine.swift:470` / `1096`）。真实链路是
+      采集队列 → VT `outputHandler` → `queue.async` → 编码队列 → `onFrame`
+      → MainActor → `connection.send`，**网络发送早就和编码输出解耦了**，
+      「移出回调线程」是空操作。
+      顺带两处纠正：`didDrop` 不是委托，只是 `captureOutput(_:didDrop:from:)`
+      的私有计数器；真正的风险是 `connection.send` 跑在**主线程**，
+      背压会卡 UI（规则 1），那是另一个问题，**需要重新测量**再决定改不改
+- [x] 实现接收 `0x25 requestKeyframe`
+      → 已实现：`Kind.requestKeyframe (0x25)` + `handleKeyframeRequest()` +
+      `H264Encoder.requestForceIntraFrame()`。**但目前没有任何接收端会发它** ——
+      Windows 侧的发送逻辑缺失，已交出去
 - [ ] 再抓一段码流，确认 fps 接近 30（现在 4）
+      → **需要真机**，未做
+
+### 额外补的一条（你 10-04 没提，但更危险）
+
+`IBWire` 对不认识的 kind 字节回退到 `.video`（`Kind(rawValue:) ?? .video`），
+所以**任何本 build 不认识的 kind 都被当成 H.264 NAL 喂进解码器** —— 包括
+`0x24` 和 `0x25`。你给 Rust 的 `from_u8_or_video` 加守卫测试是对的，Swift 侧
+当时什么都没有。现在未知 kind 走 `.unknown`，并有测试断言未知帧**后面那一帧
+仍然能解析**，避免一个坏字节吞掉整条流。
