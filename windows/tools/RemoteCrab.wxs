@@ -316,12 +316,48 @@
                   DllEntry="WixShellExec"
                   Impersonate="yes" />
 
+    <!--
+      The knock port, allowed inbound on private networks only.
+
+      A knock is an *inbound* connection, and Windows Firewall blocks inbound by
+      default. Without this the feature degrades quietly: the phone taps, the
+      knock never arrives, and the connection happens on the receiver's next poll
+      — seconds later, which reads as "sometimes it is slow" rather than
+      "something is blocked". The main connection needs nothing: the receiver
+      dials *out*, which is allowed always.
+
+      `profile=private`, not `any`. This port exists so a phone on the same WiFi
+      can wake us up; on a public network it is an open port that makes the
+      machine redial, and nobody asked for that.
+
+      `Return="ignore"` on both: a machine where the rule cannot be written (a
+      locked-down firewall policy) must still install. The feature falls back to
+      the poll, which is the behaviour it had before the knock existed.
+    -->
+    <CustomAction Id="AddKnockFirewallRule"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='netsh advfirewall firewall add rule name=RemoteCrabKnock dir=in action=allow protocol=TCP localport=8766 profile=private'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveKnockFirewallRule"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='netsh advfirewall firewall delete rule name=RemoteCrabKnock'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <!-- Both before RemoveFiles: the exe has to still be there to be run.
            User state first — it needs no rights, so a failure there cannot
            affect the machine-wide half that does. -->
       <Custom Action="UninstallUserState" Before="RemoveFiles" />
       <Custom Action="UninstallMachineState" Before="RemoveFiles" />
+      <!-- After the files are down, so a failed install does not leave a rule
+           behind for a program that is not there. -->
+      <Custom Action="AddKnockFirewallRule" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="RemoveKnockFirewallRule" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE OR UPGRADINGPRODUCTCODE)" />
     </InstallExecuteSequence>
   </Package>
