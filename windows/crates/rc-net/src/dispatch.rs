@@ -276,12 +276,13 @@ mod screen_dispatch_tests {
     /// The failure mode the protocol module keeps warning about, pinned where
     /// it actually bites.
     ///
-    /// `Kind::from_u8_or_video` maps an unrecognised byte to `Video`. That is a
-    /// good default for forward compatibility and a terrible one for a JSON
-    /// payload: the H.264 decoder would be handed `{"codec":"pcm",...}` and the
-    /// symptom would be a corrupted camera preview with nothing in the log. The
-    /// enum arm is what prevents it, and this test is what notices if someone
-    /// later widens the catch-all above it.
+    /// An unrecognised byte used to decode as `Video` — a good default for
+    /// forward compatibility and a terrible one for a JSON payload, because the
+    /// H.264 decoder would be handed `{"codec":"pcm",...}` and the symptom would
+    /// be a corrupted camera preview with nothing in the log. It now decodes as
+    /// `Kind::Unknown` and is dropped; the enum arm for a real kind is what keeps
+    /// it out of the video path, and this test is what notices if someone later
+    /// widens the catch-all above it.
     ///
     /// 0x24 arrived with a comment saying the Windows receiver "MUST recognise
     /// the kind even before" it can send any — meaning it must at least refuse to
@@ -290,7 +291,7 @@ mod screen_dispatch_tests {
     fn speaker_audio_is_never_mistaken_for_video() {
         use rc_protocol::{encode_speaker_audio, AudioPacket};
         assert_eq!(
-            rc_protocol::Kind::from_u8_or_video(0x24),
+            rc_protocol::Kind::from_u8(0x24),
             rc_protocol::Kind::SpeakerAudio,
             "0x24 must resolve to its own kind or it becomes an H.264 frame"
         );

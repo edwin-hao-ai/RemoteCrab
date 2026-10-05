@@ -71,8 +71,9 @@ public enum IBWire {
         /// Not a real wire kind: it is what the parser produces instead of
         /// guessing. The fallback used to be `.video`, which meant every kind a
         /// given build had not heard of was handed to the H.264 decoder as if
-        /// it were a NAL unit — the Rust side guards the same hazard in
-        /// `from_u8_or_video`, and this is that guard on this side.
+        /// it were a NAL unit. The Rust side now returns its own `Kind::Unknown`
+        /// from `Kind::from_u8` for the same reason, so the two sides agree on
+        /// this byte.
         case unknown        = 0xFF
     }
 

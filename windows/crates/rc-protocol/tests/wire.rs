@@ -230,13 +230,16 @@ fn screen_mirror_kinds_are_recognised_not_video() {
         (0x1F, Kind::ScreenInfo),
     ];
     for (byte, expected) in cases {
-        let kind = Kind::from_u8_or_video(byte);
+        let kind = Kind::from_u8(byte);
         assert_eq!(kind, expected, "byte {byte:#x}");
         assert!(kind.is_screen_mirror(), "byte {byte:#x} should be a mirror kind");
         assert_ne!(kind, Kind::Video);
     }
-    // A genuinely unknown byte still falls back to Video (unchanged).
-    assert_eq!(Kind::from_u8_or_video(0x99), Kind::Video);
+    // A genuinely unknown byte must NOT become Video: it becomes `Unknown`,
+    // which every consumer drops, so a kind this build has not registered is
+    // ignored rather than misrouted into the H.264 decoder.
+    assert_eq!(Kind::from_u8(0x99), Kind::Unknown);
+    assert_ne!(Kind::from_u8(0x99), Kind::Video);
 }
 
 #[test]
@@ -246,11 +249,11 @@ fn installed_apps_and_notification_kinds_are_recognised_not_video() {
     // handed to the H.264 decoder. 0x22 (`notification`) and 0x23
     // (`commandResult`) are never sent by the Windows receiver, but the kinds
     // must still decode correctly rather than land in the video path.
-    assert_eq!(Kind::from_u8_or_video(0x20), Kind::InstalledAppsRequest);
-    assert_eq!(Kind::from_u8_or_video(0x21), Kind::InstalledApps);
-    assert_eq!(Kind::from_u8_or_video(0x22), Kind::Notification);
-    assert_eq!(Kind::from_u8_or_video(0x23), Kind::CommandResult);
+    assert_eq!(Kind::from_u8(0x20), Kind::InstalledAppsRequest);
+    assert_eq!(Kind::from_u8(0x21), Kind::InstalledApps);
+    assert_eq!(Kind::from_u8(0x22), Kind::Notification);
+    assert_eq!(Kind::from_u8(0x23), Kind::CommandResult);
     for byte in [0x20u8, 0x21, 0x22, 0x23] {
-        assert_ne!(Kind::from_u8_or_video(byte), Kind::Video, "byte {byte:#x}");
+        assert_ne!(Kind::from_u8(byte), Kind::Video, "byte {byte:#x}");
     }
 }

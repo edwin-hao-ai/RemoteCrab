@@ -92,9 +92,17 @@ pub enum Kind {
     ///
     /// Purely additive: an older phone ignores an unknown kind, and it is the
     /// receiver that sends it, so an older receiver never emits it. The iOS side
-    /// has to implement the handling — see
-    /// [`docs/HANDOFF-MAC-SIDE-2026-10-04.md`](docs/HANDOFF-MAC-SIDE-2026-10-04.md).
+    /// implements the handling (it was once claimed missing; it is not).
     RequestKeyframe = 0x25,
+    /// A byte this build does not recognise.
+    ///
+    /// Not a real wire kind — it is what the parser produces instead of
+    /// guessing. This used to be `Kind::Video`, which meant every kind a given
+    /// build had not heard of was handed to the H.264 decoder. A build that
+    /// forgot to register one kind would misroute it rather than drop it, and
+    /// the symptom was a corrupt preview with no error. `Kind::Unknown` is
+    /// ignored by every consumer, and it mirrors the Swift side's `.unknown`.
+    Unknown = 0xFF,
 }
 
 impl Kind {
@@ -113,9 +121,10 @@ impl Kind {
         )
     }
 
-    /// Mirror of `Kind(rawValue:) ?? .video` — an unknown kind byte is
-    /// treated as a video frame rather than aborting the stream.
-    pub fn from_u8_or_video(byte: u8) -> Kind {
+    /// The kind for a byte, or [`Kind::Unknown`] when this build does not know
+    /// it — the mirror of Swift's `Kind(rawValue:) ?? .unknown`. An unrecognised
+    /// byte must never become `Video` (see the note on [`Kind::Unknown`]).
+    pub fn from_u8(byte: u8) -> Kind {
         match byte {
             0x00 => Kind::Metadata,
             0x01 => Kind::Video,
@@ -155,7 +164,7 @@ impl Kind {
             0x23 => Kind::CommandResult,
             0x24 => Kind::SpeakerAudio,
             0x25 => Kind::RequestKeyframe,
-            _ => Kind::Video,
+            _ => Kind::Unknown,
         }
     }
 }
@@ -460,7 +469,7 @@ impl Parser {
             }
 
             return Some(Frame {
-                kind: Kind::from_u8_or_video(kind_byte),
+                kind: Kind::from_u8(kind_byte),
                 payload,
             });
         }
@@ -604,36 +613,38 @@ mod resync_tests {
 mod speaker_audio_kind_tests {
     use super::{encode_request_keyframe, Kind, Parser};
 
-    /// 0x24 is frozen on the wire. If it changes, an older iPhone that
-    /// knows kinds only up to 0x23 will not recognise it — and the failure
-    /// mode is silent: `from_u8_or_video` maps unknown bytes to `Video`, so
-    /// the JSON payload would be handed to the H.264 decoder and corrupt
-    /// the camera preview rather than reporting an error.
+    /// 0x24 is frozen on the wire. If it changes, an older iPhone that knows
+    /// kinds only up to 0x23 will not recognise it — it now decodes as
+    /// `Kind::Unknown` and is dropped, rather than being handed to the H.264
+    /// decoder as corrupt video.
     #[test]
     fn speaker_audio_kind_is_frozen_at_0x24() {
         assert_eq!(Kind::SpeakerAudio as u8, 0x24);
-        assert_eq!(Kind::from_u8_or_video(0x24), Kind::SpeakerAudio);
+        assert_eq!(Kind::from_u8(0x24), Kind::SpeakerAudio);
     }
 
-    /// The reason 0x24 needed registering at all. If someone ever changes
-    /// the fallback this test should fail loudly, because that fallback is
-    /// what turns a forgotten kind into corrupt video instead of an error.
+    /// An unrecognised byte must NOT become `Video`. That fallback is what
+    /// turns a forgotten kind into corrupt video instead of an ignored frame:
+    /// a newer phone sending a JSON kind this build has not heard of would
+    /// have its payload handed to the H.264 decoder. `Kind::Unknown` is dropped
+    /// by every consumer, and it matches the Swift side's `Kind.unknown`.
     #[test]
-    fn unknown_kind_still_falls_back_to_video() {
-        assert_eq!(Kind::from_u8_or_video(0x7F), Kind::Video);
-        assert_eq!(Kind::from_u8_or_video(0xFF), Kind::Video);
+    fn unknown_kind_is_not_video() {
+        assert_eq!(Kind::from_u8(0x7F), Kind::Unknown);
+        assert_eq!(Kind::from_u8(0xFF), Kind::Unknown);
+        assert_ne!(Kind::from_u8(0x7F), Kind::Video);
     }
 
     #[test]
     fn speaker_audio_is_distinct_from_microphone_audio() {
         assert_ne!(Kind::SpeakerAudio, Kind::Audio);
-        assert_eq!(Kind::from_u8_or_video(0x06), Kind::Audio);
+        assert_eq!(Kind::from_u8(0x06), Kind::Audio);
     }
 
     /// Every kind in the enum must be reachable from its byte. A kind added
-    /// to the enum but not to `from_u8_or_video` compiles fine and then
-    /// silently decodes as `Video` — which is exactly the bug class this
-    /// module keeps hitting.
+    /// to the enum but not to `from_u8` compiles fine and then silently
+    /// decodes as `Unknown` — dropped rather than handled. That is a safe
+    /// failure, but it is still a bug, which is why this is pinned.
     #[test]
     fn every_declared_kind_is_reachable_from_its_byte() {
         let kinds = [
@@ -651,7 +662,7 @@ mod speaker_audio_kind_tests {
             Kind::RequestKeyframe,
         ];
         for k in kinds {
-            assert_eq!(Kind::from_u8_or_video(k as u8), k, "kind {:?} is not reachable", k);
+            assert_eq!(Kind::from_u8(k as u8), k, "kind {:?} is not reachable", k);
         }
     }
 
@@ -662,7 +673,7 @@ mod speaker_audio_kind_tests {
     #[test]
     fn request_keyframe_is_kind_0x25_with_an_empty_payload() {
         assert_eq!(Kind::RequestKeyframe as u8, 0x25);
-        assert_eq!(Kind::from_u8_or_video(0x25), Kind::RequestKeyframe);
+        assert_eq!(Kind::from_u8(0x25), Kind::RequestKeyframe);
 
         let frame = encode_request_keyframe();
         // [4-byte BE length][kind] — a length of exactly 1 means a kind byte

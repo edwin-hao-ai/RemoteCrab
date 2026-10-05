@@ -192,6 +192,12 @@ pub enum Feature {
     /// The iPhone is showing the receiver's mirrored screen. Without this
     /// variant a `featureControl {feature:"screen"}` frame fails to decode.
     Screen,
+    /// The computer's audio plays out of the iPhone speaker. The iPhone owns
+    /// the control today (the Mac shows a status row, not a toggle), but the
+    /// Swift `IBFeature` has always had this case, so a `featureControl
+    /// {feature:"speaker"}` from any future sender must decode here too rather
+    /// than fail the frame.
+    Speaker,
 }
 
 /// Receiver → iPhone: toggle a feature remotely (kind `0x07`).
