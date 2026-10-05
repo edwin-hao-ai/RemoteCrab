@@ -47,6 +47,16 @@ fn error_text(reason: &str) -> String {
         "The iPhone denied the connection" => {
             i18n::t("iPhone 拒绝了连接", "The iPhone declined the connection").to_string()
         }
+        // Not the same thing as a denial, and the difference is the user's
+        // intent: they turned *this* computer off from the phone's computer
+        // list. The remedy is a tap on the phone, not a fix on this machine.
+        "The iPhone disconnected this computer" => i18n::t(
+            "这台电脑已在 iPhone 上被断开。在 iPhone 的「选择电脑」里重新点一下这台，\
+             或在托盘里点「重新连接」。",
+            "This computer was disconnected on the iPhone. Pick it again under \
+             \"Choose a computer\" on the phone, or hit Reconnect in the tray.",
+        )
+        .to_string(),
         "" => i18n::t("连接失败", "the connection failed").to_string(),
         // Anything unmatched is a developer-facing English literal from `rc-net`,
         // and this function exists precisely so a user never reads one — the
@@ -421,5 +431,35 @@ mod no_video_tests {
         assert!(en.contains("waiting for video"), "{en}");
         assert!(!en.contains("等待画面"), "English row leaked Chinese: {en}");
         assert!(!zh.contains("waiting for video"), "Chinese row leaked English: {zh}");
+    }
+}
+#[cfg(test)]
+mod reply_copy_tests {
+    use super::error_text;
+
+    /// "The phone disconnected this computer" and "the phone denied the
+    /// connection" are different events and must not share a sentence.
+    ///
+    /// The first is a user turning *this* PC off from the phone's computer list,
+    /// and the remedy is a tap on the phone. The second is a refusal, and the
+    /// remedy is on this machine. The receiver shipped the denial copy for both
+    /// (`SessionReplyResult::Off` returned `ConnEndKind::Denied`), which tells
+    /// the user they did something wrong when they did something deliberate.
+    #[test]
+    fn a_disconnect_does_not_read_like_a_refusal() {
+        let denied = error_text("The iPhone denied the connection");
+        let off = error_text("The iPhone disconnected this computer");
+        assert_ne!(denied, off, "one sentence for two different events");
+        assert!(off.contains("断开"), "says what happened: {off}");
+        assert!(off.contains("选择电脑"), "and what to do about it: {off}");
+    }
+
+    /// And an unrecognised reason still reaches the user in their language,
+    /// with the developer literal going to the log instead.
+    #[test]
+    fn an_unmapped_reason_is_not_shown_verbatim() {
+        let line = error_text("Some internal English literal");
+        assert!(!line.contains("Some internal English literal"), "{line}");
+        assert!(!line.is_empty());
     }
 }

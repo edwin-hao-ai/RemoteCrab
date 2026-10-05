@@ -64,6 +64,7 @@
 //! | `normal` | accepts, sends metadata, echoes pings | the happy path |
 //! | `pending` | answers `pending` once, then `accepted` | the approval prompt |
 //! | `denied` | answers `denied` | "this computer is not allowed" |
+//! | `off` | answers `off` | the phone's Disconnect — must not read as a denial |
 //! | `busy` | answers `busy` with an owner name | another Mac owns the session |
 //! | `silent` | accepts and then sends nothing | a stream that stops without erroring |
 //! | `no-token` | accepts but issues no token | the iPhone asking again next time |
@@ -78,6 +79,7 @@ enum Scenario {
     Normal,
     Pending,
     Denied,
+    Off,
     Busy,
     Silent,
     NoToken,
@@ -90,6 +92,7 @@ impl Scenario {
             "normal" => Self::Normal,
             "pending" => Self::Pending,
             "denied" => Self::Denied,
+            "off" => Self::Off,
             "busy" => Self::Busy,
             "silent" => Self::Silent,
             "no-token" => Self::NoToken,
@@ -120,6 +123,7 @@ impl Scenario {
                 // hello, which is exactly the real flow.
             }
             Self::Denied => c.reply = rc_protocol::SessionReplyResult::Denied,
+            Self::Off => c.reply = rc_protocol::SessionReplyResult::Off,
             Self::Busy => c.reply = rc_protocol::SessionReplyResult::Busy,
             Self::Silent => {
                 c.stream_video = false;

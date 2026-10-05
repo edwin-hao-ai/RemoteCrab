@@ -44,6 +44,12 @@ pub(crate) const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 /// Slower than the normal reconnect — we're waiting for a human on another
 /// computer to disconnect, so retrying hard would just be noise.
 pub(crate) const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
+/// The same idea as [`BUSY_RETRY_DELAY`], for the phone having been told to
+/// disconnect *us*. The iPhone clears its `off` state the moment its user picks
+/// a computer, so a slow knock is how "re-pick this PC on the phone" recovers
+/// without anyone walking over to the machine. Matches the 15s the Mac
+/// receiver already uses.
+pub(crate) const OFF_RETRY_DELAY: Duration = Duration::from_secs(15);
 pub(crate) const FALLBACK_TICK: Duration = Duration::from_secs(5);
 /// How often to try to (re)start mDNS after it failed. Discovery is the
 /// primary path, so it is worth retrying even though the direct-IP fallbacks
@@ -335,6 +341,16 @@ pub(crate) enum ConnEndKind {
     Busy { owner: String },
     /// The iPhone explicitly denied us — stop until a manual Retry.
     Denied,
+    /// The iPhone's user tapped Disconnect for *this* computer. Distinct from
+    /// `Denied`: nobody refused anything, the user turned this machine off, and
+    /// the copy has to say so — "the iPhone denied the connection" reads as
+    /// something the user did wrong.
+    ///
+    /// Retried slowly rather than never, so re-picking this computer on the
+    /// phone recovers on its own. That is what the Mac receiver does, and the
+    /// alternative (stop until someone walks over to the PC) makes the phone's
+    /// own "choose a computer" screen feel broken.
+    Off,
 }
 
 #[derive(Debug, Clone)]
