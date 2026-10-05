@@ -76,7 +76,20 @@ impl RingReader {
                 let _ = CloseHandle(file);
                 return None;
             }
-            let ring_size = file_size(file)?;
+            // `?` here used to return through the enclosing `Option` with the
+            // view, the mapping and the file all still open. This runs inside the
+            // Frame Server, which activates the source again on the next
+            // consumer, so a leak here compounds rather than being reclaimed when
+            // the app exits.
+            let ring_size = match file_size(file) {
+                Some(n) => n,
+                None => {
+                    let _ = UnmapViewOfFile(view);
+                    let _ = CloseHandle(mapping);
+                    let _ = CloseHandle(file);
+                    return None;
+                }
+            };
             Some(RingReader {
                 view,
                 mapping,

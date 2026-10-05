@@ -121,10 +121,7 @@ impl IMFMediaSource_Impl for VcamSource_Impl {
     }
 
     fn CreatePresentationDescriptor(&self) -> Result<IMFPresentationDescriptor> {
-        let pd = self
-            .presentation
-            .lock()
-            .unwrap()
+        let pd = crate::lock(&self.presentation)
             .clone()
             .ok_or_else(|| Error::from(MF_E_SHUTDOWN))?;
         // The contract says "a copy": hand the caller a clone, so it can
@@ -154,7 +151,7 @@ impl IMFMediaSource_Impl for VcamSource_Impl {
             }
         }
         self.inner.running.store(true, Ordering::Relaxed);
-        let stream = self.stream.lock().unwrap().clone();
+        let stream = crate::lock(&self.stream).clone();
         unsafe {
             self.queue.QueueEventParamVar(
                 MESourceStarted.0 as u32,
@@ -214,10 +211,7 @@ impl IMFMediaSourceEx_Impl for VcamSource_Impl {
         if dwstreamidentifier != 0 {
             return Err(Error::from(E_INVALIDARG));
         }
-        self.shared
-            .stream_attrs
-            .lock()
-            .unwrap()
+        crate::lock(&self.shared.stream_attrs)
             .clone()
             .ok_or_else(|| Error::from(E_INVALIDARG))
     }

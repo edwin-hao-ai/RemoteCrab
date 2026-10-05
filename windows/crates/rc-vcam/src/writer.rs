@@ -195,8 +195,23 @@ impl FrameWriter {
             )
         }
         .map_err(|e| format!("CreateFileW failed: {e}"))?;
-        grow_to(file, size as i64)?;
-        lock_down_ring_permissions(&path)?;
+        // Both of these can fail, and both used to leave `file` open on the way
+        // out: `?` returns through a type that only has the handle in a local,
+        // so nothing closed it. Every failed start leaked one handle, and the
+        // failing start is the common one — a camera app that is already running
+        // is enough to make the next attempt fail.
+        if let Err(e) = grow_to(file, size as i64) {
+            unsafe {
+                let _ = CloseHandle(file);
+            }
+            return Err(e);
+        }
+        if let Err(e) = lock_down_ring_permissions(&path) {
+            unsafe {
+                let _ = CloseHandle(file);
+            }
+            return Err(e);
+        }
 
         let mapping: HANDLE = unsafe {
             CreateFileMappingW(

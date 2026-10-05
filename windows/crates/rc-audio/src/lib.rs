@@ -70,6 +70,9 @@ pub struct AudioPlayer {
     /// Output sample rate the stream was opened at.
     sample_rate: u32,
     /// RMS of the most recent packet (0..1), read by the UI.
+    /// Read on every packet, so a poisoned lock must not become a second panic:
+    /// `consume` runs on the session task, and a panic there ends the session.
+    /// The value is one `f32`, so a poisoned lock still holds a usable level.
     level: Arc<Mutex<f32>>,
     /// When true, audio is decoded + metered but rendered as silence
     /// (avoids the speaker→mic feedback loop).
@@ -154,27 +157,15 @@ impl AudioPlayer {
         let stream_config: cpal::StreamConfig = config.into();
 
         let stream = match config.sample_format() {
-            cpal::SampleFormat::F32 => device.build_output_stream(
-                stream_config,
-                move |data: &mut [f32], _| {
-                    let frames = data.len() / channels;
-                    let mut mono = vec![0i16; frames];
-                    queue.pop_into(&mut mono);
-                    let silent = muted.load(std::sync::atomic::Ordering::Relaxed);
-                    for (i, frame) in data.chunks_mut(channels).enumerate() {
-                        let v = if silent {
-                            0.0
-                        } else {
-                            mono[i] as f32 / 32768.0
-                        };
-                        for s in frame.iter_mut() {
-                            *s = v;
-                        }
-                    }
-                },
-                |e| eprintln!("audio stream error: {e}"),
-                None,
-            )?,
+            cpal::SampleFormat::F32 => build_output::<f32>(&device, stream_config, queue, muted, channels)?,
+            cpal::SampleFormat::I16 => build_output::<i16>(&device, stream_config, queue, muted, channels)?,
+            cpal::SampleFormat::U16 => build_output::<u16>(&device, stream_config, queue, muted, channels)?,
+            cpal::SampleFormat::U8 => build_output::<u8>(&device, stream_config, queue, muted, channels)?,
+            cpal::SampleFormat::F64 => build_output::<f64>(&device, stream_config, queue, muted, channels)?,
+            // Remaining cpal formats are exotic (I8/I24/I32/I64/U24/U32/U64) and
+            // none is a mix format any stock Windows audio stack produces. Named
+            // rather than wildcarded so adding one is a compile error here rather
+            // than a silent "metering only" at runtime.
             other => return Err(format!("unsupported output sample format: {other:?}").into()),
         };
         stream.play()?;
@@ -200,13 +191,13 @@ impl AudioPlayer {
         if pcm.is_empty() {
             return;
         }
-        *self.level.lock().unwrap() = rms(&pcm);
+        *self.level.lock().unwrap_or_else(|e| e.into_inner()) = rms(&pcm);
         self.queue.push(&pcm);
     }
 
     /// RMS level (0..1) of the last packet.
     pub fn level(&self) -> f32 {
-        *self.level.lock().unwrap()
+        *self.level.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_muted(&self, muted: bool) {
@@ -230,8 +221,7 @@ impl AudioPlayer {
 impl Default for AudioPlayer {
     fn default() -> Self {
         Self::new()
-    }
-}
+    }}
 
 /// Root-mean-square of Int16 samples, normalized to 0..1.
 pub fn rms(samples: &[i16]) -> f32 {
@@ -246,6 +236,52 @@ pub fn rms(samples: &[i16]) -> f32 {
         })
         .sum();
     ((sum / samples.len() as f64).sqrt() / 32768.0) as f32
+}
+
+/// Build an output stream for one sample format.
+///
+/// Split out because the only thing that differs between formats is the final
+/// conversion, and the previous version supported `F32` alone. Anything else
+/// fell through to "audio output unavailable … metering only", so on a machine
+/// whose default output format is `I16` or `U8` — which includes this project's
+/// own test machine and a good many real ones — the speaker feature silently
+/// played nothing, at full volume, while the app reported that audio was
+/// running.
+fn build_output<T>(
+    device: &cpal::Device,
+    config: cpal::StreamConfig,
+    queue: SampleQueue,
+    muted: Arc<std::sync::atomic::AtomicBool>,
+    channels: usize,
+) -> Result<cpal::Stream, cpal::Error>
+where
+    T: cpal::SizedSample + cpal::FromSample<f32>,
+{
+    device.build_output_stream(
+        config,
+        move |data: &mut [T], _| {
+            let frames = data.len() / channels;
+            let mut mono = vec![0i16; frames];
+            queue.pop_into(&mut mono);
+            let silent = muted.load(std::sync::atomic::Ordering::Relaxed);
+            for (i, frame) in data.chunks_mut(channels).enumerate() {
+                let v = if silent {
+                    0.0f32
+                } else {
+                    mono[i] as f32 / 32768.0
+                };
+                // `u8` and `u16` are unsigned with a 0.5 offset, `i16`/`f32`/`f64`
+                // are not; `FromSample` is what knows the difference, so this loop
+                // does not have to.
+                let s = T::from_sample(v);
+                for x in frame.iter_mut() {
+                    *x = s;
+                }
+            }
+        },
+        |e| eprintln!("audio stream error: {e}"),
+        None,
+    )
 }
 
 #[cfg(test)]
