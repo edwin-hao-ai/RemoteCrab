@@ -840,6 +840,14 @@ events_tx: &broadcast::Sender<Event>,
         SessionReplyResult::Denied => {
             return ConnEndKind::Denied;
         }
+        // The phone's user disconnected us. Stop auto-reconnecting (same as
+        // Denied); re-picking this computer on the phone is the way back, and
+        // the user can also hit Reconnect. TODO(Windows): a dedicated message
+        // instead of the denied copy, and a slow retry so re-picking recovers
+        // without touching this machine.
+        SessionReplyResult::Off => {
+            return ConnEndKind::Denied;
+        }
     };
 
     // --- Streaming ------------------------------------------------------

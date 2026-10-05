@@ -401,6 +401,11 @@ public enum IBSessionReplyResult: String, Codable, Sendable {
     case busy
     /// The request was explicitly denied.
     case denied
+    /// The user tapped Disconnect for this computer on the iPhone. It must not
+    /// be auto-accepted on its next dial (that is what made Disconnect look
+    /// broken), but it is not "denied" either — the user just wants it off for
+    /// now, and picking it again is the way back.
+    case off
 }
 
 public struct IBSessionReply: Codable, Sendable, Equatable {

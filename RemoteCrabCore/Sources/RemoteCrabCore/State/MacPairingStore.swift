@@ -84,6 +84,9 @@ public enum PairingDecision: Equatable, Sendable {
     case pending
     /// Another Mac owns the session — refuse politely.
     case busy(ownerName: String)
+    /// The user disconnected this computer on the iPhone — tell it to stand
+    /// down (not "denied", which reads as a refusal it has to undo by hand).
+    case off(ownerName: String)
 }
 
 /// Pure ownership policy so it can be unit-tested without any network.
@@ -103,8 +106,16 @@ public enum PairingPolicy {
         hello: IBClientHello,
         paired: [PairedMac],
         owner: PairedMac?,
-        preferred: PairedMac? = nil
+        preferred: PairedMac? = nil,
+        disconnected: PairedMac? = nil
     ) -> PairingDecision {
+        // The user explicitly disconnected this computer. Applies before
+        // everything else — including `accept` for a paired + valid-token
+        // computer, which is exactly the case that made Disconnect appear to do
+        // nothing (the computer re-dialled and was admitted immediately).
+        if let disconnected, disconnected.id == hello.id {
+            return .off(ownerName: disconnected.name)
+        }
         // A different Mac is already being served — even a paired one
         // must wait for the owner to release the session.
         if let owner, owner.id != hello.id {
@@ -157,6 +168,8 @@ public final class MacPairingStore {
     /// once, which routes it through `pending` exactly as it should.
     private let preferredNameKey: String
     private let seenKey: String
+    private let disconnectedIdKey: String
+    private let disconnectedNameKey: String
 
     /// Every computer that has ever connected (paired or not), newest
     /// first. Capped so a long-lived install can't grow it without bound.
@@ -233,6 +246,8 @@ public final class MacPairingStore {
         self.preferredAtKey = key + ".preferredAt"
         self.preferredNameKey = key + ".preferredName"
         self.seenKey = key + ".seenComputers"
+        self.disconnectedIdKey = key + ".disconnectedId"
+        self.disconnectedNameKey = key + ".disconnectedName"
         self.paired = Self.load(from: defaults, key: key)
         self.seen = Self.loadSeen(from: defaults, key: key + ".seenComputers")
     }
@@ -393,12 +408,36 @@ public final class MacPairingStore {
         defaults.set(id, forKey: preferredIdKey)
         defaults.set(at, forKey: preferredAtKey)
         if let name { defaults.set(name, forKey: preferredNameKey) }
+        // Picking a computer is the user acting on the connection again, so the
+        // "stay disconnected" intent is superseded — including picking the same
+        // one back.
+        clearDisconnected()
     }
 
     public func clearPreferred() {
         defaults.removeObject(forKey: preferredIdKey)
         defaults.removeObject(forKey: preferredAtKey)
         defaults.removeObject(forKey: preferredNameKey)
+    }
+
+    /// The computer the user most recently tapped Disconnect on, if any. It is
+    /// answered `off` (not auto-accepted) until they pick a computer again.
+    /// Synthesised from id + name like `preferred`, so it survives a relaunch
+    /// and can name a computer that is not in the allow-list.
+    public var disconnected: PairedMac? {
+        guard let id = defaults.string(forKey: disconnectedIdKey) else { return nil }
+        let name = defaults.string(forKey: disconnectedNameKey) ?? id
+        return PairedMac(id: id, name: name, pairedAt: .distantPast, token: "")
+    }
+
+    public func markDisconnected(id: String, name: String) {
+        defaults.set(id, forKey: disconnectedIdKey)
+        defaults.set(name, forKey: disconnectedNameKey)
+    }
+
+    public func clearDisconnected() {
+        defaults.removeObject(forKey: disconnectedIdKey)
+        defaults.removeObject(forKey: disconnectedNameKey)
     }
 
     /// Record what a computer's latest attempt produced, so the picker can say
@@ -444,6 +483,7 @@ public final class MacPairingStore {
         paired.removeAll { $0.id == id }
         forgetSeen(id: id)
         if preferredId == id { clearPreferred() }
+        if disconnected?.id == id { clearDisconnected() }
         save()
     }
 
@@ -456,6 +496,7 @@ public final class MacPairingStore {
     public func removeAll() {
         paired = []
         clearPreferred()
+        clearDisconnected()
         save()
     }
 

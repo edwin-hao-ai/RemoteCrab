@@ -143,6 +143,37 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(decision, .pending)
     }
 
+    /// The user tapped Disconnect. The computer is paired, so without this it
+    /// would be auto-accepted on its very next dial and the disconnect would
+    /// not stick.
+    func testADisconnectedComputerIsAnsweredOffEvenWhenPairedWithTheRightToken() {
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac A", id: "mac-1", token: "tok"),
+            paired: [pairedMac()],
+            owner: nil,
+            disconnected: PairedMac(id: "mac-1", name: "Mac A", token: "")
+        )
+        XCTAssertEqual(decision, .off(ownerName: "Mac A"))
+    }
+
+    func testTheOffReplyRoundTrips() throws {
+        let reply = IBSessionReply(result: .off, ownerName: "Mac A")
+        let data = try JSONEncoder().encode(reply)
+        XCTAssertEqual(try JSONDecoder().decode(IBSessionReply.self, from: data), reply)
+    }
+
+    /// Disconnecting one computer must not lock out the others.
+    func testDisconnectingOneComputerDoesNotRefuseAnother() {
+        let macB = pairedMac(id: "mac-2", name: "Mac B", token: "tok-b")
+        let decision = PairingPolicy.decide(
+            hello: IBClientHello(name: "Mac B", id: "mac-2", token: "tok-b"),
+            paired: [pairedMac(), macB],
+            owner: nil,
+            disconnected: PairedMac(id: "mac-1", name: "Mac A", token: "")
+        )
+        XCTAssertEqual(decision, .accept)
+    }
+
     // MARK: - Store
 
     private func freshStore() -> MacPairingStore {
@@ -150,6 +181,22 @@ final class PairingTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return MacPairingStore(defaults: defaults)
+    }
+
+    func testPickingAComputerClearsTheDisconnectedState() {
+        let store = freshStore()
+        store.markDisconnected(id: "mac-1", name: "Mac A")
+        XCTAssertEqual(store.disconnected?.id, "mac-1")
+        store.setPreferred(id: "mac-1", name: "Mac A")
+        XCTAssertNil(store.disconnected, "choosing a computer must let it back in")
+    }
+
+    func testTheDisconnectedStateSurvivesAReload() {
+        let suite = "test.remotecrab.pairing.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        MacPairingStore(defaults: defaults).markDisconnected(id: "mac-1", name: "Mac A")
+        XCTAssertEqual(MacPairingStore(defaults: defaults).disconnected?.id, "mac-1")
     }
 
     func testPairMintsTokenAndPersists() {

@@ -319,6 +319,10 @@ pub enum SessionReplyResult {
     Busy,
     /// The request was explicitly denied.
     Denied,
+    /// The user tapped Disconnect for this computer on the iPhone. Stop owning
+    /// and do not auto-reconnect until the user picks it again — otherwise the
+    /// receiver's own reconnect loop makes Disconnect look broken.
+    Off,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

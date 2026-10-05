@@ -265,6 +265,13 @@ fn enum_raw_values() {
     assert!(serde_json::to_string(&TextCommand::TrimWhitespace).unwrap().contains("trimWhitespace"));
     assert!(serde_json::to_string(&TextCommand::StripNewlines).unwrap().contains("stripNewlines"));
     assert!(serde_json::to_string(&SessionReplyResult::Accepted).unwrap().contains("accepted"));
+    // The phone sends this when its user taps Disconnect; a typo here means the
+    // receiver fails to decode the frame and silently keeps reconnecting.
+    assert!(serde_json::to_string(&SessionReplyResult::Off).unwrap().contains("off"));
+    assert_eq!(
+        serde_json::from_str::<SessionReplyResult>("\"off\"").unwrap(),
+        SessionReplyResult::Off
+    );
     assert!(serde_json::to_string(&TouchPhase::ThreeFingerSwipe).unwrap().contains("threeFingerSwipe"));
     assert!(serde_json::to_string(&TouchPhase::ForceClick).unwrap().contains("forceClick"));
     assert!(serde_json::to_string(&Feature::Microphone).unwrap().contains("microphone"));

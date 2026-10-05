@@ -5848,6 +5848,23 @@
         }
       }
     },
+    "Disconnected on the iPhone — open Choose a Computer there and pick this one to reconnect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected on the iPhone — open Choose a Computer there and pick this one to reconnect."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 iPhone 上断开——请在手机的「选择电脑」里重新选中本机来连接。"
+          }
+        }
+      }
+    },
     "The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.": {
       "extractionState": "manual",
       "localizations": {

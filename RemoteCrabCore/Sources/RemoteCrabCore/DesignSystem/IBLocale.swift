@@ -952,6 +952,9 @@ public enum IBLocale {
         }
         public static let iphoneBusyUnknown = IBL("This iPhone is already in use by another Mac")
         public static let connectionDenied = IBL("The iPhone denied the connection")
+        /// The phone's user tapped Disconnect. Says what happened AND what to do
+        /// (AGENTS rule 1): pick this computer again on the phone.
+        public static let connectionOff = IBL("Disconnected on the iPhone — open Choose a Computer there and pick this one to reconnect.")
         public static let awaitingApproval = IBL("Waiting for approval on the iPhone…")
         public static let retry = IBL("Retry")
     }

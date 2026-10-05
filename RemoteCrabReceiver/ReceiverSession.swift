@@ -1674,6 +1674,17 @@ final class ReceiverSession: ObservableObject {
             stopPingLoop()
             state = .error(IBLocale.Error.connectionDenied)
             // Manual retry only — don't nag a user who tapped Deny.
+
+        case .off:
+            sessionGranted = false
+            suppressReconnect = true
+            stopPingLoop()
+            state = .error(IBLocale.Error.connectionOff)
+            // Keep asking politely every 15 s: re-picking this computer on the
+            // phone is the way back, and the phone has no channel to nudge us.
+            // Until then every attempt is answered `off` again, so the
+            // disconnect sticks.
+            scheduleSlowRetry()
         }
         // Any reply other than `pending` resolves the wait — including `busy`
         // and `denied`, the phone is no longer asking for a tap. Run here, after

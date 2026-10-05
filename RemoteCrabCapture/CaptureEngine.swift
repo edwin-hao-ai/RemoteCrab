@@ -1589,7 +1589,8 @@ final class CaptureEngine: ObservableObject {
         // computer was asleep or had been denied, and it still refused
         // everyone else until the TTL ran out.
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
-                                            preferred: pairingStore.effectivePreferred())
+                                            preferred: pairingStore.effectivePreferred(),
+                                            disconnected: pairingStore.disconnected)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
@@ -1615,6 +1616,9 @@ final class CaptureEngine: ObservableObject {
             setPending(connection: conn, hello: hello, name: hello.name)
         case .busy(let ownerName):
             replyBusy(on: conn, ownerName: ownerName)
+        case .off(let name):
+            // The user disconnected this computer; tell it to stand down.
+            sendSessionReply(IBSessionReply(result: .off, ownerName: name), on: conn)
         }
     }
 
@@ -1630,6 +1634,9 @@ final class CaptureEngine: ObservableObject {
         case .accept: outcome = .streaming
         case .pending: outcome = .waitingApproval
         case .busy(let ownerName): outcome = .refusedBusy(owner: ownerName)
+        // The user asked for it to stay off, so "not streaming" is the honest
+        // persisted outcome; the picker's own state carries the nuance.
+        case .off: outcome = .denied
         }
         pairingStore.noteOutcome(outcome, for: hello.id)
         refreshPairedMacs()
@@ -2025,8 +2032,15 @@ final class CaptureEngine: ObservableObject {
 
     /// Drop the current owner (settings / connected banner).
     func disconnectCurrentMac() {
+        // Remember the intent. Without this the computer is paired, so it is
+        // auto-accepted on its very next dial and the disconnect does not
+        // stick — the computer is running its own reconnect loop.
+        if let mac = ownerMac {
+            pairingStore.markDisconnected(id: mac.id, name: mac.name)
+        }
         connection?.cancel()
         clearOwner(reason: .disconnected)
+        refreshPairedMacs()
     }
 
     func forgetPairedMac(id: String) {
