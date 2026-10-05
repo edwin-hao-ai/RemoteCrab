@@ -884,3 +884,23 @@ when two properties are set, do not assume the more obvious one is in charge.
     保活生效时监听本来就在，直接返回。规则：**一个"恢复"动作必须先确认"真的坏了"再动手；
     无条件执行的恢复，本身就是一种破坏。**（同 lesson 143/130 的家族：
     清理/恢复代码的早退条件写错，伤害比不做更大。）
+
+---
+
+160. **英文源可以落后于它自己的翻译 —— 而且「故意用 Mac」的守护测试会抓住你手滑。**
+    产品支持 Mac 和 Windows 后，早先有一轮把**中文**里的「Mac」改成了「电脑」，
+    但**英文源字符串没跟着改**：同一句话，中文界面写「电脑」、英文界面写「your Mac」。
+    这类漂移**在只看一种语言时完全看不见**（两边各自都"通顺"），而在中英对照或
+    跑中文截图时才会露馅。修法是：**以中文为准回填英文源**（反过来也一样，
+    关键是承认"源"不是权威，**已发布的那一侧**才是），并顺手清掉替换时留下的多余空格。
+    **差点自己制造一个回归**：一次性「Mac → computer」批量替换时，我**把平台分支的
+    手势指南的 Mac 分支也改了**（`Coach.pinchZoom/mirrorDrag/mirrorScroll` 由
+    `for: platform` 选择，Windows 是**另一套** key）。这些 "Mac" 是**故意**的 ——
+    该指南按平台分流，Mac 用户必须被告诉 ⌃⌥⌘⇧ / Mission Control。
+    是 `SessionSurfaceCopyTests.testEveryDeliberateMacTextStillExistsAndStillSaysMac`
+    里那份**「故意用 Mac」的清单**当场报错（"deliberate Mac copy was deleted"），
+    我才发现并回退。**规则**：批量改文案前，先跑/读那份 deliberate 清单；
+    改到清单里的字符串，要么改写理由，要么**别改**。
+    另一个可复用的点：`accessibilitySummary` 那条**无人引用**的超长手势串，是
+    "改版后遗留"的死字符串——改版把旧浮层换掉时删了**引用**却留下**常量**。
+    死 IBL 字符串不进界面、不影响功能，但会让下一次全量扫描多一个噪音。

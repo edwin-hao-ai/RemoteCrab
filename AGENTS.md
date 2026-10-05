@@ -1043,6 +1043,7 @@ cross-references rather than the file order.
 | 157 | **纯服务端也能主动触发「你连我」** — 敲一下固定端口 8766 表示「马上拨回我」，数据方向/握手/配对全不变；角色被动仍可有承载意图的出口 | [`protocol`](docs/lessons/protocol.md) |
 | 158 | **一段「长得像代码 bug」的静音，可能是 coreaudiod 卡死** — 逐包 rms 0.4s 后归零、连续正弦音也一样；累计平均 rms 是红鲱鱼；修法是 `sudo killall coreaudiod` | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 159 | **换签名替换 `/Applications` 的 app 会打掉辅助功能授权 + 注销系统扩展** — 三条都像「功能被改坏」；相机扩展开关在「登录项与扩展→相机扩展」不在隐私与安全性；深链是未文档化的 best-effort | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 160 | **英文源会落后于它自己的中文翻译** — 中文早写「电脑」英文还写 "your Mac"；批量 Mac→computer 会误伤**平台分支**的手势指南 Mac 侧，被 deliberate-Mac 清单测试当场抓住 | [`ios-device`](docs/lessons/ios-device.md) |
 
 
 Headless e2e launch envs for the iOS app (via
