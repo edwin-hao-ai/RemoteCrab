@@ -1008,6 +1008,7 @@ cross-references rather than the file order.
 | 148 | **交接文档里的「没做」也是断言，而且比「做了」更容易过期** — 我在一棵没拉取的树上 grep 就断言 `0x25` 没发送，被对方当场纠正 | [`protocol`](docs/lessons/protocol.md) |
 | 149 | **会输出判决的工具必须能用它自己的输入推翻自己** — B 帧探针的对照组（shipping `0` / reorder `2`）；第一版写出「完美解析、答案全错」的 AVCC 文件 | [`protocol`](docs/lessons/protocol.md) |
 | 150 | **仓库里那个「看起来像产品录制的」文件，根本不是产品录的** — demo mp4 是 libx264 从 macOS 录屏合成的，`1468x1180` vs 产品 `1080x1920` | [`protocol`](docs/lessons/protocol.md) |
+| 151 | **权限可以「已授权」却依然被判为未授权** — TCC.db 的行与 tccd 的实时判定会不一致；Accessibility 在**系统**库不在用户库，且 `AXIsProcessTrusted()` 才是权威 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1353,27 +1354,39 @@ running apps / windows / installed apps —— 根因不是套件表错，是
 **也失败**（TextEdit 那步），所以阻塞是环境层面的。**但「另一个脚本也失败」
 不是打印绿表的许可**，所以那一档明说并退出非零。
 540 Core 测试 + 两 target + Windows 套件 + 新的 host-build 步全绿；
-**🔒 本轮未完成（Mac 侧，不要当成「已收工」）**：
+**🔒 本轮的账（2026-10-05 晚更新 —— 别把已做的当没做）**：
 
-1. **访达修复没在真机验过。** 15 个测试 + 反向验证证明的是不变量，
-   不是用户会看到什么。规则 5 要求在报出问题的那台东西上验证 —— 需要
-   Mac → Windows 切一次，情景模式面板表头不能出现上一个电脑的 app 名。
-2. **4 条文案没在真机看过。** 测试证明 catalog，不证明屏幕。
-3. **`e2e-parity.sh --input simulator` 档的真因未知。** 试过四个假设全被否
-   （只怪 TCC / 只怪 boot-cycle / 把真正需要的 `REMOTECRAB_AUTOSTREAM=1`
-   删掉 / 我自己的编排），停在「需要新证据」而不是「已排除」。
-   关键事实：app 活着（UIKit/VideoToolbox 日志在跑）、`Forensic` 一行没写、
-   8765 从不开、TCC 三项（含 local network）都是 `auth_value=2`。
-4. ~~**旧的 `testNoSessionSurfaceNamesAMac` 还在**，和新的
-   `SessionSurfaceCopyTests` 重叠。~~ → **2026-10-05 已删。** 复核确认新的那条
-   是按界面枚举（40+ key）而不是列 26 个字面量，覆盖面严格更大，且多出两条
-   旧形状表达不了的断言；留着两个守卫会让覆盖面看起来是两倍。
+1. ~~**访达修复没在真机验过。**~~ → **✅ 已真机验证。** 前置条件先量过：Mac 端
+   `published 6 apps`、手机 `accept ownerSet=true`、Finder 置前台，然后杀掉 Mac
+   接收端、接入 macOS 上跑的 Windows 接收端，情景模式表头显示**「电脑」**而不是「访达」。
+2. ~~**旧的 `testNoSessionSurfaceNamesAMac` 还在。**~~ → **已删**（`c2cfbe1`）。
+3. **`e2e-parity.sh --input simulator` 档的真因仍未知。** 四个假设全被否
+   （只怪 TCC / 只怪 boot-cycle / 把真正需要的 `REMOTECRAB_AUTOSTREAM=1` 删掉 /
+   我自己的编排），停在「需要新证据」。已知事实：app 活着、`Forensic` 一行没写、
+   8765 从不开、TCC 三项都是 `auth_value=2`。
+4. **🆕 辅助功能「已授权却判为未授权」的原因已查明并修好** —— 是**陈旧的 TCC 记录**
+   （库里 `auth_value=2`，tccd 的实时判定是 false），`tccutil reset Accessibility` +
+   重新触发 app 自己的提示解决。完整经过与三个坑见 **lesson 151**。
+   现在 `accessibility trusted: true`，触控板可用。
+5. **🆕 `scripts/e2e-device.sh` 首次跑通：26 通过 / 1 失败**，而那一条失败**不是产品 bug** ——
+   是持久化的 `speakerOn` 习惯让麦克风按设计让位（`AudioModeArbiter`），
+   而 `REMOTECRAB_E2E_MIC=1` 被十一行之后的习惯恢复覆盖了（已修并加测试）。
+   26 条里包含 `touch injection path` 与 `key injection path` —— **注入路径真机验证过了**。
+   跑完会自动把发布版装回 `/Applications`。
+6. **🆕 通知功能发不出来**：系统层面 `notifications denied`。代码正确地没假装成功，
+   但要真正验它，得先去 **系统设置 → 通知 → RemoteCrab** 打开。**这条仍未验。**
+7. **🆕 `rc-loopback` 有一个 10% 的 flaky 测试**（实测 20 次失败 2 次），失败内容是它
+   检测到 **torn packet**（Windows speaker 的音频路径）。我读了 ring ——
+   `take_packet` 拷贝进新 `Vec`、publish/consume 用 `Release`/`Acquire`，**看上去是对的，
+   所以我没找到原因，也不猜**。归属：`rc-loopback` 的属主。
+   **一个 10% 假红的门禁会教人反复重跑直到变绿，等于没有门禁。**
 
-> **2026-10-05 复核**：上面 1–3 条**仍然成立且仍未做**，全部需要真机
-> （iPhone 或 Windows 机器），Mac 侧无法用写代码勾掉。第 4 条已完成。
-> 同 session 还做完了另一批：Windows 10-04 交接的四条（`6fff9d5` 起）、
-> B 帧问题的实测结论（**不要加那个 key**）、给 Windows 的新交接
-> `docs/HANDOFF-WINDOWS-2026-10-05.md`。
+> **另外纠正一条别人写错的**：`c2cfbe1` 的 commit message 说
+> 「`0x25 requestKeyframe` is still sent from nowhere —— `rc-app` and `rc-net`
+> contain no reference to it」，**是假的**：`rc-app/src/main.rs:731` 就调了
+> `encode_request_keyframe()`，`rc-protocol/src/wire.rs:97` 定义了 `RequestKeyframe = 0x25`。
+> **它自己编辑的 `docs/HANDOFF-WINDOWS-2026-10-05.md` §1 写的是 ✅ 已实现 —— 文档对、
+> commit message 错。** 这是 lesson 148 的形状，今天第二次发生在同一条 `0x25` 上。
 
 `scripts/e2e-parity.sh` 的假手机档实测 handshake + `decode: 150 frames (320x180)`。
 Lessons 142-146._

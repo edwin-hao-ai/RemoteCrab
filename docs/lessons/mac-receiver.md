@@ -872,3 +872,49 @@ by negating `dx` and watching exactly one of the two axis tests fail).
 用 `git checkout <ref> -- <path>` 恢复文件之后，先 `git status --short` 看
 第一列 —— `M `（staged）和 ` M`（unstaged）不是一回事。
 交叉验证的便宜办法是 `git show --stat HEAD` 看文件数对不对。
+
+## 151 · 权限可以「已授权」却依然被判为未授权 —— TCC.db 里的行与 tccd 的实时判定会不一致
+
+2026-10-05。用户说「辅助权限我打开了呀，为什么没有用」，而 app 一直报
+`accessibility trusted: false`。这一条里套着**三个**独立的坑，每一个都让我下过错误结论。
+
+**坑一：查错了数据库。** Accessibility 不在用户库
+（`~/Library/Application Support/com.apple.TCC/TCC.db`），在**系统库**
+（`/Library/Application Support/com.apple.TCC/TCC.db`）。我先查用户库，`count(*)` 能出
+264、按 `%emoteCrab%` 过滤返回空 —— 于是我断言「**一条记录都没有**」。
+**权限的归属服务决定了它在哪个库**；`kTCCServiceCamera` 在用户库，
+`kTCCServiceAccessibility` / Screen Recording 在系统库。读系统库还需要 Full Disk Access，
+否则它会以「查得到表、查不到你要的行」的形式失败 —— 和「真的没有」长得一样。
+
+**坑二：数据库说授权了，`AXIsProcessTrusted()` 说没有。**
+```
+系统 TCC.db:  com.remotecrab.RemoteCrabReceiver | auth_value=2   ← 已授权
+app:          accessibility trusted: false                       ← 但 API 说没有
+```
+`auth_value=2`、`flags=0`、`auth_reason=4`（**system-set**，不是用户点击授权），
+`csreq` 只有 identifier + Apple 开发证书 OID、**不含 cdhash**（所以我替换 app bundle
+时 designated requirement 是字节级相同的 —— 我比过，所以「换签名导致失配」这个我倾向的
+解释**被排除了**）。结论：**是一次不一致的陈旧记录，不是签名问题。**
+**`AXIsProcessTrusted()` 才是权威，数据库不是。**
+
+**坑三：修法是 reset + 重新触发 app 自己的提示。**
+```sh
+tccutil reset Accessibility com.remotecrab.RemoteCrabReceiver
+```
+清掉那条之后，让 app 自己再弹一次提示（它用
+`AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt: true])`，这会**把 app 加进
+列表**），用户再打开开关。之后 `accessibility trusted: true`。
+
+**副产品：我一度断言「首次启动之后没有任何入口能重新授权」——也是错的。**
+菜单顶部那行「完成设置…」就是入口（`SetupStatus.isComplete = hasAccessibility && cameraReady`），
+用户自己那张截图里就有。**先看界面，再断言没有入口。**
+
+**可推广的一句话**：一个权限系统的**存储**和它的**判定**是两个东西，中间可能有一个缓存。
+「我授权了」是对存储的断言，「它读到授权了」是对判定的断言，**只有第二个能让功能工作**，
+而只有 app 自己的 API 调用能告诉你第二个。
+
+**签名相同的证明方式**（比读代码可靠）：
+```sh
+codesign -d -r- /Applications/X.app        # designated requirement，逐字对比
+codesign -d --verbose=4 /Applications/X.app | grep CDHash
+```
