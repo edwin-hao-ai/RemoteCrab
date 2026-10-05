@@ -170,22 +170,49 @@ code_baseline: fa67529
 | `wire.rs` 陈旧注释 | NIT | `fa67529` |
 | MSI 卸载残留 ring 文件 | SHOULD | 本次 |
 
-## 验证状态
 
-- `cargo test --workspace --release` → **573 passed / 0 failed**
+## 验证状态（2026-10-06 更新）
+
+- `cargo test --workspace --release` → **588 passed / 0 failed**
 - `cargo clippy --workspace --all-targets --release -- -D warnings` → clean
-- 真机实测（本机 Windows 11）：向导可见、无控制台窗口、预览默认关、
-  安装完自动启动且**非提权**、默认开机自启、音频 U8 设备可用、日志有完整状态输出
-- MSI 反编译确认 `RemoveFile` 表含 `vcam-ring.bin On="uninstall"`
-- `rc-phone-sim` 七场景（normal / pending / denied / off / busy / silent /
-  no-token / drop）全部跑通，无崩溃——收尾记录里那条 `fatal runtime error`
-  确认不再出现
-- `off` 场景端到端：显示「已断开」而非「拒绝」，且 15 秒后自动重拨
+- **四个窗口全部响应**（`SMTO_ABORTIFHUNG` 2 秒内）：向导 / 设置 / 自检 / 托盘。
+  之前**一个都没有**被泵过消息——托盘的消息循环过滤了自己那个窗口，而向导建在
+  没有循环的运行时线程上。向导白屏卡死就是这条（`f0a387c`）。
+- **presence 在网络上可见**：`rc-fe3a662f._remotecrab-computer._tcp.local.`
+  与 Mac 并列，地址是 WiFi 的 `192.168.31.103`、端口 8766（`2fc1137`）。
+  两个故障：广播的是隧道地址（`local_ipv4_addresses` 问了路由表），以及
+  mdns-sd 的 15 字节上限**校验的是服务类型**（`_remotecrab-computer` = 21）。
+- **虚拟摄像头的画面有人看过了**：假 iPhone 发真 H.264 → 150/152 帧解码 →
+  写进环 → 导出 PNG → 图正确。`dump_ring` 让这条一分钟能重跑（`3826914`）。
+- **假 iPhone 现在能驱动接收端**（`FakeIphone::send`，`9bb3671`）：
+  - 剪贴板 → Windows 剪贴板拿到标记字符串 ✓
+  - 文件 → `Downloads\RemoteCrab\remote-crab-drive.txt` 内容正确 ✓
+  - `commandResult "drive-1" failed` 往返 ✓（发的是 Windows 拒绝的亮度命令，
+    零副作用）
+- **顺带发现并修复一个真 bug**：触控板会把指针**瞬移到左上角**——协议发的是
+  相对位移，而 `last_cursor` 初始 `(0,0)` 且只被 `Move` 更新，所以会话第一次
+  移动从角落算起。实测 (1200,800) → (0,0)。修法：注入前用 `GetCursorPos`
+  锚定真实位置（和 Mac 让窗口服务器跟踪是同一个思路）。
+- MSI：卸载清 `vcam-ring.bin`、清 `%LOCALAPPDATA%`（日志 + 已下载的更新包）、
+  加 knock 端口的**私有网络**入站防火墙规则（`d80c3a5`）。
+- 自动更新：Ed25519 钉公钥 + 下载验签 + 静默安装；发布脚本会产出签名和 feed
+  （`52ce88d`）。
 
-## 未能验证
+## 仍未验证
 
-- MSI **卸载**删除 ring 文件：本机 UAC 弹窗被取消，无法跑卸载。
-  表项已确认存在，但没有真跑一次。下次卸载时请确认
-  `C:\ProgramData\RemoteCrab\` 消失。
-- 以上所有真机行为都没有 iOS 参与——**端到端的互联没有验证过**，
-  这条不在 Windows 侧能完成的范围内。
+- **iPhone ↔ Windows 端到端**：连接、在线、敲门已由用户真机确认；**输入注入 /
+  剪贴板 / 文件**现在有假 iPhone 覆盖（上面），但**真手机的编码与手势**没跑过。
+- **MSI 卸载**只反编译确认过表项，**没真跑**（本机 UAC 弹窗一直被取消）。
+- 虚拟摄像头**在相机 App 里出画**：画面正确已证，但“选得到这台相机”需要人开一次
+  Camera/Zoom/OBS。
+- **speaker 出声**（Windows 采集已验，最后一段没跑）。
+
+## 剩下需要别的资源的
+
+- **代码签名证书**：无免费方案；Azure Artifact Signing（$9.99/月，最便宜）**地域
+  限制美/加/欧/英，`Beijing VGO Co.,Ltd` 不适用**。CA OV ≈ $99–200/年。
+  自动更新**不需要**证书（Ed25519 已解决）。
+- **扩展显示器**：Windows 需 **IddCx 间接显示驱动**（UMDF + `.cat` 签名）。
+- **虚拟麦克风**：Windows 需 **sysvad 类 WDK 驱动**。两者都是独立驱动项目。
+- **无 DPI 清单**：故意没改——`PerMonitorV2` 会移动注入和镜像几何的坐标来源，
+  没有高 DPI 多屏机器验证就盲改，可能把现在正好抵消的东西弄坏。
