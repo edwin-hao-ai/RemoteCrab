@@ -58,6 +58,7 @@
       <ComponentGroupRef Id="VcamRegistration" />
       <ComponentGroupRef Id="Shortcuts" />
       <ComponentGroupRef Id="Uninstall" />
+      <ComponentGroupRef Id="RingCleanup" />
     </Feature>
 
     <StandardDirectory Id="ProgramFiles64Folder">
@@ -66,6 +67,13 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ShortcutFolder" Name="RemoteCrab" />
+    </StandardDirectory>
+
+    <!-- Where the virtual camera's shared-memory ring lives. It is not part of
+         the install payload — the app creates it — but the *directory* has to be
+         declared so the uninstall can reach the file inside it. -->
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="RingFolder" Name="RemoteCrab" />
     </StandardDirectory>
 
     <ComponentGroup Id="Payload" Directory="INSTALLFOLDER">
@@ -206,6 +214,31 @@
              reads to the user as "on but broken". -->
         <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run"
                              Name="RemoteCrab" />
+      </Component>
+    </ComponentGroup>
+
+    <!--
+      The ring file, which the app creates and which the app's own uninstall
+      command would normally delete.
+
+      It is listed separately because that command cannot always run: it is the
+      installed exe (invoked with the machine-uninstall flag), and a user who
+      deleted the exe by hand — or an antivirus that quarantined it, which is a
+      real outcome for a build that injects input — leaves the app's cleanup
+      unreachable. The ring
+      is the one file this matters for: it is mapped by the Frame Server and
+      carries a NULL DACL so that a LocalService process can open it, which means
+      anything on the machine can write to it while it survives.
+
+      `RemoveFile` needs no elevation beyond what the uninstall already has, and
+      deleting a file whose DACL permits everyone is not an obstacle for a
+      process running as SYSTEM.
+    -->
+    <ComponentGroup Id="RingCleanup" Directory="RingFolder">
+      <Component Id="RemoveRingFile" Guid="B71C3E58-9A24-4D06-8F53-2E7A1C4B6D09" Directory="RingFolder">
+        <RemoveFile Id="RingFile" Name="vcam-ring.bin" On="uninstall" />
+        <RemoveFolder Id="RemoveRingFolder" Directory="RingFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="RingCleanup" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </ComponentGroup>
 
