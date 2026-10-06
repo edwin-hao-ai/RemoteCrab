@@ -3,6 +3,29 @@
 > Shared across all active AI sessions. Update your entry when you start, make
 > significant progress, or finish. Delete your entry when done. If this file is
 > older than 24h, treat it as stale.
+>
+> ⚠️ **Everything below is stale** — nothing here has been touched since
+> 2026-09-28, and the sessions it names are long finished. For current state read
+> `docs/HANDOFF-WINDOWS-REMAINING-2026-10-05.md` (Windows), `docs/HANDOFF-IOS-PEER-AUTH.md`
+> (the iOS half of peer auth), and `docs/HANDOFF-MAC-SIDE-2026-10-04.md` (Mac).
+
+## Session: opencode (2026-10-06) — Windows: peer authentication, native UI, 8 bugs
+
+- Branch: `main`, no worktree. **Finished; this entry can be deleted.**
+- Status: **完成**
+  - 双向 HMAC 身份验证的 **Windows 半边**（token 从"出示的凭据"改为 HMAC 密钥）；
+    iOS 半边是文档，不是代码 —— Swift 在 Windows 上编译不了也测不了。
+  - 三个原生窗口对齐产品配色/字体；托盘、向导生命周期、完整性判定等 8 个 bug。
+  - 提权改了机制：`HKCU\Run` → 登录计划任务（`run level highest`，装 MSI 时创建）。
+- Touched: `windows/crates/rc-protocol/src/peer_auth.rs`(新), `rc-net/src/{supervisor,lib}.rs`,
+  `rc-app/src/{theme,wizard_win,settings_win,selfcheck_win,tray,status,autostart,args}.rs`,
+  `rc-os/src/{logon_task,autostart}.rs`, `tools/RemoteCrab.wxs`,
+  `docs/HANDOFF-IOS-PEER-AUTH.md`(新)
+- Pushed: `cf745f8` ← `c9f3c11` ← `0d260c1` ← `bce06ae` ← `9c360c1` ← `bae9cfb`
+  ← `bf351bf` ← `7db54db` ← `4c41d00` ← `51cb58a` ← `718c301`
+- Will touch: nothing — session closing. Remaining work needs a macOS session (iOS)
+  or the user (installing the MSI to create the logon task, real-device input).
+
 
 ## Session: opencode (2026-09-27) — website landing pages + promo video
 

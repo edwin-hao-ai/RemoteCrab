@@ -1,5 +1,18 @@
 # Windows 接收端：待办清单与验证手册
 
+> ⚠️ **2026-10-06 起本文的勾选框不再可信，请勿依赖。** 它是 2026-09-30 的快照，
+> 之后的四个会话（含 10-05 审计修的 18 项、10-06 修的 8 项）都没有回来改它 ——
+> 下面大量 `[ ]` 其实早已完成，也有 `[x]` 的依据已经变了。
+>
+> **当前状态读这两份：**
+> - [`HANDOFF-WINDOWS-REMAINING-2026-10-05.md`](HANDOFF-WINDOWS-REMAINING-2026-10-05.md)
+>   —— Windows 侧还剩什么、为什么
+> - [`HANDOFF-IOS-PEER-AUTH.md`](HANDOFF-IOS-PEER-AUTH.md)
+>   —— 身份验证的 iOS 半边（Windows 半边已落地）
+>
+> 本文保留的是**方法**：假手机的用法、每条待办的验证步骤、以及"什么才算做完"的
+> 定义。那些没有过期。
+
 > 最后更新：2026-09-30 晚。代码基线 `baff770`（Windows 测试 385，Core 367，
 > Mac↔iPhone 真机 E2E 26/26 绿）。收尾记录见
 > [`WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)。
