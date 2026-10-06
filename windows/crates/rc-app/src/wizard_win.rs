@@ -18,6 +18,22 @@ use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+/// Win32 child-window styles, as plain numbers.
+///
+/// Spelled out because this is exactly what was wrong: the controls were created
+/// with `0x0001` where `WS_CHILD` was meant and `0x0020` where `WS_VISIBLE` was
+/// meant, and neither of those is either. `WS_CHILD` is `0x40000000` and
+/// `WS_VISIBLE` is `0x10000000`.
+///
+/// So every control in every one of this program's windows was created as a
+/// **top-level** window. The parents rendered empty — a white dialog with a
+/// title bar — while their contents sat elsewhere on the desktop, invisible
+/// because that flag was wrong too. Nothing failed: the API accepted both
+/// numbers and did something reasonable with them, which is why this survived
+/// until someone looked at the window.
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+
 const CLASS: PCWSTR = w!("RemoteCrabWizard");
 
 /// Control ids. Fixed values, so the `WM_COMMAND` handler is a `match` on
@@ -52,6 +68,9 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             action: Some(on_action),
             action_message: None,
         });
+        if std::env::var("RC_WIZARD_TRACE").is_ok() {
+            eprintln!("[wizard] show: STATE set, creating the window");
+        }
         // `WS_VISIBLE` is deliberately absent from the style and the window is
         // shown once, below, after it exists. All three of this program's
         // windows were created without `WS_VISIBLE` and nothing ever showed them,
@@ -196,6 +215,9 @@ unsafe fn build_controls(hwnd: HWND) {
             }
         }
         let Some((page, fr)) = crate::wizard::with_state(|s| (s.page, s.first_run)) else {
+            if std::env::var("RC_WIZARD_TRACE").is_ok() {
+                eprintln!("[wizard] build_controls: STATE is None — nothing to draw");
+            }
             return;
         };
 
@@ -208,7 +230,7 @@ unsafe fn build_controls(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("STATIC"),
             &windows::core::HSTRING::from(&title),
-            WINDOW_STYLE(0x0001 | 0x0020), // WS_CHILD | WS_VISIBLE
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
             20,
             20,
             460,
@@ -226,7 +248,7 @@ unsafe fn build_controls(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("EDIT"),
             &windows::core::HSTRING::from(&body),
-            WINDOW_STYLE(0x0001 | 0x000C00 | 0x0080_0000), // WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_READONLY
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE | 0x000C00 | 0x0080_0000), // WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_READONLY
             20,
             70,
             460,
@@ -242,7 +264,7 @@ unsafe fn build_controls(hwnd: HWND) {
                 WINDOW_EX_STYLE::default(),
                 w!("BUTTON"),
                 &windows::core::HSTRING::from(&action_label),
-                WINDOW_STYLE(0x0001), // WS_CHILD (WS_VISIBLE is the default here)
+                WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
                 20,
                 245,
                 220,
@@ -262,7 +284,7 @@ unsafe fn build_controls(hwnd: HWND) {
                     WINDOW_EX_STYLE::default(),
                     w!("STATIC"),
                     &windows::core::HSTRING::from(t(zh, en)),
-                    WINDOW_STYLE(0x0001 | 0x0020), // WS_CHILD | WS_VISIBLE
+                    WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
                     20,
                     280,
                     460,
@@ -279,7 +301,7 @@ unsafe fn build_controls(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
             &windows::core::HSTRING::from(t("上一步", "Back")),
-            WINDOW_STYLE(0x0001)
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
                 | if page.prev().is_some() {
                     WINDOW_STYLE(0)
                 } else {
@@ -308,7 +330,7 @@ unsafe fn build_controls(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
             &windows::core::HSTRING::from(next_label),
-            WINDOW_STYLE(0x0001)
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
                 | if enabled {
                     WINDOW_STYLE(0)
                 } else {

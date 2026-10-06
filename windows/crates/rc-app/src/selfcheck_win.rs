@@ -16,6 +16,12 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+/// Win32 child-window styles, as plain numbers. See `wizard_win` for the full
+/// story: these were `0x0001`, which is not `WS_CHILD`, so every label and the
+/// quadrant grid were top-level windows and the panel drew empty.
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+
 const CLASS: PCWSTR = w!("RemoteCrabSelfCheck");
 const ID_CLOSE: usize = 30;
 
@@ -213,7 +219,7 @@ unsafe fn build(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
             &windows::core::HSTRING::from(t("关闭", "Close")),
-            WINDOW_STYLE(0x0001),
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE),
             460,
             344,
             120,
@@ -234,7 +240,7 @@ unsafe fn label(hwnd: HWND, x: i32, y: i32, text: &str) {
             WINDOW_EX_STYLE::default(),
             w!("STATIC"),
             &windows::core::HSTRING::from(text),
-            WINDOW_STYLE(0x0001), // WS_CHILD
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
             x,
             y,
             280,

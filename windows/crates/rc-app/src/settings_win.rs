@@ -23,6 +23,15 @@ use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+/// Win32 child-window styles, as plain numbers. See `wizard_win` for the full
+/// story: these were `0x0001` / `0x0020`, which are not `WS_CHILD` / `WS_VISIBLE`,
+/// so every control here was a top-level window and the dialog drew empty.
+const WS_CHILD: u32 = 0x4000_0000;
+const WS_VISIBLE: u32 = 0x1000_0000;
+const WS_BORDER: u32 = 0x0080_0000;
+const WS_VSCROLL: u32 = 0x0020_0000;
+const LBS_NOTIFY: u32 = 0x0000_0001;
+
 const CLASS: PCWSTR = w!("RemoteCrabSettings");
 
 // Control ids. Fixed, so the handler is a `match` on constants.
@@ -421,7 +430,7 @@ unsafe fn build(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("LISTBOX"),
             PCWSTR::null(),
-            WINDOW_STYLE(0x0001 | 0x0081_0000 | 0x0004_0000), // CHILD|VISIBLE|LBS_NOTIFY|WS_VSCROLL
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL), // CHILD|VISIBLE|LBS_NOTIFY|WS_VSCROLL
             20,
             y,
             340,
@@ -451,7 +460,7 @@ unsafe fn build(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("EDIT"),
             &windows::core::HSTRING::from(draft()),
-            WINDOW_STYLE(0x0001 | 0x0080_0000), // CHILD|VISIBLE|WS_BORDER
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE | WS_BORDER), // CHILD|VISIBLE|WS_BORDER
             20,
             y,
             250,
@@ -492,7 +501,7 @@ unsafe fn build(hwnd: HWND) {
             WINDOW_EX_STYLE::default(),
             w!("LISTBOX"),
             PCWSTR::null(),
-            WINDOW_STYLE(0x0001 | 0x0081_0000 | 0x0004_0000),
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL),
             20,
             y,
             340,
@@ -665,7 +674,7 @@ unsafe fn label(hwnd: HWND, text: &str, x: i32, y: i32) {
             WINDOW_EX_STYLE::default(),
             w!("STATIC"),
             &windows::core::HSTRING::from(text),
-            WINDOW_STYLE(0x0001), // WS_CHILD
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
             x,
             y,
             500,
@@ -684,7 +693,7 @@ unsafe fn button(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, w_: i32, h: 
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
             &windows::core::HSTRING::from(text),
-            WINDOW_STYLE(0x0001), // WS_CHILD
+            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
             x,
             y,
             w_,
@@ -702,7 +711,7 @@ unsafe fn button(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, w_: i32, h: 
 unsafe fn checkbox(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, on: bool) {
     unsafe {
         // BS_CHECKBOX is 0x0002; BS_PUSHBUTTON is 0x0000.
-        let style = WINDOW_STYLE(0x0001 | 0x0002); // WS_CHILD | WS_VISIBLE | BS_CHECKBOX
+        let style = WINDOW_STYLE(WS_CHILD | WS_VISIBLE | 0x0002); // WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX
         let _ = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             w!("BUTTON"),
@@ -713,7 +722,7 @@ unsafe fn checkbox(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, on: bool) 
             // exist.
             style
                 | if on {
-                    WINDOW_STYLE(0x0001)
+                    WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
                 } else {
                     WINDOW_STYLE(0)
                 },
