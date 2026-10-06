@@ -73,14 +73,16 @@ mod win32 {
     };
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::Shell::{
-        Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+        Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+    NOTIFYICONDATAW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
         DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW,
         LoadImageW, MessageBoxW, PostMessageW, PostQuitMessage, RegisterClassW,
-        SetForegroundWindow, SetMenuItemBitmaps, SetWindowLongPtrW, TrackPopupMenu,
-        TranslateMessage, GWLP_USERDATA, HICON, HMENU, ICONINFO, IDI_APPLICATION, IMAGE_ICON,
+        RegisterWindowMessageW, SetForegroundWindow, SetMenuItemBitmaps, SetWindowLongPtrW,
+        TrackPopupMenu, TranslateMessage, GWLP_USERDATA, HICON, HMENU, ICONINFO, IDI_APPLICATION,
+        IMAGE_ICON,
         LR_DEFAULTSIZE, LR_SHARED, MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, MF_BYCOMMAND,
         MF_GRAYED, MF_POPUP, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
         WM_APP, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONDBLCLK, WM_RBUTTONUP,
@@ -94,6 +96,15 @@ mod win32 {
     const TRAY_CB: u32 = WM_APP + 1;
     /// Close request marshalled to the tray thread.
     const WM_TRAY_CLOSE: u32 = WM_APP + 2;
+    /// "The status changed; put it in the tooltip."
+    ///
+    /// Posted rather than done in place: the setters run on whichever thread
+    /// noticed the change, and a window — and the shell icon that belongs to it —
+    /// is owned by the thread that created it. Without this hop the tooltip is
+    /// whatever was passed at startup and never changes, which for a program whose
+    /// entire surface is a tray icon is the fastest state check quietly returning a
+    /// stale answer.
+    const WM_TRAY_REFRESH: u32 = WM_APP + 6;
     /// "Open a window", marshalled to the tray thread.
     ///
     /// Every window is created here rather than by whoever wants it, for one
@@ -140,7 +151,61 @@ mod win32 {
     struct Ctx {
         shared: Arc<Mutex<Shared>>,
         cmd_tx: tokio::sync::mpsc::UnboundedSender<TrayCommand>,
+        /// The icon to put back when Explorer restarts.
+        ///
+        /// Kept rather than looked up again, because the message that says the
+        /// taskbar is gone can arrive before anything else on this thread and the
+        /// lookup is what may have failed in the first place.
+        icon: HICON,
+        /// The caller's line, which the status is appended to.
+        tip: String,
     }
+
+    /// The shell's view of this icon.
+    ///
+    /// Built in one place because there are now two that hand it over: the first
+    /// `NIM_ADD`, and the one after Explorer restarts. Two copies would drift, and
+    /// the copy that drifts is the one nobody looks at.
+    fn notify_data(hwnd: HWND, icon: HICON, tip: &str) -> NOTIFYICONDATAW {
+        let mut tip_buf = [0u16; 128];
+        set_utf16(&mut tip_buf, tip);
+        NOTIFYICONDATAW {
+            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: hwnd,
+            uID: 1,
+            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            uCallbackMessage: TRAY_CB,
+            hIcon: icon,
+            szTip: tip_buf,
+            ..Default::default()
+        }
+    }
+
+    /// The tooltip: the caller's line, plus the live status when there is one.
+    ///
+    /// Truncated by *characters*, not UTF-16 units, so a cut can never land between
+    /// the halves of a surrogate pair.
+    fn tip_text(base: &str, status: &str) -> String {
+        let combined = if status.trim().is_empty() {
+            base.to_string()
+        } else {
+            format!("{base} — {status}")
+        };
+        combined.chars().take(120).collect()
+    }
+
+    /// The tooltip for a context's current state.
+    fn ctx_tip(ctx: &Ctx) -> String {
+        let status = ctx.shared.lock().map(|s| s.status.clone()).unwrap_or_default();
+        tip_text(&ctx.tip, &status)
+    }
+
+    /// The message Explorer broadcasts after it (re)starts.
+    ///
+    /// Registered rather than assumed: it is a *string* message, and the value
+    /// Windows gives it differs per session. Compared against the wndproc's
+    /// `msg` and handled before the `match`, because it is not a constant.
+    static TASKBAR_CREATED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
     /// Handle to the live tray thread. `Drop` closes it.
     pub struct TrayHandle {
@@ -150,9 +215,33 @@ mod win32 {
 
     impl TrayHandle {
         /// Push the status line (the sync-able pill-language line).
+        ///
+        /// Also the tooltip, because that is what the user sees when they hover —
+        /// and for a program whose whole surface is one icon, a tooltip that never
+        /// changes is the quickest way to check the state quietly lying.
         pub fn set_status(&self, status: &str) {
             if let Ok(mut s) = self.shared.lock() {
                 s.status = status.to_string();
+            }
+            self.refresh_tooltip();
+        }
+
+        /// Ask the tray thread to put the current status in the tooltip.
+        ///
+        /// A post rather than a call: the setters run on whichever thread noticed
+        /// the change, and a window — and the icon that belongs to it — is owned by
+        /// the thread that created it.
+        pub fn refresh_tooltip(&self) {
+            let hwnd = self.hwnd_slot.load(Ordering::SeqCst);
+            if hwnd != 0 {
+                unsafe {
+                    let _ = PostMessageW(
+                        Some(HWND(hwnd as *mut std::ffi::c_void)),
+                        WM_TRAY_REFRESH,
+                        WPARAM(0),
+                        LPARAM(0),
+                    );
+                }
             }
         }
 
@@ -366,21 +455,20 @@ mod win32 {
             Box::into_raw(Box::new(Ctx {
                 shared: shared.clone(),
                 cmd_tx: cmd_tx.clone(),
+                icon: HICON(icon.0),
+                tip: tip.to_string(),
             })) as isize,
         );
 
-        let mut tip_buf = [0u16; 128];
-        set_utf16(&mut tip_buf, tip);
-        let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: hwnd,
-            uID: 1,
-            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
-            uCallbackMessage: TRAY_CB,
-            hIcon: HICON(icon.0),
-            szTip: tip_buf,
-            ..Default::default()
-        };
+        // Asked for, not assumed: `TaskbarCreated` is one of the string messages,
+        // so its value differs per session.
+        let taskbar_created = unsafe { RegisterWindowMessageW(windows::core::w!("TaskbarCreated")) };
+        TASKBAR_CREATED.store(taskbar_created, Ordering::Relaxed);
+        if std::env::var("RC_TRAY_TRACE").is_ok() {
+            eprintln!("[tray] TaskbarCreated = 0x{taskbar_created:04X}");
+        }
+
+        let nid = notify_data(hwnd, HICON(icon.0), &tip_text(tip, ""));
         if !Shell_NotifyIconW(NIM_ADD, &nid).as_bool() {
             return;
         }
@@ -407,7 +495,46 @@ mod win32 {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        // Every message this window receives, on request. This is how the
+        // Explorer-restart path was proved to work: the broadcast is a
+        // *registered* message, so there is no constant to grep for and no way to
+        // see it arrive except by printing what does.
+        if std::env::var("RC_TRAY_TRACE").is_ok() {
+            eprintln!("[tray-msg] 0x{msg:04X}");
+        }
         match msg {
+            // Explorer restarted, so every notification-area icon is gone —
+            // including this one. It restarts on every shell update and any time a
+            // user restarts it by hand. Without this the receiver becomes
+            // unreachable: no window, no console, no icon, and the only way to stop
+            // it is Task Manager. It is a *string* message, so it is compared
+            // rather than matched against a constant.
+            _ if msg == TASKBAR_CREATED.load(Ordering::Relaxed) => {
+                let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx;
+                if !ptr.is_null() {
+                    let ctx = &*ptr;
+                    let nid = notify_data(hwnd, ctx.icon, &ctx_tip(ctx));
+                    let _ = Shell_NotifyIconW(NIM_ADD, &nid);
+                    // Logged because this is the one moment the program is briefly
+                    // invisible, and a user who saw the icon blink deserves to find
+                    // out why rather than report it as a crash.
+                    eprintln!(
+                        "[tray] Explorer restarted — the icon was re-added to the notification area"
+                    );
+                }
+                LRESULT(0)
+            }
+            // The status changed somewhere else in the process; the shell has to be
+            // told from the thread that owns the icon.
+            WM_TRAY_REFRESH => {
+                let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Ctx;
+                if !ptr.is_null() {
+                    let ctx = &*ptr;
+                    let nid = notify_data(hwnd, ctx.icon, &ctx_tip(ctx));
+                    let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+                }
+                LRESULT(0)
+            }
             WM_TRAY_CLOSE => {
                 let _ = DestroyWindow(hwnd);
                 LRESULT(0)
@@ -913,10 +1040,26 @@ mod win32 {
     }
 
     /// Copy `text` into a fixed-size UTF-16 buffer, NUL-terminated.
+    ///
+    /// Truncates on a character boundary, and clears the tail. Two things the
+    /// previous version got wrong, both invisible until the string is long enough:
+    /// cutting between the halves of a surrogate pair leaves a lone surrogate,
+    /// which the shell draws as a replacement character; and a shorter string
+    /// written over a longer one leaves the old tail in place, because nothing
+    /// cleared it.
     fn set_utf16(buf: &mut [u16], text: &str) {
-        let len = buf.len().saturating_sub(1);
-        for (dst, src) in buf.iter_mut().zip(text.encode_utf16().take(len)) {
-            *dst = src;
+        let mut written = 0;
+        for ch in text.chars() {
+            let mut units = [0u16; 2];
+            let encoded = ch.encode_utf16(&mut units);
+            if written + encoded.len() >= buf.len() {
+                break;
+            }
+            buf[written..written + encoded.len()].copy_from_slice(encoded);
+            written += encoded.len();
+        }
+        for slot in buf[written..].iter_mut() {
+            *slot = 0;
         }
     }
 }
