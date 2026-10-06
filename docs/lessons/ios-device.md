@@ -904,3 +904,24 @@ when two properties are set, do not assume the more obvious one is in charge.
     另一个可复用的点：`accessibilitySummary` 那条**无人引用**的超长手势串，是
     "改版后遗留"的死字符串——改版把旧浮层换掉时删了**引用**却留下**常量**。
     死 IBL 字符串不进界面、不影响功能，但会让下一次全量扫描多一个噪音。
+
+---
+
+161. **把共享的 `AVAudioSession` 从保活交给麦克风：同一 runloop 里 deactivate→reactivate 会让 `setActive(true)` 失败（`561017449`）。**
+    回归现象：真机 e2e 里麦克风那条断言挂了，手机日志是
+    `[e2e] mic session setup FAILED: ... 561017449 "Session activation failed"`，
+    而 `featureState` 明明是 `mic=true`（不是被扬声器习惯顶掉）。
+    时序日志一句话说明问题：`[keepalive] stop requested (deactivate=true)` 和
+    麦克风的 `setActive(true)` 在**同一秒**。
+    **根因是调用点没按本模块自己的设计走**：`BackgroundKeepAlive.stop(deactivateSession:)`
+    的注释白纸黑字写着「交给麦克风/语音引擎时要**别** deactivate，否则同一 runloop
+    里先停再开会让它们的 `setActive(true)` 失败」；但 `syncMicrophone(true)` 调的是
+    **默认 `deactivateSession: true`**，于是保活先把会话关掉，麦克风紧接着 `setActive`
+    就撞上了。修法一行：`stop(deactivateSession: false)`，把**还活着的**会话交给麦克风
+    自己 reconfigure 成 `.record`。旁边那段注释还停留在 `.playAndRecord`
+    （麦克风为 `UIBackgroundModes:audio` 早改成 `.record` 了）——**过期注释又误导了一次**。
+    **和谁有关**：我这次把 `handleDidBecomeActive` 改成「保活生效时不重建监听」，
+    于是保活在麦克风激活的**那一刻仍处于 active**，这个潜伏的顺序 bug 才被触发。
+    教训不是「别改那个 guard」，而是：**当一个模块的注释已经把正确做法写清楚时，
+    先 grep 它的每个调用点有没有照做**——正确性常常已经在注释里，只是调用点没跟上。
+    （同类：SpeakerPlayer 的注释也要求先 `BackgroundKeepAlive.stop()`。）
