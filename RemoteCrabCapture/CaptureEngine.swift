@@ -3170,12 +3170,16 @@ final class CaptureEngine: ObservableObject {
     private func syncMicrophone(_ enabled: Bool) {
         Forensic.log("[e2e] syncMicrophone(\(enabled)) broadcaster=\(broadcaster != nil)")
         if enabled {
-            // A live record session already keeps iOS from suspending us,
-            // so the silent keep-alive must stand down completely before
-            // the mic reconfigures the session — leaving it active in
-            // `.playback` makes the mic's `.playAndRecord` switch fail
-            // with '!pri' (incompatible category while active).
-            BackgroundKeepAlive.shared.stop()
+            // Stop the keep-alive but LEAVE THE SESSION ACTIVE
+            // (`deactivateSession: false`): the mic reconfigures the shared
+            // session to `.record` itself, and deactivating here then
+            // reactivating in the same runloop turn makes the mic's
+            // `setActive(true)` fail with 561017449 ("Session activation
+            // failed") — measured on device, exactly what
+            // `BackgroundKeepAlive.stop` documents. (This used to pass the
+            // default `true`; the old comment cited `.playAndRecord`, which
+            // the mic no longer uses.)
+            BackgroundKeepAlive.shared.stop(deactivateSession: false)
             if audioEncoder == nil {
                 audioEncoder = MicrophoneEncoder()
             }
