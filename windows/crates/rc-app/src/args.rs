@@ -59,6 +59,13 @@ pub struct Args {
     /// `%APPDATA%` and `HKCU` are the system profile's, and cleaning those leaves
     /// the real user's tokens and autostart entry behind.
     pub uninstall_vcam_user: bool,
+    /// One-shot, elevated: register the logon task, exit. The MSI's install
+    /// custom action runs this, which is why it takes no arguments and prints
+    /// nothing a person has to read.
+    pub install_logon_task: bool,
+    /// One-shot, elevated: remove the logon task, exit. The MSI's uninstall
+    /// custom action runs this one.
+    pub remove_logon_task: bool,
     pub no_tray: bool,
     /// `remotecrab doctor [ip[:port]]` — diagnose "it won't connect".
     pub doctor: bool,
@@ -110,6 +117,8 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
             "--uninstall-vcam-user" => args.uninstall_vcam_user = true,
+            "--install-logon-task" => args.install_logon_task = true,
+            "--remove-logon-task" => args.remove_logon_task = true,
             "--no-tray" => args.no_tray = true,
             // `--doctor [ip[:port]]`: the operand is optional and
             // position-sensitive, so it is consumed here rather than left to
@@ -302,6 +311,31 @@ mod arg_tests {
     /// Same argument for the user-side flag. Measured failure: an MSI uninstall
     /// left `%APPDATA%\RemoteCrab\tokens.json` — the saved pairing token — on
     /// disk, because nothing invoked the app's per-user cleanup.
+    /// The two halves of the logon task, kept apart. They are the only two flags
+    /// the installer passes, so a parse that folded them together would make an
+    /// install remove the task it was asked to create.
+    #[test]
+    fn the_two_logon_task_flags_are_distinct() {
+        let install = args(&["--install-logon-task"]);
+        assert!(install.install_logon_task);
+        assert!(!install.remove_logon_task);
+
+        let remove = args(&["--remove-logon-task"]);
+        assert!(remove.remove_logon_task);
+        assert!(!remove.install_logon_task);
+    }
+
+    /// The two flags must not quietly turn on the camera jobs, which are the
+    /// other one-shot pair and the other thing the installer runs.
+    #[test]
+    fn the_logon_task_flags_do_not_reach_the_camera_jobs() {
+        for argv in [["--install-logon-task"], ["--remove-logon-task"]] {
+            let a = args(&argv);
+            assert!(!a.install_vcam && !a.uninstall_vcam);
+            assert!(!a.uninstall_vcam_machine && !a.uninstall_vcam_user);
+        }
+    }
+
     #[test]
     fn the_user_only_uninstall_flag_is_recognised() {
         let a = args(&["--uninstall-vcam-user"]);

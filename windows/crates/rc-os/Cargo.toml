@@ -35,4 +35,7 @@ windows = { version = "0.62", features = [
     "Win32_Storage_Xps",
     "Win32_Storage_FileSystem",
     "Win32_System_Registry",
+    # Decoding what `schtasks` writes on stderr, which is in the console's OEM
+    # code page rather than UTF-8.
+    "Win32_Globalization",
 ] }

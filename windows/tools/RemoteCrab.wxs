@@ -348,6 +348,39 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!--
+      The logon task.
+
+      This is the one thing that lets the receiver send input to a window running
+      as administrator. A medium-integrity process cannot: that is User Interface
+      Privilege Isolation, and `SendInput` quietly does nothing. A scheduled task
+      with run level *highest* starts the receiver elevated at every logon with no
+      prompt, because the Task Scheduler holds the token. The Run key cannot do
+      that — it starts whatever Explorer hands it — so the Run key is gone.
+
+      Install time is the moment this can be done for free: creating the task needs
+      an administrator, and an installer already is one. Doing it from the app
+      instead would mean a UAC prompt the first time the user touched the setting,
+      for a property they never asked to configure.
+
+      `Return="ignore"`: a machine whose policy forbids scheduled tasks must still
+      install. The receiver then runs at medium integrity and cannot drive elevated
+      windows, which is exactly what the setup wizard's second page reports.
+    -->
+    <CustomAction Id="AddLogonTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='"[INSTALLFOLDER]remotecrab.exe" --install-logon-task'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveLogonTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='"[INSTALLFOLDER]remotecrab.exe" --remove-logon-task'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <!-- Both before RemoveFiles: the exe has to still be there to be run.
            User state first — it needs no rights, so a failure there cannot
@@ -355,9 +388,13 @@
       <Custom Action="UninstallUserState" Before="RemoveFiles" />
       <Custom Action="UninstallMachineState" Before="RemoveFiles" />
       <!-- After the files are down, so a failed install does not leave a rule
-           behind for a program that is not there. -->
+           or a task behind for a program that is not there. `NOT REMOVE` is also
+           true on an upgrade, where recreating the task is what picks up a
+           changed install path. -->
       <Custom Action="AddKnockFirewallRule" After="InstallFiles" Condition="NOT REMOVE" />
       <Custom Action="RemoveKnockFirewallRule" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="AddLogonTask" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="RemoveLogonTask" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE OR UPGRADINGPRODUCTCODE)" />
     </InstallExecuteSequence>
   </Package>
