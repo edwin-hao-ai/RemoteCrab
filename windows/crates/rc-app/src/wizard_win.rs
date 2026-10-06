@@ -15,7 +15,7 @@ use crate::wizard::{current_page, Page, State};
 use rc_net::firstrun::{Camera, FirstRun, Integrity};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{HDC, HFONT};
+use windows::Win32::Graphics::Gdi::HDC;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::*;
@@ -300,8 +300,8 @@ unsafe fn build_controls(hwnd: HWND) {
 
         // The heading: 20px semibold, the same relationship the Mac side draws
         // between a page title and its body.
-        let heading = label(hwnd, ID_STATE, &title, boxed(PAD, PAD, content_w, 30));
-        set_font(
+        let heading = label(hwnd, ID_STATE, &title, theme::boxed(PAD, PAD, content_w, 30));
+        theme::set_font(
             heading,
             theme::font(theme::TEXT_HEADING, theme::WEIGHT_SEMIBOLD),
         );
@@ -318,9 +318,9 @@ unsafe fn build_controls(hwnd: HWND) {
             hwnd,
             ID_STEP,
             &step_label,
-            boxed(PAD, PAD + 34, content_w, 18),
+            theme::boxed(PAD, PAD + 34, content_w, 18),
         );
-        set_font(step, theme::font(theme::TEXT_CAPTION, theme::WEIGHT_REGULAR));
+        theme::set_font(step, theme::font(theme::TEXT_CAPTION, theme::WEIGHT_REGULAR));
 
         // The page's paragraph. A static rather than the read-only edit box this
         // used to be: it is text to read, and an edit box brings a sunken border
@@ -332,13 +332,13 @@ unsafe fn build_controls(hwnd: HWND) {
             hwnd,
             ID_BODY,
             &body,
-            boxed(PAD, body_top, content_w, (body_bottom - body_top).max(80)),
+            theme::boxed(PAD, body_top, content_w, (body_bottom - body_top).max(80)),
         );
-        set_font(body_ctrl, button_font);
+        theme::set_font(body_ctrl, button_font);
 
         // The rule above the button row: a one-pixel static that fills itself with
         // the border colour.
-        let _ = label(hwnd, ID_HAIRLINE, "", boxed(PAD, row_y - 16, content_w, 1));
+        let _ = label(hwnd, ID_HAIRLINE, "", theme::boxed(PAD, row_y - 16, content_w, 1));
 
         // Back sits on the left with the page's own action beside it; the button
         // this wizard is driving toward is always the one on the far right, which
@@ -347,20 +347,20 @@ unsafe fn build_controls(hwnd: HWND) {
             hwnd,
             ID_BACK,
             t("上一步", "Back"),
-            boxed(PAD, row_y, BUTTON_W, BUTTON_H),
+            theme::boxed(PAD, row_y, BUTTON_W, BUTTON_H),
             page.prev().is_some(),
         );
-        set_font(back, button_font);
+        theme::set_font(back, button_font);
 
         if has_action {
             let action = button(
                 hwnd,
                 ID_ACTION,
                 &action_label,
-                boxed(PAD + BUTTON_W + GAP, row_y, ACTION_W, BUTTON_H),
+                theme::boxed(PAD + BUTTON_W + GAP, row_y, ACTION_W, BUTTON_H),
                 true,
             );
-            set_font(action, button_font);
+            theme::set_font(action, button_font);
 
             // What the last click of that button actually did. Without it, a user
             // who declines the UAC prompt sees the button come straight back with
@@ -371,9 +371,9 @@ unsafe fn build_controls(hwnd: HWND) {
                     hwnd,
                     ID_MESSAGE,
                     t(zh, en),
-                    boxed(PAD, row_y - 44, content_w, 20),
+                    theme::boxed(PAD, row_y - 44, content_w, 20),
                 );
-                set_font(
+                theme::set_font(
                     message,
                     theme::font(theme::TEXT_CAPTION, theme::WEIGHT_REGULAR),
                 );
@@ -392,24 +392,10 @@ unsafe fn build_controls(hwnd: HWND) {
             hwnd,
             ID_NEXT,
             next_label,
-            boxed(width - PAD - BUTTON_W, row_y, BUTTON_W, BUTTON_H),
+            theme::boxed(width - PAD - BUTTON_W, row_y, BUTTON_W, BUTTON_H),
             enabled,
         );
-        set_font(next, theme::font(theme::TEXT_BODY, theme::WEIGHT_MEDIUM));
-    }
-}
-
-/// A control's position and size.
-///
-/// The four numbers always travel together, so they travel as one argument; the
-/// alternative is every helper taking four integers and every call site reading
-/// as a row of unexplained figures.
-const fn boxed(x: i32, y: i32, w: i32, h: i32) -> RECT {
-    RECT {
-        left: x,
-        top: y,
-        right: x + w,
-        bottom: y + h,
+        theme::set_font(next, theme::font(theme::TEXT_BODY, theme::WEIGHT_MEDIUM));
     }
 }
 
@@ -461,16 +447,6 @@ unsafe fn button(parent: HWND, id: usize, text: &str, area: RECT, enabled: bool)
     .unwrap_or_default()
 }
 
-/// Give a control the font it should draw in.
-///
-/// `WM_SETFONT` rather than selecting it into a DC: the control keeps it, and the
-/// DC handed to `WM_DRAWITEM` arrives with it already selected.
-fn set_font(control: HWND, font: HFONT) {
-    unsafe {
-        SendMessageW(control, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
-    }
-}
-
 fn copy_for(page: Page, fr: &FirstRun) -> (String, String, String, bool) {
     match page {
         Page::Welcome => (
@@ -496,9 +472,12 @@ fn copy_for(page: Page, fr: &FirstRun) -> (String, String, String, bool) {
                     )
                     .to_string(),
                     Integrity::Medium => t(
-                        "可以。普通窗口都能控制；已经是管理员权限的窗口不能（这是 Windows 的安全限制，不是故障）。",
+                        "可以。普通窗口都能控制；已经是管理员权限的窗口不能。\n\
+                         在设置里打开「开机自动启动」，下次登录后就能控制所有窗口。",
                         "Ready. Ordinary windows can be driven; windows already running as administrator \
-                         cannot, which is a Windows security boundary rather than a fault.",
+                         cannot.\n\
+                         Turn on \"Start at login\" in Settings and every window can be driven from \
+                         the next login.",
                     )
                     .to_string(),
                     Integrity::Low => t(
