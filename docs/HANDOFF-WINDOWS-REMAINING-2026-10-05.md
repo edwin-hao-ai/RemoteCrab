@@ -50,7 +50,9 @@ server，而**这台机器上 Swift 编译不了也测不了**。所以先做能
 
 - iOS 侧按那份文档实现（含**必须先过的测试向量**），并顺带修掉
   `CaptureEngine.swift:1545` 的「clientHello 超时就放行」—— 那个洞比 token 更大。
-- Mac 接收端是同样的"电脑"角色，有同一个洞，本轮没动。
+- Mac 接收端是同样的"电脑"角色、**同一个洞**，本轮没动：
+  单独一份 [`HANDOFF-MAC-PEER-AUTH.md`](HANDOFF-MAC-PEER-AUTH.md)
+  （wire 类型是 `RemoteCrabCore` 共享的，所以只需做流程那一半）。
 
 ---
 

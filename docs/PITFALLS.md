@@ -337,3 +337,90 @@ lsappinfo info -only StatusLabel "RemoteCrabReceiver"
 - **多个 iPhone 同时连一个 Mac**：当前只接第一个，需要 manual
 - **Camera Extension 完整 wiring**：XPC 双向 + buffer management
 - **多分辨率切换**：当前切到不同分辨率要 restart stream
+
+## 14. Windows / Win32 / 工具链
+
+> 2026-10-06 加。这一节之前不存在，而下面每一条都真实吃掉过一轮时间。
+
+### 14.1 PowerShell 会把 UTF-8 源码改坏
+**症状**：`cargo build` 突然报 `stream did not contain valid UTF-8`。文件开头看着正常，
+中文注释和 `—` 变成了乱码。
+**原因**：`Get-Content -Raw` 在没有 BOM 的文件上按**系统 ANSI 代码页**（这里是 GBK）解码，
+`Set-Content` / `WriteAllText` 再按另一种编码写回。一个来回，`E2 80 94` 就变成了 `E2 80 3F`。
+**修复**：
+- **不要用 shell 往返编辑仓库里的源码。** 用编辑工具。
+- 已经改坏了：`git checkout -- <file>` 回滚（未提交的则重写）。
+- 确实要做文本替换时，`[System.IO.File]::ReadAllText` + `WriteAllText(utf8NoBom)` 是安全的；
+  `Get-Content` / `Set-Content` 不是。
+- 想要证据：`[Text.UTF8Encoding]::new($false,$true).GetString($bytes)` 会在非法字节处抛异常。
+
+### 14.2 PowerShell 的 `$null` 封送到 .NET string 参数会变成 `""`
+**症状**：`FindWindowW("RemoteCrabWizard", $null)` 永远返回 0，看起来像"窗口不存在"，
+于是你以为程序挂了 —— 实际是**第二个参数变成了空字符串**，它在找一个标题为空的窗口。
+**原因**：PowerShell 对 `string` 类型参数把 `$null` 封送成 `""`；C# 里的 `null` 才是真 NULL。
+同一个函数写在 C# 里调用就正常，所以自己写的两个探针脚本会行为不一致，极难看出来。
+**修复**：把 P/Invoke 写在 C# 里（`Add-Type` 的类里传 `null`），或传 `[NullString]::Value`。
+探针脚本一旦出现"有时找得到有时找不到"，先怀疑这条。
+
+### 14.3 Swift 在 Windows 上编译不了 —— 跨端改动动手前先划清验收面
+**症状**：写完了 iOS 那半边，才发现**没有 Xcode / 没有 iOS SDK**，一行都编译不了，
+更别说验证。时间已经花掉了。
+**原因**：`RemoteCrabReceiver/`、`RemoteCrabCore/` 是 Swift + Apple 框架，Windows 无工具链。
+**修复**：
+- 动手前先确认这个 session **能验证哪一半**。不能验证的那一半写**规格文档**，不要盲写代码：
+  wire 改动、逐字节格式、**测试向量**、流程分支、每一条的验证步骤。
+- 跨端协议改动要设计成**增量**的（新字段 `Option` + 未知键忽略），这样可验证的那半边能先上线，
+  老 App 照常工作、只是被如实标记为未验证，而不是被拒绝。
+- 本次的做法见 `docs/HANDOFF-IOS-PEER-AUTH.md`：Rust 侧把 MAC 的**测试向量钉死在单测里**
+  （`peer_auth::tests::the_wire_format_is_pinned_for_the_other_language`），Swift 侧断言同一对字符串。
+  **没有这个向量，两端实现会各自"看起来对"而互相不认，且表现为网络故障。**
+
+### 14.4 Win32 样式常量：`WS_CHILD` 不是 1
+**症状**：窗口空白 —— 只有标题栏，内容什么都没有，但进程健康、窗口"可见"、标题正确。
+**原因**：控件建成 `WINDOW_STYLE(0x0001 | 0x0020)`，注释写着 `WS_CHILD | WS_VISIBLE`。
+正确值是 `WS_CHILD = 0x4000_0000`、`WS_VISIBLE = 0x1000_0000` —— **这两个数哪个都不是**，
+所以每个控件都成了**顶层窗口**（挂在桌面上、位置对，但因为 VISIBLE 也错而看不见）。
+`CreateWindowExW` 收下这两个数、不报错、做了"合理"的事。
+**修复**：常量写全。
+**验证**：**枚举子窗口** —— `EnumChildWindows` 数一下，`kids=0` 就是这个问题。
+这是"关于窗口的检查"里唯一不看窗口自身的那一个。
+
+### 14.5 没有 id 的控件既不能染色也不能删除
+**症状 A**：设置窗口的标签颜色永远改不了（`WM_CTLCOLORSTATIC` 没东西可依据）。
+**症状 B**：自检面板开着时每秒泄漏约 90 个窗口句柄（重建控件时删不掉旧的）。
+**原因**：两者同一个根因 —— 标签用 `HMENU(null)` 创建，**id 全是 0**。
+`WM_CTLCOLOR*` 只能靠 id 区分控件；而"按 id 找旧控件再销毁"的循环对 id 0 最多命中一个。
+**修复**：给每个控件分配 id（计数器，或 `象限*100 + 字段` 这类固定编码），
+销毁时遍历**同样的** id 集合。**重建式 UI 必须能穷举自己创建过什么。**
+
+### 14.6 共享线程 = 共享消息循环：子窗口的 `PostQuitMessage` 会杀掉整个程序
+**症状**：点掉首次设置向导的 X（或走完最后一页），**接收端整个退出**，托盘图标一起消失，
+日志断在半句 —— 看起来就是崩溃。
+**原因**：向导创建在**托盘线程**上（`WM_OPEN_WIZARD` → 托盘 `wnd_proc` → `wizard_win::show`）。
+它的 `WM_DESTROY` 里调了 `PostQuitMessage(0)`，那是给**线程**投 `WM_QUIT` →
+托盘的 `GetMessageW` 返回 0 → 消息循环结束 → 整个 UI 没了。
+**修复**：只有**拥有消息循环的那个窗口**（托盘）可以在销毁时 `PostQuitMessage`。
+**诊断手法**（这次就是靠它定位）：进程还活着但**一个顶层窗口都没有** → 给 `wnd_proc`
+加一个按环境变量开关的消息探针，打印 `msg` / `wparam`，
+会看到 `WM_COMMAND id=1` ×5 之后紧接 `WM_DESTROY` / `WM_NCDESTROY`。
+
+### 14.7 托盘回调不是"点击"
+**症状**：鼠标**一滑过**托盘图标，菜单就弹出来，点都不用点。
+**原因**：`NOTIFYICONDATAW.uCallbackMessage` 对**每一个**事件都发消息，包括 `WM_MOUSEMOVE`
+（本程序没调 `NIM_SETVERSION`，走的是旧协议）。而处理函数对"回调"本身一律响应，
+于是"任何点击都开菜单"实际变成了"任何**事情**都开菜单"。
+**修复**：`lParam` 的**低字**才是鼠标消息 —— 只在 `WM_LBUTTONUP` / `WM_RBUTTONUP` /
+两个双击上开菜单。
+**验证**：`PostMessage(托盘, callback, lparam=WM_MOUSEMOVE)` 应**不弹**菜单
+（弹出菜单的窗口类是 `#32768`）；`lparam=WM_LBUTTONUP` 应该弹。
+
+### 14.8 计划任务为什么比 Run 键更适合"开机自启"
+**背景**：`HKCU\...\Run` 启动的是 Explorer 那个完整性级别的进程（medium），
+而 medium 进程**无法把输入送进以管理员身份运行的窗口**（UIPI）。产品要的是后者。
+**做法**：登录计划任务 + `run level highest`（`rc-os/src/logon_task.rs`，由 MSI 安装时创建）。
+Task Scheduler 持有令牌，所以每次登录都提权启动且**不弹 UAC**。
+**验证**：无管理员权限时 `remotecrab.exe --install-logon-task` 应退出 1 并打印
+（解码后的）`错误: 拒绝访问。` —— **不要让它假装成功**。
+另外 `schtasks` 的错误输出是**控制台 OEM 代码页**，用 `from_utf8_lossy` 会变成一串
+问号，要用 `MultiByteToWideChar(CP_OEMCP, …)` 解。
+
