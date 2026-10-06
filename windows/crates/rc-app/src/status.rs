@@ -122,8 +122,20 @@ pub fn state_line(state: &State, seen_frame: bool) -> String {
                 i18n::t("等待画面\u{2026}", "waiting for video\u{2026}")
             )
         }
-        State::Streaming { name, .. } => {
-            format!("[LIVE]  {}{name}", i18n::t("正在投屏 ", "streaming from "))
+        State::Streaming {
+            name, authenticated, ..
+        } => {
+            format!(
+                "[LIVE]  {}{name}{}",
+                i18n::t("正在投屏 ", "streaming from "),
+                if *authenticated {
+                    ""
+                } else if i18n::is_chinese() {
+                    "（未验证身份）"
+                } else {
+                    " (unverified)"
+                }
+            )
         }
         // This told Windows users to look for a "menu bar" — there is not
         // one. The instruction was copied from the Mac, where it is right. The
@@ -429,6 +441,44 @@ mod no_video_tests {
                 "says it is waiting while frames are arriving (zh={zh}): {line}"
             );
         }
+    }
+
+    /// A session the phone did not prove must say so, in both languages, on both
+    /// surfaces. Without this the flag rides through the state and reaches
+    /// nobody, which is the same as not having it.
+    #[test]
+    fn an_unverified_session_says_so_and_a_verified_one_does_not() {
+        let verified = State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 0,
+            authenticated: true,
+        };
+        let unverified = State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 12,
+            authenticated: false,
+        };
+
+        for zh in [true, false] {
+            let marker = if zh { "未验证身份" } else { "unverified" };
+            let quiet = tray_status(&verified, true, zh);
+            let loud = tray_status(&unverified, true, zh);
+            assert!(
+                !quiet.contains(marker),
+                "a proved session must not carry the warning (zh={zh}): {quiet}"
+            );
+            assert!(
+                loud.contains(marker),
+                "an unproved session must say so (zh={zh}): {loud}"
+            );
+        }
+
+        // The console line reaches the same decision through a different
+        // function, and it is the one a bug report quotes.
+        let zh = crate::i18n::is_chinese();
+        let marker = if zh { "未验证身份" } else { "unverified" };
+        assert!(!state_line(&verified, true).contains(marker));
+        assert!(state_line(&unverified, true).contains(marker));
     }
 
     /// Latency with zero decoded frames measures nothing, so it must not appear
