@@ -53,6 +53,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 thiserror = "2"
+# Proving which phone is on the other end, without the pairing token having to
+# travel the wire as a bearer credential. HMAC-SHA256 over both nonces, keyed by
+# the token. RustCrypto rather than anything hand-rolled: the whole point of this
+# code is that it is not the place to be original.
+hmac = "0.12"
+sha2 = "0.10"
+# The comparison. Hand-writing a constant-time `==` is six lines and one mistake
+# away from being a timing oracle, and `subtle` is the crate everyone else uses
+# for exactly this.
+subtle = "2"
+# Nonces. One function, no feature soup.
+getrandom = "0.2"
 # Update integrity. Verification only — signing happens at release time, with
 # openssl, so the private key never has to exist in this program or on a build
 # machine that merely compiles.

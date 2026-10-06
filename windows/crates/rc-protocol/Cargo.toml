@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "rc-protocol"
 description = "RemoteCrab wire protocol — Rust port of RemoteCrabCore/Networking (compatible with the iOS sender and Mac receiver)."
 version.workspace = true
@@ -9,3 +9,11 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
+# The identity challenge lives here rather than in `rc-net` because the MAC is
+# part of the wire contract: the iOS side has to compute exactly these bytes, and
+# a primitive whose definition sits one crate away from the messages that carry
+# it is one that drifts.
+hmac.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+getrandom.workspace = true

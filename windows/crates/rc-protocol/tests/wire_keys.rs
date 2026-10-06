@@ -154,6 +154,7 @@ fn client_hello_keys() {
         app_version: "v".into(),
         platform: Some("windows".into()),
         capabilities: None,
+        nonce: None,
     };
     // `platform` is the additive field this port introduced; it must serialize
     // as exactly "platform" so iOS (which now reads it) sees it.
@@ -177,6 +178,7 @@ fn client_hello_declares_capabilities() {
         app_version: "v".into(),
         platform: Some("windows".into()),
         capabilities: Some(vec!["latencyProbe".into(), "commandResult".into()]),
+        nonce: Some("n".into()),
     };
     assert_keys(
         &h,
@@ -186,6 +188,7 @@ fn client_hello_declares_capabilities() {
             "appVersion",
             "platform",
             "capabilities",
+            "nonce",
         ],
     );
     let json = serde_json::to_string(&h).unwrap();
@@ -200,6 +203,9 @@ fn session_reply_keys() {
         result: SessionReplyResult::Busy,
         owner_name: Some("o".into()),
         token: None,
+        nonce: None,
+        mac: None,
+        capabilities: None,
     };
     assert_keys(&r, &["result", "ownerName"]);
 }

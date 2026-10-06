@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use rc_discovery::{DiscoveredPhone, DiscoveryEvent};
 use rc_protocol::{
-    decode_session_reply, encode_camera_command, encode_client_hello, encode_feature_control,
-    encode_ping, ClientHello, FeatureControl, FeatureStateSnapshot, Frame, Kind, Parser,
-    SessionReplyResult, StreamMetadata,
+    decode_session_reply, encode_camera_command, encode_client_hello, encode_client_proof,
+    encode_feature_control, encode_ping, ClientHello, ClientProof, FeatureControl,
+    FeatureStateSnapshot, Frame, Kind, Parser, SessionReply, SessionReplyResult, StreamMetadata,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -413,6 +413,18 @@ pub(crate) async fn supervisor(
                             State::Error("The iPhone denied the connection".to_string()),
                         );
                     }
+                    ConnEndKind::Impersonated => {
+                        // Stops for good rather than retrying: whatever answered
+                        // will answer again, and a reconnect loop against an
+                        // impostor is the receiver being used as a hammer.
+                        suppress_auto = true;
+                        reconnect_at = None;
+                        set_state(
+                            &state_tx,
+                            &events_tx,
+                            State::Error("Could not verify the iPhone".to_string()),
+                        );
+                    }
                     ConnEndKind::Off => {
                         // Deliberately **not** `suppress_auto`: the whole point is
                         // that re-picking this computer on the phone brings it
@@ -735,6 +747,58 @@ async fn dial(host: &str, port: u16) -> std::io::Result<TcpStream> {
     }
 }
 
+/// What the phone's half of the challenge turned out to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Challenge {
+    /// It proved itself, and has been answered.
+    Proven,
+    /// It does not do this at all — an app older than this build.
+    NotOffered,
+    /// It offered a proof and this receiver has no token to check it against.
+    NoKey,
+    /// It offered a proof that did not check out.
+    Failed,
+}
+
+/// Check the phone's half of the challenge and answer it.
+///
+/// Four outcomes rather than a `bool`, because three of them are not failures and
+/// only one is an attack. The words the user sees, and whether the receiver ever
+/// dials again, depend on telling them apart.
+///
+/// `Err(())` is a link problem while answering, which the caller reports as a lost
+/// connection rather than as an identity failure: conflating the two would make a
+/// WiFi blip read as an impostor.
+async fn answer_challenge(
+    token: Option<&str>,
+    pc_id: &str,
+    client_nonce: &str,
+    reply: &SessionReply,
+    write_half: &mut tokio::net::tcp::OwnedWriteHalf,
+) -> Result<Challenge, ()> {
+    let (Some(server_nonce), Some(presented)) = (reply.nonce.as_deref(), reply.mac.as_deref())
+    else {
+        return Ok(Challenge::NotOffered);
+    };
+    let Some(token) = token else {
+        return Ok(Challenge::NoKey);
+    };
+
+    let expected = crate::peer_auth::server_mac(token, pc_id, client_nonce, server_nonce);
+    if !crate::peer_auth::matches(&expected, presented) {
+        return Ok(Challenge::Failed);
+    }
+
+    // Ours, under the client label. This is what lets the phone stop showing its
+    // approval card for a machine it has already paired with.
+    let proof = ClientProof {
+        mac: crate::peer_auth::client_mac(token, pc_id, client_nonce, server_nonce),
+    };
+    let frame = encode_client_proof(&proof).map_err(|_| ())?;
+    write_half.write_all(&frame).await.map_err(|_| ())?;
+    Ok(Challenge::Proven)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_connection(
     config: Config,
@@ -768,10 +832,19 @@ events_tx: &broadcast::Sender<Event>,
         State::Handshaking { name: name.clone() },
     );
 
+    // This connection's half of the challenge. New every time, which is what
+    // makes a MAC copied from an earlier session useless to a listener.
+    let client_nonce = crate::peer_auth::new_nonce();
+    // Kept: the hello takes ownership of the token, and the challenge needs it
+    // afterwards to check what the phone sends back.
+    let stored_token = token.clone();
+
     let hello = ClientHello {
         name: pc_name,
-        id: pc_id,
+        // Cloned: the challenge below needs the id after the hello has taken it.
+        id: pc_id.clone(),
         token,
+        nonce: Some(client_nonce.clone()),
         app_version: config.app_version.clone(),
         platform: Some("windows".to_string()),
         // What this receiver can be relied on for. The phone reads this before
@@ -783,6 +856,10 @@ events_tx: &broadcast::Sender<Event>,
         capabilities: Some(vec![
             "latencyProbe".to_string(),
             "commandResult".to_string(),
+            // What this receiver can do about identity. A phone that can do it
+            // too answers with the same word and a MAC; one that cannot is
+            // simply never authenticated, which the session state records.
+            crate::peer_auth::CAPABILITY.to_string(),
         ]),
     };
     let Ok(frame) = encode_client_hello(&hello) else {
@@ -851,6 +928,51 @@ events_tx: &broadcast::Sender<Event>,
         }
     };
     eprintln!("[net] sessionReply: {:?}", reply.result);
+
+    // --- Identity -------------------------------------------------------
+    //
+    // Done before the decision below, because a phone that proves itself is
+    // admitted *by* the proof, and a phone that fails to is not admitted at all.
+    let authenticated = match answer_challenge(
+        stored_token.as_deref(),
+        &pc_id,
+        &client_nonce,
+        &reply,
+        &mut write_half,
+    )
+    .await
+    {
+        Ok(Challenge::Proven) => true,
+        Ok(Challenge::NotOffered) => {
+            // Deliberately not fatal. The alternative is refusing every phone
+            // whose app predates this build, which turns a security improvement
+            // into an outage on the day it ships — and the receiver has no way
+            // to update the phone. The session is marked unauthenticated
+            // instead, and `State::Streaming` carries that to the user.
+            eprintln!(
+                "[auth] the phone did not offer a proof of identity. Anyone listening on this \
+                 network could have answered in its place — updating the iOS app closes this."
+            );
+            false
+        }
+        Ok(Challenge::NoKey) => {
+            // The phone says it knows us and this machine has nothing to check
+            // it against: a pairing that was lost, not an attack. Say which.
+            eprintln!(
+                "[auth] the phone offered a proof and this receiver has no token for it — \
+                 re-pair from the phone to restore a recognised connection"
+            );
+            false
+        }
+        Ok(Challenge::Failed) => {
+            eprintln!(
+                "[auth] REFUSED: something answered on this phone's port that does not hold the \
+                 pairing token"
+            );
+            return ConnEndKind::Impersonated;
+        }
+        Err(()) => return ConnEndKind::Lost,
+    };
 
     // The token the phone issued when it accepted us. This MUST travel back
     // to the supervisor and be persisted: it is the only thing that makes the
@@ -935,7 +1057,8 @@ events_tx: &broadcast::Sender<Event>,
         State::Streaming {
             name: name.clone(),
             latency_ms: 0,
-},
+            authenticated,
+        },
       );
 
       // Any frames already buffered from the handshake read (the iPhone
@@ -998,6 +1121,7 @@ events_tx: &broadcast::Sender<Event>,
                                         State::Streaming {
                                             name: name.clone(),
                                             latency_ms: rtt,
+                                            authenticated,
                                         },
                                     );
                                 }

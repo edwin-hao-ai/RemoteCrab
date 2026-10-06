@@ -376,6 +376,7 @@ fn client_hello_round_trip_with_optional_platform() {
         app_version: "0.1.0".to_string(),
         platform: Some("windows".to_string()),
         capabilities: None,
+        nonce: Some("nonce-1".to_string()),
     };
     let json = serde_json::to_string(&hello).unwrap();
     assert!(json.contains("\"platform\":\"windows\""));

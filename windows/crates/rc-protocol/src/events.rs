@@ -292,8 +292,21 @@ pub struct ClientHello {
     pub id: String,
     /// Pairing token issued by the iPhone on first approval. `None` on the
     /// very first connection.
+    ///
+    /// Still sent, and still read by a phone that has not learned the exchange
+    /// below. It is no longer what *proves* this receiver, though: a phone that
+    /// supports `peerAuth` ignores it and demands the MAC instead. A secret you
+    /// hand over is a badge, and anyone on the same network reads the same
+    /// bytes — see `rc_net::peer_auth`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// This receiver's half of the challenge, base64.
+    ///
+    /// ADDITIVE / OPTIONAL. A phone that does not do the exchange ignores it; a
+    /// phone that does echoes it back inside its MAC, which is what stops a
+    /// recorded MAC from being replayed on a later connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
     #[serde(default)]
     pub app_version: String,
     /// Which OS this receiver runs on (`"macos"` | `"windows"` | `"linux"`).
@@ -348,14 +361,54 @@ pub struct SessionReply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_name: Option<String>,
     /// Present for `.accepted` — the pairing token to persist.
+    ///
+    /// This is the trust-on-first-pair window and there is no way around it: the
+    /// phone is handing out a secret to a machine it has not met, over a channel
+    /// nobody has authenticated yet. Every connection *after* this one is
+    /// protected by the MAC below, so the window is one pairing rather than
+    /// every reconnect — which is the whole of the improvement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+    /// The phone's half of the challenge, base64. Player two.
+    ///
+    /// ADDITIVE. Absent from every phone that does not do the exchange, and
+    /// absent means "this session is not authenticated" — not "skip the check".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    /// HMAC-SHA256 the phone computed over both nonces and this receiver's id,
+    /// keyed by the pairing token. Absent means the phone cannot do this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mac: Option<String>,
+    /// What the phone says it can do, so the receiver knows whether the MAC it
+    /// is about to demand is a reasonable thing to expect.
+    ///
+    /// Strings rather than an enum, for the same reason `ClientHello` uses them:
+    /// a phone newer than this build may name abilities that do not exist here,
+    /// and one unknown word must not fail the handshake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
+}
+
+/// Receiver → iPhone: this machine's answer to the phone's half of the
+/// challenge (kind `0x1E`).
+///
+/// Sent only after a `sessionReply` that carried a MAC. Its arrival is what lets
+/// the phone stop showing its approval card and admit this computer without a
+/// human tapping Allow — the proof *replaces* the tap for a machine that already
+/// holds the token.
+///
+/// The phone must never accept a bare `clientHello` as evidence of anything.
+/// Presenting a token is not proof of holding it: anyone on the same network can
+/// read the same bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientProof {
+    pub mac: String,
 }
 
 // ---------------------------------------------------------------------------
 // App switcher
 // ---------------------------------------------------------------------------
-
 /// One switchable application on the receiver machine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

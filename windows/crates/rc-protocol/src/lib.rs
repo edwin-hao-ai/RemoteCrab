@@ -1,4 +1,4 @@
-//! `rc-protocol` — the RemoteCrab wire protocol in Rust.
+//! `rc-protocol` 鈥?the RemoteCrab wire protocol in Rust.
 //!
 //! A faithful, **compatible** port of `RemoteCrabCore/Networking`
 //! (`IBWire` / `IBEvents` / `IBProtocol`) plus the pure-logic payloads from
@@ -6,10 +6,11 @@
 //! source of truth; this crate must decode exactly what they emit and
 //! encode exactly what they expect.
 //!
-//! This crate is pure logic — no sockets, no GUI, no OS APIs — so it can be
+//! This crate is pure logic 鈥?no sockets, no GUI, no OS APIs 鈥?so it can be
 //! unit-tested without any hardware.
 
 pub mod base64_serde;
+pub mod peer_auth;
 pub mod events;
 pub mod protocol;
 pub mod wire;

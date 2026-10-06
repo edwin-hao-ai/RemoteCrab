@@ -14,7 +14,7 @@ code_baseline: bf351bf
 
 ---
 
-## 1. 🔴 对端不验证身份（发布硬门槛）—— **仍未做**
+## 1. 🔴 对端不验证身份 —— **Windows 半边已做完，iOS 半边待做**
 
 ### 现象
 
@@ -23,35 +23,34 @@ code_baseline: bf351bf
 都会被当作手机连上，随后它发来的 `Touch` / `Key` / `SystemCommand` / `QuitApp` /
 `Clipboard` / `FileOffer` 全部被执行 —— 等于把键鼠和文件系统交给同网段陌生人。
 
-### 为什么不能只加一个 HMAC 就算完
+### 已定方案：双向 HMAC（token 从「徽章」变成「密钥」）
 
-**这条链路是明文 TCP。** ClientHello 里的 pairing token 是明文 JSON 发出去的。在这个
-基础上加 HMAC 挑战-应答，只能挡住「不知道 token 的人」，**挡不住同一个 WiFi 下抓包的
-攻击者** —— token 和随后的 HMAC 都在同一条可读的流里。
+TLS 是更彻底的方案（连明文问题一起解决），但它需要 iOS 侧生成自签名证书 + 起 TLS
+server，而**这台机器上 Swift 编译不了也测不了**。所以先做能真正做完的那一半：
 
-而「只在 Windows 侧加校验」还有一个更直接的后果：iOS 现在不会发 proof，那么所有
-**已存在的配对**都会被判为未验证。要么全部断掉输入（产品坏掉），要么加个「对端没报
-支持就放行」的降级 —— 那等于什么也没修，却让人以为修了。
+- token 不再作为凭据**出示**，而是作为 HMAC 密钥，双方各出一个随机数互相证明。
+- 重放旧 MAC 无效（随机数每次都新），反射攻击无效（两个 label 域分离）。
+- **做的**：冒充。**没做的**：加密 —— 剪贴板和文件内容在同网段仍可读。
 
-### 结论（2026-10-06 定）：走 TLS
+被冒充的**受害者是电脑**（攻击者假冒手机 → 给电脑发键盘事件），所以关键的一半是
+**电脑验证手机**，而那一半已经落地并测试：
 
-- 配对时双方各生成一个自签名证书，把对方证书的指纹存入 pairing store（TOFU）。
-- 之后每次连接用 TLS 1.3，双向校验指纹。
-- 明文问题、身份问题一起解决；文件传输和剪贴板也顺带加密。
-- Rust 侧 `rustls` + `tokio-rustls`；iOS 侧 `Network.framework` 的 TLS。
-- 为什么不是 PAKE（SPAKE2 / Noise XX）：两端都有 TLS 的官方实现，PAKE 在 iOS 上没有
-  官方库，手写密码学是漏洞来源。
+| 位置 | 内容 |
+|---|---|
+| `rc-protocol/src/peer_auth.rs` | MAC 构造、常量时间比较、10 个单测、**跨语言测试向量** |
+| `rc-protocol` | `ClientHello.nonce`、`SessionReply.{nonce,mac,capabilities}`、新帧 `ClientProof`（`0x26`） |
+| `rc-net` 握手 | 发挑战 → 验手机 → 回 `clientProof`；验证失败 → `ConnEndKind::Impersonated`（不重试） |
+| `State::Streaming` | 带 `authenticated`；状态行在未验证时显示「（未验证身份）」 |
+| `rc-net/tests/session.rs` | 三个真实 TCP 端到端测试：证明成功 / 不能证明 / 拿错 token 冒充 |
 
-**在这之前不要加「Windows 单侧校验」**：它给的是 false confidence，而用户会因此以为
-咖啡厅 WiFi 上是安全的。
+**老 App 不会被拒绝**（拒绝它等于上线当天把产品弄坏，而接收端没法更新手机），
+但会话会被**如实标注**为未验证 —— 不是假装安全，也不是让产品停摆。
 
-### 顺便要一起处理的
+### 还需要做的（见 [`HANDOFF-IOS-PEER-AUTH.md`](HANDOFF-IOS-PEER-AUTH.md)）
 
-- `learn_phone_identity` 直接采纳对端自报的 `device_name` 并据此 `rekey_token`
-  （`supervisor.rs:654`）。这一条被身份问题覆盖 —— 鉴权落地后它才有意义。
-- pairing token 明文落盘（`%APPDATA%\RemoteCrab\tokens.json`）。已用 `icacls` 收紧到
-  当前账户，但没有 DPAPI 加密（同用户下任意进程仍可读）。TLS 落地后 token 降级为
-  「设备指纹」而非 bearer secret，这条自然消失。
+- iOS 侧按那份文档实现（含**必须先过的测试向量**），并顺带修掉
+  `CaptureEngine.swift:1545` 的「clientHello 超时就放行」—— 那个洞比 token 更大。
+- Mac 接收端是同样的"电脑"角色，有同一个洞，本轮没动。
 
 ---
 

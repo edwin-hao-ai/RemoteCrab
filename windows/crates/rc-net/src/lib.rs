@@ -12,6 +12,10 @@
 pub mod dispatch;
 pub mod firstrun;
 pub mod notify;
+// Re-exported rather than defined here: the MAC is part of the wire contract the
+// iOS side has to reproduce byte for byte, so it lives next to the messages that
+// carry it (`rc-protocol`). Callers in this crate still say `crate::peer_auth`.
+pub use rc_protocol::peer_auth;
 pub mod selfcheck;
 pub mod settings;
 pub mod update_gate;
@@ -85,6 +89,15 @@ pub enum State {
     Streaming {
         name: String,
         latency_ms: i64,
+        /// Whether the phone proved it holds the pairing token.
+        ///
+        /// In the state rather than only in the log because it is the one thing
+        /// about a live session the user cannot otherwise see, and it is the
+        /// difference between "this is your phone" and "someone on this network
+        /// is holding the keyboard". False means the other end did not do the
+        /// exchange — an app older than this build, or an impostor that could
+        /// not.
+        authenticated: bool,
     },
     Error(String),
 }
@@ -369,6 +382,18 @@ pub(crate) enum ConnEndKind {
     /// alternative (stop until someone walks over to the PC) makes the phone's
     /// own "choose a computer" screen feel broken.
     Off,
+    /// Something answered on the phone's port and could not prove it holds the
+    /// pairing token.
+    ///
+    /// Not a refusal and not a link problem. The receiver used to take any
+    /// `sessionReply accepted` at its word, so anything on the same WiFi could
+    /// stand up a listener on the phone's port and then drive this machine's
+    /// keyboard — this is that connection being refused.
+    ///
+    /// Retried never, because an impostor is still there on the next attempt,
+    /// and worded separately from `Denied`, because that one says the *user*
+    /// turned this computer away.
+    Impersonated,
 }
 
 #[derive(Debug, Clone)]

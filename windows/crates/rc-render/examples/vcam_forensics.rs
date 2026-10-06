@@ -194,12 +194,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         token: None,
         app_version: "0".into(),
         platform: Some("windows".into()),
-        // The probe declares what it can answer, exactly as the receiver does,
-        // so what the phone sends back matches what a real run would get.
+        // What this probe can actually answer — deliberately not the identity
+        // exchange. A probe that claimed `peerAuth` would be sent a challenge it
+        // cannot complete and would never see a frame, which is the opposite of
+        // what it is for.
         capabilities: Some(vec![
             "latencyProbe".to_string(),
             "commandResult".to_string(),
         ]),
+        nonce: None,
     })
     .map_err(|e| format!("encode_client_hello: {e}"))?;
     wr.write_all(&hello).await?;

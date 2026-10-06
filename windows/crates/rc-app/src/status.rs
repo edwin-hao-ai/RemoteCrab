@@ -184,6 +184,26 @@ pub fn tray_status(state: &State, seen_frame: bool, zh: bool) -> String {
             b
         }
     }
+
+    /// Appended to a live session's line when the phone did not prove it holds
+    /// the pairing token.
+    ///
+    /// Nothing at all when it did — which is the point. Any phone whose app
+    /// predates the identity exchange still connects, because refusing it would
+    /// turn a security improvement into an outage on the day it shipped, and this
+    /// receiver has no way to update the phone. So the session is *allowed* and
+    /// *labelled*: anyone on this network could have been the other end, and that
+    /// is not something a status line should keep to itself.
+    fn unverified_unless(authenticated: bool, zh: bool) -> &'static str {
+        if authenticated {
+            return "";
+        }
+        if zh {
+            "（未验证身份）"
+        } else {
+            " (unverified)"
+        }
+    }
     match state {
         // Before the latency arm: a round-trip number with not one frame
         // decoded is a measurement of nothing, and printing it would dress the
@@ -195,13 +215,30 @@ pub fn tray_status(state: &State, seen_frame: bool, zh: bool) -> String {
             } else {
                 "connected, waiting for video\u{2026}"
             };
-            format!("{}{name} {dash} {waiting}", t(zh, "正在投屏 ", "Streaming from "))
+            format!(
+                "{}{name} {dash} {waiting}",
+                t(zh, "正在投屏 ", "Streaming from ")
+            )
         }
-        State::Streaming { name, latency_ms } if *latency_ms > 0 => {
-            format!("{}{name} · {latency_ms} ms", t(zh, "正在投屏 ", "Streaming from "))
+        State::Streaming {
+            name,
+            latency_ms,
+            authenticated,
+        } if *latency_ms > 0 => {
+            format!(
+                "{}{name} · {latency_ms} ms{}",
+                t(zh, "正在投屏 ", "Streaming from "),
+                unverified_unless(*authenticated, zh)
+            )
         }
-        State::Streaming { name, .. } => {
-            format!("{}{name}", t(zh, "正在投屏 ", "Streaming from "))
+        State::Streaming {
+            name, authenticated, ..
+        } => {
+            format!(
+                "{}{name}{}",
+                t(zh, "正在投屏 ", "Streaming from "),
+                unverified_unless(*authenticated, zh)
+            )
         }
         // See the note in `state_line`: the tap is on the iPhone.
         State::AwaitingApproval { name } => {
@@ -327,6 +364,7 @@ mod no_video_tests {
         State::Streaming {
             name: "iPhone".into(),
             latency_ms: 0,
+            authenticated: true,
         }
     }
 
@@ -405,6 +443,7 @@ mod no_video_tests {
         let with_ping = State::Streaming {
             name: "iPhone".into(),
             latency_ms: 12,
+            authenticated: true,
         };
         for zh in [true, false] {
             let waiting = if zh { "等待画面" } else { "waiting for video" };

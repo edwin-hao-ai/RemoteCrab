@@ -97,6 +97,14 @@ pub enum Kind {
     /// receiver that sends it, so an older receiver never emits it. The iOS side
     /// implements the handling (it was once claimed missing; it is not).
     RequestKeyframe = 0x25,
+    /// receiver → iPhone: this machine's answer to the phone's half of the
+    /// authentication challenge (`ClientProof`, JSON).
+    ///
+    /// Purely additive in the same way as `RequestKeyframe`: only the receiver
+    /// sends it, and only to a phone that asked for it by sending a MAC first.
+    /// An older phone ignores an unknown kind, so nothing about this can break
+    /// a connection that was working.
+    ClientProof = 0x26,
     /// A byte this build does not recognise.
     ///
     /// Not a real wire kind — it is what the parser produces instead of
@@ -167,6 +175,7 @@ impl Kind {
             0x23 => Kind::CommandResult,
             0x24 => Kind::SpeakerAudio,
             0x25 => Kind::RequestKeyframe,
+            0x26 => Kind::ClientProof,
             _ => Kind::Unknown,
         }
     }
@@ -277,6 +286,12 @@ json_codec!(
     decode_session_reply,
     Kind::SessionReply,
     SessionReply
+);
+json_codec!(
+    encode_client_proof,
+    decode_client_proof,
+    Kind::ClientProof,
+    ClientProof
 );
 json_codec!(encode_app_list, decode_app_list, Kind::AppList, AppList);
 json_codec!(

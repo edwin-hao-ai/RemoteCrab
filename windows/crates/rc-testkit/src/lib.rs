@@ -8,8 +8,9 @@
 use std::net::SocketAddr;
 
 use rc_protocol::{
-    decode_client_hello, decode_feature_control, decode_key, decode_ping, decode_touch,
-    encode_feature_state, encode_metadata, encode_nal, encode_ping, encode_session_reply,
+    decode_client_hello, decode_client_proof, decode_feature_control, decode_key, decode_ping,
+    decode_touch, encode_feature_state, encode_metadata, encode_nal, encode_ping,
+    encode_session_reply,
     encode_touch, ClientHello, FeatureStateSnapshot, KeyEvent, NalFrame, NalKind, SessionReply,
     SessionReplyResult, StreamMetadata, Surface, TouchEvent, TouchPhase,
 };
@@ -39,6 +40,16 @@ pub struct FakeIphoneConfig {
     /// disconnect ever happening. Reconnect behaviour cannot be tested against a
     /// tool that never disconnects; worse, it looks tested.
     pub drop_after_frames: Option<usize>,
+    /// The secret this fake phone holds, when it is a phone that can prove
+    /// itself.
+    ///
+    /// `None` is a phone older than the identity exchange: it answers with no
+    /// MAC at all, and the receiver is expected to record the session as
+    /// **unauthenticated** rather than to refuse it. `Some(secret)` makes it
+    /// answer the challenge, and a secret that differs from the receiver's
+    /// stored token is how a test plays an **impostor** standing on the phone's
+    /// port.
+    pub peer_auth_token: Option<String>,
 }
 
 impl Default for FakeIphoneConfig {
@@ -51,6 +62,7 @@ impl Default for FakeIphoneConfig {
             stream_video: false,
             video_frames: 0,
             drop_after_frames: None,
+            peer_auth_token: None,
         }
     }
 }
@@ -178,21 +190,55 @@ async fn serve(
         }
     }
     let hello = hello.unwrap();
-    let _ = hello_tx.send(hello);
+    // Cloned: the identity exchange below needs the hello's nonce and id.
+    let _ = hello_tx.send(hello.clone());
 
     // 2. Reply.
+    //
+    // A phone that can prove itself does it *before* admitting the receiver:
+    // it answers `pending` with its half of the challenge, waits for the
+    // receiver's proof, checks it, and only then accepts. That order is the
+    // whole point — the old protocol took a *presented* token as proof, and a
+    // token on the wire is a badge anyone can copy.
+    let secret = cfg.peer_auth_token.clone();
+    let challenge = match (secret.as_deref(), hello.nonce.as_deref()) {
+        (Some(secret), Some(client_nonce)) => {
+            let server_nonce = rc_protocol::peer_auth::new_nonce();
+            let mac = rc_protocol::peer_auth::server_mac(
+                secret,
+                &hello.id,
+                client_nonce,
+                &server_nonce,
+            );
+            Some((server_nonce, mac, client_nonce.to_string()))
+        }
+        _ => None,
+    };
+
+    // A phone in the middle of the exchange is `pending` by definition, whatever
+    // the test asked for: it cannot accept until the receiver has answered.
+    let result = if challenge.is_some() && cfg.reply == SessionReplyResult::Accepted {
+        SessionReplyResult::Pending
+    } else {
+        cfg.reply
+    };
     let reply = SessionReply {
-        result: cfg.reply,
-        owner_name: if cfg.reply == SessionReplyResult::Busy {
+        result,
+        owner_name: if result == SessionReplyResult::Busy {
             Some("Another Mac".to_string())
         } else {
             None
         },
-        token: if cfg.reply == SessionReplyResult::Accepted {
+        token: if result == SessionReplyResult::Accepted {
             cfg.token.clone()
         } else {
             None
         },
+        nonce: challenge.as_ref().map(|(n, _, _)| n.clone()),
+        mac: challenge.as_ref().map(|(_, m, _)| m.clone()),
+        capabilities: secret
+            .as_ref()
+            .map(|_| vec![rc_protocol::peer_auth::CAPABILITY.to_string()]),
     };
     if let Ok(frame) = encode_session_reply(&reply) {
         if wr.write_all(&frame).await.is_err() {
@@ -200,13 +246,64 @@ async fn serve(
         }
     }
 
-    if cfg.reply == SessionReplyResult::Pending {
+    if let Some((server_nonce, _, client_nonce)) = challenge {
+        // 3. The receiver's proof, checked with the same secret. A wrong secret
+        // here is an impostor, and the answer is `denied` — not a shrug.
+        let expected =
+            rc_protocol::peer_auth::client_mac(&secret.unwrap(), &hello.id, &client_nonce, &server_nonce);
+        let mut proof_ok: Option<bool> = None;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while proof_ok.is_none() {
+            let read = tokio::time::timeout_at(deadline, rd.read(&mut buf)).await;
+            let Ok(Ok(n)) = read else {
+                eprintln!("[fakeiphone] challenge: no proof arrived before the deadline");
+                return;
+            };
+            if n == 0 {
+                eprintln!("[fakeiphone] challenge: the receiver hung up instead of proving itself");
+                return;
+            }
+            for f in parser.append(&buf[..n]) {
+                if f.kind == rc_protocol::Kind::ClientProof {
+                    proof_ok = Some(
+                        decode_client_proof(&f)
+                            .map(|p| rc_protocol::peer_auth::matches(&expected, &p.mac))
+                            .unwrap_or(false),
+                    );
+                }
+            }
+        }
+        eprintln!("[fakeiphone] challenge: proof verified = {proof_ok:?}");
+        let accepted = SessionReply {
+            result: if proof_ok == Some(true) {
+                SessionReplyResult::Accepted
+            } else {
+                SessionReplyResult::Denied
+            },
+            owner_name: None,
+            // Issued only on the first pairing. Here the token was already
+            // known to both sides, so there is nothing to hand over.
+            token: None,
+            nonce: None,
+            mac: None,
+            capabilities: None,
+        };
+        if let Ok(frame) = encode_session_reply(&accepted) {
+            let _ = wr.write_all(&frame).await;
+        }
+        if proof_ok != Some(true) {
+            return;
+        }
+    } else if cfg.reply == SessionReplyResult::Pending {
         // Wait a moment, then accept (simulating the user tapping Allow).
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let accepted = SessionReply {
             result: SessionReplyResult::Accepted,
             owner_name: None,
             token: cfg.token.clone(),
+            nonce: None,
+            mac: None,
+            capabilities: None,
         };
         if let Ok(frame) = encode_session_reply(&accepted) {
             let _ = wr.write_all(&frame).await;

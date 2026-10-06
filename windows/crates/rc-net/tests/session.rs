@@ -442,6 +442,9 @@ async fn link_loss_reconnects_on_its_own() {
                     result: SessionReplyResult::Accepted,
                     owner_name: None,
                     token: Some("test-token".to_string()),
+                    nonce: None,
+                    mac: None,
+                    capabilities: None,
                 };
                 let _ = wr.write_all(&encode_session_reply(&reply).unwrap()).await;
                 // `stream` drops here — the link dies without a FIN handshake
@@ -704,4 +707,167 @@ async fn direct_dial_after_an_mdns_session_still_carries_the_token() {
         Some("test-token"),
         "the IP learned from metadata must resolve back to the same token"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Identity — the exchange that stops a stranger on the same WiFi from being
+// taken for the phone.
+//
+// The receiver used to accept any `sessionReply accepted` at its word, so
+// anything that could bind the phone's port could then drive this machine's
+// keyboard. These tests are the three shapes that matters: a phone that proves
+// itself, a phone that cannot, and something that is not the phone at all.
+//
+// All three need a *paired* receiver first, because the exchange only happens
+// when there is a token to key it with — which is the trust-on-first-use window
+// and is one pairing rather than every reconnect.
+// ---------------------------------------------------------------------------
+
+/// Pair the receiver with a phone that does not do the exchange, so the next
+/// connection has a token to be challenged with.
+///
+/// Returns nothing; the caller re-reads the same token file with a second
+/// `Session`, which is also what makes the test cover the store round-trip.
+async fn pair_once(config: &Config, path: &std::path::Path) {
+    let mut plain = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
+    {
+        let session = Session::spawn(config.clone());
+        session.connect_manual("127.0.0.1", plain.addr.port());
+        let _ = recv_hello(&mut plain).await;
+        wait_for_state(
+            &session,
+            |s| matches!(s, State::Streaming { .. }),
+            Duration::from_secs(5),
+        )
+        .await
+        .expect("the pairing session did not stream");
+        session.disconnect();
+    }
+    assert!(
+        std::fs::read_to_string(path).is_ok_and(|s| s.contains("test-token")),
+        "pairing did not persist a token, so there is nothing to challenge with"
+    );
+}
+
+#[tokio::test]
+async fn a_phone_that_proves_itself_is_authenticated() {
+    let (config, path) = test_config_with_token_file("peer-auth-ok");
+    pair_once(&config, &path).await;
+
+    let mut phone = FakeIphone::start(FakeIphoneConfig {
+        peer_auth_token: Some("test-token".to_string()),
+        ..FakeIphoneConfig::default()
+    })
+    .await
+    .unwrap();
+
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let hello = recv_hello(&mut phone).await;
+
+    assert!(
+        hello.nonce.is_some(),
+        "the receiver must offer its half of the challenge"
+    );
+    assert!(
+        hello
+            .capabilities
+            .as_ref()
+            .is_some_and(|c| c.iter().any(|k| k == rc_protocol::peer_auth::CAPABILITY)),
+        "and must say it can do this: {:?}",
+        hello.capabilities
+    );
+
+    let state = wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("the authenticated session never reached streaming");
+    let _ = std::fs::remove_file(&path);
+    match state {
+        State::Streaming { authenticated, .. } => assert!(
+            authenticated,
+            "a phone that answered the challenge must be recorded as authenticated"
+        ),
+        other => panic!("expected Streaming, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn something_that_does_not_hold_the_token_is_refused() {
+    let (config, path) = test_config_with_token_file("peer-auth-impostor");
+    pair_once(&config, &path).await;
+
+    // The same port, answered by a machine with the wrong secret. This is the
+    // attacker the whole exchange exists for: it can be reached, it speaks the
+    // protocol, and it would have been believed before.
+    let mut impostor = FakeIphone::start(FakeIphoneConfig {
+        peer_auth_token: Some("not-the-real-token".to_string()),
+        ..FakeIphoneConfig::default()
+    })
+    .await
+    .unwrap();
+
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", impostor.addr.port());
+    let _ = recv_hello(&mut impostor).await;
+
+    let state = wait_for_state(
+        &session,
+        |s| matches!(s, State::Error(_)),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("the impostor was not refused");
+
+    // And it must not have been admitted on the way to that error.
+    assert!(
+        !matches!(&*session.state().borrow(), State::Streaming { .. }),
+        "an impostor must never reach streaming"
+    );
+    let _ = std::fs::remove_file(&path);
+    match state {
+        State::Error(message) => assert_eq!(
+            message, "Could not verify the iPhone",
+            "the refusal must be worded as an identity problem, not as a refusal by the user"
+        ),
+        other => panic!("expected an error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_phone_that_cannot_prove_itself_is_allowed_and_marked_unauthenticated() {
+    let (config, path) = test_config_with_token_file("peer-auth-legacy");
+    pair_once(&config, &path).await;
+
+    // An app from before the exchange: it answers `accepted` with no MAC. It has
+    // to keep working — refusing it would turn this into an outage on the day it
+    // shipped, and the receiver cannot update the phone — but the session must
+    // not be *called* authenticated.
+    let mut legacy = FakeIphone::start(FakeIphoneConfig::default())
+        .await
+        .unwrap();
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", legacy.addr.port());
+    let _ = recv_hello(&mut legacy).await;
+
+    let state = wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("a phone that cannot prove itself must still be able to connect");
+    let _ = std::fs::remove_file(&path);
+    match state {
+        State::Streaming { authenticated, .. } => assert!(
+            !authenticated,
+            "a session with no proof must not be reported as authenticated"
+        ),
+        other => panic!("expected Streaming, got {other:?}"),
+    }
 }

@@ -491,7 +491,9 @@ pub fn panel_summary(h: &rc_net::Health, verdict: &RouteVerdict, zh: bool) -> St
 fn state_line(h: &rc_net::Health, zh: bool) -> String {
     use rc_net::State;
     match &h.state {
-        State::Streaming { name, latency_ms } if *latency_ms > 0 => {
+        State::Streaming {
+            name, latency_ms, ..
+        } if *latency_ms > 0 => {
             format!("{name} - {latency_ms} ms")
         }
         State::Streaming { name, .. } => name.clone(),
@@ -765,6 +767,7 @@ mod tests {
             let h = health(rc_net::State::Streaming {
                 name: "Fake iPhone".into(),
                 latency_ms: 12,
+                authenticated: true,
             });
             let text = panel(&h, &RouteVerdict::Direct, zh);
             assert!(text.contains("Fake iPhone"), "zh={zh} {text}");
