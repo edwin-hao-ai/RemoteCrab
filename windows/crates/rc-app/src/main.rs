@@ -37,6 +37,8 @@ mod notify_relay;
 mod selfcheck_win;
 #[cfg(windows)]
 mod settings_win;
+#[cfg(windows)]
+mod theme;
 mod wizard;
 #[cfg(windows)]
 mod wizard_win;

@@ -10,12 +10,14 @@
 //! project would carry forever to draw checkmarks.
 
 use crate::i18n::t;
+use crate::theme;
 use crate::wizard::{current_page, Page, State};
 use rc_net::firstrun::{Camera, FirstRun, Integrity};
 use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Graphics::Gdi::{HDC, HFONT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// Win32 child-window styles, as plain numbers.
@@ -38,12 +40,34 @@ const CLASS: PCWSTR = w!("RemoteCrabWizard");
 
 /// Control ids. Fixed values, so the `WM_COMMAND` handler is a `match` on
 /// constants rather than on captured state.
+///
+/// The labelling controls have ids too, which is a change: they used to be
+/// created with no id at all, so `WM_CTLCOLORSTATIC` — the message Win32 sends to
+/// ask *what colour should this label be* — had nothing to answer with, and every
+/// label got the system dialog grey. With ids, one handler colours the window.
 const ID_NEXT: usize = 1;
 const ID_BACK: usize = 2;
 const ID_CLOSE: usize = 3;
 /// The per-page action: install the camera, or re-check.
 const ID_ACTION: usize = 4;
+/// The page heading.
 const ID_STATE: usize = 5;
+/// "第 2 / 5 步".
+const ID_STEP: usize = 6;
+/// The page's paragraph.
+const ID_BODY: usize = 7;
+/// What the last click of the action button reported.
+const ID_MESSAGE: usize = 8;
+/// The one-pixel rule above the buttons.
+const ID_HAIRLINE: usize = 9;
+
+/// Layout. `IBSpace` on the Mac side runs 4/8/12/16/24/32; these are the same
+/// numbers, so the two platforms keep the same rhythm.
+const PAD: i32 = 24; // IBSpace.xl
+const GAP: i32 = 8; // IBSpace.s
+const BUTTON_H: i32 = 36;
+const BUTTON_W: i32 = 116;
+const ACTION_W: i32 = 224;
 
 /// Show the wizard, or raise the copy already open.
 ///
@@ -93,8 +117,11 @@ pub fn show(first_run: FirstRun, on_action: Box<dyn Fn() + Send + Sync>) -> Opti
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            520,
-            380,
+            // Sized so the client area is a comfortable 584×421: enough for a
+            // two-line paragraph at 14px with room to breathe, and narrow enough
+            // to read as a dialog rather than a document window.
+            600,
+            460,
             None,
             None,
             Some(hinstance),
@@ -114,7 +141,10 @@ fn register(hinstance: HINSTANCE) {
         hInstance: hinstance,
         lpszClassName: CLASS,
         hCursor: cursor,
-        hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut std::ffi::c_void),
+        // The window's own background, so every pixel the controls do not cover
+        // is the product's canvas colour rather than `COLOR_WINDOW`, the grey
+        // that made these windows look like a 1995 utility.
+        hbrBackground: theme::brush_for(theme::palette().canvas),
         ..Default::default()
     };
     unsafe {
@@ -175,13 +205,43 @@ unsafe extern "system" fn wnd_proc(
                     _ => DefWindowProcW(hwnd, msg, wparam, _lparam),
                 }
             }
-            // No custom painting: the window is a stack of standard controls
-            // on the default dialog background, which is what every settings
-            // window on Windows looks like, and a hand-painted one would be a
-            // GDI dependency for no visible gain.
-            WM_PAINT => {
-                let _ = DefWindowProcW(hwnd, msg, wparam, _lparam);
-                LRESULT(0)
+            // Win32 asks the parent what colour each child should draw itself in.
+            // The default answer is the system dialog pair — black on grey —
+            // which is why every label looked like a form from 1995. The ids are
+            // what tell the labels apart; before they existed there was nothing
+            // to answer with.
+            WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as *mut std::ffi::c_void);
+                let control = HWND(_lparam.0 as *mut std::ffi::c_void);
+                let id = GetDlgCtrlID(control) as usize;
+                let p = theme::palette();
+                let (colour, back) = match id {
+                    ID_STATE => (p.text, p.canvas),
+                    ID_STEP => (p.text_faint, p.canvas),
+                    ID_BODY => (p.text_soft, p.canvas),
+                    ID_MESSAGE => (p.err, p.canvas),
+                    // The hairline is a one-pixel child that fills itself with the
+                    // brush returned here, which is steadier than painting a rule
+                    // in `WM_PAINT` and having a control invalidate over it.
+                    ID_HAIRLINE => (p.line, p.line),
+                    _ => (p.text, p.canvas),
+                };
+                LRESULT(theme::tint_child(hdc, colour, Some(back)).0 as isize)
+            }
+            // The buttons are owner-drawn, so this is where they get their look.
+            // `wparam` is the control id and `lparam` the `DRAWITEMSTRUCT`; the id
+            // is not read because the struct carries `CtlID`.
+            WM_DRAWITEM => {
+                if _lparam.0 != 0 {
+                    let di = &*(_lparam.0 as *const DRAWITEMSTRUCT);
+                    let style = if di.CtlID as usize == ID_NEXT {
+                        theme::ButtonStyle::Primary
+                    } else {
+                        theme::ButtonStyle::Secondary
+                    };
+                    theme::paint_button(di, style);
+                }
+                LRESULT(1)
             }
             WM_CLOSE => {
                 finish(hwnd);
@@ -204,10 +264,13 @@ fn finish(hwnd: HWND) {
 
 unsafe fn build_controls(hwnd: HWND) {
     unsafe {
-        // Rebuilt per page rather than repositioned: five controls do not
-        // justify a layout engine, and deleting them is the only way to be sure
-        // no control from the previous page is still on screen.
-        for id in [ID_NEXT, ID_BACK, ID_CLOSE, ID_ACTION, ID_STATE] {
+        // Rebuilt per page rather than repositioned: a handful of controls do not
+        // justify a layout engine, and deleting them is the only way to be sure no
+        // control from the previous page is still on screen.
+        for id in [
+            ID_NEXT, ID_BACK, ID_CLOSE, ID_ACTION, ID_STATE, ID_STEP, ID_BODY, ID_MESSAGE,
+            ID_HAIRLINE,
+        ] {
             // The parent is an `Option<HWND>` in this projection, and a
             // missing child comes back as an Err rather than a null handle.
             if let Ok(h) = GetDlgItem(Some(hwnd), id as i32) {
@@ -223,100 +286,99 @@ unsafe fn build_controls(hwnd: HWND) {
 
         let (title, body, action_label, has_action) = copy_for(page, &fr);
 
-        // The state line. `SS_LEFT` with an explicit font would need a font;
-        // the default dialog font is what every other Win32 app uses and is
-        // legible at the sizes here.
-        let state = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("STATIC"),
-            &windows::core::HSTRING::from(&title),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
-            20,
-            20,
-            460,
-            40,
-            Some(hwnd),
-            Some(HMENU(ID_STATE as *mut std::ffi::c_void)),
-            None,
-            None,
-        );
-        if let Ok(state) = state {
-            let _ = SetWindowTextW(state, &windows::core::HSTRING::from(&title));
-        }
+        // Every position is computed from the client area rather than written
+        // down. The previous layout was absolute coordinates in a window of a
+        // fixed size, so a larger font or a different DPI slid the button row off
+        // the bottom edge.
+        let mut client = RECT::default();
+        let _ = GetClientRect(hwnd, &mut client);
+        let width = client.right - client.left;
+        let height = client.bottom - client.top;
+        let content_w = width - PAD * 2;
+        let row_y = height - PAD - BUTTON_H;
+        let button_font = theme::font(theme::TEXT_BODY, theme::WEIGHT_REGULAR);
 
-        let _ = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("EDIT"),
-            &windows::core::HSTRING::from(&body),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE | 0x000C00 | 0x0080_0000), // WS_CHILD|WS_VISIBLE|ES_MULTILINE|ES_READONLY
-            20,
-            70,
-            460,
-            160,
-            Some(hwnd),
-            Some(HMENU(std::ptr::null_mut())),
-            None,
-            None,
+        // The heading: 20px semibold, the same relationship the Mac side draws
+        // between a page title and its body.
+        let heading = label(hwnd, ID_STATE, &title, boxed(PAD, PAD, content_w, 30));
+        set_font(
+            heading,
+            theme::font(theme::TEXT_HEADING, theme::WEIGHT_SEMIBOLD),
         );
+
+        // "第 2 / 5 步". A wizard that will not say how long it is makes people
+        // guess whether they are nearly done, which is the question a wizard
+        // exists to answer.
+        let step_label = if crate::i18n::is_chinese() {
+            format!("第 {} / {} 步", page.index() + 1, Page::all().len())
+        } else {
+            format!("Step {} of {}", page.index() + 1, Page::all().len())
+        };
+        let step = label(
+            hwnd,
+            ID_STEP,
+            &step_label,
+            boxed(PAD, PAD + 34, content_w, 18),
+        );
+        set_font(step, theme::font(theme::TEXT_CAPTION, theme::WEIGHT_REGULAR));
+
+        // The page's paragraph. A static rather than the read-only edit box this
+        // used to be: it is text to read, and an edit box brings a sunken border
+        // and a caret that both say "you can type here" about something you
+        // cannot.
+        let body_top = PAD + 64;
+        let body_bottom = row_y - 28;
+        let body_ctrl = label(
+            hwnd,
+            ID_BODY,
+            &body,
+            boxed(PAD, body_top, content_w, (body_bottom - body_top).max(80)),
+        );
+        set_font(body_ctrl, button_font);
+
+        // The rule above the button row: a one-pixel static that fills itself with
+        // the border colour.
+        let _ = label(hwnd, ID_HAIRLINE, "", boxed(PAD, row_y - 16, content_w, 1));
+
+        // Back sits on the left with the page's own action beside it; the button
+        // this wizard is driving toward is always the one on the far right, which
+        // is where Windows users look for it.
+        let back = button(
+            hwnd,
+            ID_BACK,
+            t("上一步", "Back"),
+            boxed(PAD, row_y, BUTTON_W, BUTTON_H),
+            page.prev().is_some(),
+        );
+        set_font(back, button_font);
 
         if has_action {
-            let _ = CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
-                w!("BUTTON"),
-                &windows::core::HSTRING::from(&action_label),
-                WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
-                20,
-                245,
-                220,
-                30,
-                Some(hwnd),
-                Some(HMENU(ID_ACTION as *mut std::ffi::c_void)),
-                None,
-                None,
+            let action = button(
+                hwnd,
+                ID_ACTION,
+                &action_label,
+                boxed(PAD + BUTTON_W + GAP, row_y, ACTION_W, BUTTON_H),
+                true,
             );
+            set_font(action, button_font);
 
             // What the last click of that button actually did. Without it, a user
             // who declines the UAC prompt sees the button come straight back with
             // no explanation, and the wizard's own text tells them to click again —
             // which is the advice that cannot work, because the prompt was refused.
             if let Some((zh, en)) = crate::wizard::action_message() {
-                let _ = CreateWindowExW(
-                    WINDOW_EX_STYLE::default(),
-                    w!("STATIC"),
-                    &windows::core::HSTRING::from(t(zh, en)),
-                    WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
-                    20,
-                    280,
-                    460,
-                    34,
-                    Some(hwnd),
-                    Some(HMENU(std::ptr::null_mut())),
-                    None,
-                    None,
+                let message = label(
+                    hwnd,
+                    ID_MESSAGE,
+                    t(zh, en),
+                    boxed(PAD, row_y - 44, content_w, 20),
+                );
+                set_font(
+                    message,
+                    theme::font(theme::TEXT_CAPTION, theme::WEIGHT_REGULAR),
                 );
             }
         }
-
-        let back = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("BUTTON"),
-            &windows::core::HSTRING::from(t("上一步", "Back")),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
-                | if page.prev().is_some() {
-                    WINDOW_STYLE(0)
-                } else {
-                    WS_DISABLED
-                },
-            240,
-            290,
-            110,
-            32,
-            Some(hwnd),
-            Some(HMENU(ID_BACK as *mut std::ffi::c_void)),
-            None,
-            None,
-        );
-        let _ = back;
 
         // Next becomes "完成" on the last page, which is the only place the
         // two meanings would otherwise be confused.
@@ -326,25 +388,86 @@ unsafe fn build_controls(hwnd: HWND) {
             t("下一步", "Next")
         };
         let enabled = page.is_complete(&fr) || page == Page::Done;
-        let _ = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("BUTTON"),
-            &windows::core::HSTRING::from(next_label),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
-                | if enabled {
-                    WINDOW_STYLE(0)
-                } else {
-                    WS_DISABLED
-                },
-            360,
-            290,
-            120,
-            32,
-            Some(hwnd),
-            Some(HMENU(ID_NEXT as *mut std::ffi::c_void)),
-            None,
-            None,
+        let next = button(
+            hwnd,
+            ID_NEXT,
+            next_label,
+            boxed(width - PAD - BUTTON_W, row_y, BUTTON_W, BUTTON_H),
+            enabled,
         );
+        set_font(next, theme::font(theme::TEXT_BODY, theme::WEIGHT_MEDIUM));
+    }
+}
+
+/// A control's position and size.
+///
+/// The four numbers always travel together, so they travel as one argument; the
+/// alternative is every helper taking four integers and every call site reading
+/// as a row of unexplained figures.
+const fn boxed(x: i32, y: i32, w: i32, h: i32) -> RECT {
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
+}
+
+/// A text control.
+///
+/// `STATIC` with `SS_LEFT`, which word-wraps to the control's width: what a
+/// paragraph in a fixed-width dialog wants, and something an edit box would not do
+/// without being told twice.
+unsafe fn label(parent: HWND, id: usize, text: &str, area: RECT) -> HWND {
+    CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        w!("STATIC"),
+        &windows::core::HSTRING::from(text),
+        WINDOW_STYLE(WS_CHILD | WS_VISIBLE),
+        area.left,
+        area.top,
+        area.right - area.left,
+        area.bottom - area.top,
+        Some(parent),
+        Some(HMENU(id as *mut std::ffi::c_void)),
+        None,
+        None,
+    )
+    .unwrap_or_default()
+}
+
+/// A button, owner-drawn so that [`theme::paint_button`] decides what it looks
+/// like rather than the system.
+unsafe fn button(parent: HWND, id: usize, text: &str, area: RECT, enabled: bool) -> HWND {
+    CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        w!("BUTTON"),
+        &windows::core::HSTRING::from(text),
+        WINDOW_STYLE(WS_CHILD | WS_VISIBLE) | WINDOW_STYLE(BS_OWNERDRAW as u32)
+            | if enabled {
+                WINDOW_STYLE(0)
+            } else {
+                WS_DISABLED
+            },
+        area.left,
+        area.top,
+        area.right - area.left,
+        area.bottom - area.top,
+        Some(parent),
+        Some(HMENU(id as *mut std::ffi::c_void)),
+        None,
+        None,
+    )
+    .unwrap_or_default()
+}
+
+/// Give a control the font it should draw in.
+///
+/// `WM_SETFONT` rather than selecting it into a DC: the control keeps it, and the
+/// DC handed to `WM_DRAWITEM` arrives with it already selected.
+fn set_font(control: HWND, font: HFONT) {
+    unsafe {
+        SendMessageW(control, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
     }
 }
 

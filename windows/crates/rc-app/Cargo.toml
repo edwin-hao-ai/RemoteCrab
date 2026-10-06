@@ -62,6 +62,11 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
+    # The native windows follow the system light/dark setting, which lives in
+    # the registry under `Themes\Personalize`.
+    "Win32_System_Registry",
+    # Owner-drawn buttons: `DRAWITEMSTRUCT` and the `ODS_*` state flags.
+    "Win32_UI_Controls",
     # Telling "double-clicked from Explorer" (we own the only console, so hide
     # it) apart from "run from a shell" (a shell is attached, so leave it).
     "Win32_System_Console",
