@@ -404,8 +404,7 @@ lsappinfo info -only StatusLabel "RemoteCrabReceiver"
 加一个按环境变量开关的消息探针，打印 `msg` / `wparam`，
 会看到 `WM_COMMAND id=1` ×5 之后紧接 `WM_DESTROY` / `WM_NCDESTROY`。
 
-### 14.7 托盘回调不是"点击"
-**症状**：鼠标**一滑过**托盘图标，菜单就弹出来，点都不用点。
+### 14.7 托盘回调不是"点击"**症状**：鼠标**一滑过**托盘图标，菜单就弹出来，点都不用点。
 **原因**：`NOTIFYICONDATAW.uCallbackMessage` 对**每一个**事件都发消息，包括 `WM_MOUSEMOVE`
 （本程序没调 `NIM_SETVERSION`，走的是旧协议）。而处理函数对"回调"本身一律响应，
 于是"任何点击都开菜单"实际变成了"任何**事情**都开菜单"。
@@ -423,4 +422,28 @@ Task Scheduler 持有令牌，所以每次登录都提权启动且**不弹 UAC**
 （解码后的）`错误: 拒绝访问。` —— **不要让它假装成功**。
 另外 `schtasks` 的错误输出是**控制台 OEM 代码页**，用 `from_utf8_lossy` 会变成一串
 问号，要用 `MultiByteToWideChar(CP_OEMCP, …)` 解。
+
+### 14.9 托盘图标必须处理 `TaskbarCreated`
+**症状**：重启 Explorer（每次 Windows 更新、或用户手动重启）之后，托盘图标**永久消失**。
+程序还在跑，但没有窗口、没有控制台、没有图标 —— 既联系不上也退不掉，只能从任务管理器杀。
+看起来就是"崩了"，其实不是。
+**原因**：Explorer 重启会销毁**所有**通知区域图标，然后广播 `TaskbarCreated`
+让程序把自己的加回去。不监听这个广播 = 图标不会回来。
+**修复**：`RegisterWindowMessageW("TaskbarCreated")`（**字符串消息，id 每个会话不同，
+必须注册**），在 wndproc 里比较 `msg` 并重新 `NIM_ADD`。
+构建图标数据的代码只写一份，给首次添加和重启后重加共用（两份一定会漂移）。
+**同类的第二件事**：`Shell_NotifyIconW` 只有 `NIM_ADD` 而没有 `NIM_MODIFY` 时，
+**tooltip 永远停在启动时那个字符串**。对一个整个界面就是一个图标的程序来说，
+悬停是最快的查看状态方式，而它在悄悄返回过期答案。
+setter 在哪个线程发现变化不确定，所以要用 `PostMessage` 跳回持有图标的那个线程。
+
+### 14.10 用 `Shell_NotifyIconGetRect` 验证图标，不要"我觉得我看见了"
+**背景**：上面那条修复，我第一次"验证"的方式是肉眼 + 一次 Explorer 重启，结论是"好了"。
+**它是错的。** 真正的问题是：**探针在和新起的 shell 赛跑**。
+**做法**：`Shell_NotifyIconGetRect(identifier, &rect)` 直接问系统这个图标在不在通知区域，
+返回 0 才是真的在。实测时序：杀 Explorer → t+3s **不在**（此刻托盘里本来什么都没有，
+shell 还在启动）→ t+8s **在了** → t+25s 还在。
+**教训**：一次"看起来对"的观察不是证据。而且**注册消息没有常量可以 grep** ——
+要确认广播有没有到，只能在 wndproc 里按环境变量开关打印 `msg`（我就是这样看到
+`0xC06A` 到达的）。
 
