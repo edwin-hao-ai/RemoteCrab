@@ -248,7 +248,16 @@ unsafe extern "system" fn wnd_proc(
                 LRESULT(0)
             }
             WM_DESTROY => {
-                PostQuitMessage(0);
+                // No `PostQuitMessage`. This window shares the tray's thread and the
+                // tray's message loop, so quitting on destroy ends the *app*: the
+                // wizard's X, or finishing its last page, shut the receiver down.
+                // Because the tray icon went with it, the program simply vanished
+                // with nothing in the log — which reads as a crash, not as a close.
+                //
+                // The settings window and the self-check panel also live on that
+                // thread and have never done this; the wizard was the odd one out.
+                // The loop ends when the tray window is destroyed, and that is the
+                // only thing that should end it.
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, _lparam),
