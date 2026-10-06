@@ -291,25 +291,53 @@ pub fn integrity() -> rc_net::firstrun::Integrity {
 
 /// The integrity RID from a `TOKEN_MANDATORY_LABEL` blob.
 ///
-/// Layout: revision (1 byte), sub-authority count (1 byte), identifier
-/// authority (6 bytes), then `count` × 4-byte sub-authorities. The integrity
-/// level is the last one.
+/// The blob is **not** a SID. It is a `TOKEN_MANDATORY_LABEL`, which is a
+/// `SID_AND_ATTRIBUTES`: a *pointer* to a SID, then that pointer's attributes, and
+/// only then the SID itself, inline. So the SID begins at the size of that header,
+/// not at byte zero.
 ///
-/// Not `cfg(windows)`: it is pure byte-slicing, and the tests for a
-/// hand-rolled parser over binary input are the most valuable ones here — they
-/// have to run somewhere, and the host is a Mac.
+/// That was the bug. The previous version parsed the blob from byte 0, so the
+/// `blob[1]` it read as the sub-authority count was the second byte of a heap
+/// pointer. The answer was therefore a property of the allocator rather than of
+/// the process: sometimes the claimed count ran past the end of the buffer and the
+/// caller fell back to "medium"; sometimes it landed inside, and the last four
+/// bytes of the pointer were read as the integrity level. A pointer's high bytes
+/// are usually zero, so that read is under `0x1000` about as often as not — which
+/// made a perfectly ordinary process report itself as **low**, and the wizard tell
+/// the user to run as administrator for a problem they did not have.
+///
+/// Same build, same machine, different verdict per run. That is the shape of a
+/// silent wrong answer over binary input: nothing about the numbers looks wrong,
+/// and the only way to see it is to check the bytes against the structure.
+///
+/// Not `cfg(windows)`: it is pure byte-slicing, and the tests for a hand-rolled
+/// parser over binary input are the most valuable ones here — they have to run
+/// somewhere, and the host is a Mac.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn integrity_rid(blob: &[u8]) -> Option<u32> {
-    if blob.len() < 8 {
+    // `SID_AND_ATTRIBUTES` is a pointer followed by a `DWORD`; on 64-bit the
+    // struct pads out to 16 bytes, on 32-bit it is exactly 8.
+    let header = if std::mem::size_of::<usize>() == 8 { 16 } else { 8 };
+    if blob.len() < header + 8 {
         return None;
     }
-    let count = blob[1] as usize;
+    let sid = &blob[header..];
+    // `SID_REVISION` is 1 and has been since Windows NT. This check is the one
+    // that would have caught the original bug immediately: the byte it used to
+    // read first was the low byte of a pointer, which is 1 one time in 256.
+    if sid[0] != 1 {
+        return None;
+    }
+    let count = sid[1] as usize;
+    if count == 0 {
+        return None;
+    }
     let start = 8;
     let end = start + count * 4;
-    if count == 0 || end > blob.len() {
+    if end > sid.len() {
         return None;
     }
-    let last = &blob[end - 4..end];
+    let last = &sid[end - 4..end];
     Some(u32::from_le_bytes([last[0], last[1], last[2], last[3]]))
 }
 
@@ -324,27 +352,76 @@ pub fn integrity() -> rc_net::firstrun::Integrity {
 mod integrity_tests {
     use super::integrity_rid;
 
+    /// The `SID_AND_ATTRIBUTES` header every blob starts with: a pointer plus its
+    /// attributes, padded to the pointer's alignment.
+    const HEADER: usize = if std::mem::size_of::<usize>() == 8 { 16 } else { 8 };
+
+    /// A blob in the shape `GetTokenInformation(TokenIntegrityLevel)` really
+    /// returns: header first, SID after it.
+    fn blob(sid: &[u8]) -> Vec<u8> {
+        let mut out = vec![0u8; HEADER];
+        out.extend_from_slice(sid);
+        out
+    }
+
     /// The whole function exists to read four bytes out of a SID, and a
-    /// hand-rolled parser over binary input is exactly where an off-by-one turns
-    /// a security-relevant reading into a wrong answer with no error.
+    /// hand-rolled parser over binary input is exactly where an off-by-one turns a
+    /// security-relevant reading into a wrong answer with no error.
     #[test]
     fn the_last_sub_authority_is_the_integrity_rid() {
-        // revision 1, one sub-authority 0x2000, authority = 0 (SECURITY_MANDATORY_LABEL_AUTHORITY)
-        let blob = [1u8, 1, 0, 0, 0, 0, 0, 6, 0x00, 0x20, 0x00, 0x00];
-        assert_eq!(integrity_rid(&blob), Some(0x2000));
+        // revision 1, one sub-authority 0x2000, authority 0
+        // (SECURITY_MANDATORY_LABEL_AUTHORITY)
+        let b = blob(&[1, 1, 0, 0, 0, 0, 0, 0, 0, 0x20, 0, 0]);
+        assert_eq!(integrity_rid(&b), Some(0x2000));
+    }
+
+    /// The regression, in the exact bytes that caused it. These were copied out of
+    /// a `GetTokenInformation` call in a real medium-integrity process, pointer and
+    /// all. The old parser read the blob as if it were a SID, took `blob[1]` — the
+    /// second byte of the pointer, `0x20` — as a sub-authority count of 32, and
+    /// reported whatever the bytes 132 past the end happened to be. On the machine
+    /// this was found on that came back **low**, and the wizard told the user their
+    /// installation was broken.
+    #[test]
+    fn a_real_blob_with_a_pointer_header_reads_as_medium() {
+        let real = [
+            0x60, 0x20, 0xD4, 0x9F, 0xC5, 0x01, 0x00, 0x00, // SID_AND_ATTRIBUTES.Sid
+            0x60, 0x00, 0x00, 0x00, // .Attributes
+            0xC5, 0x01, 0x00, 0x00, // padding to the struct's alignment
+            0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, // SID revision, count,
+            0x00, 0x20, 0x00, 0x00, // identifier authority, sub-authority 0x2000
+        ];
+        assert_eq!(integrity_rid(&real), Some(0x2000));
+    }
+
+    /// A blob too short to hold a header and a SID.
+    #[test]
+    fn a_truncated_blob_reads_as_unknown() {
+        assert_eq!(integrity_rid(&[]), None);
+        assert_eq!(integrity_rid(&[0u8; HEADER + 4]), None);
+    }
+
+    /// A header is not a SID, so a header on its own must not be read as one. This
+    /// is the check that was missing: `SID_REVISION` is 1, and the byte sitting at
+    /// offset zero of a foreign structure is 1 one time in 256.
+    #[test]
+    fn something_that_is_not_a_sid_reads_as_unknown() {
+        assert_eq!(integrity_rid(&[0u8; HEADER + 8]), None);
+        // A pointer-shaped header, whose second byte is a plausible-looking count.
+        let mut wrong = vec![0u8; HEADER + 8];
+        wrong[1] = 1;
+        assert_eq!(integrity_rid(&wrong), None);
     }
 
     #[test]
-    fn a_truncated_or_lying_blob_reads_as_unknown() {
-        assert_eq!(integrity_rid(&[]), None);
-        assert_eq!(integrity_rid(&[1, 1, 0, 0]), None);
+    fn a_lying_or_empty_sid_reads_as_unknown() {
         // Claims two sub-authorities but only supplies one.
         assert_eq!(
-            integrity_rid(&[1, 2, 0, 0, 0, 0, 0, 6, 0, 0x20, 0, 0]),
+            integrity_rid(&blob(&[1, 2, 0, 0, 0, 0, 0, 0, 0, 0x20, 0, 0])),
             None
         );
         // A zero sub-authority count has no RID to find.
-        assert_eq!(integrity_rid(&[1, 0, 0, 0, 0, 0, 0, 6]), None);
+        assert_eq!(integrity_rid(&blob(&[1, 0, 0, 0, 0, 0, 0, 0])), None);
     }
 }
 
