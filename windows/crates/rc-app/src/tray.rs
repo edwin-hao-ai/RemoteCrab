@@ -83,7 +83,8 @@ mod win32 {
         TranslateMessage, GWLP_USERDATA, HICON, HMENU, ICONINFO, IDI_APPLICATION, IMAGE_ICON,
         LR_DEFAULTSIZE, LR_SHARED, MB_ICONINFORMATION, MB_OK, MENU_ITEM_FLAGS, MF_BYCOMMAND,
         MF_GRAYED, MF_POPUP, MF_STRING, MSG, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-        WM_APP, WM_DESTROY, WNDCLASSW, WS_OVERLAPPED,
+        WM_APP, WM_DESTROY, WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_RBUTTONDBLCLK, WM_RBUTTONUP,
+        WNDCLASSW, WS_OVERLAPPED,
     };
 
     use super::TrayCommand;
@@ -436,8 +437,23 @@ mod win32 {
                 LRESULT(0)
             }
             TRAY_CB => {
-                // Any click on the icon opens the menu.
-                show_menu(hwnd);
+                // The icon's callback carries the mouse message in the low word of
+                // `lParam`, and Shell_NotifyIcon sends one for **every** event over
+                // the icon — `WM_MOUSEMOVE` included, because this program never
+                // called `NIM_SETVERSION` to opt into the newer protocol. Answering
+                // them all opened the menu the moment the cursor crossed the icon,
+                // which is not what a notification-area icon does anywhere else in
+                // Windows: the menu arrived before the user had decided to click.
+                //
+                // Only a completed click opens it. Mouse movement and the
+                // button-down half of a click arrive here too and mean nothing yet.
+                let event = (lparam.0 as u32) & 0xFFFF;
+                if matches!(
+                    event,
+                    WM_LBUTTONUP | WM_RBUTTONUP | WM_LBUTTONDBLCLK | WM_RBUTTONDBLCLK
+                ) {
+                    show_menu(hwnd);
+                }
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
