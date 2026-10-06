@@ -74,6 +74,13 @@ impl FirstRun {
                 // No remedy for this one, because there is nothing to grant:
                 // it is a property of how the program was launched. Saying so
                 // is more useful than "permission denied".
+                //
+                // And no remedy for a *medium* process either, even though one
+                // exists now. The thing that would fix it is the logon task, which
+                // is the same setting the row below turns on — so the instruction
+                // belongs on that row, where the user can act on it and where it is
+                // already written, rather than repeated here on a step that is
+                // satisfied.
                 remedy: match self.integrity {
                     Integrity::Low => Some((
                         "系统以低权限模式启动，无法向多数窗口发送输入。请用管理员身份运行一次。"
@@ -110,8 +117,12 @@ impl FirstRun {
                 done: self.autostart,
                 remedy: (!self.autostart).then(|| {
                     (
-                        "在托盘菜单里勾选「开机自启动」。".to_string(),
-                        "tick \"Start at login\" in the tray menu".to_string(),
+                        "在设置里打开「开机自动启动」。它会让接收端以管理员权限启动，\
+                         因此也能控制管理员权限的窗口。"
+                            .to_string(),
+                        "turn on \"Start at login\" in Settings. It starts the receiver elevated, \
+                         so it can drive windows running as administrator too."
+                            .to_string(),
                     )
                 }),
             },

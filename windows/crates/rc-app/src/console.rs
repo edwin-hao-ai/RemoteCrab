@@ -259,7 +259,7 @@ pub fn handle_console_command(
             #[cfg(windows)]
             {
                 let want = want.unwrap_or(!rc_os::autostart::is_enabled());
-                let ok = rc_os::autostart::set_enabled(want);
+                        let ok = crate::autostart::set(want);
                 let state = if want {
                     i18n::t("开", "on")
                 } else {

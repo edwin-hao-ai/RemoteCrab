@@ -30,6 +30,7 @@ use args::parse_args;
 use console::{spawn_console_reader, ActiveRecording};
 
 mod args;
+mod autostart;
 mod console;
 mod diagnostics;
 mod notify_relay;
@@ -567,6 +568,12 @@ async fn main() -> ExitCode {
     }
     if args.scan {
         return scan::run_scan(args.subnet.as_deref()).await;
+    }
+    // The logon task, for the installer: one-shot, silent on success. Both of
+    // these run in the middle of an MSI, where a console window or a dialog is a
+    // defect rather than a help.
+    if args.install_logon_task || args.remove_logon_task {
+        return run_logon_task(args.install_logon_task);
     }
     if args.doctor {
         return doctor::run_doctor(args.connect.as_deref()).await;
@@ -1694,7 +1701,7 @@ async fn main() -> ExitCode {
                                 #[cfg(windows)]
                                 {
                                     let want = !rc_os::autostart::is_enabled();
-                                    let ok = rc_os::autostart::set_enabled(want);
+                                    let ok = crate::autostart::set(want);
                                     tray.set_autostart(rc_os::autostart::is_enabled());
                                     let state = if want { i18n::t("开", "on") } else { i18n::t("关", "off") };
                                     let result = if ok { i18n::t("成功", "ok") } else { i18n::t("失败", "failed") };
@@ -1788,6 +1795,36 @@ fn tray_rows(
     rows
 }
 
+/// Create or remove the logon task, once, and say so on stderr if it fails.
+///
+/// Silent on success because the installer reads exit codes rather than text, and
+/// a successful install that scrolls is an install people think has gone wrong.
+#[cfg(windows)]
+fn run_logon_task(install: bool) -> std::process::ExitCode {
+    let result = if install {
+        rc_os::logon_task::create()
+    } else {
+        rc_os::logon_task::remove()
+    };
+    match result {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(reason) => {
+            eprintln!("logon task: {reason}");
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+/// Off Windows there is no Task Scheduler and no `schtasks`, so the honest answer
+/// is failure, which is also what a blocking policy reports. Not a stub that
+/// pretends: a fabricated success would have the installer believe in a task that
+/// cannot exist.
+#[cfg(not(windows))]
+fn run_logon_task(_install: bool) -> std::process::ExitCode {
+    eprintln!("logon task: Windows only");
+    std::process::ExitCode::FAILURE
+}
+
 /// The state the wizard reports on, read fresh each time.
 #[cfg(windows)]
 fn current_first_run() -> rc_net::firstrun::FirstRun {
@@ -1857,8 +1894,11 @@ fn open_settings() {
         quality: Box::new(notify_relay::quality),
         set_quality: Box::new(notify_relay::set_quality),
         autostart: Box::new(rc_os::autostart::is_enabled),
+        // Goes through the app's own wrapper rather than the library, because
+        // changing this setting needs an administrator and raising that prompt is
+        // the app's decision, not a library's.
         set_autostart: Box::new(|on| {
-            rc_os::autostart::set_enabled(on);
+            crate::autostart::set(on);
         }),
         // The same one the wizard's action button and the tray's install row
         // use. Three surfaces, one implementation: a private copy here would be

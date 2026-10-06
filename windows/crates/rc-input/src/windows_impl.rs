@@ -546,9 +546,28 @@ fn sent_keys() -> Vec<(u16, bool)> {
     std::mem::take(&mut *SENT_KEYS.lock().expect("keys"))
 }
 
+/// The tests that assert on [`SENT_KEYS`] take this first.
+///
+/// `SENT_KEYS` is one process-global log and cargo runs tests on parallel threads,
+/// so two of these drain each other's events. The symptom is a test that fails in
+/// a full run and passes on its own —
+/// `a_modifier_held_by_a_real_gesture_is_released_at_the_end` did exactly that,
+/// with `sent_keys()` containing another test's keys. A lock rather than a
+/// per-injector log, because the log being global is the point: these tests exist
+/// to prove the *real* injector path writes here, and threading a log through every
+/// call site would be testing a design the program does not have.
+#[cfg(test)]
+fn keys_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // A test that panics while holding this must not poison the others: they are
+    // independent, and the point of the lock is ordering, not mutual exclusion of
+    // a shared resource.
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{normalize_axis, sent_keys, HeldKeys};
+    use super::{keys_lock, normalize_axis, sent_keys, HeldKeys};
     use crate::keymap::vk;
     use rc_protocol::{Modifier, TouchEvent, TouchPhase};
 
@@ -649,6 +668,7 @@ mod tests {
     /// deleted; that was verified, not assumed.
     #[test]
     fn a_modifier_held_by_a_real_gesture_is_released_at_the_end() {
+        let _guard = keys_lock();
         let _ = sent_keys(); // start from a clean slate
         let mut inj = super::WindowsInjector::recording();
 
@@ -681,6 +701,7 @@ mod tests {
     /// shifted, with nothing in any log.
     #[test]
     fn a_link_drop_mid_gesture_releases_the_held_modifier() {
+        let _guard = keys_lock();
         let _ = sent_keys();
         let mut inj = super::WindowsInjector::recording();
 
@@ -705,6 +726,7 @@ mod tests {
     /// duplicate key-up lands on whatever the user is typing next.
     #[test]
     fn a_released_modifier_is_not_released_again() {
+        let _guard = keys_lock();
         let _ = sent_keys();
         let mut inj = super::WindowsInjector::recording();
         inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT));
@@ -728,6 +750,7 @@ mod tests {
     /// Two held modifiers at once, dropped together.
     #[test]
     fn a_drop_releases_everything_that_was_held() {
+        let _guard = keys_lock();
         let _ = sent_keys();
         let mut inj = super::WindowsInjector::recording();
         inj.inject_touch(&touch(TouchPhase::DragStart, Modifier::SHIFT | Modifier::CONTROL));

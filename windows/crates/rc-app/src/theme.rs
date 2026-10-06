@@ -30,16 +30,40 @@
 use std::sync::OnceLock;
 
 use windows::core::w;
-use windows::Win32::Foundation::{COLORREF, RECT};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, RoundRect,
-    SelectObject, SetBkColor, SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
-    DEFAULT_PITCH, FF_DONTCARE, FONT_QUALITY, HBRUSH, HDC, HFONT, OUT_DEFAULT_PRECIS, PS_SOLID,
-    TRANSPARENT, DT_CENTER, DT_SINGLELINE, DT_VCENTER,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, LineTo,
+    MoveToEx, RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS,
+    DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FONT_QUALITY, HBRUSH, HDC, HFONT,
+    OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT, DT_CENTER, DT_LEFT, DT_SINGLELINE, DT_VCENTER,
 };
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED};
-use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, SendMessageW, WM_SETFONT};
+
+/// A control's position and size.
+///
+/// The four numbers always travel together, so they travel as one argument; the
+/// alternative is every helper taking four integers and every call site reading as
+/// a row of unexplained figures.
+pub const fn boxed(x: i32, y: i32, w: i32, h: i32) -> RECT {
+    RECT {
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+    }
+}
+
+/// Give a control the font it should draw in.
+///
+/// `WM_SETFONT` rather than selecting it into a DC: the control keeps it, and the
+/// DC handed to `WM_DRAWITEM` arrives with it already selected.
+pub fn set_font(control: HWND, font: HFONT) {
+    unsafe {
+        SendMessageW(control, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
+    }
+}
 
 /// `COLORREF` is `0x00BBGGRR`: blue in the high byte, red in the low one. Every
 /// colour in this file is written the other way round (as a web `#RRGGBB`, which
@@ -70,6 +94,8 @@ pub struct Palette {
     pub on_accent: COLORREF,
     /// Hairlines and control outlines.
     pub line: COLORREF,
+    /// Status: this works.
+    pub ok: COLORREF,
     /// Status dot: broken, and the user can do something about it.
     pub err: COLORREF,
 }
@@ -94,6 +120,7 @@ pub fn palette() -> &'static Palette {
                 accent: rgb(0x40, 0xA8, 0xFF),
                 on_accent: rgb(0x08, 0x08, 0x0C),
                 line: rgb(0x2A, 0x2A, 0x32),
+                ok: rgb(0x33, 0xCC, 0x80),
                 err: rgb(0xFF, 0x45, 0x45),
             }
         } else {
@@ -106,6 +133,7 @@ pub fn palette() -> &'static Palette {
                 accent: rgb(0x0A, 0x85, 0xFF),
                 on_accent: rgb(0xFF, 0xFF, 0xFF),
                 line: rgb(0xDE, 0xDE, 0xE6),
+                ok: rgb(0x00, 0x87, 0x59),
                 err: rgb(0xDB, 0x26, 0x26),
             }
         }
@@ -195,6 +223,7 @@ pub const WEIGHT_SEMIBOLD: i32 = 600;
 
 /// The sizes, from the same 4pt rhythm as `IBSpace`.
 pub const TEXT_HEADING: i32 = 20;
+pub const TEXT_SUBHEAD: i32 = 15;
 pub const TEXT_BODY: i32 = 14;
 pub const TEXT_CAPTION: i32 = 12;
 
@@ -266,6 +295,78 @@ pub fn tint_child(hdc: HDC, colour: COLORREF, back: Option<COLORREF>) -> HBRUSH 
     brush_for(back)
 }
 
+/// Draw an owner-drawn checkbox.
+///
+/// A checkbox has to be owner-drawn to sit on this canvas at all. Windows
+/// ignores the parent's brush for a themed button (`WM_CTLCOLORBTN` is answered
+/// for owner-drawn buttons only), so a `BS_AUTOCHECKBOX` on a dark window keeps a
+/// light box of its own and reads as a mistake.
+///
+/// The state is not read from the control — a `BS_OWNERDRAW` button has no state
+/// to read — so the caller passes it, having taken it from the same model the
+/// click handler writes to.
+pub fn paint_check(di: &DRAWITEMSTRUCT, checked: bool) {
+    let p = palette();
+    let hdc = di.hDC;
+    let rect = di.rcItem;
+
+    fill_canvas(hdc, &rect);
+
+    let enabled = di.itemState.0 & ODS_DISABLED.0 == 0;
+    let box_size = 16;
+    let left = rect.left;
+    let top = rect.top + (rect.bottom - rect.top - box_size) / 2;
+    let (fill, border) = match (checked, enabled) {
+        (true, true) => (p.accent, p.accent),
+        (true, false) => (p.line, p.line),
+        (false, _) => (p.card, p.line),
+    };
+
+    unsafe {
+        let pen = CreatePen(PS_SOLID, 1, border);
+        let brush = brush_for(fill);
+        let old_pen = SelectObject(hdc, pen.into());
+        let old_brush = SelectObject(hdc, brush.into());
+        let _ = RoundRect(hdc, left, top, left + box_size, top + box_size, 5, 5);
+        SelectObject(hdc, old_pen);
+        SelectObject(hdc, old_brush);
+        let _ = DeleteObject(pen.into());
+    }
+
+    if checked {
+        // The tick, as two strokes. Four pixels either side of the centre is as
+        // much shape as a 16-pixel box can carry.
+        unsafe {
+            let pen = CreatePen(PS_SOLID, 2, p.on_accent);
+            let old = SelectObject(hdc, pen.into());
+            let (cx, cy) = (left + box_size / 2, top + box_size / 2);
+            let _ = MoveToEx(hdc, cx - 4, cy, None);
+            let _ = LineTo(hdc, cx - 1, cy + 3);
+            let _ = LineTo(hdc, cx + 4, cy - 4);
+            SelectObject(hdc, old);
+            let _ = DeleteObject(pen.into());
+        }
+    }
+
+    let mut buf = [0u16; 256];
+    let len = unsafe { GetWindowTextW(di.hwndItem, &mut buf) } as usize;
+    let label_text = String::from_utf16_lossy(&buf[..len.min(buf.len())]);
+    let mut wide: Vec<u16> = label_text.encode_utf16().collect();
+    let mut text_rect = RECT {
+        left: left + box_size + 10,
+        ..rect
+    };
+    unsafe {
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, if enabled { p.text } else { p.text_faint });
+        DrawTextW(
+            hdc,
+            &mut wide,
+            &mut text_rect,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE,
+        );
+    }
+}
 /// Which of the two button looks to draw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonStyle {

@@ -14,13 +14,15 @@
 //! The model — what is a valid entry, what a refusal says — is in
 //! [`rc_net::settings`], tested on any host.
 
+use crate::theme;
 use rc_net::settings::Quality;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::InvalidateRect;
-use windows::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
+use windows::Win32::Graphics::Gdi::{InvalidateRect, HDC};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Controls::DRAWITEMSTRUCT;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 /// Win32 child-window styles, as plain numbers. See `wizard_win` for the full
@@ -48,6 +50,31 @@ const ID_AUTOSTART: usize = 19;
 const ID_CLOSE: usize = 20;
 const ID_UPDATE: usize = 21;
 const ID_OPEN_LOG: usize = 22;
+
+/// The id blocks the plain text lines occupy.
+///
+/// They need ids at all only so a rebuild can find and remove them. Created with
+/// none, every one of them was id 0, and a rebuild that looks its old controls up
+/// *by id* therefore left all of them on the window: a settings window that
+/// rebuilds on every toggle leaked a screenful of statics per click. Two blocks,
+/// because a section heading is drawn in a different colour from the text under
+/// it and the id is the only thing `WM_CTLCOLORSTATIC` says about the control.
+const ID_LABEL_BASE: usize = 100;
+const ID_LABEL_SLOTS: usize = 32;
+const ID_HEADING_BASE: usize = ID_LABEL_BASE + ID_LABEL_SLOTS;
+const ID_HEADING_SLOTS: usize = 8;
+
+/// Which checkbox is ticked, as a pair of flags.
+///
+/// A `BS_OWNERDRAW` button has no state of its own — that is what "ownerdraw"
+/// means — so `WM_DRAWITEM`, which is handed a control id and a device context
+/// and nothing else, is told the tick here. The click handler writes the model and
+/// the rebuild re-reads it from there; this is only how the current frame learns
+/// it. Indexed like [`CHECKBOXES`].
+static CHECKED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+
+/// The two checkboxes, in index order: id and how to read it from the model.
+const CHECKBOXES: [usize; 2] = [ID_RELAY, ID_AUTOSTART];
 
 /// One editor action: change a name list, or refuse with a reason.
 type NameEdit = Box<dyn Fn(&str) -> Result<(), Refusal> + Send + Sync>;
@@ -154,7 +181,9 @@ fn register(hinstance: HINSTANCE) {
         hInstance: hinstance,
         lpszClassName: CLASS,
         hCursor: cursor,
-        hbrBackground: HBRUSH((COLOR_WINDOW.0 + 1) as *mut std::ffi::c_void),
+        // See `wizard_win::register`: the window paints its own canvas colour
+        // rather than the `COLOR_WINDOW` grey it was inheriting.
+        hbrBackground: theme::brush_for(theme::palette().canvas),
         ..Default::default()
     };
     unsafe {
@@ -173,6 +202,48 @@ unsafe extern "system" fn wnd_proc(
             WM_CREATE => {
                 build(hwnd);
                 LRESULT(0)
+            }
+            // See `wizard_win` for the same message on the same kind of control. A
+            // section heading is drawn darker than the text under it, and the id
+            // block is the only thing that tells them apart — the id is also the
+            // only reason these lines have ids at all (see `ID_LABEL_BASE`).
+            WM_CTLCOLORSTATIC => {
+                let hdc = HDC(wparam.0 as *mut std::ffi::c_void);
+                let control = HWND(lparam.0 as *mut std::ffi::c_void);
+                let id = GetDlgCtrlID(control) as usize;
+                let p = theme::palette();
+                let colour = if (ID_HEADING_BASE..ID_HEADING_BASE + ID_HEADING_SLOTS)
+                    .contains(&id)
+                {
+                    p.text
+                } else if (ID_LABEL_BASE..ID_LABEL_BASE + ID_LABEL_SLOTS).contains(&id) {
+                    p.text_soft
+                } else {
+                    // Anything without an id of ours: the refusal line, and the
+                    // field labels, which are supporting text.
+                    p.text_faint
+                };
+                LRESULT(theme::tint_child(hdc, colour, Some(p.canvas)).0 as isize)
+            }
+            // The two list boxes and the text field. Left to the system they keep
+            // their own light background, which on this canvas is a white rectangle
+            // in the middle of the page.
+            WM_CTLCOLORLISTBOX | WM_CTLCOLOREDIT => {
+                let hdc = HDC(wparam.0 as *mut std::ffi::c_void);
+                let p = theme::palette();
+                LRESULT(theme::tint_child(hdc, p.text, Some(p.card)).0 as isize)
+            }
+            WM_DRAWITEM => {
+                if lparam.0 != 0 {
+                    let di = &*(lparam.0 as *const DRAWITEMSTRUCT);
+                    match CHECKBOXES.iter().position(|c| *c == di.CtlID as usize) {
+                        Some(index) => {
+                            theme::paint_check(di, CHECKED[index].load(Ordering::Relaxed))
+                        }
+                        None => theme::paint_button(di, theme::ButtonStyle::Secondary),
+                    }
+                }
+                LRESULT(1)
             }
             WM_COMMAND => match wparam.0 & 0xFFFF {
                 ID_ADD => {
@@ -400,10 +471,30 @@ unsafe fn build(hwnd: HWND) {
                 let _ = DestroyWindow(h);
             }
         }
+        // The text lines too, which is why they are given ids: without them every
+        // one of these was id 0 and this loop could not find any of them.
+        for id in (ID_LABEL_BASE..ID_LABEL_BASE + ID_LABEL_SLOTS)
+            .chain(ID_HEADING_BASE..ID_HEADING_BASE + ID_HEADING_SLOTS)
+        {
+            if let Ok(h) = GetDlgItem(Some(hwnd), id as i32) {
+                let _ = DestroyWindow(h);
+            }
+        }
 
+        // The ticks, read from the model before anything that draws them. Both of
+        // these are answered by the same closures the click handlers write to, so
+        // the box and the setting cannot disagree.
+        let relay_on = with(|a| (a.relay)()).unwrap_or(false);
+        let autostart_on = with(|a| (a.autostart)()).unwrap_or(false);
+        for (index, on) in [relay_on, autostart_on].into_iter().enumerate() {
+            CHECKED[index].store(on, Ordering::Relaxed);
+        }
+
+        let mut lines = Lines::new();
+        let body_font = theme::font(theme::TEXT_BODY, theme::WEIGHT_REGULAR);
         let mut y = 16;
         // --- Notifications
-        label(hwnd, t("通知", "Notifications"), 20, y);
+        lines.heading(hwnd, t("通知", "Notifications"), 20, y);
         y += 22;
         checkbox(
             hwnd,
@@ -411,10 +502,9 @@ unsafe fn build(hwnd: HWND) {
             t("把通知转发到手机", "Forward notifications to the phone"),
             20,
             y,
-            with(|a| (a.relay)()).unwrap_or(false),
         );
         y += 28;
-        label(
+        lines.body(
             hwnd,
             t(
                 "以下应用不会被转发（名字包含即可）",
@@ -441,6 +531,7 @@ unsafe fn build(hwnd: HWND) {
             None,
         );
         if let Ok(lb) = lb {
+            theme::set_font(lb, body_font);
             for name in &denied {
                 let _ = SendMessageW(
                     lb,
@@ -453,7 +544,7 @@ unsafe fn build(hwnd: HWND) {
         y += 128;
 
         let (footer_zh, footer_en) = rc_net::settings::denylist_footer(denied.len());
-        label(hwnd, t(footer_zh, footer_en), 20, y);
+            lines.body(hwnd, t(footer_zh, footer_en), 20, y);
         y += 20;
 
         let entry = CreateWindowExW(
@@ -471,6 +562,7 @@ unsafe fn build(hwnd: HWND) {
             None,
         );
         if let Ok(entry) = entry {
+            theme::set_font(entry, body_font);
             // 2000 is EM_SETLIMITTEXT; without it the box takes 32767 characters,
             // which lets a user paste a novel into a list of app names.
             SendMessageW(entry, 2000, Some(WPARAM(120)), None);
@@ -488,13 +580,13 @@ unsafe fn build(hwnd: HWND) {
             .and_then(|d| d.1.map(|(zh, en)| t(zh, en).to_string()))
             .unwrap_or_default();
         if !message.is_empty() {
-            label(hwnd, &message, 20, y);
+            lines.body(hwnd, &message, 20, y);
             y += 20;
         }
 
         // --- Connection
         y += 8;
-        label(hwnd, t("已配对的手机", "Paired phones"), 20, y);
+        lines.heading(hwnd, t("已配对的手机", "Paired phones"), 20, y);
         y += 20;
         let phones = with(|a| (a.phones)()).unwrap_or_default();
         let lb2 = CreateWindowExW(
@@ -512,6 +604,7 @@ unsafe fn build(hwnd: HWND) {
             None,
         );
         if let Ok(lb2) = lb2 {
+            theme::set_font(lb2, body_font);
             for name in &phones {
                 let _ = SendMessageW(
                     lb2,
@@ -523,7 +616,7 @@ unsafe fn build(hwnd: HWND) {
         }
         y += 108;
         if phones.is_empty() {
-            label(
+            lines.body(
                 hwnd,
                 t("还没有配对过手机。", "No phones paired yet."),
                 20,
@@ -555,7 +648,7 @@ unsafe fn build(hwnd: HWND) {
         // both claims stacked on top of each other.
         let cam = with(|a| (a.camera)()).unwrap_or(false);
         if cam {
-            label(
+            lines.body(
                 hwnd,
                 t(
                     "虚拟摄像头：已注册（在相机、Zoom、OBS 里可选）",
@@ -569,7 +662,7 @@ unsafe fn build(hwnd: HWND) {
             // Registration cannot be the problem, so do not offer to register:
             // this Windows build has no way to present a software camera, and an
             // "install" button here would fail with no explanation.
-            label(
+            lines.body(
                 hwnd,
                 t(
                     "虚拟摄像头需要 Windows 11 22H2 或更新版本；这个系统版本不支持，装也用不了。",
@@ -580,7 +673,7 @@ unsafe fn build(hwnd: HWND) {
             );
             y += 22;
         } else {
-            label(
+            lines.body(
                 hwnd,
                 t(
                     "虚拟摄像头：未注册。注册一次，这台电脑的任何程序都能把它当摄像头。",
@@ -606,7 +699,7 @@ unsafe fn build(hwnd: HWND) {
 
         // --- Video
         let q = with(|a| (a.quality)()).unwrap_or_default();
-        label(
+        lines.body(
             hwnd,
             t(
                 &format!("画质：{}（点此切换）", q.label(true)),
@@ -626,7 +719,7 @@ unsafe fn build(hwnd: HWND) {
         // people stop seeing.
         let update_line = with_update(|m| m.clone()).unwrap_or_default();
         if !update_line.is_empty() {
-            label(hwnd, &update_line, 20, y);
+            lines.body(hwnd, &update_line, 20, y);
             y += 20;
         }
         button(
@@ -660,7 +753,6 @@ unsafe fn build(hwnd: HWND) {
             t("开机自动启动", "Start at login"),
             20,
             y,
-            with(|a| (a.autostart)()).unwrap_or(false),
         );
         y += 34;
 
@@ -668,72 +760,119 @@ unsafe fn build(hwnd: HWND) {
     }
 }
 
-unsafe fn label(hwnd: HWND, text: &str, x: i32, y: i32) {
-    unsafe {
-        let _ = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("STATIC"),
-            &windows::core::HSTRING::from(text),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
-            x,
-            y,
-            500,
-            20,
-            Some(hwnd),
-            Some(HMENU(std::ptr::null_mut())),
-            None,
-            None,
+/// Hands out the ids the plain text lines are drawn under.
+///
+/// Two counters in one place, rather than an id computed at each call site: the
+/// rebuild has to be able to name every line it drew, and a number written by hand
+/// at ten call sites is a number that drifts.
+struct Lines {
+    next_body: usize,
+    next_heading: usize,
+}
+
+impl Lines {
+    fn new() -> Self {
+        Self {
+            next_body: ID_LABEL_BASE,
+            next_heading: ID_HEADING_BASE,
+        }
+    }
+
+    /// A section heading: darker and heavier than the text beneath it.
+    unsafe fn heading(&mut self, hwnd: HWND, text: &str, x: i32, y: i32) {
+        let id = self.next_heading;
+        self.next_heading += 1;
+        debug_assert!(self.next_heading <= ID_HEADING_BASE + ID_HEADING_SLOTS);
+        let control = label(hwnd, id, text, x, y);
+        theme::set_font(
+            control,
+            theme::font(theme::TEXT_SUBHEAD, theme::WEIGHT_SEMIBOLD),
+        );
+    }
+
+    /// A line of body text.
+    unsafe fn body(&mut self, hwnd: HWND, text: &str, x: i32, y: i32) {
+        let id = self.next_body;
+        self.next_body += 1;
+        debug_assert!(self.next_body <= ID_LABEL_BASE + ID_LABEL_SLOTS);
+        let control = label(hwnd, id, text, x, y);
+        theme::set_font(
+            control,
+            theme::font(theme::TEXT_BODY, theme::WEIGHT_REGULAR),
         );
     }
 }
 
+unsafe fn label(hwnd: HWND, id: usize, text: &str, x: i32, y: i32) -> HWND {
+    CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        w!("STATIC"),
+        &windows::core::HSTRING::from(text),
+        WINDOW_STYLE(WS_CHILD | WS_VISIBLE),
+        x,
+        y,
+        500,
+        20,
+        Some(hwnd),
+        Some(HMENU(id as *mut std::ffi::c_void)),
+        None,
+        None,
+    )
+    .unwrap_or_default()
+}
+
+/// An owner-drawn button: the look is [`theme::paint_button`]'s, and the reason
+/// the buttons are drawn by hand is in `wizard_win`.
 unsafe fn button(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, w_: i32, h: i32) {
-    unsafe {
-        let _ = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("BUTTON"),
-            &windows::core::HSTRING::from(text),
-            WINDOW_STYLE(WS_CHILD | WS_VISIBLE), // WS_CHILD | WS_VISIBLE
-            x,
-            y,
-            w_,
-            h,
-            Some(hwnd),
-            Some(HMENU(id as *mut std::ffi::c_void)),
-            None,
-            None,
+    let control = CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        w!("BUTTON"),
+        &windows::core::HSTRING::from(text),
+        WINDOW_STYLE(WS_CHILD | WS_VISIBLE) | WINDOW_STYLE(BS_OWNERDRAW as u32),
+        x,
+        y,
+        w_,
+        h,
+        Some(hwnd),
+        Some(HMENU(id as *mut std::ffi::c_void)),
+        None,
+        None,
+    );
+    if let Ok(control) = control {
+        theme::set_font(
+            control,
+            theme::font(theme::TEXT_BODY, theme::WEIGHT_REGULAR),
         );
     }
 }
 
-/// A checkbox whose tick is the state, because a settings window that shows an
-/// "on" toggle and does not tick it is a settings window nobody believes.
-unsafe fn checkbox(hwnd: HWND, id: usize, text: &str, x: i32, y: i32, on: bool) {
-    unsafe {
-        // BS_CHECKBOX is 0x0002; BS_PUSHBUTTON is 0x0000.
-        let style = WINDOW_STYLE(WS_CHILD | WS_VISIBLE | 0x0002); // WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX
-        let _ = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            w!("BUTTON"),
-            &windows::core::HSTRING::from(text),
-            // `BS_CHECKED` is not a `WINDOW_STYLE` constant in this projection;
-            // the value is the documented one (0x0001) and is written as a
-            // literal with a comment rather than through a name that does not
-            // exist.
-            style
-                | if on {
-                    WINDOW_STYLE(WS_CHILD | WS_VISIBLE)
-                } else {
-                    WINDOW_STYLE(0)
-                },
-            x,
-            y,
-            420,
-            24,
-            Some(hwnd),
-            Some(HMENU(id as *mut std::ffi::c_void)),
-            None,
-            None,
+/// An owner-drawn checkbox, whose tick is the state.
+///
+/// A settings window that shows an "on" toggle and does not tick it is a settings
+/// window nobody believes — and this one did not tick it: the "checked" style it
+/// passed was `WS_CHILD | WS_VISIBLE`, which the control already had, so the tick
+/// was never drawn whatever the setting said. The style is gone and the tick is
+/// drawn from [`CHECKED`], which the rebuild fills from the same model the click
+/// handler writes.
+unsafe fn checkbox(hwnd: HWND, id: usize, text: &str, x: i32, y: i32) {
+    let control = CreateWindowExW(
+        WINDOW_EX_STYLE::default(),
+        w!("BUTTON"),
+        &windows::core::HSTRING::from(text),
+        WINDOW_STYLE(WS_CHILD | WS_VISIBLE) | WINDOW_STYLE(BS_OWNERDRAW as u32),
+        x,
+        y,
+        420,
+        26,
+        Some(hwnd),
+        Some(HMENU(id as *mut std::ffi::c_void)),
+        None,
+        None,
+    );
+    if let Ok(control) = control {
+        theme::set_font(
+            control,
+            theme::font(theme::TEXT_BODY, theme::WEIGHT_REGULAR),
         );
     }
 }
