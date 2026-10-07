@@ -31,6 +31,22 @@ public enum ComputerRoster {
         return .offline(lastSeen: seen?.lastSeen)
     }
 
+    /// The user-visible name for a computer id, from its live announcement
+    /// first, then history.
+    ///
+    /// Presence (`online`) is a second, independent source of "known
+    /// computers": a brand-new machine is in the browse results before it has
+    /// ever sent a `clientHello`, so it is *not* yet in `seen`. Resolving names
+    /// from `seen` alone left such a computer unnameable — which silently broke
+    /// arming a switch to it (the 10-07 current-computer design's "pair a new
+    /// computer" and "re-pick any online computer" paths).
+    public static func name(for id: String,
+                            online: [ComputerPresence],
+                            seen: [SeenComputer]) -> String? {
+        if let live = online.first(where: { $0.id == id }) { return live.name }
+        return seen.first(where: { $0.id == id })?.name
+    }
+
     public static func entries(online: [ComputerPresence],
                                seen: [SeenComputer]) -> [ComputerRosterEntry] {
         let liveById = Dictionary(online.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })

@@ -50,4 +50,34 @@ final class ComputerRosterTests: XCTestCase {
     func testEmptyRosterIsEmpty() {
         XCTAssertTrue(ComputerRoster.entries(online: [], seen: []).isEmpty)
     }
+
+    // MARK: - name(for:online:seen:)
+
+    /// A brand-new computer is only in the live browse results (it has never
+    /// sent a `clientHello`, so it is not in `seen`). Arming a switch to it must
+    /// resolve its name from presence — this is the "pair a new computer" path
+    /// the 10-07 current-computer design depends on.
+    func testNameResolvesAnOnlineComputerNotYetInHistory() {
+        XCTAssertEqual(
+            ComputerRoster.name(for: "b", online: [live("b", "Windows PC", "windows")], seen: []),
+            "Windows PC")
+    }
+
+    func testNameFallsBackToHistoryWhenNotOnline() {
+        XCTAssertEqual(
+            ComputerRoster.name(for: "a", online: [], seen: [seen("a", "Old Mac", "macos", 100)]),
+            "Old Mac")
+    }
+
+    func testOnlineNameBeatsHistory() {
+        XCTAssertEqual(
+            ComputerRoster.name(for: "a",
+                                online: [live("a", "New Name", "macos")],
+                                seen: [seen("a", "Old Name", "macos", 100)]),
+            "New Name")
+    }
+
+    func testNameIsNilWhenTheComputerIsUnknown() {
+        XCTAssertNil(ComputerRoster.name(for: "x", online: [], seen: []))
+    }
 }

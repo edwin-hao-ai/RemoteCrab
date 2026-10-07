@@ -94,6 +94,12 @@ final class CaptureEngine: ObservableObject {
     /// Auto-clears `preferredGaveUp` so the "gave up" card cannot sit on the
     /// main screen forever when nothing dials.
     private var preferredGaveUpAutoClear: Task<Void, Never>?
+    /// Re-evaluates the armed preference once a second while one exists, so the
+    /// "switching to X…" banner reaches its grace boundary and self-expires even
+    /// when no computer dials. Without it the banner was only re-evaluated by
+    /// incoming events (a `clientHello`, an outcome), so switching to a computer
+    /// that never arrived left "switching to X…" on screen forever.
+    private var preferenceRefreshTimer: Timer?
     /// Name of the Mac currently owning the session, if any.
     @Published private(set) var connectedMacName: String?
     /// Stable id of the owning Mac (matches `PairedMac.id`).
@@ -1608,7 +1614,7 @@ final class CaptureEngine: ObservableObject {
         // Remember every computer that reaches us — before any approval —
         // so "Choose a Computer" can list a machine that has never paired
         // (e.g. this Windows PC on its first connect).
-        pairingStore.noteSeen(hello)
+        pairingStore.noteSeen(hello, alsoKnown: Set(onlineComputers.map(\.id)))
         refreshPairedMacs()
         if let existing = connection, existing !== conn {
             // A different Mac while someone owns the session keeps the
@@ -2564,12 +2570,36 @@ final class CaptureEngine: ObservableObject {
                 guard let self, self.preferredGaveUp?.id == gaveUp?.id else { return }
                 self.preferredGaveUp = nil
             }
-        } else if preferredMac == nil {
+        } else if preferredMac == nil, pairingStore.preferredId == nil {
             if preferredGaveUp != nil { Forensic.log("[gv] gaveUp cleared") }
             preferredGaveUp = nil
         }
         preferredMac = effective
         seenComputers = pairingStore.seen
+        ensurePreferenceRefreshTimer()
+    }
+
+    /// Start the 1 s re-evaluation clock while there is a time-dependent banner
+    /// to update, and let it retire once there is not.
+    ///
+    /// The grace is time-based, but every other reader of it (`effectivePreferred`)
+    /// is only consulted when something happens. Nothing guarantees an event
+    /// after the boundary, so the banner that says "switching to X…" had no way
+    /// to notice the switch had failed — it stayed on the main screen until the
+    /// user touched something. The clock is bounded to the banner's life
+    /// (switching → gave-up → gone, ~40 s), not the 10-minute TTL.
+    private func ensurePreferenceRefreshTimer() {
+        guard preferredMac != nil || preferredGaveUp != nil else {
+            preferenceRefreshTimer?.invalidate()
+            preferenceRefreshTimer = nil
+            return
+        }
+        guard preferenceRefreshTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshPairedMacs() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        preferenceRefreshTimer = timer
     }
 
     /// Arm a switch to a computer we've *seen* but may not have paired yet
@@ -2639,7 +2669,7 @@ final class CaptureEngine: ObservableObject {
     /// bookkeeping fix — it never touches `paired`, so a live session and
     /// every approval survive untouched.
     func pruneSeenComputers() {
-        if pairingStore.pruneStale() { refreshPairedMacs() }
+        if pairingStore.pruneStale(alsoKnown: Set(onlineComputers.map(\.id))) { refreshPairedMacs() }
     }
 
     /// The user-visible name we know for a computer id, preferring the live
@@ -2647,7 +2677,12 @@ final class CaptureEngine: ObservableObject {
     private func nameForComputer(id: String) -> String? {
         if connectedMacId == id, let name = connectedMacName { return name }
         if let paired = pairingStore.paired.first(where: { $0.id == id }) { return paired.name }
-        return pairingStore.seen.first(where: { $0.id == id })?.name
+        // Online (presence) before `seen`: a brand-new computer is in the
+        // browse results before it has ever sent a `clientHello`, so arming a
+        // switch to it must resolve a name from presence — otherwise
+        // `setPreferred(id:name:nil)` leaves `preferred` nil and the tap does
+        // nothing (it falls through to `busy(current)`).
+        return ComputerRoster.name(for: id, online: onlineComputers, seen: pairingStore.seen)
     }
 
     /// E2E: a tap-on-notification needs a human finger on the phone, so this

@@ -269,7 +269,7 @@ public final class MacPairingStore {
     /// `clientHello` — before any approval — so the picker can list a
     /// machine the user has never paired.
     @discardableResult
-    public func noteSeen(_ hello: IBClientHello) -> SeenComputer {
+    public func noteSeen(_ hello: IBClientHello, alsoKnown: Set<String> = []) -> SeenComputer {
         let platform = hello.platform ?? "macos"
         let entry = SeenComputer(
             id: hello.id,
@@ -282,7 +282,7 @@ public final class MacPairingStore {
         if seen.count > Self.seenLimit {
             seen = Array(seen.prefix(Self.seenLimit))
         }
-        pruneStale()
+        pruneStale(alsoKnown: alsoKnown)
         saveSeen()
         return entry
     }
@@ -294,8 +294,15 @@ public final class MacPairingStore {
     /// A preference pointing at a dropped id is cleared for the same reason
     /// `forget` clears one: it names a computer that can no longer connect,
     /// and while it is armed every other computer is answered "in use".
+    ///
+    /// `alsoKnown` is the set of ids the caller knows from a source other than
+    /// `seen` — the live `_remotecrab-computer._tcp` announcements. A computer
+    /// that is online right now (newly appeared, or one whose seen row was
+    /// pruned) is a valid switch target even though it has never sent a
+    /// `clientHello`, so a preference naming it must not be treated as
+    /// dangling.
     @discardableResult
-    public func pruneStale(now: Date = Date()) -> Bool {
+    public func pruneStale(now: Date = Date(), alsoKnown: Set<String> = []) -> Bool {
         let before = seen
         seen = Self.pruned(before, now: now)
         // Unconditional, even when nothing was removed. The earlier version
@@ -305,7 +312,9 @@ public final class MacPairingStore {
         // any string, and `setPreferredMac` does exactly that) and would
         // then sit armed for a computer with no row, answering every other
         // machine "in use" until the TTL ran out. Cheap to guarantee.
-        if let preferred = preferredId, !seen.contains(where: { $0.id == preferred }) {
+        if let preferred = preferredId,
+           !seen.contains(where: { $0.id == preferred }),
+           !alsoKnown.contains(preferred) {
             clearPreferred()
         }
         guard seen.count != before.count else { return false }

@@ -649,6 +649,33 @@ final class PairingTests: XCTestCase {
         XCTAssertNil(store.preferredId, "the ghost preference survived a no-op prune")
     }
 
+    /// A computer can be online (announcing presence) without ever having sent
+    /// a `clientHello`, so it is not in `seen`. Picking it arms the switch; the
+    /// prune must not clear it as if it were a ghost. This is the "pair a new
+    /// computer" and "re-pick any online computer" path of the 10-07
+    /// current-computer design — both depend on the arm surviving.
+    func testAPreferenceForAnOnlineButUnseenComputerSurvivesPrune() {
+        let store = freshStore()
+        store.setPreferred(id: "online-only", name: "New PC")
+        XCTAssertNotNil(store.preferredId)
+        _ = store.pruneStale(alsoKnown: ["online-only"])
+        XCTAssertEqual(store.preferredId, "online-only",
+                       "a preference for a computer announcing itself right now must survive")
+    }
+
+    /// The trigger in the field: while we wait for the just-picked computer,
+    /// the one we left retries and its `clientHello` runs `noteSeen` →
+    /// `pruneStale`. If that prune does not know the picked computer is online,
+    /// it clears the arm and the switch silently reverts.
+    func testNoteSeenDoesNotClearAPreferenceForACurrentlyOnlineComputer() {
+        let store = freshStore()
+        store.setPreferred(id: "online-only", name: "New PC")
+        store.noteSeen(IBClientHello(name: "Left One", id: "left", platform: "macos"),
+                       alsoKnown: ["online-only"])
+        XCTAssertEqual(store.preferredId, "online-only",
+                       "the left computer retrying must not cancel the switch")
+    }
+
     // MARK: - The grace period on a computer switch
     //
     // A user picks a computer to switch to; the phone refuses every OTHER
