@@ -66,6 +66,12 @@ public enum IBWire {
         /// the request, it needs to act on it. Same number as
         /// `rc_protocol::Kind::RequestKeyframe`.
         case requestKeyframe = 0x25
+        /// Receiver → iPhone: this machine's answer to the phone's half of the
+        /// identity challenge (`IBClientProof`, JSON). Only ever sent by a
+        /// receiver, and only to a phone that asked for it by sending a MAC
+        /// first, so an older phone that ignores an unknown kind is unaffected.
+        /// Same number as `rc_protocol::Kind::ClientProof`.
+        case clientProof   = 0x26
         /// A frame whose kind byte this build does not recognise.
         ///
         /// Not a real wire kind: it is what the parser produces instead of
@@ -150,6 +156,12 @@ public enum IBWire {
     public static func encode(sessionReply: IBSessionReply) throws -> Data {
         let json = try JSONEncoder().encode(sessionReply)
         return encodeFrame(kind: .sessionReply, payload: json)
+    }
+
+    /// Encode a ClientProof (receiver → iPhone identity answer).
+    public static func encode(clientProof: IBClientProof) throws -> Data {
+        let json = try JSONEncoder().encode(clientProof)
+        return encodeFrame(kind: .clientProof, payload: json)
     }
 
     /// Encode an app list (Mac → iPhone).
@@ -410,6 +422,11 @@ public enum IBWire {
     /// Decode a `.sessionReply` frame's payload.
     public static func decodeSessionReply(_ frame: Frame) throws -> IBSessionReply {
         try JSONDecoder().decode(IBSessionReply.self, from: frame.payload)
+    }
+
+    /// Decode a `.clientProof` frame's payload.
+    public static func decodeClientProof(_ frame: Frame) throws -> IBClientProof {
+        try JSONDecoder().decode(IBClientProof.self, from: frame.payload)
     }
 
     /// Decode an `.appList` frame's payload.

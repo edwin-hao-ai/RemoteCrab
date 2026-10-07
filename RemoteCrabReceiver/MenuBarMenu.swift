@@ -133,6 +133,15 @@ struct MenuBarMenu: View {
             Text(session.state.phoneName ?? session.discovered.first?.name ?? "—")
                 .font(IBFont.bodySmall)
                 .foregroundStyle(.primary)
+            if case .streaming = session.state, !session.sessionAuthenticated {
+                // An older phone cannot do the identity exchange, so the link is
+                // real but unproven. Say so instead of showing the same green as
+                // a verified session (this Mac is who the impostor would attack).
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(IBColor.warning)
+                    .help(IBLocale.Error.sessionUnverified)
+            }
             Spacer()
             if case .streaming(_, let ms) = session.state {
                 Text(IBLocale.Status.latency(ms))

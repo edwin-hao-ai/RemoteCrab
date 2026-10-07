@@ -1,13 +1,35 @@
 ---
 title: iOS 侧身份验证改动 —— 让手机证明自己是谁
 type: handoff
-status: current
-last_verified: 2026-10-06
-code_baseline: (待提交)
+status: implemented (iOS + Mac) 2026-10-07
+last_verified: 2026-10-07
+code_baseline: (待提交 — 本 session 的 Swift 改动)
 windows_side: 已实现并测试（rc-protocol::peer_auth + rc-net 握手）
 ---
 
 # iOS 侧要做的：对端身份验证
+
+## 完成情况（2026-10-07，macOS session）
+
+iOS 和 Mac 两半**都已实现**，本仓库内可验证的部分全绿：
+
+- `RemoteCrabCore/Networking/PeerAuth.swift`（新）—— 与 `rc-protocol::peer_auth.rs`
+  逐字节一致；`PeerAuthTests` 断言了 §3 的**同一对测试向量**（两条都过），这是
+  跨语言唯一能证明"算出的是同一串字节"的手段。
+- wire：`IBClientHello.nonce`、`IBSessionReply.{nonce,mac,capabilities}`、
+  `IBClientProof`、`IBWire.Kind.clientProof = 0x26`（`PeerAuthWireTests`）。
+- iOS `CaptureEngine`：§4 的挑战-应答流程（配对电脑 → `pending{nonce,mac}` →
+  等 `clientProof` → `accepted`/`denied`），且 §4 末尾的"超时即放行"已改为
+  **超时即 `denied`**。
+- Mac 接收端：`sendClientHello` 带 nonce + `peerAuth`；`answerChallenge`
+  验手机 MAC 并回 `clientProof`；验证失败**断开且不重试**（`cannotVerifyiPhone`）；
+  老手机无 nonce → 照常接受但标记未验证（菜单栏盾牌图标）。
+- 验证：`swift test` 627 绿（含 10 条向量 + 7 条 wire）；两个 app target 构建通过；
+  Windows `cargo test --workspace --lib` 绿；`rc-net --test session` 20/20 绿
+  （含 `something_that_does_not_hold_the_token_is_refused`）。
+
+**仍未做**：真机验收（§验证要求 2–4）。需要一台 iPhone + 一台 Mac，本 session
+无法执行。
 
 ## 为什么
 

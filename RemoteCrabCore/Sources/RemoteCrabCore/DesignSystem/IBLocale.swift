@@ -835,6 +835,9 @@ public enum IBLocale {
         public static func waitingForPreferred(_ name: String) -> String {
             String(format: IBL("Waiting for %@ — if it doesn't reconnect on its own, click Retry in its menu."), name)
         }
+        public static func waitingForCurrent(_ name: String) -> String {
+            String(format: IBL("Waiting for %@…"), name)
+        }
         public static let cancelPreferred = IBL("Cancel Preference")
 
         /// Why the chosen computer has not turned up yet.
@@ -903,6 +906,9 @@ public enum IBLocale {
         public static let seenComputers = IBL("On this network")
         /// Badge for a computer that has never been paired (first contact).
         public static let notPairedBadge = IBL("New")
+        public static let currentComputer = IBL("This iPhone")
+        public static let releaseCurrent = IBL("Release this iPhone")
+        public static let releaseCurrentHint = IBL("Let the next computer that connects become the one this iPhone serves.")
     }
 
     public enum Error {
@@ -964,6 +970,15 @@ public enum IBLocale {
         public static let connectionOff = IBL("Disconnected on the iPhone — open Choose a Computer there and pick this one to reconnect.")
         public static let awaitingApproval = IBL("Waiting for approval on the iPhone…")
         public static let retry = IBL("Retry")
+        /// The receiver verified that the machine on this address holds the
+        /// pairing token, but the phone could not prove the same to us, or
+        /// proved the wrong thing. Distinct from a lost connection and from a
+        /// human refusal: it is an identity failure, so it says so and stops.
+        public static let cannotVerifyiPhone = IBL("Could not verify the iPhone's identity — someone may be impersonating it. Stopped reconnecting.")
+        /// Appended to the connected row when the session could not be
+        /// authenticated (an older phone that does not do the exchange). Honest
+        /// about the gap rather than pretending the link is verified.
+        public static let sessionUnverified = IBL("Unverified identity")
     }
 
     /// Why a command the user tapped on the phone did not visibly happen.

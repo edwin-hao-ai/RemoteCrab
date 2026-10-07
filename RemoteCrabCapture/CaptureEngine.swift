@@ -86,6 +86,8 @@ final class CaptureEngine: ObservableObject {
     /// The Mac the user picked in the Mac picker — it takes over on its
     /// next connect while others are answered "busy".
     @Published private(set) var preferredMac: PairedMac?
+    var currentComputerId: String? { pairingStore.currentId }
+    var currentComputerName: String? { pairingStore.current?.name }
     /// Set for one refresh when a switch stops holding the door, so the picker
     /// can say so instead of having its banner silently disappear.
     @Published private(set) var preferredGaveUp: PairedMac?
@@ -273,6 +275,23 @@ final class CaptureEngine: ObservableObject {
     private var pendingHello: IBClientHello?
     private var pendingSince: Date?
     private var pendingWatchdog: Timer?
+    /// A computer that already holds this phone's token, mid identity challenge.
+    ///
+    /// Distinct from the user-approval slot above on purpose: the challenge is
+    /// proven by mathematics, not by a human tapping Allow, so it must never put
+    /// an approval card on screen. See `PeerAuth`.
+    private struct PendingChallenge {
+        let connection: NWConnection
+        let hello: IBClientHello
+        let mac: PairedMac
+        /// `client_mac` we expect back inside the receiver's `clientProof`.
+        let expectedClientMac: String
+        /// The handshake token this challenge belongs to, so a superseded
+        /// connection cannot complete someone else's challenge.
+        let handshakeToken: UUID
+        var timeout: Task<Void, Never>?
+    }
+    private var pendingChallenge: PendingChallenge?
     /// Identifies the in-flight candidate read so late callbacks from a
     /// superseded connection can't admit the wrong Mac.
     private var handshakeToken: UUID?
@@ -1541,10 +1560,17 @@ final class CaptureEngine: ObservableObject {
                 return
             }
             guard let self, self.handshakeToken == token,
-                  self.connection == nil, self.pendingConnection == nil else { return }
-            Self.log.info("clientHello timeout — admitting legacy Mac")
-            self.sendSessionReply(IBSessionReply(result: .accepted), on: conn)
-            self.grant(connection: conn, mac: nil)
+                  self.connection == nil, self.pendingConnection == nil,
+                  self.pendingChallenge == nil else { return }
+            // A connection that never identifies itself is not a RemoteCrab
+            // receiver — every build since the multi-computer handshake sends a
+            // `clientHello`. The old "admit first-come" fallback here was a
+            // bigger hole than the presented token: it needed no credential at
+            // all, just a TCP connect to this port. Deny and close.
+            Self.log.info("clientHello timeout — refusing an unidentified connection")
+            Forensic.log("[hs] clientHello timeout — denied (no identity)")
+            self.sendSessionReply(IBSessionReply(result: .denied), on: conn)
+            self.queue.asyncAfter(deadline: .now() + 0.4) { conn.cancel() }
         }
     }
 
@@ -1627,30 +1653,12 @@ final class CaptureEngine: ObservableObject {
         // everyone else until the TTL ran out.
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
                                             preferred: pairingStore.effectivePreferred(),
-                                            disconnected: pairingStore.disconnected)
+                                            disconnected: pairingStore.disconnected,
+                                            current: pairingStore.current)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
         switch decision {
-        case .accept:
-            guard let mac = pairingStore.paired.first(where: { $0.id == hello.id }) else {
-                // Shouldn't happen, but never strand the Mac.
-                sendSessionReply(IBSessionReply(result: .pending), on: conn)
-                setPending(connection: conn, hello: hello, name: hello.name)
-                return
-            }
-            sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
-            grant(connection: conn, mac: mac, platform: hello.platform)
-        case .pending:
-            // Headless e2e: auto-approve so a run needs no phone tap.
-            if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUTOPAIR"] == "1" {
-                sendSessionReply(IBSessionReply(result: .pending), on: conn)
-                setPending(connection: conn, hello: hello, name: hello.name)
-                approvePendingMac()
-                return
-            }
-            sendSessionReply(IBSessionReply(result: .pending), on: conn)
-            setPending(connection: conn, hello: hello, name: hello.name)
         case .busy(let ownerName):
             replyBusy(on: conn, ownerName: ownerName)
         case .off(let name):
@@ -1658,7 +1666,135 @@ final class CaptureEngine: ObservableObject {
             // close so it does not sit on an open socket.
             sendSessionReply(IBSessionReply(result: .off, ownerName: name), on: conn)
             queue.asyncAfter(deadline: .now() + 0.4) { conn.cancel() }
+        case .accept, .pending:
+            // A computer the phone already paired with must *prove* it holds the
+            // token, not merely present it — presenting a secret is not proof,
+            // and the token crosses the wire in the clear. This covers both a
+            // valid presented token (`.accept`) and a wrong/absent one for a
+            // paired id (`.pending`): the MAC decides, not the badge.
+            let paired = pairingStore.paired.first { $0.id == hello.id }
+            if let paired, let nonce = hello.nonce, !nonce.isEmpty {
+                beginChallenge(hello: hello, mac: paired, clientNonce: nonce, on: conn, token: token)
+            } else if case .accept = decision, let paired {
+                // Legacy receiver: it presented a valid token but cannot do the
+                // exchange. Accept it, but say plainly the session is not
+                // authenticated — refusing would brick every computer on the day
+                // this shipped, and the phone cannot update the receiver.
+                Self.log.info("clientHello accepted by token only — no peerAuth, session unauthenticated")
+                Forensic.log("[auth] legacy receiver (no nonce) — session unverified")
+                sendSessionReply(IBSessionReply(result: .accepted, token: paired.token), on: conn)
+                grant(connection: conn, mac: paired, platform: hello.platform)
+            } else if case .accept = decision {
+                // Shouldn't happen, but never strand the Mac.
+                sendSessionReply(IBSessionReply(result: .pending), on: conn)
+                setPending(connection: conn, hello: hello, name: hello.name)
+            } else {
+                // First pairing (unknown computer), or a paired id whose legacy
+                // token did not match — ask the human (the TOFU window).
+                sendSessionReply(IBSessionReply(result: .pending), on: conn)
+                setPending(connection: conn, hello: hello, name: hello.name)
+                // Headless e2e: auto-approve so a run needs no phone tap.
+                if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_AUTOPAIR"] == "1" {
+                    approvePendingMac()
+                }
+            }
         }
+    }
+
+    // MARK: - Identity challenge (`PeerAuth`)
+
+    /// Ask a paired computer to prove it holds the token.
+    ///
+    /// Sends `pending` carrying the phone's nonce and its own MAC (no approval
+    /// card — `pendingConnection` is deliberately untouched), then waits on the
+    /// same socket for a `clientProof`.
+    private func beginChallenge(hello: IBClientHello, mac: PairedMac, clientNonce: String,
+                                on conn: NWConnection, token: UUID) {
+        let serverNonce = PeerAuth.newNonce()
+        let serverMac = PeerAuth.serverMac(token: mac.token, pcID: hello.id,
+                                           clientNonce: clientNonce, serverNonce: serverNonce)
+        let expectedClientMac = PeerAuth.clientMac(token: mac.token, pcID: hello.id,
+                                                   clientNonce: clientNonce, serverNonce: serverNonce)
+        Forensic.log("[auth] challenge sent for \(hello.id.prefix(8))")
+        sendSessionReply(IBSessionReply(result: .pending, nonce: serverNonce, mac: serverMac,
+                                        capabilities: [PeerAuth.capability]), on: conn)
+
+        let parser = candidateParser ?? IBWire.Parser()
+        var challenge = PendingChallenge(connection: conn, hello: hello, mac: mac,
+                                         expectedClientMac: expectedClientMac,
+                                         handshakeToken: token, timeout: nil)
+        challenge.timeout = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            guard let self, self.pendingChallenge?.handshakeToken == token else { return }
+            self.failChallenge(reason: "no clientProof", on: conn)
+        }
+        pendingChallenge = challenge
+
+        readProof(on: conn, parser: parser, token: token)
+    }
+
+    private func readProof(on conn: NWConnection, parser: IBWire.Parser, token: UUID) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            Task { @MainActor in
+                guard let self, let challenge = self.pendingChallenge,
+                      challenge.handshakeToken == token, challenge.connection === conn else { return }
+                if let data, !data.isEmpty {
+                    for frame in parser.append(data) where frame.kind == .clientProof {
+                        if let proof = try? IBWire.decodeClientProof(frame) {
+                            self.completeChallenge(proof: proof, token: token)
+                            return
+                        }
+                    }
+                }
+                if error != nil {
+                    self.failChallenge(reason: "link lost", on: conn)
+                    return
+                }
+                if isComplete {
+                    self.failChallenge(reason: "connection closed", on: conn)
+                    return
+                }
+                self.readProof(on: conn, parser: parser, token: token)
+            }
+        }
+    }
+
+    private func completeChallenge(proof: IBClientProof, token: UUID) {
+        guard let challenge = pendingChallenge, challenge.handshakeToken == token else { return }
+        challenge.timeout?.cancel()
+        pendingChallenge = nil
+
+        if PeerAuth.matches(expected: challenge.expectedClientMac, presented: proof.mac) {
+            Forensic.log("[auth] receiver proved the token for \(challenge.hello.id.prefix(8))")
+            pairingStore.noteOutcome(.streaming, for: challenge.hello.id)
+            refreshPairedMacs()
+            sendSessionReply(IBSessionReply(result: .accepted), on: challenge.connection)
+            grant(connection: challenge.connection, mac: challenge.mac,
+                  platform: challenge.hello.platform)
+        } else {
+            refuseChallenge(challenge, reason: "wrong MAC")
+        }
+    }
+
+    /// Drop an unproven challenge and tell the computer why.
+    ///
+    /// `denied`, not `busy`, and no retry: this is not a network fault and not a
+    /// human refusal, it is a machine that could not prove it is the paired
+    /// computer. Saying "denied" keeps the receiver's own reconnect loop honest.
+    private func failChallenge(reason: String, on conn: NWConnection) {
+        guard let challenge = pendingChallenge, challenge.connection === conn else { return }
+        refuseChallenge(challenge, reason: reason)
+    }
+
+    private func refuseChallenge(_ challenge: PendingChallenge, reason: String) {
+        challenge.timeout?.cancel()
+        pendingChallenge = nil
+        Self.log.error("REFUSED a computer that failed the identity challenge (\(reason, privacy: .public))")
+        Forensic.log("[auth] REFUSED \(challenge.hello.id.prefix(8)): \(reason)")
+        pairingStore.noteOutcome(.denied, for: challenge.hello.id)
+        refreshPairedMacs()
+        sendSessionReply(IBSessionReply(result: .denied), on: challenge.connection)
+        queue.asyncAfter(deadline: .now() + 0.4) { challenge.connection.cancel() }
     }
 
     /// Turn a pairing decision into something the computer list can show.
@@ -1691,14 +1827,21 @@ final class CaptureEngine: ObservableObject {
         handshakeToken = nil
         candidate = nil
         candidateParser = nil
+        pendingChallenge?.timeout?.cancel()
+        pendingChallenge = nil
         clearPending()
 
-        // The preferred Mac arrived — the switch is done, open the door.
+        // The preferred Mac arrived — the switch is done, open the door, and
+        // remember it: the phone now serves this computer until the user says
+        // otherwise.
         if let mac, mac.id == pairingStore.preferredId {
             Forensic.log("[gv] granted: clearing preferred for \(mac.id.prefix(8))")
             pairingStore.clearPreferred()
-            refreshPairedMacs()
         }
+        if let mac {
+            pairingStore.setCurrent(id: mac.id, name: mac.name)
+        }
+        refreshPairedMacs()
 
         ownerMac = mac
         connection = conn
@@ -2022,6 +2165,12 @@ final class CaptureEngine: ObservableObject {
             let dying = candidate.map(ObjectIdentifier.init)
             let holder = pendingConnection.map(ObjectIdentifier.init)
             let wasHoldingTheSlot = PendingSlotPolicy.isHeld(byDying: dying, pending: holder)
+            // A challenge in flight on the dying connection is abandoned; its
+            // timeout must not fire against a socket that is already gone.
+            if let challenge = pendingChallenge, challenge.connection === candidate {
+                challenge.timeout?.cancel()
+                pendingChallenge = nil
+            }
             candidate = nil
             candidateParser = nil
             if wasHoldingTheSlot {
@@ -2106,6 +2255,13 @@ final class CaptureEngine: ObservableObject {
     /// normal pairing treatment again.
     func clearPreferredMac() {
         pairingStore.clearPreferred()
+        refreshPairedMacs()
+    }
+
+    /// Forget which computer this iPhone is set to, so the next computer to
+    /// connect becomes current again (the picker's "Release this iPhone").
+    func releaseCurrentComputer() {
+        pairingStore.clearCurrent()
         refreshPairedMacs()
     }
 

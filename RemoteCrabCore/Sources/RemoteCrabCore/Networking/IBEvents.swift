@@ -336,6 +336,15 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     /// in its menu bar) and no wait for command results it will never send.
     public var capabilities: [Capability]?
 
+    /// This receiver's half of the identity challenge, base64.
+    ///
+    /// ADDITIVE + OPTIONAL. Absent from a receiver built before this exchange
+    /// existed, and **absence is what makes the phone treat the session as
+    /// unauthenticated (legacy)** rather than demand a proof the receiver cannot
+    /// give. A receiver that sends it expects a `clientProof` back — see
+    /// `PeerAuth`.
+    public var nonce: String?
+
     /// Declared abilities. Raw values, because an unknown string from a newer
     /// peer must decode rather than fail the whole handshake.
     public enum Capability: String, Codable, Sendable, Equatable {
@@ -344,17 +353,22 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         case latencyProbe
         /// The receiver answers commands with `commandResult` (0x23).
         case commandResult
+        /// The receiver can prove its identity with a challenge-response and
+        /// verify the phone's. Declared alongside `nonce`; `nonce` is what the
+        /// phone actually keys off.
+        case peerAuth
     }
 
     public init(name: String, id: String, token: String? = nil,
                 appVersion: String = "", platform: String? = nil,
-                capabilities: [Capability]? = nil) {
+                capabilities: [Capability]? = nil, nonce: String? = nil) {
         self.name = name
         self.id = id
         self.token = token
         self.appVersion = appVersion
         self.platform = platform
         self.capabilities = capabilities
+        self.nonce = nonce
     }
 
     /// `false` for any capability the receiver did not name — including every
@@ -367,7 +381,7 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     public var resolvedPlatform: String { platform ?? "macos" }
 
     private enum CodingKeys: String, CodingKey {
-        case name, id, token, appVersion, platform, capabilities
+        case name, id, token, appVersion, platform, capabilities, nonce
     }
 
     public init(from decoder: Decoder) throws {
@@ -378,6 +392,9 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         appVersion = try c.decodeIfPresent(String.self, forKey: .appVersion) ?? ""
         // Absent for older Macs — stay nil so `resolvedPlatform` reads macos.
         platform = try c.decodeIfPresent(String.self, forKey: .platform)
+        // Absent from every receiver built before peer auth → nil → the phone
+        // admits it as a legacy (unauthenticated) session.
+        nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
         // Absent for every Mac before 1.1 → nil → `supports` is false for
         // everything, which is exactly 1.0's behaviour.
         //
@@ -414,11 +431,64 @@ public struct IBSessionReply: Codable, Sendable, Equatable {
     public let ownerName: String?
     /// Present for `.accepted` — the pairing token to persist.
     public let token: String?
+    /// The phone's half of the identity challenge, base64.
+    ///
+    /// ADDITIVE. Absent from every phone built before this exchange, and absence
+    /// means "this session is not authenticated" — not "skip the check".
+    public let nonce: String?
+    /// HMAC-SHA256 the phone computed over both nonces and this receiver's id,
+    /// keyed by the pairing token. Absent means the phone cannot do this.
+    public let mac: String?
+    /// What the phone says it can do, so the receiver knows whether the MAC it is
+    /// about to demand is a reasonable thing to expect.
+    ///
+    /// Strings rather than an enum, for the same reason `IBClientHello` uses
+    /// them: a phone newer than this build may name abilities that do not exist
+    /// here, and one unknown word must not fail the handshake.
+    public let capabilities: [String]?
 
-    public init(result: IBSessionReplyResult, ownerName: String? = nil, token: String? = nil) {
+    public init(result: IBSessionReplyResult, ownerName: String? = nil, token: String? = nil,
+                nonce: String? = nil, mac: String? = nil, capabilities: [String]? = nil) {
         self.result = result
         self.ownerName = ownerName
         self.token = token
+        self.nonce = nonce
+        self.mac = mac
+        self.capabilities = capabilities
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case result, ownerName, token, nonce, mac, capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        result = try c.decode(IBSessionReplyResult.self, forKey: .result)
+        ownerName = try c.decodeIfPresent(String.self, forKey: .ownerName)
+        token = try c.decodeIfPresent(String.self, forKey: .token)
+        // All three default to nil for a phone built before peer auth — that is
+        // the legacy branch, not a decode failure.
+        nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
+        mac = try c.decodeIfPresent(String.self, forKey: .mac)
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)
+    }
+}
+
+/// Receiver → iPhone: this machine's answer to the phone's half of the
+/// challenge (kind `0x26`).
+///
+/// Sent only after a `sessionReply` that carried a MAC. Its arrival is what lets
+/// the phone admit a computer it has already paired with — the proof *replaces*
+/// the human tap for that reconnect.
+///
+/// The phone must never accept a bare `clientHello` as evidence of anything.
+/// Presenting a token is not proof of holding it: anyone on the same network can
+/// read the same bytes.
+public struct IBClientProof: Codable, Sendable, Equatable {
+    public let mac: String
+
+    public init(mac: String) {
+        self.mac = mac
     }
 }
 

@@ -1,12 +1,19 @@
 ---
 title: Mac 接收端：身份验证（与 Windows 半边对齐）
 type: handoff
-status: current
-last_verified: 2026-10-06
+status: implemented 2026-10-07
+last_verified: 2026-10-07
 prerequisite: 先读 docs/HANDOFF-IOS-PEER-AUTH.md（协议细节 + 测试向量都在那里）
 ---
 
 # Mac 接收端要做的：验证手机
+
+> **2026-10-07：已实现。** `ReceiverSession.sendClientHello` 带 nonce +
+> `peerAuth`；`answerChallenge` 验手机的 `server_mac` 并回 `clientProof`；
+> 失败 → 断开且不重试（`IBLocale.Error.cannotVerifyiPhone`）；老手机无 nonce →
+> 照常接受并标记未验证（菜单栏 `exclamationmark.shield.fill`）。wire 类型是共享的，
+> 无需第二遍。§验证 1 的向量测试见 `RemoteCrabCore/Tests/…/PeerAuthTests.swift`。
+> 仍未做：§验证 2–4 的真机验收。
 
 ## 为什么这份文档存在
 

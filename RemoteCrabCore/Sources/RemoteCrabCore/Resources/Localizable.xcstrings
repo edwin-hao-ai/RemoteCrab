@@ -5865,6 +5865,40 @@
         }
       }
     },
+    "Could not verify the iPhone's identity — someone may be impersonating it. Stopped reconnecting.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not verify the iPhone's identity — someone may be impersonating it. Stopped reconnecting."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法验证 iPhone 的身份——可能有人在冒充它。已停止重连。"
+          }
+        }
+      }
+    },
+    "Unverified identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unverified identity"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "身份未验证"
+          }
+        }
+      }
+    },
     "The installer package isn't bundled in this build. Build it with scripts/build-mic-driver-pkg.sh and embed it for distribution.": {
       "extractionState": "manual",
       "localizations": {
@@ -8873,6 +8907,23 @@
         }
       }
     },
+    "Waiting for %@…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待 %@…"
+          }
+        }
+      }
+    },
     "On this network": {
       "extractionState": "manual",
       "localizations": {
@@ -10575,6 +10626,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住语音键，用语音向电脑口述输入"
+          }
+        }
+      }
+    },
+    "This iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本机 iPhone"
+          }
+        }
+      }
+    },
+    "Release this iPhone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release this iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "释放此 iPhone"
+          }
+        }
+      }
+    },
+    "Let the next computer that connects become the one this iPhone serves.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let the next computer that connects become the one this iPhone serves."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让下一台连上的电脑成为此 iPhone 服务的对象。"
           }
         }
       }

@@ -260,6 +260,14 @@ final class ReceiverSession: ObservableObject {
     private var currentTokenKey: String?
     /// True only after the iPhone's `sessionReply` accepted us.
     private var sessionGranted = false
+    /// This connection's half of the identity challenge, base64. Sent in
+    /// `clientHello`; the phone echoes it back inside the MAC it computes, which
+    /// is what stops a recorded exchange from being replayed (see `PeerAuth`).
+    private var clientNonce: String?
+    /// Whether the live session proved identity in both directions. False for a
+    /// legacy phone that cannot do the exchange, and false until the proof
+    /// lands — the UI says so rather than pretending the link is verified.
+    @Published private(set) var sessionAuthenticated = false
     /// True while a Mac/iPhone session is owned. Read by `UpdaterController`
     /// to gate silent installs (an active session must not be interrupted).
     var isSessionActive: Bool { sessionGranted }
@@ -1419,6 +1427,8 @@ final class ReceiverSession: ObservableObject {
         // on it alone could leave a relay timer polling while disconnected.
         stopNotificationRelay()
         sessionGranted = false
+        sessionAuthenticated = false
+        clientNonce = nil
         suppressReconnect = false
         slowRetryTask?.cancel()
         slowRetryTask = nil
@@ -1572,14 +1582,20 @@ final class ReceiverSession: ObservableObject {
     private func sendClientHello(on conn: NWConnection) {
         let token = currentTokenKey.flatMap { tokenStore[$0] }
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
+        // This connection's half of the identity challenge. New every time, so a
+        // MAC a listener copied from an earlier session is useless.
+        let nonce = PeerAuth.newNonce()
+        clientNonce = nonce
         // Declare what this receiver can cope with, so the phone knows when
         // to stay quiet. It MUST list `latencyProbe` here: a phone that sends
         // probes to a receiver which has not advertised the ability has its
         // timestamps subtracted from ours and paints the clock offset between
-        // the two machines in the menu bar (see `pingProbe`).
+        // the two machines in the menu bar (see `pingProbe`). `peerAuth` says
+        // we can prove ourselves and check the phone's proof.
         let hello = IBClientHello(name: macName, id: macId, token: token,
                                   appVersion: version,
-                                  capabilities: [.latencyProbe, .commandResult])
+                                  capabilities: [.latencyProbe, .commandResult, .peerAuth],
+                                  nonce: nonce)
         do {
             let data = try IBWire.encode(clientHello: hello)
             Self.log.info("clientHello sent (paired: \(token != nil, privacy: .public))")
@@ -1605,10 +1621,78 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    /// The four outcomes of the phone's half of the identity exchange. Three are
+    /// not failures and only one is an attack, so they cannot share a `bool`.
+    private enum ChallengeOutcome: Equatable {
+        /// The phone did not offer a proof (an older app) — unauthenticated.
+        case notOffered
+        /// The phone offered a proof and this Mac has no token to check it with.
+        case noKey
+        /// The phone proved it holds the token; we answered with our own proof.
+        case proven
+        /// Someone answered on the phone's port who does not hold the token.
+        case failed
+    }
+
+    /// Verify the phone's MAC and answer with this receiver's own.
+    ///
+    /// See `PeerAuth` for the byte layout. Both sides MAC the same four fields
+    /// under different labels, so neither proof can be replayed as the other.
+    private func answerChallenge(_ reply: IBSessionReply) -> ChallengeOutcome {
+        guard let serverNonce = reply.nonce, let presented = reply.mac else {
+            return .notOffered
+        }
+        guard let key = currentTokenKey, let token = tokenStore[key], let clientNonce else {
+            // The phone says it knows us; we have nothing to check it against.
+            // A lost pairing, not an attack — the phone's own timeout will deny
+            // us, and re-pairing is the way back.
+            Self.log.error("the phone offered an identity proof and this Mac has no token for it — re-pair from the phone")
+            return .noKey
+        }
+        let expected = PeerAuth.serverMac(token: token, pcID: macId,
+                                          clientNonce: clientNonce, serverNonce: serverNonce)
+        guard PeerAuth.matches(expected: expected, presented: presented) else {
+            return .failed
+        }
+        guard let connection else { return .failed }
+        let proof = IBClientProof(mac: PeerAuth.clientMac(token: token, pcID: macId,
+                                                          clientNonce: clientNonce,
+                                                          serverNonce: serverNonce))
+        if let data = try? IBWire.encode(clientProof: proof) {
+            connection.send(content: data, completion: .contentProcessed { _ in })
+            Self.log.info("clientProof sent — identity verified")
+        }
+        sessionAuthenticated = true
+        return .proven
+    }
+
+    /// The machine on this address answered the phone's port but could not prove
+    /// it holds the pairing token. Cut it off and do **not** retry: this is not
+    /// a network fault and not a human refusal, and retrying would only re-dial
+    /// whoever is impersonating the phone.
+    private func refuseImpersonation() {
+        sessionGranted = false
+        suppressReconnect = true
+        stopPingLoop()
+        Self.log.error("REFUSED: a machine that does not hold the pairing token answered on this phone's port")
+        state = .error(IBLocale.Error.cannotVerifyiPhone)
+        connection?.cancel()
+    }
+
     private func handleSessionReply(_ reply: IBSessionReply) {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
         Self.log.info("sessionReply: \(reply.result.rawValue, privacy: .public) owner=\(reply.ownerName ?? "-", privacy: .public)")
+
+        // Identity first. A phone that cannot prove it holds the token is not
+        // this Mac's phone, whatever it claims; a phone that offers no proof is
+        // an older app and is admitted unverified rather than bricked.
+        let challenge = answerChallenge(reply)
+        if challenge == .failed {
+            refuseImpersonation()
+            return
+        }
+
         // Capture the pre-reply state. The clear must run AFTER the switch
         // below has applied the new state: `clearApprovalNoticeIfResolved`
         // compares `previous` against the *current* `stateKind`, so calling it
@@ -1661,7 +1745,13 @@ final class ReceiverSession: ObservableObject {
 
         case .pending:
             sessionGranted = false
-            if let name = currentPhoneName() {
+            if challenge == .proven {
+                // A proven challenge is not a human wait: the phone has already
+                // decided who we are and is about to send `accepted` on this same
+                // socket. Showing the approval card here would ask the user to
+                // tap Allow for a connection that needs no tap.
+                Self.log.info("pending carries a proven challenge — awaiting the phone's decision")
+            } else if let name = currentPhoneName() {
                 let beforePending = state
                 state = .awaitingApproval(name: name)
                 noteApprovalNeededIfFirstTime(previous: beforePending)
@@ -1680,7 +1770,7 @@ final class ReceiverSession: ObservableObject {
                 state = .error(reply.ownerName.map { IBLocale.Error.iphoneBusy($0) }
                                ?? IBLocale.Error.iphoneBusyUnknown)
             }
-            scheduleSlowRetry()
+            scheduleSlowRetry(interval: Self.standbyRetry)
 
         case .denied:
             sessionGranted = false
@@ -1694,12 +1784,12 @@ final class ReceiverSession: ObservableObject {
             suppressReconnect = true
             stopPingLoop()
             state = .error(IBLocale.Error.connectionOff)
-            // Keep asking politely, but faster than the busy poll: re-picking
-            // this computer on the phone is the way back and the phone has no
-            // channel to nudge us, so this loop IS the "tap to connect" latency.
-            // Until they do, every attempt is answered `off` and the disconnect
-            // sticks.
-            scheduleSlowRetry(interval: 5)
+            // Keep asking politely on the standby interval: re-picking this
+            // computer on the phone is the way back, and when the phone's
+            // knock can't reach us (Bonjour blocked) this loop is the recovery
+            // path. Until they re-pick, every attempt is answered `off` and the
+            // disconnect sticks.
+            scheduleSlowRetry(interval: Self.standbyRetry)
         }
         // Any reply other than `pending` resolves the wait — including `busy`
         // and `denied`, the phone is no longer asking for a tap. Run here, after
@@ -1720,6 +1810,12 @@ final class ReceiverSession: ObservableObject {
         if let phone = preferredPhone() ?? discovered.first { connect(to: phone) }
     }
 
+    /// How often a non-current computer quietly re-checks after being told
+    /// `busy`/`off`. It is a safety net, not a race: the phone always answers
+    /// `busy` to a computer that is not the current one, so this can never
+    /// steal the session — it only stops a blocked knock from stranding us.
+    private static let standbyRetry: Double = 60
+
     /// Keep quietly asking for our turn, indefinitely.
     ///
     /// This used to be a single 30 s retry and then it gave up, which made
@@ -1733,11 +1829,10 @@ final class ReceiverSession: ObservableObject {
     /// session (which cancels this task) or is refused again, which calls back
     /// into here and starts a fresh one. It also honours the user's
     /// "don't auto-reconnect" preference rather than polling against it.
-    /// `interval` defaults to the polite 15 s poll used while another computer
-    /// owns the session. `off` (the phone's user disconnected us) passes a
-    /// shorter interval: re-picking this computer on the phone is the intended
-    /// way back, and the loop is that recovery path — 15 s made the switch feel
-    /// stuck.
+    /// `interval` defaults to the polite 15 s poll. Both `busy` and `off` pass
+    /// `standbyRetry` instead: it is the fallback for when the phone's knock
+    /// **can't reach us** (Bonjour blocked), so a quiet safety net is what turns
+    /// that into a two-way door.
     private func scheduleSlowRetry(interval: Double = 15) {
         slowRetryTask?.cancel()
         slowRetryTask = Task { [weak self] in
@@ -1838,6 +1933,8 @@ final class ReceiverSession: ObservableObject {
         connection = nil
         connectedPhoneName = nil
         sessionGranted = false
+        sessionAuthenticated = false
+        clientNonce = nil
         try? incoming?.handle.close()
         incoming = nil
         metadata = nil

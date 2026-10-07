@@ -1290,6 +1290,12 @@ If you're new, also read:
 
 ---
 
+_Last updated: 2026-10-07 (**对端身份验证 + 「当前电脑」—— 手机不再靠抢；Windows 两半都还没做**). 两件事，都先真机验了一部分。
+
+**① 对端身份验证**（`docs/HANDOFF-IOS-PEER-AUTH.md` 的 iOS + Mac 两半）：token 从"被出示"改成"**挑战-应答的密钥**"（HMAC-SHA256；`RemoteCrabCore/Networking/PeerAuth.swift` 与 `rc-protocol::peer_auth.rs` 逐字节一致，`PeerAuthTests` 断言**同一对测试向量**）。wire 加 `IBClientHello.nonce` / `IBSessionReply.{nonce,mac,capabilities}` / `IBClientProof`（kind **0x26**）。iOS 对已配对电脑走 `pending{nonce,mac} → clientProof → accepted`；Mac 发 nonce、验手机、回 `clientProof`、验证失败**断开且不重试**、老手机无 nonce 则照常接受但标记"身份未验证"；`clientHello` 3 秒超时从"放行"改为 **`denied`**（旧放行不需要任何凭证）。**真机**：Mac ↔ 手机走通 challenge→proof→accepted。
+
+**② 「当前电脑」—— 一台手机记住一台电脑，其余待命**（`docs/superpowers/specs/2026-10-07-current-computer-design.md`）。根因是"哪台电脑"由**抢**决定：先到先得 + 每 3–15 秒重连 + 选择只是 30 秒/10 分钟的临时偏好。改法：`MacPairingStore.current` 持久化；`PairingPolicy.decide` 只接受 current（或刚选的 `preferred`），其余回 `busy`；Mac 收到 `busy`/`off` 转入**待命**（停快循环，只留 60 秒兜底轻探，knock 立即拨）；选择面板标"本机 iPhone" + 新增"**释放此 iPhone**"；等待卡显示"**正在等待 <电脑名>**"。**无新 wire kind**（复用 `busy`）。**真机**：Windows 每次拨入被确定性回 `busy`，重启手机 app 后仍服务 Mac（改前是"谁先重连谁赢"）。**未验**：手机选择面板切换 + Mac 60 秒待命（需在手机上点一下）；Windows 待命（其机器仍是旧版，见 `docs/HANDOFF-WINDOWS-CURRENT-COMPUTER-2026-10-07.md`）。**注意**：`release-mac.sh` 的公证在本网络不可达（Apple 时间戳服务器），装进 `/Applications` 的是 Developer ID 签名但**未公证**的构建。
+
 _Last updated: 2026-10-05 (evening, **电脑在线状态 + 即时连接 + 断开语义 —— 全部真机验收通过；并修掉连接体验的根因**). 用户报「选电脑看不到谁在线、切换慢、断开又自动连上、Windows 连不上/VPN 穿透不了」。**一条条先取证再修，六个真 bug 里有两个是我自己前一步「修复」引入的。**
 
 **连不上/切换慢/断开又连上，是同一个结构问题**：iPhone 是服务端、只能被动接受。逐个根因：

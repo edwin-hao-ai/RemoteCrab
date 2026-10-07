@@ -107,7 +107,8 @@ public enum PairingPolicy {
         paired: [PairedMac],
         owner: PairedMac?,
         preferred: PairedMac? = nil,
-        disconnected: PairedMac? = nil
+        disconnected: PairedMac? = nil,
+        current: PairedMac? = nil
     ) -> PairingDecision {
         // The user explicitly disconnected this computer. Applies before
         // everything else — including `accept` for a paired + valid-token
@@ -131,6 +132,14 @@ public enum PairingPolicy {
         // id that resolves to nothing and the switch silently reverts.
         if let preferred, preferred.id != hello.id {
             return .busy(ownerName: preferred.name)
+        }
+        // The phone is set to serve one computer. Any other computer — even a
+        // paired one with a valid token — stands by, so ownership is decided by
+        // the persisted choice instead of by who dialled first. Skipped when
+        // this connection IS the freshly chosen `preferred` one, or the switch
+        // could never complete.
+        if let current, current.id != hello.id, preferred?.id != hello.id {
+            return .busy(ownerName: current.name)
         }
         // Owner reconnecting, or a fresh connection from a known Mac:
         // only auto-accept when the token proves identity.
@@ -170,6 +179,8 @@ public final class MacPairingStore {
     private let seenKey: String
     private let disconnectedIdKey: String
     private let disconnectedNameKey: String
+    private let currentIdKey: String
+    private let currentNameKey: String
 
     /// Every computer that has ever connected (paired or not), newest
     /// first. Capped so a long-lived install can't grow it without bound.
@@ -248,6 +259,8 @@ public final class MacPairingStore {
         self.seenKey = key + ".seenComputers"
         self.disconnectedIdKey = key + ".disconnectedId"
         self.disconnectedNameKey = key + ".disconnectedName"
+        self.currentIdKey = key + ".currentId"
+        self.currentNameKey = key + ".currentName"
         self.paired = Self.load(from: defaults, key: key)
         self.seen = Self.loadSeen(from: defaults, key: key + ".seenComputers")
     }
@@ -404,6 +417,30 @@ public final class MacPairingStore {
         return PairedMac(id: id, name: name, pairedAt: .distantPast, token: "")
     }
 
+    /// The computer this iPhone is set to serve ("the current computer").
+    ///
+    /// Persisted, so the choice survives a relaunch and ownership stops being
+    /// decided by who dialled first. Synthesised from id + name like
+    /// `preferred`, so it can name a computer that is not in the allow-list.
+    public var current: PairedMac? {
+        guard let id = defaults.string(forKey: currentIdKey) else { return nil }
+        if let paired = paired.first(where: { $0.id == id }) { return paired }
+        let name = defaults.string(forKey: currentNameKey) ?? id
+        return PairedMac(id: id, name: name, pairedAt: .distantPast, token: "")
+    }
+
+    public var currentId: String? { defaults.string(forKey: currentIdKey) }
+
+    public func setCurrent(id: String, name: String) {
+        defaults.set(id, forKey: currentIdKey)
+        defaults.set(name, forKey: currentNameKey)
+    }
+
+    public func clearCurrent() {
+        defaults.removeObject(forKey: currentIdKey)
+        defaults.removeObject(forKey: currentNameKey)
+    }
+
     public func setPreferred(id: String, name: String? = nil, at: Date = Date()) {
         defaults.set(id, forKey: preferredIdKey)
         defaults.set(at, forKey: preferredAtKey)
@@ -484,6 +521,7 @@ public final class MacPairingStore {
         forgetSeen(id: id)
         if preferredId == id { clearPreferred() }
         if disconnected?.id == id { clearDisconnected() }
+        if currentId == id { clearCurrent() }
         save()
     }
 
@@ -497,6 +535,7 @@ public final class MacPairingStore {
         paired = []
         clearPreferred()
         clearDisconnected()
+        clearCurrent()
         save()
     }
 

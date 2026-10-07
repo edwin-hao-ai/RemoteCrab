@@ -9,6 +9,27 @@
 > `docs/HANDOFF-WINDOWS-REMAINING-2026-10-05.md` (Windows), `docs/HANDOFF-IOS-PEER-AUTH.md`
 > (the iOS half of peer auth), and `docs/HANDOFF-MAC-SIDE-2026-10-04.md` (Mac).
 
+## Session: opencode (2026-10-07) — peer auth: iOS + Mac halves
+
+- Branch: `main`, no worktree. **Finished; this entry can be deleted.**
+- Status: **完成（本端可验证部分）**
+  - `RemoteCrabCore/Networking/PeerAuth.swift`（新）：与 Rust `peer_auth` 逐字节一致，
+    断言了同一对测试向量。wire 加了 `nonce`/`mac`/`capabilities`/`clientProof`(0x26)。
+  - iOS `CaptureEngine` 挑战-应答流程 + 「clientHello 超时即放行」改为 `denied`。
+  - Mac `ReceiverSession` 发 nonce、验手机、回 `clientProof`、失败不重试、老手机标记未验证。
+- Touched: `RemoteCrabCore/Sources/…/PeerAuth.swift`(新), `…/Networking/{IBEvents,IBWire}.swift`,
+  `…/DesignSystem/IBLocale.swift`, `…/Resources/Localizable.xcstrings`,
+  `RemoteCrabCapture/CaptureEngine.swift`, `RemoteCrabReceiver/{ReceiverSession,MenuBarMenu}.swift`,
+  `RemoteCrabCore/Tests/…/{PeerAuthTests,PeerAuthWireTests}.swift`(新),
+  `docs/HANDOFF-{IOS,MAC}-PEER-AUTH.md`
+- Verified: `swift test` 627 绿；两个 app target 构建通过；Windows `cargo test --workspace --lib` 绿；
+  `rc-net --test session` 20/20。
+- **Pre-existing red (not this session)**: `cargo build --workspace` (host) fails in `rc-app`
+  — `mod autostart`/`mod vcam`/`spawn_update_check` are not `#[cfg(windows)]`-gated.
+  Confirmed identical at pre-pull `527712b`. Windows session's to fix.
+- Not done: real-device verification (needs an iPhone + a Mac).
+
+
 ## Session: opencode (2026-10-06) — Windows: peer authentication, native UI, 8 bugs
 
 - Branch: `main`, no worktree. **Finished; this entry can be deleted.**

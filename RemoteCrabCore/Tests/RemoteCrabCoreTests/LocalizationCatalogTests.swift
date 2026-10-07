@@ -52,6 +52,22 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    func testCurrentComputerKeysAreBilingual() throws {
+        let keys = [
+            "This iPhone",
+            "Release this iPhone",
+            "Let the next computer that connects become the one this iPhone serves.",
+        ]
+        let strings = try catalog()
+        for key in keys {
+            let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
+            let locs = try XCTUnwrap(entry["localizations"] as? [String: Any], "no localizations: \(key)")
+            XCTAssertNotNil(locs["en"], "missing en: \(key)")
+            let zh = (locs["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+            XCTAssertFalse((zh?["value"] as? String)?.isEmpty != false, "missing zh-Hans: \(key)")
+        }
+    }
+
     /// Every context-mode action label must ship a `zh-Hans` translation.
     ///
     /// The labels are *data* (`ContextProfiles`), so they cannot be `IBL(...)`

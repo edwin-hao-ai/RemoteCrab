@@ -1055,6 +1055,15 @@ struct ContentView: View {
             // stays visible in the connection details sheet.
             // Also offer the Mac receiver download: "waiting for your Mac"
             // is usually "the Mac app isn't installed/running yet".
+            if let name = engine.currentComputerName {
+                return StatusAlert(symbol: "antenna.radiowaves.left.and.right",
+                                   tint: IBColor.warning,
+                                   title: IBLocale.Pairing.waitingForCurrent(name),
+                                   subtitle: IBLocale.Error.searchingHint,
+                                   linkTitle: IBLocale.Settings.downloadMac,
+                                   linkURL: RemoteCrabLinks.productPage,
+                                   mascot: true)
+            }
             return StatusAlert(symbol: "antenna.radiowaves.left.and.right",
                                tint: IBColor.warning,
                                title: IBLocale.Error.waitingForMac,

@@ -34,6 +34,20 @@ struct ComputerPickerView: View {
                     sessionSection
                 }
                 rosterSection
+                if engine.currentComputerId != nil {
+                    Section {
+                        Button(role: .destructive) {
+                            engine.releaseCurrentComputer()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(IBLocale.Pairing.releaseCurrent)
+                                Text(IBLocale.Pairing.releaseCurrentHint)
+                                    .font(IBFont.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
             .task {
@@ -136,6 +150,16 @@ struct ComputerPickerView: View {
             if let connected = engine.connectedMacName {
                 HStack {
                     computerIcon(for: connected, platform: engine.connectedPlatform)
+                    if let current = engine.currentComputerId, current == engine.connectedMacId {
+                        Text(IBLocale.Pairing.currentComputer)
+                            .font(IBFont.caption)
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background {
+                                Capsule().fill(Color.accentColor.opacity(0.15))
+                            }
+                    }
                     Spacer()
                     Text(IBLocale.Pairing.connectedNow)
                         .font(IBFont.caption)
@@ -188,6 +212,16 @@ struct ComputerPickerView: View {
                             HStack(spacing: 6) {
                                 computerIcon(for: entry.name, platform: entry.platform)
                                 if entry.isOnline { onlineDot }
+                                if entry.id == engine.currentComputerId {
+                                    Text(IBLocale.Pairing.currentComputer)
+                                        .font(IBFont.caption)
+                                        .foregroundStyle(Color.accentColor)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background {
+                                            Capsule().fill(Color.accentColor.opacity(0.15))
+                                        }
+                                }
                                 if !isPaired {
                                     Text(IBLocale.Pairing.notPairedBadge)
                                         .font(IBFont.caption)
