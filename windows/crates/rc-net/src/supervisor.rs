@@ -853,14 +853,23 @@ events_tx: &broadcast::Sender<Event>,
         // nothing visible. `latencyProbe` because `rc-net::ping` echoes a probe
         // this side did not originate, which is how the phone measures its own
         // round trip.
-        capabilities: Some(vec![
-            "latencyProbe".to_string(),
-            "commandResult".to_string(),
-            // What this receiver can do about identity. A phone that can do it
-            // too answers with the same word and a MAC; one that cannot is
-            // simply never authenticated, which the session state records.
-            crate::peer_auth::CAPABILITY.to_string(),
-        ]),
+        capabilities: Some({
+            let mut caps = vec![
+                "latencyProbe".to_string(),
+                "commandResult".to_string(),
+                // What this receiver can do about identity. A phone that can do it
+                // too answers with the same word and a MAC; one that cannot is
+                // simply never authenticated, which the session state records.
+                crate::peer_auth::CAPABILITY.to_string(),
+            ];
+            // Only when a virtual-display driver is installed and answering.
+            // Absence is what keeps the phone's "Extended Display" row hidden
+            // on a receiver that cannot back it, instead of a dead control.
+            if config.extended_display {
+                caps.push(rc_protocol::CAP_EXTENDED_DISPLAY.to_string());
+            }
+            caps
+        }),
     };
     let Ok(frame) = encode_client_hello(&hello) else {
         return ConnEndKind::Lost;

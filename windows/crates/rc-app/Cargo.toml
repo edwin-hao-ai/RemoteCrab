@@ -29,6 +29,10 @@ rc-loopback.workspace = true
 rc-os.workspace = true
 rc-record.workspace = true
 rc-mirror.workspace = true
+# Extended display: the control pipe + frame ring the IddCx driver shares.
+# Non-target-gated: its Windows code is `cfg(windows)` and the rest stubs to
+# "not available", so this crate still builds on the Mac that runs the suite.
+rc-vdisplay.workspace = true
 png.workspace = true
 # A fake iPhone on localhost, for `--selftest` / `--preview-selftest`.
 # Optional and OFF by default: a release build must not ship a second copy

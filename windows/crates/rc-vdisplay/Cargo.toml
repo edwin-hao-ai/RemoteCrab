@@ -1,0 +1,26 @@
+[package]
+name = "rc-vdisplay"
+description = "RemoteCrab for Windows — extended display: the control pipe + frame ring shared with the IddCx driver."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# The capability word is a wire contract; it lives in rc-protocol so the
+# receiver's hello and this crate cannot drift.
+rc-protocol.workspace = true
+# The frame ring reuses the virtual camera's proven, tested layout
+# (`Header`/`HeaderView`) rather than inventing a second one. The two rings
+# never share a file, so the shared magic is not ambiguous in practice.
+rc-vcam = { path = "../rc-vcam" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    # Finding the virtual monitor's rect in the virtual desktop (the space
+    # `SendInput`'s absolute coordinates use) so `screenInput` maps correctly.
+    "Win32_Graphics_Gdi",
+] }

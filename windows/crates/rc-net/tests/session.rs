@@ -14,6 +14,8 @@ fn test_config() -> Config {
         default_port: rc_net::DEFAULT_PORT,
         // Keep tests hermetic — never touch the real %APPDATA% token file.
         token_path: None,
+        // No virtual-display driver in a test host.
+        extended_display: false,
     }
 }
 
@@ -796,6 +798,45 @@ async fn a_phone_that_proves_itself_is_authenticated() {
         ),
         other => panic!("expected Streaming, got {other:?}"),
     }
+}
+
+/// Extended Display is advertised only when the app says a driver is present.
+///
+/// This is the whole reason the capability exists: a Windows receiver has no
+/// user-mode virtual display, so the phone must keep the row hidden until an
+/// IddCx driver answers — never offer a button that does nothing.
+#[tokio::test]
+async fn extended_display_capability_follows_the_driver_flag() {
+    // OFF: no driver, so the row stays hidden.
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let session = Session::spawn(test_config());
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let hello = recv_hello(&mut phone).await;
+    assert!(
+        !hello
+            .capabilities
+            .as_ref()
+            .is_some_and(|c| c.iter().any(|k| k == rc_protocol::CAP_EXTENDED_DISPLAY)),
+        "a receiver with no driver must not advertise Extended Display: {:?}",
+        hello.capabilities
+    );
+
+    // ON: advertise it, and keep the capabilities it always had.
+    let mut phone = FakeIphone::start(FakeIphoneConfig::default()).await.unwrap();
+    let mut config = test_config();
+    config.extended_display = true;
+    let session = Session::spawn(config);
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let hello = recv_hello(&mut phone).await;
+    let caps = hello.capabilities.clone().unwrap_or_default();
+    assert!(
+        caps.iter().any(|k| k == rc_protocol::CAP_EXTENDED_DISPLAY),
+        "a driver-equipped receiver must advertise it: {caps:?}"
+    );
+    assert!(
+        caps.iter().any(|k| k == "commandResult"),
+        "and must not drop the capabilities it always had: {caps:?}"
+    );
 }
 
 #[tokio::test]

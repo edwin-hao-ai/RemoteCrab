@@ -75,6 +75,42 @@ final class CapabilityNegotiationTests: XCTestCase {
         XCTAssertEqual(back.capabilities, [.latencyProbe, .commandResult])
     }
 
+    // MARK: - Extended Display
+
+    /// The Windows receiver has no user-mode virtual display, so the phone
+    /// must keep the "Extended Display" row hidden until an IddCx driver
+    /// answers. The capability is how it knows; a receiver that does not claim
+    /// it gets no row rather than a button that does nothing.
+    func testExtendedDisplayIsCapabilityGated() throws {
+        let withoutDriver = Data("""
+        {"name":"PC","id":"pc-1","token":null,"appVersion":"1.0",\
+        "platform":"windows","capabilities":["latencyProbe","commandResult"]}
+        """.utf8)
+        let noDriver = try IBWire.decodeClientHello(
+            IBWire.Frame(kind: .clientHello, payload: withoutDriver))
+        XCTAssertFalse(noDriver.supports(.extendedDisplay),
+                       "a Windows receiver with no driver must not offer extend")
+
+        let withDriver = Data("""
+        {"name":"PC","id":"pc-1","token":null,"appVersion":"1.0",\
+        "platform":"windows","capabilities":["extendedDisplay"]}
+        """.utf8)
+        let driver = try IBWire.decodeClientHello(
+            IBWire.Frame(kind: .clientHello, payload: withDriver))
+        XCTAssertTrue(driver.supports(.extendedDisplay))
+    }
+
+    func testExtendedDisplayRoundTrips() throws {
+        let hello = IBClientHello(name: "PC", id: "pc-1", token: nil, appVersion: "1.0",
+                                  platform: "windows",
+                                  capabilities: [.latencyProbe, .extendedDisplay])
+        let parser = IBWire.Parser()
+        let frames = parser.append(try IBWire.encode(clientHello: hello))
+        XCTAssertEqual(frames.count, 1)
+        let back = try IBWire.decodeClientHello(frames[0])
+        XCTAssertEqual(back.capabilities, [.latencyProbe, .extendedDisplay])
+    }
+
     // MARK: - The behaviour each capability gates
 
     /// The scenario the whole mechanism exists for.

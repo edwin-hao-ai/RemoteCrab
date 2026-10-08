@@ -56,6 +56,7 @@
     <Feature Id="Main" Title="RemoteCrab" Level="1">
       <ComponentGroupRef Id="Payload" />
       <ComponentGroupRef Id="VcamRegistration" />
+      <ComponentGroupRef Id="VdisplayDriver" />
       <ComponentGroupRef Id="Shortcuts" />
       <ComponentGroupRef Id="Uninstall" />
       <ComponentGroupRef Id="RingCleanup" />
@@ -103,6 +104,29 @@
       <Component Id="PayloadRuntime" Guid="F1B63D09-7A24-4E85-9C70-2B48D6E9F3A5" Directory="INSTALLFOLDER">
         <File Id="libstdcxx" Source="@PAYLOAD@\libstdc++-6.dll" KeyPath="yes" />
         <File Id="libgcc" Source="@PAYLOAD@\libgcc_s_seh-1.dll" />
+      </Component>
+      <?endif?>
+    </ComponentGroup>
+
+    <!--
+      The indirect display driver (Extended Display) and its catalog.
+
+      Guarded by `$(VdisplayBuild)`, set by release-windows.sh only when it
+      staged a driver payload. A dev build, or a build made before the driver
+      is signed, must still install — the receiver simply never advertises the
+      capability, and the phone never shows the row.
+
+      The files are copied next to the exe rather than into the driver store;
+      `AddVdisplayDriver` below hands them to `pnputil`, which is what actually
+      creates the software device. A signed `.cat` is required for that to
+      succeed on a normal machine (see the driver README).
+    -->
+    <ComponentGroup Id="VdisplayDriver" Directory="INSTALLFOLDER">
+      <?ifdef $(VdisplayBuild) ?>
+      <Component Id="VdisplayFiles" Guid="3A9F2C71-6B48-4E15-8D02-5C7A1E9B4F63" Directory="INSTALLFOLDER">
+        <File Id="rc-idd.dll" Source="@PAYLOAD@\rc-idd.dll" KeyPath="yes" />
+        <File Id="rc-idd.inf" Source="@PAYLOAD@\rc-idd.inf" />
+        <File Id="rc-idd.cat" Source="@PAYLOAD@\rc-idd.cat" />
       </Component>
       <?endif?>
     </ComponentGroup>
@@ -237,6 +261,10 @@
     <ComponentGroup Id="RingCleanup" Directory="RingFolder">
       <Component Id="RemoveRingFile" Guid="B71C3E58-9A24-4D06-8F53-2E7A1C4B6D09" Directory="RingFolder">
         <RemoveFile Id="RingFile" Name="vcam-ring.bin" On="uninstall" />
+        <!-- The extended-display ring, written by the IddCx driver. Same
+             directory, same NULL DACL; the driver has no uninstall hook of its
+             own for it. -->
+        <RemoveFile Id="VdisplayRingFile" Name="vdisplay-ring.bin" On="uninstall" />
         <RemoveFolder Id="RemoveRingFolder" Directory="RingFolder" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\RemoteCrab" Name="RingCleanup" Type="integer" Value="1" KeyPath="yes" />
       </Component>
@@ -381,6 +409,31 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!--
+      Install / remove the indirect display driver via `pnputil`, the same
+      tool a user would run by hand. The installer is already elevated (it is
+      perMachine), so this costs the user nothing extra — one UAC prompt for the
+      whole install, which is the bar the virtual camera set.
+
+      `Return="ignore"` on both: a driver that fails to install (unsigned on a
+      machine with test signing off, or a policy block) must not fail the whole
+      install. The receiver then reports no `extendedDisplay` capability and the
+      phone hides the row — the feature is absent, not broken.
+    -->
+    <CustomAction Id="AddVdisplayDriver"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='pnputil /add-driver "[INSTALLFOLDER]rc-idd.inf" /install'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveVdisplayDriver"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='pnputil /delete-driver rc-idd.inf /uninstall'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <InstallExecuteSequence>
       <!-- Both before RemoveFiles: the exe has to still be there to be run.
            User state first — it needs no rights, so a failure there cannot
@@ -395,6 +448,10 @@
       <Custom Action="RemoveKnockFirewallRule" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="AddLogonTask" After="InstallFiles" Condition="NOT REMOVE" />
       <Custom Action="RemoveLogonTask" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
+      <!-- The driver, after its files are down; removed before RemoveFiles so
+           the .inf still exists for pnputil. -->
+      <Custom Action="AddVdisplayDriver" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="RemoveVdisplayDriver" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot;" />
       <Custom Action="LaunchApp" After="InstallFinalize" Condition="NOT (REMOVE OR UPGRADINGPRODUCTCODE)" />
     </InstallExecuteSequence>
   </Package>

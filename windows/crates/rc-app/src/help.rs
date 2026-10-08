@@ -79,6 +79,11 @@ const SELF_CHECKS: &[(&str, &str, &str)] = &[
         "给虚拟摄像头喂动态测试图（无需手机）",
         "Feed a moving test pattern to the virtual camera (no phone)",
     ),
+    (
+        "--vdisplay-probe",
+        "检查扩展显示器（第二屏）驱动是否已安装",
+        "Check whether the extended-display (second screen) driver is installed",
+    ),
 ];
 
 const TROUBLESHOOTING: &[(&str, &str, &str)] = &[

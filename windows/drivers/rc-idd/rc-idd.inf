@@ -1,0 +1,78 @@
+;
+; rc-idd.inf — RemoteCrab indirect display driver.
+;
+; A root-enumerated UMDF indirect display device. Installing it (once, with
+; admin) creates the software device; the driver then answers the control pipe
+; the receiver probes. The monitor itself appears only while the phone is
+; extended, so a machine that never uses the feature shows no extra screen.
+;
+; Adapted from Microsoft's IddSampleDriver.inf (Windows-driver-samples, MIT).
+;
+
+[Version]
+PnpLockDown = 1
+Signature   = "$Windows NT$"
+ClassGUID   = {4D36E968-E325-11CE-BFC1-08002BE10318}
+Class       = Display
+ClassVer    = 2.0
+Provider    = %ManufacturerName%
+CatalogFile = rc-idd.cat
+DriverVer   = ; set by stampinf at build time
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%DeviceName%=RemoteCrabDisplay_Install, Root\RemoteCrabDisplay
+
+[SourceDisksFiles]
+rc-idd.dll=1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+; =================== UMDF device ==================================
+
+[RemoteCrabDisplay_Install.NT]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT
+CopyFiles=UMDriverCopy
+
+[RemoteCrabDisplay_Install.NT.hw]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.HW
+AddReg=RemoteCrabDisplay_HardwareDeviceSettings
+
+[RemoteCrabDisplay_HardwareDeviceSettings]
+HKR,, "UpperFilters", %REG_MULTI_SZ%, "IndirectKmd"
+HKR, "WUDF", "DeviceGroupId", %REG_SZ%, "RemoteCrabDisplayGroup"
+
+[RemoteCrabDisplay_Install.NT.Services]
+Include=WUDFRD.inf
+Needs=WUDFRD.NT.Services
+
+[RemoteCrabDisplay_Install.NT.Wdf]
+UmdfService=rc-idd,rc-idd_Install
+UmdfServiceOrder=rc-idd
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+
+[rc-idd_Install]
+UmdfLibraryVersion=$UMDFVERSION$
+ServiceBinary=%12%\UMDF\rc-idd.dll
+UmdfExtensions = IddCx0102
+
+[DestinationDirs]
+UMDriverCopy=12,UMDF ; copy to drivers\umdf
+
+[UMDriverCopy]
+rc-idd.dll
+
+; =================== Strings ==================================
+
+[Strings]
+ManufacturerName="RemoteCrab"
+DiskName="RemoteCrab Display Driver"
+DeviceName="RemoteCrab Display"
+
+REG_MULTI_SZ = 0x00010000
+REG_SZ       = 0x00000000

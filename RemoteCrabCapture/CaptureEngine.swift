@@ -114,6 +114,19 @@ final class CaptureEngine: ObservableObject {
     /// True when the connected computer is Windows — i.e. the keyboard
     /// surface must show Ctrl/Alt/Shift and Windows shortcut chords.
     var connectedIsWindows: Bool { connectedPlatform.lowercased() == "windows" }
+    /// What the owning receiver declared it can do, from its `clientHello`.
+    /// Empty for a receiver built before capability negotiation. Drives the
+    /// extended-display row: the Mac has always been able to extend, a Windows
+    /// receiver only once its IddCx driver is installed, and the phone must not
+    /// offer a button that cannot do anything (see `ContentView`).
+    @Published private(set) var peerCapabilities: [IBClientHello.Capability] = []
+    /// Whether the receiver can turn this phone into an extra display. The Mac
+    /// has always done this; a Windows receiver says so only when its driver is
+    /// present. Callers keep the platform fallback for a legacy Mac, which
+    /// predates the capability but could extend all the same.
+    var peerSupportsExtendedDisplay: Bool {
+        peerCapabilities.contains(.extendedDisplay)
+    }
     /// The peer as the shared package models it. The context sheet needs
     /// this (not a Bool) because a whole action *set* differs per platform,
     /// not just a few labels.
@@ -1728,7 +1741,8 @@ final class CaptureEngine: ObservableObject {
                 Self.log.info("clientHello accepted by token only — no peerAuth, session unauthenticated")
                 Forensic.log("[auth] legacy receiver (no nonce) — session unverified")
                 sendSessionReply(IBSessionReply(result: .accepted, token: paired.token), on: conn)
-                grant(connection: conn, mac: paired, platform: hello.platform)
+                grant(connection: conn, mac: paired, platform: hello.platform,
+                      capabilities: hello.capabilities ?? [])
             } else if case .accept = decision {
                 // Shouldn't happen, but never strand the Mac.
                 sendSessionReply(IBSessionReply(result: .pending), on: conn)
@@ -1815,7 +1829,8 @@ final class CaptureEngine: ObservableObject {
             refreshPairedMacs()
             sendSessionReply(IBSessionReply(result: .accepted), on: challenge.connection)
             grant(connection: challenge.connection, mac: challenge.mac,
-                  platform: challenge.hello.platform)
+                  platform: challenge.hello.platform,
+                  capabilities: challenge.hello.capabilities ?? [])
         } else {
             refuseChallenge(challenge, reason: "wrong MAC")
         }
@@ -1866,7 +1881,10 @@ final class CaptureEngine: ObservableObject {
     /// `platform` is the value from THIS connection's `clientHello`
     /// (nil for a legacy Mac or the timeout fallback) — the live handshake
     /// is the source of truth for ⌘ vs Ctrl, not a remembered lookup.
-    private func grant(connection conn: NWConnection, mac: PairedMac?, platform: String? = nil) {
+    /// `capabilities` is that same hello's declared abilities, so the UI can
+    /// hide a control the receiver cannot back.
+    private func grant(connection conn: NWConnection, mac: PairedMac?, platform: String? = nil,
+                       capabilities: [IBClientHello.Capability] = []) {
         handshakeTask?.cancel()
         handshakeTask = nil
         handshakeToken = nil
@@ -1911,6 +1929,10 @@ final class CaptureEngine: ObservableObject {
         connectedPlatform = platform
             ?? mac.flatMap { pairingStore.platform(for: $0.id) }
             ?? "macos"
+        // From this connection's hello only, never a remembered lookup: a
+        // receiver that stopped advertising a capability must lose it, the same
+        // way the live handshake is the authority for platform.
+        peerCapabilities = capabilities
         connectionState = .connected
         failureReason = nil
         startOwnerWatchdog()
@@ -2258,7 +2280,8 @@ final class CaptureEngine: ObservableObject {
         pairingStore.noteOutcome(.streaming, for: hello.id)
         refreshPairedMacs()
         sendSessionReply(IBSessionReply(result: .accepted, token: mac.token), on: conn)
-        grant(connection: conn, mac: mac, platform: hello.platform)
+        grant(connection: conn, mac: mac, platform: hello.platform,
+              capabilities: hello.capabilities ?? [])
     }
 
     /// Deny the waiting Mac and close its connection.
@@ -2912,6 +2935,7 @@ final class CaptureEngine: ObservableObject {
         connectedMacName = nil
         connectedMacId = nil
         connectedPlatform = "macos"
+        peerCapabilities = []
         // The mirror can't survive a dropped link. Keep `screenOn` so it
         // resumes on reconnect (grant() calls syncScreen), but drop the
         // decoder state + target.

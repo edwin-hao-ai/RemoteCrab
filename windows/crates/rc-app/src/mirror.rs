@@ -41,6 +41,10 @@ struct Shared {
     /// Current target frame `(origin_x, origin_y, width, height)` in
     /// virtual-desktop pixels, for mapping `screenInput`.
     geometry: Option<(f64, f64, f64, f64)>,
+    /// When true the source is the virtual display (an IddCx monitor) rather
+    /// than a window. Chosen once per run — switching source restarts the
+    /// capture thread, exactly like changing the requested size does.
+    virtual_display: bool,
 }
 
 /// Lock that survives a poisoned mutex.
@@ -64,6 +68,15 @@ pub struct MirrorController {
     handle: Option<std::thread::JoinHandle<()>>,
 }
 
+/// Which pixels the capture thread streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// The frontmost (or pinned) window, via `PrintWindow`.
+    Window,
+    /// The IddCx virtual monitor, via its frame ring.
+    VirtualDisplay,
+}
+
 impl MirrorController {
     pub fn new(session: Session) -> Self {
         Self {
@@ -73,38 +86,63 @@ impl MirrorController {
                 desired: None,
                 max_pixel: DEFAULT_MAX_PIXEL,
                 geometry: None,
+                virtual_display: false,
             })),
             stop: Arc::new(AtomicBool::new(false)),
             handle: None,
         }
     }
 
-    /// Start (or restart) streaming. `max_pixel` is the phone's long-edge cap.
+    /// Start (or restart) streaming a window. `max_pixel` is the phone's
+    /// long-edge cap.
     pub fn start(&mut self, max_pixel: Option<u32>) {
-        self.stop_thread();
         let max_pixel = max_pixel.unwrap_or(DEFAULT_MAX_PIXEL).clamp(320, 4096);
-        {
-            let mut s = lock(&self.shared);
-            s.running = true;
-            s.max_pixel = max_pixel;
-            s.geometry = None;
+        self.restart(Source::Window, max_pixel);
+    }
+
+    /// Stream the **virtual display** instead of a window — the phone becomes
+    /// a real second monitor.
+    ///
+    /// `Err` when no IddCx driver is installed (so the caller can say why);
+    /// otherwise the driver creates a monitor at `max_pixel × max_pixel*10/16`
+    /// (the same 16:10 the Mac uses) and the capture thread reads its frames.
+    pub fn extend(&mut self, max_pixel: Option<u32>) -> Result<(), String> {
+        let long = max_pixel.unwrap_or(DEFAULT_MAX_PIXEL).clamp(320, 4096);
+        let (w, h) = (long, long * 10 / 16);
+        rc_vdisplay::set_monitor(Some((w, h)))?;
+        self.restart(Source::VirtualDisplay, long);
+        Ok(())
+    }
+
+    /// Drop the virtual monitor and follow the frontmost window again. Used by
+    /// the phone's "mirror a window" toggle while extended.
+    pub fn follow(&mut self) {
+        let was_virtual = lock(&self.shared).virtual_display;
+        // "Follow" means the frontmost window, so clear any pin too.
+        lock(&self.shared).desired = None;
+        if was_virtual {
+            let _ = rc_vdisplay::set_monitor(None);
+            let max_pixel = lock(&self.shared).max_pixel.max(DEFAULT_MAX_PIXEL);
+            self.restart(Source::Window, max_pixel); // clears `virtual_display`
         }
-        self.stop.store(false, Ordering::SeqCst);
-        let session = self.session.clone();
-        let shared = self.shared.clone();
-        let stop = self.stop.clone();
-        self.handle = Some(std::thread::spawn(move || run(session, shared, stop)));
     }
 
     /// Stop streaming and clear the target.
     pub fn stop(&mut self) {
-        {
+        let was_virtual = {
             let mut s = lock(&self.shared);
             s.running = false;
             s.desired = None;
             s.geometry = None;
-        }
+            let v = s.virtual_display;
+            s.virtual_display = false;
+            v
+        };
         self.stop_thread();
+        if was_virtual {
+            // Best effort: a torn-down driver makes this a no-op.
+            let _ = rc_vdisplay::set_monitor(None);
+        }
     }
 
     /// Pin to `id`, or follow the frontmost window when `None`. The running
@@ -117,6 +155,24 @@ impl MirrorController {
     /// The current target frame, for input mapping. `None` when not mirroring.
     pub fn geometry(&self) -> Option<(f64, f64, f64, f64)> {
         lock(&self.shared).geometry
+    }
+
+    /// (Re)start the capture thread on `source`. Switching source restarts the
+    /// thread, so `run` may treat `virtual_display` as fixed for its lifetime.
+    fn restart(&mut self, source: Source, max_pixel: u32) {
+        self.stop_thread();
+        {
+            let mut s = lock(&self.shared);
+            s.running = true;
+            s.max_pixel = max_pixel;
+            s.geometry = None;
+            s.virtual_display = source == Source::VirtualDisplay;
+        }
+        self.stop.store(false, Ordering::SeqCst);
+        let session = self.session.clone();
+        let shared = self.shared.clone();
+        let stop = self.stop.clone();
+        self.handle = Some(std::thread::spawn(move || run(session, shared, stop)));
     }
 
     fn stop_thread(&mut self) {
@@ -134,24 +190,135 @@ impl Drop for MirrorController {
 }
 
 /// The capture loop. Holds the encoder + last-sent parameter sets privately.
+/// Encoder plus the last parameter sets sent, shared by both sources.
+///
+/// Re-sending identical SPS/PPS makes the phone's decoder rebuild on every
+/// frame; caching them is why the two branches can share one encoder.
+#[cfg(windows)]
+struct EncoderState {
+    enc: Option<rc_mirror::ScreenEncoder>,
+    sps: Option<Vec<u8>>,
+    pps: Option<Vec<u8>>,
+}
+
+#[cfg(windows)]
+impl EncoderState {
+    fn new() -> Self {
+        Self {
+            enc: rc_mirror::ScreenEncoder::new(),
+            sps: None,
+            pps: None,
+        }
+    }
+
+    /// Encode one BGRA frame and send its NALs.
+    fn publish(&mut self, session: &Session, bgra: &[u8], w: u32, h: u32) {
+        let Some(enc) = self.enc.as_mut() else { return };
+        for nal in enc.encode_bgra(bgra, w, h) {
+            let nf = match rc_mirror::nal_type(&nal) {
+                7 => {
+                    if self.sps.as_ref() == Some(&nal) {
+                        continue;
+                    }
+                    self.sps = Some(nal.clone());
+                    NalFrame {
+                        kind: NalKind::Sps,
+                        data: nal,
+                        timestamp_micros: 0,
+                    }
+                }
+                8 => {
+                    if self.pps.as_ref() == Some(&nal) {
+                        continue;
+                    }
+                    self.pps = Some(nal.clone());
+                    NalFrame {
+                        kind: NalKind::Pps,
+                        data: nal,
+                        timestamp_micros: 0,
+                    }
+                }
+                1 | 5 => NalFrame {
+                    kind: NalKind::Video,
+                    data: nal,
+                    timestamp_micros: 0,
+                },
+                _ => continue,
+            };
+            session.send_frame(encode_screen_nal(&nf));
+        }
+    }
+}
+
+/// The capture loop. Its source is fixed for the thread's lifetime (switching
+/// source restarts the thread); within the window source, `desired` is read
+/// live so pinning takes effect without a restart.
 #[cfg(windows)]
 fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
-    let mut encoder = rc_mirror::ScreenEncoder::new();
-    let mut last_sps: Option<Vec<u8>> = None;
-    let mut last_pps: Option<Vec<u8>> = None;
+    let mut enc = EncoderState::new();
     let mut last_target: Option<String> = None;
     let mut last_info = Instant::now() - INFO_INTERVAL;
+    // Virtual-display reader state (unused while streaming a window).
+    let mut reader: Option<rc_vdisplay::DisplayReader> = None;
+    let mut last_seq: u64 = 0;
 
     while !stop.load(Ordering::SeqCst) {
-        let (running, desired, max_pixel) = {
+        let (running, desired, max_pixel, virtual_display) = {
             let s = lock(&shared);
-            (s.running, s.desired.clone(), s.max_pixel)
+            (s.running, s.desired.clone(), s.max_pixel, s.virtual_display)
         };
         if !running {
             break;
         }
 
-        #[cfg(windows)]
+        if virtual_display {
+            // Open the ring lazily: the driver may still be starting, and a
+            // later iteration will succeed where the first failed.
+            if reader.is_none() {
+                reader = rc_vdisplay::DisplayReader::open();
+            }
+            let next = reader
+                .as_ref()
+                .and_then(|r| r.latest())
+                .filter(|f| f.seq != last_seq);
+            if let Some(frame) = next {
+                last_seq = frame.seq;
+                let (w, h) = (frame.width, frame.height);
+                // The monitor's desktop rect, so `screenInput` maps correctly.
+                // Falls back to the origin when the OS has not laid it out yet.
+                let (ox, oy, ow, oh) = rc_vdisplay::find_monitor_rect(w, h)
+                    .unwrap_or((0.0, 0.0, w as f64, h as f64));
+                lock(&shared).geometry = Some((ox, oy, ow, oh));
+
+                if last_target.as_deref() != Some("extended")
+                    || last_info.elapsed() >= INFO_INTERVAL
+                {
+                    last_info = Instant::now();
+                    last_target = Some("extended".to_string());
+                    let info = ScreenInfo {
+                        status: ScreenStatus::Ok,
+                        window_id: Some(format!("extended:{w}x{h}")),
+                        // Matches the Mac's extended-display `screenInfo`, which
+                        // is what the phone reads to know it is extended.
+                        app_id: Some("extended".to_string()),
+                        app_name: Some("RemoteCrab Display".to_string()),
+                        title: Some("RemoteCrab Display".to_string()),
+                        origin_x: ox,
+                        origin_y: oy,
+                        width: ow,
+                        height: oh,
+                        pixel_width: w as i64,
+                        pixel_height: h as i64,
+                        shows_cursor: false,
+                    };
+                    session.send_frame(encode_screen_info(&info).unwrap_or_default());
+                }
+                enc.publish(&session, &frame.bgra, w, h);
+            }
+            std::thread::sleep(FRAME_INTERVAL);
+            continue;
+        }
+
         let target = rc_mirror::resolve_target(desired.as_deref());
         let Some(target) = target else {
             {
@@ -193,7 +360,6 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
             s.geometry = Some((geo.origin_x, geo.origin_y, geo.width, geo.height));
         }
 
-        #[cfg(windows)]
         let captured = rc_mirror::capture_bgra(&target.id, max_pixel);
         let (pixel_w, pixel_h) = match &captured {
             Some((_, w, h)) => (*w as i64, *h as i64),
@@ -222,42 +388,8 @@ fn run(session: Session, shared: Arc<Mutex<Shared>>, stop: Arc<AtomicBool>) {
             session.send_frame(encode_screen_info(&info).unwrap_or_default());
         }
 
-        if let (Some(enc), Some((bgra, w, h))) = (encoder.as_mut(), captured) {
-            for nal in enc.encode_bgra(&bgra, w, h) {
-                let nf = match rc_mirror::nal_type(&nal) {
-                    7 => {
-                        // Skip re-sending identical parameter sets (the iOS
-                        // decoder would otherwise rebuild every keyframe).
-                        if last_sps.as_ref() == Some(&nal) {
-                            continue;
-                        }
-                        last_sps = Some(nal.clone());
-                        NalFrame {
-                            kind: NalKind::Sps,
-                            data: nal,
-                            timestamp_micros: 0,
-                        }
-                    }
-                    8 => {
-                        if last_pps.as_ref() == Some(&nal) {
-                            continue;
-                        }
-                        last_pps = Some(nal.clone());
-                        NalFrame {
-                            kind: NalKind::Pps,
-                            data: nal,
-                            timestamp_micros: 0,
-                        }
-                    }
-                    1 | 5 => NalFrame {
-                        kind: NalKind::Video,
-                        data: nal,
-                        timestamp_micros: 0,
-                    },
-                    _ => continue,
-                };
-                session.send_frame(encode_screen_nal(&nf));
-            }
+        if let Some((bgra, w, h)) = captured {
+            enc.publish(&session, &bgra, w, h);
         }
 
         std::thread::sleep(FRAME_INTERVAL);
