@@ -81,6 +81,25 @@ final class PeerTokenIndexTests: XCTestCase {
         XCTAssertTrue(idx.isPhoneInitiated(phoneId: "p2"))
     }
 
+    func testForgetThenLookupReturnsNil() {
+        var idx = PeerTokenIndex()
+        idx.set(phoneId: "p1", name: "Phone", token: "t")
+        idx.forget(phoneId: "p1")
+        XCTAssertNil(idx.token(phoneId: "p1", name: "Phone"),
+                     "forget must genuinely drop the token; the name entry must not resurrect it")
+        XCTAssertNil(idx.byName["Phone"])
+    }
+
+    func testForgetWithSharedTokenLeavesOtherPhoneLookupWorking() {
+        var idx = PeerTokenIndex()
+        idx.set(phoneId: "p1", name: "Phone 1", token: "shared")
+        idx.set(phoneId: "p2", name: "Phone 2", token: "shared")
+        idx.forget(phoneId: "p1")
+        XCTAssertNil(idx.token(phoneId: "p1", name: "Phone 1"))
+        XCTAssertEqual(idx.token(phoneId: "p2", name: "Phone 2"), "shared",
+                       "the other phone's own id entry must survive forget")
+    }
+
     // MARK: - value semantics
 
     func testValueSemanticsDoNotShareStorage() {

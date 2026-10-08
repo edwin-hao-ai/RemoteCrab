@@ -36,7 +36,7 @@ public struct PeerTokenIndex: Equatable, Sendable {
     public mutating func token(phoneId: String, name: String) -> String? {
         if let t = byPhoneId[phoneId] { return t }
         guard let t = byName[name] else { return nil }
-        byPhoneId[phoneId] = t          // 迁移：旧 name-keyed token 复制到 id 表
+        byPhoneId[phoneId] = t
         return t
     }
 
@@ -51,10 +51,16 @@ public struct PeerTokenIndex: Equatable, Sendable {
 
     public mutating func markPhoneInitiated(phoneId: String) { phoneInitiated.insert(phoneId) }
 
-    /// Drop a phone entirely: its token and its phone-initiated flag. The name
-    /// entry is left alone — it is shared by any phone with the same name.
+    /// Drop a phone entirely: its token, any legacy name entry that still
+    /// resolves to that token, and its phone-initiated flag. The token is
+    /// stashed before removal so the name table cannot resurrect it on the
+    /// next `token(phoneId:name:)` lookup.
     public mutating func forget(phoneId: String) {
-        byPhoneId.removeValue(forKey: phoneId)
+        if let token = byPhoneId.removeValue(forKey: phoneId) {
+            for (name, value) in byName where value == token {
+                byName.removeValue(forKey: name)
+            }
+        }
         phoneInitiated.remove(phoneId)
     }
 }
