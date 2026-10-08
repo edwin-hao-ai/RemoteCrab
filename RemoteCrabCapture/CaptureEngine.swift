@@ -337,6 +337,22 @@ final class CaptureEngine: ObservableObject {
     /// back — so this is what turns "no answer" into the inbound fallback.
     private var outboundWatchdog: Task<Void, Never>?
 
+    /// The ordered address candidates for the in-flight outbound dial, and the
+    /// index of the one being tried. Bonjour first, then addresses learned this
+    /// session (`rememberedAddresses`). A candidate that does not connect
+    /// advances to the next before the legacy arm+knock fallback.
+    private var outboundCandidates: [ComputerAddress] = []
+    private var outboundCandidateIndex = 0
+    /// Bounds one candidate's pre-connect phase, so an unroutable endpoint
+    /// (VPN/TUN, client isolation) costs `dialBudget` instead of the system TCP
+    /// timeout before the next candidate is tried.
+    private var outboundDialWatchdog: Task<Void, Never>?
+    /// Direct addresses learned from connections that reached a computer this
+    /// session, newest first, keyed by id. Runtime-only: there is no persisted
+    /// per-computer last-known address yet (design §12), so this helps a
+    /// reconnect within one app session. Persisting it is the follow-up.
+    private var rememberedAddresses: [String: [ComputerAddress]] = [:]
+
     /// The computer a launch/foreground (or an offline row tap) wants to reach.
     ///
     /// Presence resolves a computer's endpoint a moment after the browser
@@ -1730,6 +1746,10 @@ final class CaptureEngine: ObservableObject {
             guard handshakeToken == token else { return }
         }
 
+        // Every reached computer teaches us its direct IPv4, so a later tap can
+        // try it when mDNS is swallowed (design §12).
+        rememberDirectAddress(of: conn, for: hello.id)
+
         // A hello arrived, so this is not a legacy Mac — disarm the 3 s
         // first-come fallback for this connection. Without this, the `off` /
         // `busy` replies above did not cancel it, and 3 s later it admitted the
@@ -1997,6 +2017,10 @@ final class CaptureEngine: ObservableObject {
         // Scoped to this connection/target: an unrelated grant must not tear
         // down (or wipe the race gate of) a concurrent dial to another computer.
         if outboundConnection === conn || (outboundTarget != nil && outboundTarget?.id == mac?.id) {
+            outboundDialWatchdog?.cancel()
+            outboundDialWatchdog = nil
+            outboundCandidates = []
+            outboundCandidateIndex = 0
             outboundWatchdog?.cancel()
             outboundWatchdog = nil
             outboundTarget = nil
@@ -2455,6 +2479,7 @@ final class CaptureEngine: ObservableObject {
             if connection == nil { connectionState = .idle }
         }
         if pendingAutoDialId == id { pendingAutoDialId = nil }
+        rememberedAddresses[id] = nil
         // The approval slot is live state, not stored: leaving it would keep a
         // swipeable `seen` row and, worse, tapping Allow would re-pair and
         // re-current the computer the user just deleted (lesson 131).
@@ -2956,7 +2981,8 @@ final class CaptureEngine: ObservableObject {
         if let owner = ownerMac, owner.id != id {
             disconnectCurrentMac()
         }
-        guard let endpoint = computerEndpoints[id] else {
+        let candidates = dialCandidates(for: id)
+        guard !candidates.isEmpty else {
             Forensic.log("[dial] \(id.prefix(8)) offline — arming instead")
             pendingAutoDialId = id
             return
@@ -2964,20 +2990,58 @@ final class CaptureEngine: ObservableObject {
 
         let target = PairedMac(id: id, name: nameForComputer(id: id) ?? id,
                                pairedAt: .distantPast, token: "")
-        let parser = IBWire.Parser()
-        let token = UUID()
-        let conn = NWConnection(to: endpoint, using: tcpComputerParameters())
         // Outbound-only state — never `connection`/`candidate`/`handshakeToken`.
         outboundTarget = target
+        outboundCandidates = candidates
+        outboundCandidateIndex = 0
+        startNextOutboundDial(for: target)
+    }
+
+    /// The address candidates for a computer, Bonjour first then addresses
+    /// learned this session. Empty means genuinely offline (nothing to dial).
+    private func dialCandidates(for id: String) -> [ComputerAddress] {
+        let bonjour = computerEndpoints[id].map { [ComputerAddress.bonjour($0)] } ?? []
+        return ComputerAddress.ordered(bonjour: bonjour,
+                                       remembered: rememberedAddresses[id] ?? [])
+    }
+
+    /// Dial the next candidate for `target`, or fall back to arm+knock when the
+    /// list is exhausted.
+    private func startNextOutboundDial(for target: PairedMac) {
+        guard outboundCandidateIndex < outboundCandidates.count else {
+            armOutboundFallback(target: target)
+            return
+        }
+        let candidate = outboundCandidates[outboundCandidateIndex]
+        outboundCandidateIndex += 1
+        let parser = IBWire.Parser()
+        let token = UUID()
+        let conn = NWConnection(to: candidate.endpoint, using: tcpComputerParameters())
         outboundConnection = conn
         outboundToken = token
-        Forensic.log("[dial] outbound to \(id.prefix(8))")
-
+        Forensic.log("[dial] outbound to \(target.id.prefix(8)) via \(candidate)")
         conn.stateUpdateHandler = { [weak self] state in
             Task { @MainActor in self?.handleOutboundState(state, on: conn, target: target) }
         }
         startOutboundReceive(on: conn, target: target, parser: parser, token: token)
+        startOutboundDialWatchdog(on: conn, target: target)
         conn.start(queue: queue)
+    }
+
+    /// Learn a computer's direct IPv4 from a connection that reached it, so a
+    /// later dial can skip Bonjour when mDNS is swallowed. The knock port, not
+    /// the ephemeral source port, is what a phone dial must target.
+    private func rememberDirectAddress(of conn: NWConnection, for id: String) {
+        guard let remote = conn.currentPath?.remoteEndpoint,
+              case .hostPort(let host, _) = remote,
+              case .ipv4(let addr) = host else { return }
+        let ip = "\(addr)"
+        guard DirectDialAddress.isUsable(ip) else { return }
+        let candidate = ComputerAddress.host(ip, IBServiceType.knockPort)
+        var list = rememberedAddresses[id] ?? []
+        list.removeAll { $0 == candidate }
+        list.insert(candidate, at: 0)
+        rememberedAddresses[id] = Array(list.prefix(4))
     }
 
     private func tcpComputerParameters() -> NWParameters {
@@ -2991,6 +3055,9 @@ final class CaptureEngine: ObservableObject {
         guard outboundConnection === conn, outboundTarget?.id == target.id else { return }
         switch state {
         case .ready:
+            outboundDialWatchdog?.cancel()
+            outboundDialWatchdog = nil
+            rememberDirectAddress(of: conn, for: target.id)
             Forensic.log("[dial] connected to \(target.id.prefix(8)) — sending phoneHello")
             let hello = IBPhoneHello(
                 phoneId: phoneId,
@@ -3073,9 +3140,26 @@ final class CaptureEngine: ObservableObject {
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard let self, self.outboundConnection === conn,
                   self.outboundTarget?.id == target.id else { return }
+            // The socket reached `.ready`, so the address routes — another
+            // candidate would be the same computer and answer the same way.
+            // This is the legacy-receiver path, not a routing failure.
             Forensic.log("[dial] no clientHello from \(target.id.prefix(8)) — legacy fallback")
-            conn.stateUpdateHandler = { _ in }
-            conn.cancel()
+            self.armOutboundFallback(target: target, on: conn)
+        }
+    }
+
+    /// Bounds the pre-connect phase of one candidate. An unroutable endpoint
+    /// can sit without `failed` for the system TCP timeout, which would make the
+    /// candidate list pointless exactly when it is needed (design §12).
+    private func startOutboundDialWatchdog(on conn: NWConnection, target: PairedMac) {
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(ComputerAddress.dialBudget)) } catch { return }
+            guard let self, self.outboundConnection === conn,
+                  self.outboundTarget?.id == target.id else { return }
+            // `.ready` already won the race but its handler may not have run yet.
+            if conn.state == .ready { return }
+            Forensic.log("[dial] \(target.id.prefix(8)) did not connect — next candidate")
             self.failOutbound(on: conn, target: target)
         }
     }
@@ -3084,6 +3168,10 @@ final class CaptureEngine: ObservableObject {
     /// tap supersedes it. State is cleared BEFORE the cancel so a fast legacy
     /// dial-back is never answered `busy` by the very target we were dialling.
     private func cancelOutboundSilently() {
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = nil
+        outboundCandidates = []
+        outboundCandidateIndex = 0
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
         let conn = outboundConnection
@@ -3111,6 +3199,10 @@ final class CaptureEngine: ObservableObject {
     private func detachOutboundForApproval(on conn: NWConnection) {
         guard outboundConnection === conn else { return }
         Forensic.log("[dial] outbound parked in the approval slot")
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = nil
+        outboundCandidates = []
+        outboundCandidateIndex = 0
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
         outboundConnection = nil
@@ -3131,20 +3223,49 @@ final class CaptureEngine: ObservableObject {
         outboundTarget = nil
     }
 
-    /// The outbound attempt did not become a session. Tear down the socket,
-    /// drop the dial, and arm the inbound fallback so a legacy receiver that
-    /// cancels-and-dials-back can still reach us.
-    private func failOutbound(on conn: NWConnection, target: PairedMac) {
-        guard outboundConnection === conn else { return }
+    /// Clear the in-flight dial's socket and per-dial state. Leaves
+    /// `outboundTarget` (the race gate) alone; the caller decides what is next.
+    private func teardownOutbound(on conn: NWConnection) {
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = nil
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
         outboundConnection = nil
         outboundToken = nil
-        outboundTarget = nil
-        if connectionState == .starting { connectionState = .idle }
+        conn.stateUpdateHandler = { _ in }
         conn.cancel()
-        // State is already cleared, so an immediate dial-back from a legacy
-        // receiver is served by the normal inbound path with the door held.
+    }
+
+    /// A candidate did not connect. Try the next one; only the exhausted list
+    /// falls back to the inbound arm+knock model.
+    private func failOutbound(on conn: NWConnection, target: PairedMac) {
+        guard outboundConnection === conn else { return }
+        guard outboundCandidateIndex >= outboundCandidates.count else {
+            teardownOutbound(on: conn)
+            startNextOutboundDial(for: target)
+            return
+        }
+        armOutboundFallback(target: target, on: conn)
+    }
+
+    /// No candidate connected. Drop the gate BEFORE closing the socket (T11
+    /// review: a fast legacy dial-back must not be answered `busy` by the very
+    /// target we dialled), then arm + knock so the inbound path serves it.
+    private func armOutboundFallback(target: PairedMac, on conn: NWConnection? = nil) {
+        outboundTarget = nil
+        outboundCandidates = []
+        outboundCandidateIndex = 0
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = nil
+        outboundWatchdog?.cancel()
+        outboundWatchdog = nil
+        outboundConnection = nil
+        outboundToken = nil
+        if connectionState == .starting { connectionState = .idle }
+        if let conn {
+            conn.stateUpdateHandler = { _ in }
+            conn.cancel()
+        }
         setPreferredComputer(id: target.id)
     }
 
@@ -3155,6 +3276,10 @@ final class CaptureEngine: ObservableObject {
                                        on conn: NWConnection) {
         guard outboundConnection === conn else { return }
         Forensic.log("[dial] \(target.id.prefix(8)) refused: \(String(describing: reply.result))")
+        outboundDialWatchdog?.cancel()
+        outboundDialWatchdog = nil
+        outboundCandidates = []
+        outboundCandidateIndex = 0
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
         outboundConnection = nil
