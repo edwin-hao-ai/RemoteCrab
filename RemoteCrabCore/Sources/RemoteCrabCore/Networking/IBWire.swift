@@ -431,19 +431,14 @@ public enum IBWire {
         try JSONDecoder().decode(IBClientHello.self, from: frame.payload)
     }
 
-    /// Decode a `.phoneHello` handshake.
+    /// Decode a `.phoneHello` frame's payload.
     ///
-    /// Accepts either a complete `.phoneHello` frame (what
-    /// `encode(phoneHello:)` produces, and what a real reader has after
-    /// `Parser`) or a bare JSON payload. The bare form keeps forward-compat
-    /// probes against a hand-written minimal sender ergonomic. Anything that
-    /// parses as a `.phoneHello` frame takes precedence; otherwise the bytes
-    /// are decoded as the JSON payload directly.
-    public static func decodePhoneHello(_ data: Data) throws -> IBPhoneHello {
-        if let frame = Parser().append(data).first, frame.kind == .phoneHello {
-            return try JSONDecoder().decode(IBPhoneHello.self, from: frame.payload)
-        }
-        return try JSONDecoder().decode(IBPhoneHello.self, from: data)
+    /// Mirrors `decodeClientHello`: takes the parsed `Frame` and reads its
+    /// payload, so this can never mistake a wrong-kind frame or a bare buffer
+    /// for a handshake. A minimal/older sender's missing optional fields decode
+    /// as nil (see `IBPhoneHello.init(from:)`).
+    public static func decodePhoneHello(_ frame: Frame) throws -> IBPhoneHello {
+        try JSONDecoder().decode(IBPhoneHello.self, from: frame.payload)
     }
 
     /// Decode a `.sessionReply` frame's payload.

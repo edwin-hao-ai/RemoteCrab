@@ -277,13 +277,17 @@ final class IBEventsTests: XCTestCase {
                                  targetPcId: "pc-uuid", appVersion: "1.1",
                                  nonce: "AAAA", capabilities: [.phoneInitiated, .peerAuth])
         let data = try IBWire.encode(phoneHello: hello)
-        XCTAssertEqual(try IBWire.decodePhoneHello(data), hello)
+        let frame = try XCTUnwrap(IBWire.Parser().append(data).first)
+        XCTAssertEqual(frame.kind, .phoneHello)
+        XCTAssertEqual(try IBWire.decodePhoneHello(frame), hello)
     }
 
     func testPhoneHelloDecodesWithoutOptionalFields() throws {
         // 旧/最小发送者不带 nonce/capabilities —— 必须能解码（前向兼容）
         let json = #"{"phoneId":"p","phoneName":"n","targetPcId":"c","appVersion":"1.0"}"#
-        let decoded = try IBWire.decodePhoneHello(Data(json.utf8))
+        let frame = try XCTUnwrap(
+            IBWire.Parser().append(IBWire.encodeFrame(kind: .phoneHello, payload: Data(json.utf8))).first)
+        let decoded = try IBWire.decodePhoneHello(frame)
         XCTAssertNil(decoded.nonce)
         XCTAssertNil(decoded.capabilities)
     }
