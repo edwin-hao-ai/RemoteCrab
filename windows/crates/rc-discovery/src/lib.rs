@@ -118,6 +118,16 @@ pub fn lan_source_for(target: std::net::Ipv4Addr) -> Option<std::net::Ipv4Addr> 
 /// test that needs a tunnel and a WiFi adapter on the same subnet should not
 /// need either to exist on the machine running it.
 pub fn pick_lan(adapters: &[Adapter], target: std::net::Ipv4Addr) -> Option<std::net::Ipv4Addr> {
+    pick_lan_adapter(adapters, target).map(|a| a.addr)
+}
+
+/// The whole chosen adapter — the address *and* its `IfIndex`.
+///
+/// `connect_bound` needs the index, not just the address, to call
+/// `IP_UNICAST_IF`: binding the source address on its own does **not** override
+/// a TUN proxy's route, so the packet still leaves through the tunnel. The
+/// index is the only thing that pins egress to the physical NIC.
+pub fn pick_lan_adapter(adapters: &[Adapter], target: std::net::Ipv4Addr) -> Option<Adapter> {
     adapters
         .iter()
         // Loopback first: it covers plenty of subnets by prefix and can never
@@ -128,7 +138,7 @@ pub fn pick_lan(adapters: &[Adapter], target: std::net::Ipv4Addr) -> Option<std:
         // same link picks the more specific one rather than whichever the OS
         // happened to enumerate first.
         .max_by_key(|a| a.prefix_len)
-        .map(|a| a.addr)
+        .copied()
 }
 
 /// Name fragments that are proxies or tunnels in practice.
@@ -446,15 +456,56 @@ pub async fn connect_bound(host: &str, port: u16) -> std::io::Result<TcpStream> 
         // is what the unbound path does anyway.
         return TcpStream::connect((host, port)).await;
     };
-    let Some(local) = lan_source_for(ip) else {
+    let Some(adapter) = pick_lan_adapter(&adapters(), ip) else {
         return TcpStream::connect((host, port)).await;
     };
     let socket = tokio::net::TcpSocket::new_v4()?;
-    socket.bind(std::net::SocketAddr::new(local.into(), 0))?;
+    socket.bind(std::net::SocketAddr::new(adapter.addr.into(), 0))?;
+    // Binding the source address is necessary but not sufficient: Windows still
+    // consults the routing table for egress, and a TUN proxy in `auto-route`
+    // mode points the LAN's route at the tunnel. `IP_UNICAST_IF` is what
+    // actually pins the packet to the physical NIC. See
+    // `force_unicast_interface`.
+    force_unicast_interface(&socket, adapter.index);
     socket
         .connect(std::net::SocketAddr::new(ip.into(), port))
         .await
 }
+
+/// Pin `socket`'s egress to a specific interface (`IfIndex`).
+///
+/// The problem it solves, measured on a real machine: with Mihomo Party (Clash)
+/// in TUN `auto-route` mode, `Find-NetRoute` for a LAN peer resolves to the
+/// **tunnel**, not the WiFi adapter — `192.168.31.50` → `Mihomo 198.18.0.1`,
+/// while only the gateway stayed on `WLAN`. A dial that merely binds the source
+/// address still follows that route and dies in the tunnel, which is exactly
+/// why the app "works until the VPN is switched on".
+///
+/// `IP_UNICAST_IF` overrides the route at the socket, so the connection leaves
+/// the physical NIC the adapter table named. The interface index goes in
+/// **network byte order** for IPv4 (Microsoft: IPPROTO_IP socket options) —
+/// unlike `IPV6_UNICAST_IF`, which is host order.
+///
+/// Best-effort by design: if the option is refused, the socket keeps the plain
+/// bound behaviour it had before, which is no worse.
+#[cfg(windows)]
+fn force_unicast_interface(socket: &tokio::net::TcpSocket, ifindex: u32) {
+    use std::os::windows::io::AsRawSocket;
+    use windows::Win32::Networking::WinSock::{setsockopt, IPPROTO_IP, IP_UNICAST_IF, SOCKET};
+
+    let bytes = ifindex.to_be_bytes();
+    let raw = SOCKET(socket.as_raw_socket() as usize);
+    // SAFETY: `raw` is a live socket owned by `socket`; `bytes` outlives the
+    // call and `setsockopt` only reads it.
+    unsafe {
+        let _ = setsockopt(raw, IPPROTO_IP.0, IP_UNICAST_IF, Some(&bytes));
+    }
+}
+
+/// Off Windows there is no adapter table (`adapters()` is empty) and no
+/// `IP_UNICAST_IF`; the caller's plain bound connect is the whole behaviour.
+#[cfg(not(windows))]
+fn force_unicast_interface(_socket: &tokio::net::TcpSocket, _ifindex: u32) {}
 
 /// The machine's own IPv4 addresses (excluding loopback + link-local).
 ///
@@ -752,6 +803,57 @@ mod tests {
     #[test]
     fn a_ghost_written_by_an_older_build_is_refused_on_the_way_out() {
         assert!(!is_usable_dial_address("127.0.0.1"));
+    }
+
+    /// The chosen adapter carries its `IfIndex` — not just its address — because
+    /// `connect_bound` calls `IP_UNICAST_IF` with it to escape a TUN proxy's
+    /// route. The selection must skip tunnels and prefer the longest prefix.
+    ///
+    /// This is the decision that makes "开着 VPN 也能连" possible: a bind-only
+    /// dial (no index) is what died in the Mihomo tunnel.
+    #[test]
+    fn pick_lan_adapter_returns_the_ifindex_and_never_the_tunnel() {
+        let wifi = Adapter {
+            index: 15,
+            addr: "192.168.31.159".parse().unwrap(),
+            prefix_len: 24,
+            tunnel: false,
+        };
+        let tun = Adapter {
+            index: 16,
+            addr: "198.18.0.1".parse().unwrap(),
+            prefix_len: 30,
+            tunnel: true,
+        };
+        let target: std::net::Ipv4Addr = "192.168.31.50".parse().unwrap();
+
+        let chosen =
+            pick_lan_adapter(&[tun, wifi], target).expect("the WiFi adapter covers the peer's subnet");
+        assert_eq!(chosen.index, 15, "the tunnel must never be chosen");
+        assert_eq!(chosen.addr, wifi.addr);
+
+        // A /16 on the same link loses to the /24: the index has to match the
+        // route the OS would actually pick, or the pin points somewhere else.
+        let broad = Adapter {
+            index: 7,
+            addr: "192.168.0.1".parse().unwrap(),
+            prefix_len: 16,
+            tunnel: false,
+        };
+        let chosen = pick_lan_adapter(&[broad, wifi], target).unwrap();
+        assert_eq!(chosen.prefix_len, 24);
+        assert_eq!(chosen.index, 15);
+
+        // Nothing covers the peer: no adapter, so the caller falls back.
+        assert!(pick_lan_adapter(&[tun], target).is_none());
+    }
+
+    /// `IP_UNICAST_IF` takes the interface index in **network** byte order for
+    /// IPv4. Pinned so a later "simplification" to host order (which is what
+    /// `IPV6_UNICAST_IF` wants) cannot silently turn the pin into a no-op.
+    #[test]
+    fn unicast_if_index_is_network_byte_order() {
+        assert_eq!(15u32.to_be_bytes(), [0, 0, 0, 15]);
     }
 
     #[test]
