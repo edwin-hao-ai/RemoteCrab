@@ -987,6 +987,18 @@ final class CaptureEngine: ObservableObject {
             refreshPairedMacs()
             Forensic.log("[e2e] reset pairing at launch")
         }
+        // E2E: a per-row Forget needs a swipe + dialog a headless run cannot
+        // perform, so this runs the *same* action the confirm dialog runs. It
+        // must happen BEFORE `autoDialLastComputerIfAny()` (below) or the run
+        // would dial the computer it just forgot.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_FORGET_CURRENT"] == "1" {
+            if let id = pairingStore.currentId {
+                forgetComputer(id: id)
+                Forensic.log("[e2e] forgot current computer \(id.prefix(8))")
+            } else {
+                Forensic.log("[e2e] forgot current computer: none set")
+            }
+        }
         connectionState = .starting
         do {
             try startListener()
@@ -1063,8 +1075,12 @@ final class CaptureEngine: ObservableObject {
                 guard let target = self.onlineComputers.first(where: { $0.id != self.currentComputerId })
                 else { continue }
                 Forensic.log("[e2e] pick online computer id=\(target.id.prefix(8)) name=\(target.name)")
-                self.setPreferredComputer(id: target.id)
+                // Run the *picker row's* action (T12): dial the tapped
+                // computer. Logged both as the historical arm-resolution marker
+                // (kept for the existing script) and as the dial marker.
+                self.connect(toComputer: target.id)
                 Forensic.log("[e2e] pick online resolved=\(self.preferredMac?.id == target.id)")
+                Forensic.log("[e2e] pick online dial id=\(target.id.prefix(8))")
                 return
             }
             Forensic.log("[e2e] pick online: no eligible online computer found")
