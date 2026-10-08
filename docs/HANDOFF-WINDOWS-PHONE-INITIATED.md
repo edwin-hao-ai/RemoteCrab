@@ -44,7 +44,7 @@ token 的电脑」发出是最小改动的正确抽象（spec §3）。
 **要改成：** 不要 `drop`，而是**在 ~500 ms 预算内用增量解析器读第一帧**
 （复用 `rc_protocol::Parser`，`windows/crates/rc-protocol/src/wire.rs:420`），按
 **与 Mac 完全一致的三态分类**决定走向。Mac 的纯函数是
-`InboundHelloClassifier.classify`（`RemoteCrabCore/Sources/RemoteCrabCore/Networking/InboundHelloClassifier.swift:51`），
+`InboundHelloClassifier.classify`（`RemoteCrabCore/Sources/RemoteCrabCore/Networking/InboundHelloClassifier.swift:54-63`），
 返回值 `data` / `knock` / `foreign` / `busy`：
 
 | 读到的第一帧 | 动作 |
@@ -67,7 +67,7 @@ token 的电脑」发出是最小改动的正确抽象（spec §3）。
   手机会走到它自己的看门狗超时。回 `busy` 才是诚实且能自我解释的（与 Mac `sendBusyAndClose` 对齐，
   `RemoteCrabReceiver/ReceiverSession.swift:2269`）。**注意 owner 身份**：手机侧拨入的
   owner 有 `phoneId`；如果 owner 只知名字（旧出站路径），Mac 的做法是**一律回 `busy`**
-  （identity 无法证明时，误判 `busy` 远比顶掉在线会话便宜，见 `InboundHelloClassifier.swift:64-67`）。
+  （identity 无法证明时，误判 `busy` 远比顶掉在线会话便宜，见 `InboundHelloClassifier.swift:51-53` 注释 / `:61` 的那条 guard）。
 
 **另外：** 目前 `accept` 后立刻 `drop(stream)`，所以那个 `TcpStream` 必须**交给 `rc-net`**
 （一个 `Command`，见 2.2），不能在 listener 里自己写。
@@ -145,8 +145,10 @@ token 的电脑」发出是最小改动的正确抽象（spec §3）。
 
 **现状：只 pin 了出站。** `057e1c6` 新增
 `force_unicast_interface`（`windows/crates/rc-discovery/src/lib.rs:492`，私有、`#[cfg(windows)]`），
-**只被 `connect_bound`（`:453`）调用**；`connect_bound` 又只被出站拨号
-`supervisor.rs:737 dial()` 使用。commit 里量到的现象：TUN（Mihomo Party / Clash）
+**只被 `connect_bound`（`:453`）调用**；`connect_bound` 又被两处出站调用方使用：
+出站拨号 `supervisor.rs:737 dial()`，以及探测 `rc_discovery::probe_tcp`
+（`rc-discovery/src/lib.rs:436`，内部 `:438` 调 `connect_bound`）。**两处都是出站**
+（`probe_tcp` 用来探测候选手机地址），所以「回程未被 pin」的结论不变。commit 里量到的现象：TUN（Mihomo Party / Clash）
 `auto-route` 下 `Find-NetRoute` 把 LAN 目标解析成**隧道** —— `192.168.31.50` →
 `Mihomo 198.18.0.1`，只有默认网关还在 `WLAN`。
 
@@ -182,7 +184,7 @@ TUN 在 `auto-route` / `gvisor` / `system` 不同栈下回程是否真的绕开�
 | `Kind::from_u8(0x27) → PhoneHello` | `wire.rs:190` |
 | 未知 kind → `Kind::Unknown`（**不再落 `Video`**，lesson 152） | `wire.rs:119-127`、`:149-193` |
 | `encode_phone_hello` / `decode_phone_hello` | `wire.rs:308-313` |
-| `PhoneHello` serde 结构（camelCase，`nonce`/`capabilities` 可选） | `events.rs:417-455` |
+| `PhoneHello` serde 结构（camelCase，`nonce`/`capabilities` 可选） | `events.rs:417-444` |
 | 键名 / raw值 / 解析器回归测试 | `windows/crates/rc-protocol/tests/wire_keys.rs`（`phone_hello_*`）、`wire.rs:648-678` |
 
 ### ❌ **未做**（本文档第 2 节的全部四项）
