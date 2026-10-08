@@ -347,6 +347,11 @@ final class CaptureEngine: ObservableObject {
     /// (VPN/TUN, client isolation) costs `dialBudget` instead of the system TCP
     /// timeout before the next candidate is tried.
     private var outboundDialWatchdog: Task<Void, Never>?
+    /// Whether the candidate currently being dialled reached `.ready`. A socket
+    /// that connected proves the address routes; a later close is the receiver
+    /// ending it (a legacy cancel-and-dial-back), not a reason to re-dial the
+    /// same computer's next address. Only a PRE-ready failure may advance.
+    private var outboundReachedReady = false
     /// Direct addresses learned from connections that reached a computer this
     /// session, newest first, keyed by id. Runtime-only: there is no persisted
     /// per-computer last-known address yet (design §12), so this helps a
@@ -3014,6 +3019,7 @@ final class CaptureEngine: ObservableObject {
         }
         let candidate = outboundCandidates[outboundCandidateIndex]
         outboundCandidateIndex += 1
+        outboundReachedReady = false
         let parser = IBWire.Parser()
         let token = UUID()
         let conn = NWConnection(to: candidate.endpoint, using: tcpComputerParameters())
@@ -3057,6 +3063,7 @@ final class CaptureEngine: ObservableObject {
         case .ready:
             outboundDialWatchdog?.cancel()
             outboundDialWatchdog = nil
+            outboundReachedReady = true
             rememberDirectAddress(of: conn, for: target.id)
             Forensic.log("[dial] connected to \(target.id.prefix(8)) — sending phoneHello")
             let hello = IBPhoneHello(
@@ -3071,9 +3078,22 @@ final class CaptureEngine: ObservableObject {
             connectionState = .starting
             startOutboundWatchdog(on: conn, target: target)
         case .failed, .cancelled:
-            failOutbound(on: conn, target: target)
+            outboundTerminated(on: conn, target: target)
         default:
             break
+        }
+    }
+
+    /// The outbound socket ended. A candidate that already reached `.ready`
+    /// routes, so its close is not a candidate failure: it is the receiver
+    /// ending the attempt (legacy cancel-and-dial-back) and must go straight to
+    /// arm+knock. Only a PRE-ready transport failure may advance.
+    private func outboundTerminated(on conn: NWConnection, target: PairedMac) {
+        guard outboundConnection === conn else { return }
+        if outboundReachedReady {
+            armOutboundFallback(target: target, on: conn)
+        } else {
+            failOutbound(on: conn, target: target)
         }
     }
 
@@ -3100,7 +3120,14 @@ final class CaptureEngine: ObservableObject {
                             // here with the watchdog already gone is exactly
                             // the permanent stall this exists to prevent.
                             guard self.outboundToken == token else {
-                                self.failOutbound(on: conn, target: target)
+                                // Superseded dial: advancing replaces
+                                // `outboundConnection`+`outboundToken` together,
+                                // so this is unreachable while a dial owns its
+                                // socket. It is an identity mismatch, not a
+                                // routing failure — never advance a candidate.
+                                if self.outboundConnection === conn {
+                                    self.armOutboundFallback(target: target, on: conn)
+                                }
                                 return
                             }
                             guard let hello = try? IBWire.decodeClientHello(frame) else { continue }
@@ -3121,7 +3148,7 @@ final class CaptureEngine: ObservableObject {
                     }
                 }
                 if error != nil {
-                    self.failOutbound(on: conn, target: target)
+                    self.outboundTerminated(on: conn, target: target)
                     return
                 }
                 if isComplete { return } // `.cancelled`/watchdog drives the fallback
@@ -3228,6 +3255,7 @@ final class CaptureEngine: ObservableObject {
     private func teardownOutbound(on conn: NWConnection) {
         outboundDialWatchdog?.cancel()
         outboundDialWatchdog = nil
+        outboundReachedReady = false
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
         outboundConnection = nil
@@ -3255,6 +3283,7 @@ final class CaptureEngine: ObservableObject {
         outboundTarget = nil
         outboundCandidates = []
         outboundCandidateIndex = 0
+        outboundReachedReady = false
         outboundDialWatchdog?.cancel()
         outboundDialWatchdog = nil
         outboundWatchdog?.cancel()

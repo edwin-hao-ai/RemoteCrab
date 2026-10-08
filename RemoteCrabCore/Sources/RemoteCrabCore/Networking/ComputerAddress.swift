@@ -16,8 +16,11 @@ public enum ComputerAddress: Sendable, Equatable {
     /// A literal host or `.local` name with an explicit port.
     case host(String, UInt16)
 
-    /// The dialable endpoint. A `UInt16` is the whole port range, so the
-    /// conversion always succeeds.
+    /// The dialable endpoint. `NWEndpoint.Port(rawValue:)` is failable in
+    /// general, but `Port` is `UInt16`-backed, so every `UInt16` maps into the
+    /// 0–65535 range and this cannot fail. Callers are still expected to pass a
+    /// real port (the receiver's fixed knock port), which is the only port the
+    /// receiver listens on for a phone dial.
     public var endpoint: NWEndpoint {
         switch self {
         case .bonjour(let endpoint):
