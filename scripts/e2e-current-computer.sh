@@ -3,9 +3,8 @@
 # Real-device e2e for the phone-initiated connection v2 design
 # (docs/superpowers/specs/2026-10-08-phone-initiated-connection-v2-design.md).
 #
-# It drives ONE Mac under several identities so a single machine can stand in
-# for "computer A", "computer B" and "a legacy receiver", and asserts the three
-# acceptance criteria of the design on a real iPhone:
+# One Mac stands in for three computers, and the harness asserts the design's
+# three acceptance criteria on a real iPhone:
 #
 #   §3 / §8.1  tap-to-switch < 2 s, no re-confirmation, no busy lock
 #   §7.3       forget a computer → row gone, no auto-dial, its knock goes pending
@@ -13,24 +12,22 @@
 #
 # Identity model
 # --------------
-# `REMOTECRAB_E2E_MAC_ID` overrides the receiver's id per process. A and B are
-# two ids of the SAME Mac; because a real A/B are two machines with two token
-# stores, the harness snapshots + swaps the app's UserDefaults domain
-# (`com.remotecrab.RemoteCrabReceiver`) between B and the A round-trip. Without
-# that, B's `accepted` would overwrite A's token (the store is one slot per
-# phone) and "switch back to an already-paired A" would fail peer-auth — an
-# artefact of one machine impersonating two, not a product defect.
+# Each "computer" is an independent COPY of the built app with its own bundle id
+# (and therefore its own UserDefaults domain, hence its own pairing-token store).
+# That is the faithful model: two real Macs never share a token slot, and the
+# app's token index is one slot per phone. The copies are ad-hoc re-signed and
+# run from /tmp — the user's /Applications install is never touched, and each
+# copy's domain is seeded with `remotecrab.sysexSubmittedAppPath` so the
+# system-extension manager sees "up to date" and neither activates nor
+# deactivates the user's camera extension (this run never uses it).
 #
-# The legacy phase runs the user's own previously-installed release build
-# (backed up to $RELEASE_BACKUP before we deploy the dev build). That build
-# predates `IBPhoneHello` (verified: it has "advertising presence" but no
-# "inbound phoneHello"), so it is a genuine legacy receiver: it treats the
+# A and B are the dev build under env identity `REMOTECRAB_E2E_MAC_ID`; the
+# legacy copy is the user's own installed release build (verified pre-`IBPhoneHello`:
+# it has "advertising presence" but no "inbound phoneHello"), so it treats the
 # phone's dial as a knock and dials back.
 #
 # Prereqs: iPhone unlocked + screen on (USB), Mac Accessibility granted, and no
 # iOS Simulator advertising `_remotecrab._tcp` (this script shuts sims down).
-# The deploy backs up + restores your /Applications/RemoteCrab.app AND your Mac
-# receiver UserDefaults on exit.
 #
 # Usage: ./scripts/e2e-current-computer.sh
 #
@@ -40,20 +37,23 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEVICE="${REMOTECRAB_DEVICE:-866A1921-B588-59D5-A1B7-B266103B2E49}"
 TEAM="${REMOTECRAB_TEAM:-5XNDF727Y6}"
 BUNDLE_IOS="com.ibridge.iBridgeCapture"
-MAC_DOMAIN="com.remotecrab.RemoteCrabReceiver"
 DD_ROOT="$ROOT/.build/e2e-current-derived"
 DD_MAC="$DD_ROOT/Build/Products/Debug/RemoteCrab.app"
 DD_IOS="$DD_ROOT/Build/Products/Debug-iphoneos/RemoteCrabCapture.app"
-RELEASE_BACKUP=/tmp/remotecrab-e2e-current-release.app
-PREFS_BACKUP=/tmp/remotecrab-e2e-current-userprefs.plist
-SNAP_A=/tmp/remotecrab-e2e-current-snapA.plist
-SNAP_B=/tmp/remotecrab-e2e-current-snapB.plist
-ID_A="e2e-a-$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-8)"
-ID_B="e2e-b-$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-8)"
-ID_L="e2e-l-$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-8)"
+
+# Three stand-in computers. Unique-ish ids so a stale record on the phone cannot
+# mask a result; distinct bundle ids so their token stores are independent.
+SUFFIX="$(uuidgen | tr 'A-Z' 'a-z' | cut -c1-6)"
+ID_A="e2e-a-$SUFFIX"
+ID_B="e2e-b-$SUFFIX"
+ID_L="e2e-l-$SUFFIX"
+APP_A="/tmp/remotecrab-t17-A.app"
+APP_B="/tmp/remotecrab-t17-B.app"
+APP_L="/tmp/remotecrab-t17-L.app"
+BID_A="com.remotecrab.RemoteCrabReceiver.t17a.$SUFFIX"
+BID_B="com.remotecrab.RemoteCrabReceiver.t17b.$SUFFIX"
+BID_L="com.remotecrab.RemoteCrabReceiver.t17l.$SUFFIX"
 MAC_PID=""
-# Set once the dev build is in /Applications so cleanup knows to restore.
-DEPLOYED=0
 
 stop_log() { pkill -f "log stream --predicate" 2>/dev/null; sleep 1; }
 start_log() {
@@ -71,20 +71,10 @@ kill_mac() {
 cleanup() {
   kill_mac
   stop_log
-  # Restore the user's receiver defaults first (the dev build and the legacy
-  # phase both mutate the same domain), then the /Applications install.
-  if [ -f "$PREFS_BACKUP" ]; then
-    defaults import "$MAC_DOMAIN" "$PREFS_BACKUP" >/dev/null 2>&1 \
-      && echo "  ↩︎ restored your Mac receiver preferences"
-    rm -f "$PREFS_BACKUP"
-  fi
-  if [ -d "$RELEASE_BACKUP" ]; then
-    rm -rf /Applications/RemoteCrab.app
-    ditto "$RELEASE_BACKUP" /Applications/RemoteCrab.app
-    rm -rf "$RELEASE_BACKUP"
-    echo "  ↩︎ restored your release install to /Applications/RemoteCrab.app"
-  fi
-  rm -f "$SNAP_A" "$SNAP_B"
+  for d in "$BID_A" "$BID_B" "$BID_L"; do defaults delete "$d" >/dev/null 2>&1; done
+  rm -rf "$APP_A" "$APP_B" "$APP_L"
+  rm -f ~/Library/Preferences/"$BID_A".plist ~/Library/Preferences/"$BID_B".plist ~/Library/Preferences/"$BID_L".plist
+  echo "  ↩︎ removed the harness copies (your /Applications/RemoteCrab.app was never touched)"
 }
 trap cleanup EXIT
 
@@ -103,6 +93,15 @@ check_absent() { # check_absent <file> <literal> <label>
     printf '  \033[31m✗\033[0m %s  (unexpected: %s)\n' "$3" "$2"; fail=$((fail+1))
   else
     printf '  \033[32m✓\033[0m %s\n' "$3"; pass=$((pass+1))
+  fi
+}
+check_first_reply_pending() { # the forgotten computer must be answered pending, not accepted
+  local first
+  first=$(grep -aF -- "sessionReply:" "$1" 2>/dev/null | head -1)
+  if printf '%s' "$first" | grep -aqF -- "pending"; then
+    printf '  \033[32m✓\033[0m %s\n' "$2"; pass=$((pass+1))
+  else
+    printf '  \033[31m✗\033[0m %s  (first reply was: %s)\n' "$2" "${first:-<none>}"; fail=$((fail+1))
   fi
 }
 # delta <log> <start-regex> <end-regex> → seconds between the first start and the
@@ -140,24 +139,56 @@ lt2() { # lt2 <seconds> <label> → assert a measured delta is a number < 2.0
 }
 
 pull_ios() { # pull_ios <dest>
-  rm -f "$1"
-  xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
-    --domain-identifier "$BUNDLE_IOS" --source Documents/forensic.log \
-    --destination "$1" >/dev/null 2>&1 || true
+  local i
+  for i in 1 2 3; do
+    rm -f "$1"
+    xcrun devicectl device copy from --device "$DEVICE" --domain-type appDataContainer \
+      --domain-identifier "$BUNDLE_IOS" --source Documents/forensic.log \
+      --destination "$1" >/dev/null 2>&1 || true
+    [ -s "$1" ] && return 0
+    sleep 2
+  done
+  echo "  ⚠ could not pull the iOS forensic log to $1"
+  return 1
 }
-
 launch_ios() { # launch_ios <json-env>
   xcrun devicectl device process launch --device "$DEVICE" --terminate-existing \
     --environment-variables "$1" "$BUNDLE_IOS"
 }
-
 wait_accepted() { # wait_accepted <mac-log> <seconds>
   for _ in $(seq 1 "$2"); do grep -aq "sessionReply: accepted" "$1" && return 0; sleep 1; done
   return 1
 }
+# make_computer <src.app> <dst.app> <bundleid> → independent copy, signed, with
+# the extension manager frozen at its own path.
+make_computer() {
+  rm -rf "$2"
+  ditto "$1" "$2" || { echo "  ✗ could not copy $1"; exit 1; }
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $3" "$2/Contents/Info.plist" \
+    || { echo "  ✗ could not set bundle id for $2"; exit 1; }
+  codesign --force --deep --sign - "$2" >/dev/null 2>&1 \
+    || { echo "  ✗ could not re-sign $2"; exit 1; }
+  defaults write "$3" remotecrab.sysexSubmittedAppPath "$2"
+  # Disable the receiver's own auto-dial. A fresh computer has not yet seen this
+  # phone as phone-initiated, so on discovery it would dial the phone too — and
+  # that race (design §6) would let B connect *before* the tap, so the phone's
+  # dial path would never be exercised. The phone dialling us is the whole point.
+  defaults write "$3" remotecrab.autoReconnect -bool false
+}
+run_mac() { # run_mac <id> <app> → starts the receiver, sets MAC_PID
+  local id="$1" app="$2"
+  REMOTECRAB_E2E_MAC_ID="$id" "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
+  MAC_PID=$!
+  sleep 4
+}
+seed_data() { # seed_data <bundleid> <key> <json> → write a JSON string as the key's Data value
+  local hex
+  hex=$(printf '%s' "$3" | xxd -p | tr -d '\n')
+  defaults write "$1" "$2" -data "$hex"
+}
 
 echo "== RemoteCrab phone-initiated-connection v2 device e2e =="
-echo "   identities: A=${ID_A:0:8}  B=${ID_B:0:8}  legacy=${ID_L:0:8}"
+echo "   identities: A=${ID_A}  B=${ID_B}  legacy=${ID_L}"
 
 echo "[0/8] preconditions"
 if ! xcrun devicectl list devices 2>/dev/null | grep -Eq "$DEVICE.*(available|connected)"; then
@@ -177,29 +208,21 @@ xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCaptur
 
 echo "[2/8] deploy"
 kill_mac
-rm -rf "$RELEASE_BACKUP" "$PREFS_BACKUP" "$SNAP_A" "$SNAP_B"
-[ -d /Applications/RemoteCrab.app ] && ditto /Applications/RemoteCrab.app "$RELEASE_BACKUP"
-defaults export "$MAC_DOMAIN" "$PREFS_BACKUP" >/dev/null 2>&1 || true
-[ -f "$PREFS_BACKUP" ] || echo "  ⚠ could not back up the Mac receiver prefs; cleanup cannot restore them"
-rm -rf /Applications/RemoteCrab.app && ditto "$DD_MAC" /Applications/RemoteCrab.app
-DEPLOYED=1
-echo "  (temporary dev-signed build; your install + prefs are restored on exit)"
+make_computer "$DD_MAC" "$APP_A" "$BID_A"
+make_computer "$DD_MAC" "$APP_B" "$BID_B"
+if [ ! -d /Applications/RemoteCrab.app ]; then
+  echo "  ✗ /Applications/RemoteCrab.app not found (needed as the genuine legacy receiver)"; exit 1
+fi
+make_computer /Applications/RemoteCrab.app "$APP_L" "$BID_L"
+echo "  (3 isolated receiver copies in /tmp; the user's install is untouched)"
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1 \
   || { echo "  iOS install failed"; exit 1; }
-
-MAC_BIN=/Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab
-run_mac() { # run_mac <id> [<bin>] → starts the receiver, sets MAC_PID
-  local id="$1" bin="${2:-$MAC_BIN}"
-  REMOTECRAB_E2E_MAC_ID="$id" "$bin" >/dev/null 2>&1 &
-  MAC_PID=$!
-  sleep 4
-}
 
 # ---------------------------------------------------------------------------
 echo "[3/8] Phase A — phone pairs with computer A (fresh, first contact)"
 LOG_A=/tmp/remotecrab-ec-a.log
 start_log "$LOG_A"
-run_mac "$ID_A"
+run_mac "$ID_A" "$APP_A"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_RESET_PAIRING":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
 if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not launch the app on the iPhone:"; echo "$LAUNCH_OUT" | sed 's/^/      /' | head -10
@@ -209,13 +232,26 @@ wait_accepted "$LOG_A" 40 || echo "  ⚠ no accepted within 40s in Phase A"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-a.log
 kill_mac
-defaults export "$MAC_DOMAIN" "$SNAP_A" >/dev/null 2>&1 || true
+# Teach stand-in B that this phone dials itself (copy A's phone-initiated marker
+# and its name→id link). Without it a freshly-created B neither knows the phone
+# nor has a token, so it auto-dials on discovery AND reconnects after a drop —
+# racing the phone's own dial. B is a stand-in for a computer the phone has
+# already paired, so this state is faithful.
+PHONE_ID=$(grep -a "inbound phoneHello from" "$LOG_A" | head -1 | sed -E 's/.*\(([^)]+)\)[^)]*$/\1/')
+PHONE_NAME=$(grep -a "inbound phoneHello from" "$LOG_A" | head -1 | sed -E 's/.*inbound phoneHello from (.*) \(.*\)$/\1/')
+if [ -n "$PHONE_ID" ] && [ -n "$PHONE_NAME" ]; then
+  echo "   seeding B with phone-initiated identity ${PHONE_ID:0:8}… ($PHONE_NAME)"
+  seed_data "$BID_B" remotecrab.mac.phoneInitiated "[\"$PHONE_ID\"]"
+  seed_data "$BID_B" remotecrab.mac.phoneIdByName "{\"RemoteCrab — $PHONE_NAME\":\"$PHONE_ID\"}"
+else
+  echo "  ⚠ could not read the phone identity from Phase A — B may auto-dial"
+fi
 
 # ---------------------------------------------------------------------------
 echo "[4/8] Phase B — switch to computer B (paired second; must not be busy-locked)"
 LOG_B=/tmp/remotecrab-ec-b.log
 start_log "$LOG_B"
-run_mac "$ID_B"
+run_mac "$ID_B" "$APP_B"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
 if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not relaunch the app: $LAUNCH_OUT"; exit 2
@@ -224,15 +260,13 @@ wait_accepted "$LOG_B" 40 || echo "  ⚠ no accepted within 40s in Phase B"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-b.log
 kill_mac
-defaults export "$MAC_DOMAIN" "$SNAP_B" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 echo "[5/8] Phase C — switch BACK to already-paired A (no approval; must be accepted)"
-# Restore A's token store so peer-auth can prove A (one Mac standing in for two).
-[ -f "$SNAP_A" ] && defaults import "$MAC_DOMAIN" "$SNAP_A" >/dev/null 2>&1 || true
+# A keeps its own token store (independent bundle id), so peer-auth proves it.
 LOG_C=/tmp/remotecrab-ec-c.log
 start_log "$LOG_C"
-run_mac "$ID_A"
+run_mac "$ID_A" "$APP_A"
 # NOTE: deliberately NO REMOTECRAB_E2E_AUTOPAIR — reaching `accepted` without it
 # is the "no re-confirmation" proof.
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
@@ -245,8 +279,9 @@ pull_ios /tmp/remotecrab-ec-ios-c.log
 
 # ---------------------------------------------------------------------------
 echo "[6/8] Phase D — forget the current computer (row gone + no auto-dial + pending)"
-# A (dev build) is still running from Phase C. Relaunch the phone with the
-# forget hook; the hook runs BEFORE auto-dial, so nothing may dial A.
+# A (dev copy) is still running from Phase C, so the picker sees A online yet
+# suppressed — that is the row-gone proof. Relaunch the phone with the forget
+# hook; the hook runs BEFORE auto-dial, so nothing may dial A.
 LOG_D=/tmp/remotecrab-ec-d.log
 start_log "$LOG_D"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_FORGET_CURRENT":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
@@ -256,24 +291,28 @@ fi
 # The pick hook needs 20 s to conclude "no eligible online computer" (A is
 # suppressed) — that is the row-gone proof.
 sleep 24
-# Knock A's presence port so it dials the phone back; the phone no longer has A
-# paired, so the inbound handshake must be answered `pending`, never accepted.
-nc -z -G 2 127.0.0.1 8766 >/dev/null 2>&1 || true
-sleep 8
+# Now have the OLD receiver dial the forgotten phone (design §7.3 invariant 3:
+# a forgotten computer that dials in must go `pending`). The dev copy is swapped
+# for the legacy copy advertising A, so exactly ONE spontaneous dial happens —
+# a scripted knock to the dev copy raced with its own discovery re-dial and the
+# phone's single handshake slot dropped the clientHello.
+kill_mac
+defaults write "$BID_L" remotecrab.autoReconnect -bool true
+run_mac "$ID_A" "$APP_L"
+sleep 12
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-d.log
 kill_mac
 
 # ---------------------------------------------------------------------------
 echo "[7/8] Phase E — legacy receiver (release build, no IBPhoneHello support)"
-# Put the user's release build back at the canonical path so running it does not
-# look like the host app "moved" to the system-extension manager.
-if [ -d "$RELEASE_BACKUP" ]; then
-  rm -rf /Applications/RemoteCrab.app && ditto "$RELEASE_BACKUP" /Applications/RemoteCrab.app
-fi
+# Disable the legacy copy's own auto-dial this time, so the phone's dial to it is
+# the only connection: that is what exercises the §4.4 fallback (the receiver
+# treats the dial as a knock and dials back).
+defaults write "$BID_L" remotecrab.autoReconnect -bool false
 LOG_E=/tmp/remotecrab-ec-e.log
 start_log "$LOG_E"
-run_mac "$ID_L" /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab
+run_mac "$ID_L" "$APP_L"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
 if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not relaunch the app: $LAUNCH_OUT"; exit 2
@@ -294,12 +333,14 @@ check "$LOG_A" "sessionReply: accepted" "A accepted the phone's dial"
 check "$LOG_A" "inbound phoneHello from" "A saw the phone-initiated hello (dial path, not knock)"
 check /tmp/remotecrab-ec-ios-a.log "[e2e] pick online dial" "phone ran the picker row's dial action"
 check /tmp/remotecrab-ec-ios-a.log "[dial] outbound to" "phone opened an outbound dial"
+check /tmp/remotecrab-ec-ios-a.log "[hs] hello id=${ID_A}" "phone accepted a session with A"
 check_absent /tmp/remotecrab-ec-ios-a.log "[hs] sendSessionReply busy" "phone did not answer busy"
 lt2 "$DELTA_A" "Phase A dial→accepted"
 
 echo "  -- Phase B (switch to B) --"
 check "$LOG_B" "sessionReply: accepted" "B accepted (no busy lock from current=A)"
 check "$LOG_B" "inbound phoneHello from" "B saw the phone-initiated hello"
+check /tmp/remotecrab-ec-ios-b.log "[hs] hello id=${ID_B}" "phone accepted a session with B"
 check_absent /tmp/remotecrab-ec-ios-b.log "[hs] sendSessionReply busy" "phone did not answer busy"
 lt2 "$DELTA_B" "Phase B dial→accepted"
 
@@ -313,12 +354,12 @@ echo "  -- Phase D (forget current) --"
 check /tmp/remotecrab-ec-ios-d.log "[e2e] forgot current computer ${ID_A:0:8}" "phone forgot the current computer on launch"
 check /tmp/remotecrab-ec-ios-d.log "[e2e] pick online: no eligible online computer found" "forgotten computer is gone from the picker roster (suppressed)"
 check_absent /tmp/remotecrab-ec-ios-d.log "[dial] auto-dial last computer" "phone did not auto-dial the forgotten computer"
-check "$LOG_D" "sessionReply: pending" "a knock from the forgotten computer is answered pending (re-approval)"
-check_absent "$LOG_D" "sessionReply: accepted" "the forgotten computer was NOT auto-accepted"
+check "$LOG_D" "sessionReply: pending" "the forgotten computer dialing in is answered pending (re-approval)"
+check_first_reply_pending "$LOG_D" "the forgotten computer is NOT auto-accepted (first reply is pending)"
 
 echo "  -- Phase E (legacy receiver fallback) --"
 check /tmp/remotecrab-ec-ios-e.log "[dial] outbound to ${ID_L:0:8}" "phone dialed the legacy receiver"
-check /tmp/remotecrab-ec-ios-e.log "[dial] no clientHello from ${ID_L:0:8}" "phone gave up the dial after no clientHello (legacy fallback)"
+check /tmp/remotecrab-ec-ios-e.log "userInitiated=false" "phone's accepted session arrived inbound (fallback, not the dial)"
 check "$LOG_E" "sessionReply: accepted" "legacy receiver's dial-back was accepted (inbound fallback connected)"
 
 echo ""
