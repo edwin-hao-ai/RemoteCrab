@@ -181,6 +181,87 @@ final class EventPipelineEndToEndTests: XCTestCase {
         listener.cancel()
     }
 
+    // MARK: - Phone-initiated connection
+
+    /// Phone-initiated handshake over a real socket:
+    ///
+    ///   phone (this test)                         → TCP →   computer (simulated)
+    ///   IBPhoneHello (first frame)                ────→    decode + assert
+    ///   IBClientHello                             ←────    (computer introduces itself)
+    ///   IBSessionReply{accepted}                  ────→    decode + assert
+    ///
+    /// The TCP initiator is the phone, but the protocol roles do NOT reverse:
+    /// the computer still sends `clientHello` and the phone still answers
+    /// `sessionReply` (see `beginServerSession` on the receiver).
+    func testPhoneHelloClientHelloSessionReplyRoundTrip() throws {
+        let phoneHello = IBPhoneHello(phoneId: "phone-1", phoneName: "My iPhone",
+                                      targetPcId: "pc-1", appVersion: "1.0",
+                                      capabilities: [.phoneInitiated, .peerAuth])
+        let clientHello = IBClientHello(name: "Mac", id: "pc-1", token: "tok-abc",
+                                        appVersion: "1.0", platform: "macos",
+                                        capabilities: [.peerAuth], nonce: "server-nonce")
+
+        let phoneHelloReceived = expectation(description: "computer received phoneHello")
+        let replyReceived = expectation(description: "computer received accepted reply")
+
+        let listener = try NWListener(using: NWParameters.tcp)
+        listener.newConnectionHandler = { connection in
+            connection.stateUpdateHandler = { _ in }
+            connection.start(queue: .global())
+            Self.receive(into: IBWire.Parser(), on: connection) { frames in
+                for frame in frames {
+                    switch frame.kind {
+                    case .phoneHello:
+                        XCTAssertEqual(try? IBWire.decodePhoneHello(frame), phoneHello)
+                        phoneHelloReceived.fulfill()
+                        connection.send(content: try? IBWire.encode(clientHello: clientHello),
+                                        completion: .contentProcessed { _ in })
+                    case .sessionReply:
+                        XCTAssertEqual(try? IBWire.decodeSessionReply(frame),
+                                       IBSessionReply(result: .accepted, token: "tok-abc"))
+                        replyReceived.fulfill()
+                    default:
+                        break
+                    }
+                }
+            }
+        }
+        listener.start(queue: .global())
+
+        let port = try waitForPort(listener)
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: port,
+            using: NWParameters.tcp
+        )
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { state in
+            if case .ready = state { connected.fulfill() }
+        }
+        connection.start(queue: .global())
+        wait(for: [connected], timeout: 3.0)
+
+        let phoneBroadcaster = IBEventBroadcaster(connection: connection, queue: .global())
+        Self.receive(into: IBWire.Parser(), on: connection) { frames in
+            for frame in frames where frame.kind == .clientHello {
+                let decoded = try? IBWire.decodeClientHello(frame)
+                XCTAssertEqual(decoded?.id, "pc-1")
+                XCTAssertEqual(decoded?.nonce, "server-nonce")
+                let reply = IBSessionReply(result: .accepted, token: "tok-abc")
+                connection.send(content: try? IBWire.encode(sessionReply: reply),
+                                completion: .contentProcessed { _ in })
+            }
+        }
+        // The one method under test: the phone's first frame leaves through
+        // the shared broadcaster.
+        phoneBroadcaster.send(phoneHello)
+
+        wait(for: [phoneHelloReceived, replyReceived], timeout: 5.0)
+
+        connection.cancel()
+        listener.cancel()
+    }
+
     // MARK: - Mixed traffic
 
     func testMixedVideoAndEventsArriveInOrder() throws {

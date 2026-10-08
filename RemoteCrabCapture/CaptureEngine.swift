@@ -303,6 +303,18 @@ final class CaptureEngine: ObservableObject {
     private var handshakeToken: UUID?
     private var handshakeTask: Task<Void, Never>?
 
+    // MARK: - Phone-initiated outbound dial
+
+    /// The computer the phone dialled itself, while the outbound socket is
+    /// still un-granted. Passed to the pairing policy as `owner` so an
+    /// unrelated auto-dialer that arrives during the attempt is answered
+    /// `busy` instead of cancelling the user's explicit choice.
+    private var outboundTarget: PairedMac?
+    /// Timeout waiting for the receiver's `clientHello` on an outbound dial.
+    /// A legacy receiver never sends one — it cancels the socket and dials
+    /// back — so this is what turns "no answer" into the inbound fallback.
+    private var outboundWatchdog: Task<Void, Never>?
+
     let pairingStore = MacPairingStore()
 
     /// Stable identity of this iPhone, persisted so the receiver keys pairings
@@ -1643,8 +1655,9 @@ final class CaptureEngine: ObservableObject {
         }
     }
 
-    private func handleHello(_ hello: IBClientHello, on conn: NWConnection, token: UUID) {
-        Forensic.log("[hs] hello id=\(hello.id) ownerSet=\(connection != nil) sameToken=\(handshakeToken == token)")
+    private func handleHello(_ hello: IBClientHello, on conn: NWConnection, token: UUID,
+                             userInitiated: Bool = false) {
+        Forensic.log("[hs] hello id=\(hello.id) ownerSet=\(connection != nil) sameToken=\(handshakeToken == token) userInitiated=\(userInitiated)")
         guard handshakeToken == token else { return }
 
         // A hello arrived, so this is not a legacy Mac — disarm the 3 s
@@ -1667,7 +1680,15 @@ final class CaptureEngine: ObservableObject {
             // a dead-but-still-"ready" owner never blocks anyone.
             let sameMac = (connectedMacId != nil && connectedMacId == hello.id)
             if existing.state == .ready && !sameMac {
-                replyBusy(on: conn, ownerName: connectedMacName ?? "another computer")
+                replyBusy(on: conn, ownerName: connectedMacName ?? outboundTarget?.name ?? "another computer")
+                return
+            }
+            // An outbound dial we have not granted yet is not an owner — it is
+            // the user's explicit choice. Never let a self-invited computer
+            // cancel it; the pairing policy below answers that computer `busy`
+            // through `owner: outboundTarget`.
+            if let out = outboundTarget, hello.id != out.id {
+                replyBusy(on: conn, ownerName: out.name)
                 return
             }
             existing.cancel()
@@ -1701,11 +1722,15 @@ final class CaptureEngine: ObservableObject {
         // one failed switch lock the phone out for ten minutes — the chosen
         // computer was asleep or had been denied, and it still refused
         // everyone else until the TTL ran out.
-        // The `current` gate is retired; the outbound path (Task 11) will pass
-        // `userInitiated: true` when the phone dialled this computer itself.
-        let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
+        // The `current` gate is retired. `userInitiated: true` is passed only by
+        // the outbound path (the phone dialled this computer itself), which also
+        // makes `outboundTarget` the active owner so an unrelated computer that
+        // dials in during the attempt is answered `busy`.
+        let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired,
+                                            owner: outboundTarget,
                                             preferred: pairingStore.effectivePreferred(),
-                                            disconnected: pairingStore.disconnected)
+                                            disconnected: pairingStore.disconnected,
+                                            userInitiated: userInitiated)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
@@ -1878,6 +1903,10 @@ final class CaptureEngine: ObservableObject {
         handshakeToken = nil
         candidate = nil
         candidateParser = nil
+        // The outbound dial, if this grant came from one, has become a session.
+        outboundWatchdog?.cancel()
+        outboundWatchdog = nil
+        outboundTarget = nil
         pendingChallenge?.timeout?.cancel()
         pendingChallenge = nil
         clearPending()
@@ -2693,6 +2722,180 @@ final class CaptureEngine: ObservableObject {
         connection.start(queue: queue)
         queue.asyncAfter(deadline: .now() + 3) { connection.cancel() }
         Forensic.log("[knock] dialed \(id.prefix(8))")
+    }
+
+    // MARK: - Phone-initiated outbound dial
+
+    /// Dial a computer the user tapped, instead of waiting for it to dial us.
+    ///
+    /// Opens a TCP connection to the computer's advertised endpoint and sends
+    /// `IBPhoneHello` as the first frame. The protocol roles do **not**
+    /// reverse: the computer answers with `clientHello`, and `handleHello`
+    /// runs exactly as it does for an inbound connection — only
+    /// `userInitiated` differs. A receiver too old to know `IBPhoneHello`
+    /// cancels the socket and dials back, so this falls back to the inbound
+    /// path (`failOutbound`).
+    ///
+    /// A computer not announcing itself cannot be dialled, so the tap arms the
+    /// preference (and knocks) instead; when it appears it dials in and the
+    /// ordinary inbound path serves it.
+    func connect(toComputer id: String) {
+        // T3: `disconnected` is checked before `userInitiated` in the policy,
+        // so an explicit dial of the computer the user disconnected must clear
+        // that intent first — otherwise the `clientHello` on the socket we
+        // just opened would be answered `off`.
+        if pairingStore.disconnected?.id == id {
+            pairingStore.clearDisconnected()
+            refreshPairedMacs()
+        }
+        guard let endpoint = computerEndpoints[id] else {
+            Forensic.log("[dial] \(id.prefix(8)) offline — arming instead")
+            setPreferredComputer(id: id)
+            return
+        }
+
+        let target = PairedMac(id: id, name: nameForComputer(id: id) ?? id,
+                               pairedAt: .distantPast, token: "")
+        outboundTarget = target
+        let token = UUID()
+        handshakeToken = token
+        let parser = IBWire.Parser()
+        let conn = NWConnection(to: endpoint, using: tcpComputerParameters())
+        connection = conn
+        candidate = conn
+        candidateParser = parser
+        Forensic.log("[dial] outbound to \(id.prefix(8))")
+
+        conn.stateUpdateHandler = { [weak self] state in
+            Task { @MainActor in self?.handleOutboundState(state, on: conn, target: target) }
+        }
+        startOutboundReceive(on: conn, target: target, parser: parser, token: token)
+        conn.start(queue: queue)
+    }
+
+    private func tcpComputerParameters() -> NWParameters {
+        let params = NWParameters.tcp
+        params.includePeerToPeer = true
+        return params
+    }
+
+    private func handleOutboundState(_ state: NWConnection.State,
+                                     on conn: NWConnection, target: PairedMac) {
+        guard connection === conn, outboundTarget?.id == target.id else { return }
+        switch state {
+        case .ready:
+            Forensic.log("[dial] connected to \(target.id.prefix(8)) — sending phoneHello")
+            let hello = IBPhoneHello(
+                phoneId: phoneId,
+                phoneName: UIDevice.current.name,
+                targetPcId: target.id,
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+                capabilities: [.phoneInitiated, .peerAuth, .latencyProbe])
+            if let data = try? IBWire.encode(phoneHello: hello) {
+                conn.send(content: data, completion: .contentProcessed { _ in })
+            }
+            connectionState = .starting
+            startOutboundWatchdog(on: conn, target: target)
+        case .failed, .cancelled:
+            failOutbound(on: conn, target: target)
+        default:
+            break
+        }
+    }
+
+    /// Read the receiver's first frame on a connection WE opened.
+    ///
+    /// Exactly one frame is consumed before handing off: `clientHello` goes to
+    /// `handleHello`, which starts its own read loop for the identity
+    /// challenge (two concurrent `receive` calls on one `NWConnection` are not
+    /// allowed, hence the `return`). A legacy receiver sends no `clientHello`
+    /// and cancels — its `.cancelled` state, or the watchdog, drives the
+    /// fallback.
+    private func startOutboundReceive(on conn: NWConnection, target: PairedMac,
+                                      parser: IBWire.Parser, token: UUID) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            Task { @MainActor in
+                guard let self, self.connection === conn,
+                      self.outboundTarget?.id == target.id else { return }
+                if let data, !data.isEmpty {
+                    for frame in parser.append(data) {
+                        switch frame.kind {
+                        case .clientHello:
+                            guard let hello = try? IBWire.decodeClientHello(frame) else { continue }
+                            self.outboundWatchdog?.cancel()
+                            self.outboundWatchdog = nil
+                            self.handleHello(hello, on: conn, token: token, userInitiated: true)
+                            return
+                        case .sessionReply:
+                            if let reply = try? IBWire.decodeSessionReply(frame) {
+                                self.handleOutboundRefusal(reply, target: target, on: conn)
+                            }
+                            return
+                        default:
+                            break
+                        }
+                    }
+                }
+                if error != nil {
+                    self.failOutbound(on: conn, target: target)
+                    return
+                }
+                if isComplete { return } // `.cancelled`/watchdog drives the fallback
+                self.startOutboundReceive(on: conn, target: target, parser: parser, token: token)
+            }
+        }
+    }
+
+    private func startOutboundWatchdog(on conn: NWConnection, target: PairedMac) {
+        outboundWatchdog?.cancel()
+        outboundWatchdog = Task { [weak self] in
+            // The do/catch is load-bearing: `try?` swallows CancellationError
+            // and a cancelled sleep returns IMMEDIATELY, so cancelling the
+            // watchdog (the moment a `clientHello` arrives) would RUN the
+            // fallback instead of skipping it (lesson 154).
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            guard let self, self.connection === conn,
+                  self.outboundTarget?.id == target.id else { return }
+            Forensic.log("[dial] no clientHello from \(target.id.prefix(8)) — legacy fallback")
+            conn.stateUpdateHandler = { _ in }
+            conn.cancel()
+            self.failOutbound(on: conn, target: target)
+        }
+    }
+
+    /// The outbound attempt did not become a session. Tear down the socket,
+    /// drop the gatekeeper, and arm the inbound fallback so a legacy receiver
+    /// that cancels-and-dials-back can still reach us.
+    private func failOutbound(on conn: NWConnection, target: PairedMac) {
+        outboundWatchdog?.cancel()
+        outboundWatchdog = nil
+        outboundTarget = nil
+        let wasOurs = (candidate === conn)
+        if connection === conn { connection = nil }
+        if candidate === conn { candidate = nil; candidateParser = nil }
+        if wasOurs { handshakeToken = nil }
+        if connectionState == .starting { connectionState = .idle }
+        conn.cancel()
+        setPreferredComputer(id: target.id)
+    }
+
+    /// The receiver answered our dial with a `sessionReply` of its own —
+    /// `busy` when another phone owns it. Surface it: a dial that silently
+    /// does nothing is worse than one that says why.
+    private func handleOutboundRefusal(_ reply: IBSessionReply, target: PairedMac,
+                                       on conn: NWConnection) {
+        Forensic.log("[dial] \(target.id.prefix(8)) refused: \(String(describing: reply.result))")
+        outboundWatchdog?.cancel()
+        outboundWatchdog = nil
+        outboundTarget = nil
+        let wasOurs = (candidate === conn)
+        if connection === conn { connection = nil }
+        if candidate === conn { candidate = nil; candidateParser = nil }
+        if wasOurs { handshakeToken = nil }
+        connectionState = .idle
+        showHint(IBLocale.Pairing.waitingForCurrent(reply.ownerName ?? target.name))
+        conn.stateUpdateHandler = { _ in }
+        conn.cancel()
     }
 
     /// What the chosen computer's last attempt produced, for the waiting

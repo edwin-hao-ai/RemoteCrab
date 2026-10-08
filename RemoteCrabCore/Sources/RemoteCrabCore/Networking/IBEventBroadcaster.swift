@@ -42,6 +42,12 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .featureState) { try IBWire.encode(featureState: snapshot) }
     }
 
+    /// iPhone → computer: the phone's identity handshake, sent as the first
+    /// frame on a phone-initiated TCP connection (kind `0x27`).
+    public func send(_ hello: IBPhoneHello) {
+        send(kind: .phoneHello) { try IBWire.encode(phoneHello: hello) }
+    }
+
     /// iOS → Mac: request the current Mac app list.
     public func send(_ request: IBAppListRequest) {
         send(kind: .appListRequest) { try IBWire.encode(appListRequest: request) }
