@@ -1003,6 +1003,10 @@ final class CaptureEngine: ObservableObject {
         // start and answers a legitimate inbound computer `busy`.
         cancelOutboundSilently()
         pendingAutoDialId = nil
+        // A challenge in flight must not outlive the stream either: its socket
+        // is gone, so its 5 s timeout would otherwise fire against a dead link.
+        pendingChallenge?.timeout?.cancel()
+        pendingChallenge = nil
         pendingConnection?.cancel()
         clearPending()
         connection?.cancel()
@@ -1929,9 +1933,9 @@ final class CaptureEngine: ObservableObject {
         challenge.timeout?.cancel()
         pendingChallenge = nil
         // The dial (if this challenge came from one) is over and did not become
-        // a session — let the gate go so a later inbound computer is not
-        // answered `busy` by an attempt that already concluded.
-        releaseOutboundTarget()
+        // a session — let the gate go. Scoped to this challenge's id so a newer
+        // dial's gate survives an old challenge timing out.
+        releaseOutboundTarget(id: challenge.hello.id)
         Self.log.error("REFUSED a computer that failed the identity challenge (\(reason, privacy: .public))")
         Forensic.log("[auth] REFUSED \(challenge.hello.id.prefix(8)): \(reason)")
         pairingStore.noteOutcome(.denied, for: challenge.hello.id)
@@ -1971,15 +1975,21 @@ final class CaptureEngine: ObservableObject {
         candidate = nil
         candidateParser = nil
         // The outbound dial, if this grant came from one, has become a session.
-        outboundWatchdog?.cancel()
-        outboundWatchdog = nil
-        outboundTarget = nil
-        outboundConnection = nil
-        outboundToken = nil
+        // Scoped to this connection/target: an unrelated grant must not tear
+        // down (or wipe the race gate of) a concurrent dial to another computer.
+        if outboundConnection === conn || (outboundTarget != nil && outboundTarget?.id == mac?.id) {
+            outboundWatchdog?.cancel()
+            outboundWatchdog = nil
+            outboundTarget = nil
+            outboundConnection = nil
+            outboundToken = nil
+        }
         // A session now exists, so any queued auto-dial intent is satisfied.
         pendingAutoDialId = nil
-        pendingChallenge?.timeout?.cancel()
-        pendingChallenge = nil
+        if pendingChallenge?.connection === conn {
+            pendingChallenge?.timeout?.cancel()
+            pendingChallenge = nil
+        }
         clearPending()
 
         // The preferred Mac arrived — the switch is done, open the door, and
@@ -2325,6 +2335,9 @@ final class CaptureEngine: ObservableObject {
             let wasHoldingTheSlot = PendingSlotPolicy.isHeld(byDying: dying, pending: holder)
             // A challenge in flight on the dying connection is abandoned; its
             // timeout must not fire against a socket that is already gone.
+            // No gate to release: an outbound dial never owns `candidate` (the
+            // outbound path keys on `outboundConnection`), so this can only be
+            // an inbound challenge.
             if let challenge = pendingChallenge, challenge.connection === candidate {
                 challenge.timeout?.cancel()
                 pendingChallenge = nil
@@ -2802,8 +2815,13 @@ final class CaptureEngine: ObservableObject {
     /// live connections). The endpoint often is not resolved yet this early, so
     /// `connect` queues the intent and the browse results dial it.
     private func autoDialLastComputerIfAny() {
+        // Never auto-dial a computer the user explicitly disconnected: the
+        // `off` intent must survive a relaunch/foreground (lesson 153). It is
+        // only cleared when the user picks a computer again.
         guard isStreaming, connection == nil, outboundConnection == nil,
-              let id = pairingStore.currentId else { return }
+              pendingChallenge == nil,
+              let id = pairingStore.currentId,
+              pairingStore.disconnected?.id != id else { return }
         Forensic.log("[dial] auto-dial last computer \(id.prefix(8))")
         connect(toComputer: id)
     }
@@ -2812,7 +2830,9 @@ final class CaptureEngine: ObservableObject {
     /// from the browse handler, so an "arm now, dial when it appears" tap works
     /// for a computer that was offline when the user picked it.
     private func dialPendingAutoDialIfPossible() {
-        guard connection == nil, let id = pendingAutoDialId,
+        guard connection == nil, outboundConnection == nil, pendingChallenge == nil,
+              let id = pendingAutoDialId,
+              pairingStore.disconnected?.id != id,
               computerEndpoints[id] != nil else { return }
         pendingAutoDialId = nil
         connect(toComputer: id)
@@ -3025,7 +3045,13 @@ final class CaptureEngine: ObservableObject {
     /// Release the transient outbound race gate once a dial has concluded
     /// without becoming the session. Doing this here (rather than eagerly at
     /// detach) is what keeps the gate effective for the whole challenge window.
-    private func releaseOutboundTarget() {
+    ///
+    /// Pass `id` when the conclusion is an async one (a challenge grant/refusal
+    /// or a scheduled timeout): by then the user may have started a *newer*
+    /// dial, and an old conclusion must not wipe the newer dial's gate. With no
+    /// `id`, the caller has already established this is the dial's own socket.
+    private func releaseOutboundTarget(id: String? = nil) {
+        if let id, outboundTarget?.id != id { return }
         outboundTarget = nil
     }
 
