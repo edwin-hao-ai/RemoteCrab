@@ -105,6 +105,17 @@ pub enum Kind {
     /// An older phone ignores an unknown kind, so nothing about this can break
     /// a connection that was working.
     ClientProof = 0x26,
+    /// iPhone → receiver: the phone's identity handshake, sent as the FIRST frame
+    /// on a phone-initiated TCP connection (`PhoneHello`, JSON, kind `0x27`).
+    ///
+    /// The mirror of `ClientHello` with the roles reversed: when the phone dials
+    /// the receiver there is no inbound `clientHello` for it to read, so the
+    /// phone introduces itself first and the receiver looks up the pairing token
+    /// by `phoneId`. Purely additive: only a phone that supports phone-initiated
+    /// connections sends it, and an older receiver that does not recognise the
+    /// byte drops it as `Kind::Unknown` rather than handing the JSON to the
+    /// H.264 decoder.
+    PhoneHello = 0x27,
     /// A byte this build does not recognise.
     ///
     /// Not a real wire kind — it is what the parser produces instead of
@@ -176,6 +187,7 @@ impl Kind {
             0x24 => Kind::SpeakerAudio,
             0x25 => Kind::RequestKeyframe,
             0x26 => Kind::ClientProof,
+            0x27 => Kind::PhoneHello,
             _ => Kind::Unknown,
         }
     }
@@ -292,6 +304,12 @@ json_codec!(
     decode_client_proof,
     Kind::ClientProof,
     ClientProof
+);
+json_codec!(
+    encode_phone_hello,
+    decode_phone_hello,
+    Kind::PhoneHello,
+    PhoneHello
 );
 json_codec!(encode_app_list, decode_app_list, Kind::AppList, AppList);
 json_codec!(
@@ -628,6 +646,38 @@ mod resync_tests {
 }
 
 #[cfg(test)]
+mod phone_hello_kind_tests {
+    use super::{Kind, Parser};
+
+    /// `PhoneHello` is a fresh slot immediately after `ClientProof` (0x26), and
+    /// it is the FIRST frame a phone sends when IT started the connection. If it
+    /// ever fell through to `Kind::Video` the receiver would hand this JSON to
+    /// the H.264 decoder — the exact failure `Kind::Unknown` exists to prevent
+    /// (lesson 152).
+    #[test]
+    fn phone_hello_is_0x27_and_does_not_fall_through_to_video() {
+        assert_eq!(Kind::PhoneHello as u8, 0x27);
+        assert_eq!(Kind::from_u8(0x27), Kind::PhoneHello);
+        assert_eq!(Kind::from_u8(0x25), Kind::RequestKeyframe);
+        // An unknown byte must NOT become Video.
+        assert!(matches!(Kind::from_u8(0xEE), Kind::Unknown));
+        assert_ne!(Kind::from_u8(0xEE), Kind::Video);
+    }
+
+    /// It has to survive the parser, or the phone's handshake never reaches the
+    /// receiver at all.
+    #[test]
+    fn phone_hello_survives_the_parser() {
+        let frame = super::encode_frame(Kind::PhoneHello, b"{}");
+        let mut parser = Parser::new();
+        let frames = parser.append(&frame);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].kind, Kind::PhoneHello);
+        assert_eq!(frames[0].payload, b"{}");
+    }
+}
+
+#[cfg(test)]
 mod speaker_audio_kind_tests {
     use super::{encode_request_keyframe, Kind, Parser};
 
@@ -677,7 +727,7 @@ mod speaker_audio_kind_tests {
             Kind::ScreenPps, Kind::ScreenControl, Kind::ScreenInput,
             Kind::ScreenInfo, Kind::InstalledAppsRequest, Kind::InstalledApps,
             Kind::Notification, Kind::CommandResult, Kind::SpeakerAudio,
-            Kind::RequestKeyframe,
+            Kind::RequestKeyframe, Kind::PhoneHello,
         ];
         for k in kinds {
             assert_eq!(Kind::from_u8(k as u8), k, "kind {:?} is not reachable", k);

@@ -197,6 +197,73 @@ fn client_hello_declares_capabilities() {
     assert!(json.contains(r#""capabilities":["latencyProbe","commandResult"]"#), "{json}");
 }
 
+/// `PhoneHello` (kind `0x27`) is the phone's first frame on a phone-initiated
+/// connection. Its keys must match Swift's `IBPhoneHello` verbatim — the phone
+/// decodes the receiver's reply with a plain `JSONDecoder`, and the receiver
+/// decodes this frame the same way, so a `target_pc_id` where Swift expects
+/// `targetPcId` fails the whole handshake with no error a user could act on.
+#[test]
+fn phone_hello_keys() {
+    let h = PhoneHello {
+        phone_id: "p".into(),
+        phone_name: "n".into(),
+        target_pc_id: "pc".into(),
+        app_version: "v".into(),
+        nonce: Some("abc".into()),
+        capabilities: Some(vec!["phoneInitiated".into(), "peerAuth".into()]),
+    };
+    assert_keys(
+        &h,
+        &["phoneId", "phoneName", "targetPcId", "appVersion", "nonce", "capabilities"],
+    );
+    let json = serde_json::to_string(&h).unwrap();
+    assert!(json.contains(r#""capabilities":["phoneInitiated","peerAuth"]"#), "{json}");
+}
+
+/// The two optional fields are ADDITIVE: a phone that predates them sends only
+/// the four required keys, and that must decode rather than cost the user their
+/// connection (rule 2).
+#[test]
+fn phone_hello_decodes_without_the_optionals() {
+    let json = r#"{"phoneId":"p","phoneName":"n","targetPcId":"pc","appVersion":"1.0"}"#;
+    let h: PhoneHello = serde_json::from_str(json).unwrap();
+    assert_eq!(h.phone_id, "p");
+    assert_eq!(h.phone_name, "n");
+    assert_eq!(h.target_pc_id, "pc");
+    assert_eq!(h.app_version, "1.0");
+    assert_eq!(h.nonce, None);
+    assert_eq!(h.capabilities, None);
+}
+
+/// The byte is frozen on the wire: the phone hard-codes `0x27`, and a build that
+/// disagrees would drop the handshake frame as `Kind::Unknown` and never look up
+/// the token.
+#[test]
+fn phone_hello_kind_is_0x27() {
+    assert_eq!(Kind::PhoneHello as u8, 0x27);
+    assert_eq!(Kind::from_u8(0x27), Kind::PhoneHello);
+}
+
+/// And it survives the real encode → parser path, not just the byte constant.
+#[test]
+fn phone_hello_round_trips_through_the_encoder() {
+    let h = PhoneHello {
+        phone_id: "p".into(),
+        phone_name: "n".into(),
+        target_pc_id: "pc".into(),
+        app_version: "1.0".into(),
+        nonce: None,
+        capabilities: None,
+    };
+    let bytes = encode_phone_hello(&h).unwrap();
+    assert_eq!(bytes[4], 0x27, "the kind byte must be 0x27");
+    let mut parser = Parser::new();
+    let frames = parser.append(&bytes);
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].kind, Kind::PhoneHello);
+    assert_eq!(decode_phone_hello(&frames[0]).unwrap(), h);
+}
+
 #[test]
 fn session_reply_keys() {
     let r = SessionReply {

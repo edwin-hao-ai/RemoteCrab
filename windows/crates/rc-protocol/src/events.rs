@@ -406,6 +406,43 @@ pub struct ClientProof {
     pub mac: String,
 }
 
+/// iPhone → receiver: the phone's identity handshake, sent as the FIRST frame on
+/// a phone-initiated connection (kind `0x27`).
+///
+/// The mirror image of [`ClientHello`]: when the phone dials the receiver there
+/// is no inbound `clientHello` for it to read, so the phone introduces itself
+/// and names the computer it is trying to reach. The receiver looks up the
+/// pairing token by `phone_id` and answers the knock with its own `ClientHello`.
+///
+/// Field names mirror Swift's `IBPhoneHello` verbatim; the wire is the contract.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneHello {
+    /// Stable per-phone UUID, persisted across launches. The receiver keys its
+    /// pairing allow-list off this.
+    pub phone_id: String,
+    pub phone_name: String,
+    /// The `ClientHello.id` of the computer the phone wants to reach.
+    pub target_pc_id: String,
+    pub app_version: String,
+    /// Optional, base64 32 bytes. De-duplication / future extension, **not**
+    /// part of authentication.
+    ///
+    /// ADDITIVE / OPTIONAL: absent from a minimal sender, and absence means
+    /// `None` rather than a failed handshake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
+    /// What the phone can do, declared up front.
+    ///
+    /// Strings rather than an enum, for the same reason `ClientHello` uses them:
+    /// a phone newer than this build may name abilities that do not exist here,
+    /// and one unknown word must not fail the handshake.
+    ///
+    /// ADDITIVE / OPTIONAL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
+}
+
 // ---------------------------------------------------------------------------
 // App switcher
 // ---------------------------------------------------------------------------
