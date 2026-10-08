@@ -540,6 +540,25 @@ async fn main() -> ExitCode {
     if args.speaker_probe {
         return speaker::probe();
     }
+    // One-shot: is the extended-display driver present? The receiver advertises
+    // the `extendedDisplay` capability exactly when this answers yes, so it is
+    // also the explanation for "the phone does not show the Extended Display
+    // row".
+    if args.vdisplay_probe {
+        return match rc_vdisplay::probe() {
+            Some(version) => {
+                println!("RemoteCrab Display driver present — protocol version {version}");
+                ExitCode::SUCCESS
+            }
+            None => {
+                println!(
+                    "RemoteCrab Display driver not found — extended display unavailable.\n\
+                     Install it from the RemoteCrab installer, or see windows/drivers/rc-idd/README.md."
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
     // A release build does not carry the fake sender, so these two cannot
     // work. Saying so beats a flag that quietly does nothing.
     #[cfg(feature = "selftest")]
@@ -623,7 +642,14 @@ async fn main() -> ExitCode {
         )
     );
 
-    let session = Session::spawn(Config::default());
+    // Tell the session whether we can back `screenControl(extend)`. The driver
+    // probe is a single fast pipe round trip; when no driver is installed the
+    // pipe name does not exist and `available()` returns immediately, so the
+    // phone keeps the "Extended Display" row hidden.
+    let session = Session::spawn(Config {
+        extended_display: rc_vdisplay::available(),
+        ..Config::default()
+    });
     #[cfg(windows)]
     let _ = SESSION.set(session.clone());
 
@@ -1600,12 +1626,21 @@ async fn main() -> ExitCode {
                                             mirror.select(control.window_id.clone());
                                             println!("  mirror: pinned to {:?}", control.window_id);
                                         }
-                                        ScreenControlCommand::Follow => mirror.select(None),
+                                        ScreenControlCommand::Follow => {
+                                            mirror.follow();
+                                            println!("  mirror: following the frontmost window");
+                                        }
                                         ScreenControlCommand::Extend => {
-                                            // The Windows receiver has no virtual-display
-                                            // driver yet, so "Extended Display" is honest
-                                            // about being unavailable.
-                                            println!("  mirror: extended display is not supported on Windows yet");
+                                            // The phone only offers this when we
+                                            // advertised `extendedDisplay`, which we
+                                            // do only when a driver is present — but a
+                                            // race (driver stopped between handshake
+                                            // and the tap) is reported honestly rather
+                                            // than swallowed.
+                                            match mirror.extend(control.max_pixel.map(|p| p.max(0) as u32)) {
+                                                Ok(()) => println!("  mirror: extended display started"),
+                                                Err(e) => println!("  mirror: extended display unavailable — {e}"),
+                                            }
                                         }
                                     }
                                 }

@@ -795,8 +795,16 @@ struct ContentView: View {
 
             // Mirror + Extended Display are two parallel SOURCES for the
             // same viewer, so they share one dropdown; the checkmark marks
-            // the active one. (Windows has no virtual-display support, so
-            // only "mirror a window" is offered there.)
+            // the active one.
+            //
+            // Extended Display needs the receiver to create a real second
+            // screen: the Mac has always done it (private `CGVirtualDisplay`),
+            // Windows needs a signed IddCx driver. So the row is gated on the
+            // receiver's `extendedDisplay` capability, with the platform as the
+            // fallback for a legacy Mac that predates the flag but could extend
+            // all along. A receiver that does not claim it gets no row, rather
+            // than a button that does nothing.
+            let canExtendDisplay = !engine.connectedIsWindows || engine.peerSupportsExtendedDisplay
             Menu {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -808,7 +816,7 @@ struct ContentView: View {
                           systemImage: (engine.features.screenOn && !engine.isExtendedDisplayOn)
                                       ? "checkmark" : "rectangle.on.rectangle")
                 }
-                if !engine.connectedIsWindows {
+                if canExtendDisplay {
                     Button {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         withAnimation(IBAnimation.snappy) {

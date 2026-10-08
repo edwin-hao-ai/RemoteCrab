@@ -1796,10 +1796,13 @@ final class ReceiverSession: ObservableObject {
         // probes to a receiver which has not advertised the ability has its
         // timestamps subtracted from ours and paints the clock offset between
         // the two machines in the menu bar (see `pingProbe`). `peerAuth` says
-        // we can prove ourselves and check the phone's proof.
+        // we can prove ourselves and check the phone's proof. `extendedDisplay`
+        // says the phone may offer "Extended Display": the Mac backs it with the
+        // private `CGVirtualDisplay` (`VirtualDisplay.swift`).
         let hello = IBClientHello(name: macName, id: macId, token: token,
                                   appVersion: version,
-                                  capabilities: [.latencyProbe, .commandResult, .peerAuth],
+                                  capabilities: [.latencyProbe, .commandResult, .peerAuth,
+                                                 .extendedDisplay],
                                   nonce: nonce)
         do {
             let data = try IBWire.encode(clientHello: hello)

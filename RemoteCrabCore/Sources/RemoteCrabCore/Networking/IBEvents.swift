@@ -357,6 +357,13 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         /// verify the phone's. Declared alongside `nonce`; `nonce` is what the
         /// phone actually keys off.
         case peerAuth
+        /// The receiver can turn the phone into a second display
+        /// (`screenControl(extend)`). The Mac has always done this through the
+        /// private `CGVirtualDisplay`; Windows needs a signed IddCx driver and
+        /// only advertises this once one is installed. The phone hides the
+        /// "Extended Display" row for a receiver that does not claim it, so the
+        /// button is never a control that does nothing.
+        case extendedDisplay
     }
 
     public init(name: String, id: String, token: String? = nil,

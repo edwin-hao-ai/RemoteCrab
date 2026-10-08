@@ -191,6 +191,12 @@ pub struct Config {
     pub service_type: String,
     pub default_port: u16,
     pub token_path: Option<PathBuf>,
+    /// Whether this receiver can back `screenControl(extend)` right now.
+    ///
+    /// The app decides (it knows whether the IddCx driver answers); the wire
+    /// layer holds no policy. `false` when unset, so a test or a non-Windows
+    /// host advertises exactly the pre-feature capability set.
+    pub extended_display: bool,
 }
 
 impl Default for Config {
@@ -200,6 +206,7 @@ impl Default for Config {
             service_type: SERVICE_TYPE.to_string(),
             default_port: DEFAULT_PORT,
             token_path: default_token_path(),
+            extended_display: false,
         }
     }
 }

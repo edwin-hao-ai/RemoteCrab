@@ -1325,6 +1325,7 @@ dependencies = [
  "rc-testkit",
  "rc-vcam",
  "rc-vcam-source",
+ "rc-vdisplay",
  "serde",
  "serde_json",
  "tokio",
@@ -1476,6 +1477,15 @@ dependencies = [
  "rc-vcam",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "rc-vdisplay"
+version = "1.0.0"
+dependencies = [
+ "rc-protocol",
+ "rc-vcam",
+ "windows",
 ]
 
 [[package]]

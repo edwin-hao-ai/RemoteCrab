@@ -43,6 +43,15 @@ pub struct Args {
     /// number: it found a real `E_INVALIDARG` (0x80070057) that three layers of
     /// prose had described identically to "this machine has no audio output".
     pub speaker_probe: bool,
+    /// One-shot: report whether the extended-display (IddCx) driver is
+    /// installed and answering, then exit.
+    ///
+    /// Like `--speaker-probe`, not behind a feature flag: the only machine that
+    /// can answer "is the driver there" is the user's, and the shipping binary
+    /// is the one on it. This is also how the phone's decision is explained —
+    /// the receiver advertises `extendedDisplay` exactly when this probe
+    /// succeeds.
+    pub vdisplay_probe: bool,
     /// One-shot, elevated: register the virtual camera's COM source, exit.
     /// Reached two ways — the tray's `runas`, and typed by a user who self-elevates.
     pub install_vcam: bool,
@@ -113,6 +122,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--record" => args.record = true,
             "--version" | "-V" => args.version = true,
             "--speaker-probe" => args.speaker_probe = true,
+            "--vdisplay-probe" => args.vdisplay_probe = true,
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,
@@ -286,6 +296,17 @@ mod arg_tests {
         let followed = args(&["--scan", "--vcam"]);
         assert!(followed.scan && followed.vcam);
         assert_eq!(followed.subnet, None);
+    }
+
+    /// The extended-display probe is its own flag: it must not be confused
+    /// with the camera or audio jobs, and it must be reachable from the
+    /// shipping binary (no feature gate).
+    #[test]
+    fn the_vdisplay_probe_is_its_own_flag() {
+        let a = args(&["--vdisplay-probe"]);
+        assert!(a.vdisplay_probe);
+        assert!(!a.speaker_probe && !a.vcam_selftest);
+        assert!(!a.install_vcam && !a.uninstall_vcam);
     }
 
     #[test]

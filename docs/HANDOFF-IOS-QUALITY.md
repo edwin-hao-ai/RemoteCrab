@@ -13,6 +13,13 @@
 > `cargo run --release -p rc-render --example renderer_fidelity` — exits nonzero
 > and names the stage if the Windows side ever stops being faithful.
 
+> **Newer Windows → Mac handoff (2026-10-08):**
+> [`HANDOFF-MAC-EXTENDED-DISPLAY-2026-10-08.md`](HANDOFF-MAC-EXTENDED-DISPLAY-2026-10-08.md)
+> — the Swift half of Extended Display (the `extendedDisplay` capability + the
+> iOS row gating) written on Windows and **never compiled**. It needs an Xcode
+> build, the two new package tests, and a Mac device regression check. Read it
+> before this document.
+
 ---
 
 ## 0. ⚠️ §1 and §2 below were overtaken by `dd7022d`. Read this first.

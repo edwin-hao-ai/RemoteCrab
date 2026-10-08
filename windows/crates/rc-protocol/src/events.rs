@@ -282,6 +282,14 @@ pub struct FeatureStateSnapshot {
 // Handshake / pairing
 // ---------------------------------------------------------------------------
 
+/// Capability word for "this receiver can turn the phone into a second
+/// display" (`screenControl(extend)`).
+///
+/// The single Rust definition of the wire string, referenced by `rc-net`'s
+/// hello and by `rc-vdisplay`. The Mac half spells it once in
+/// `IBClientHello.Capability.extendedDisplay`; the two must stay identical.
+pub const CAP_EXTENDED_DISPLAY: &str = "extendedDisplay";
+
 /// Receiver → iPhone: identity handshake, first frame on every connection
 /// (kind `0x0A`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
