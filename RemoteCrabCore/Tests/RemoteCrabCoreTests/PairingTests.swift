@@ -174,6 +174,32 @@ final class PairingTests: XCTestCase {
         XCTAssertEqual(decision, .accept)
     }
 
+    // MARK: - Policy (user-initiated connection)
+
+    /// The phone dialled this computer itself, so the user has already named
+    /// the target. An owner/preferred record naming a DIFFERENT computer must
+    /// not refuse it — that is the whole point of a phone-initiated connect.
+    func testUserInitiatedBypassesAnyOwnerGate() {
+        // 手机主动拨的目标，即使 store 里 current/preferred 指向别的电脑，也要 accept
+        let hello = IBClientHello(name: "PC", id: "pc-2", token: "t2", appVersion: "1",
+                                  platform: "windows", capabilities: [], nonce: "n")
+        let paired = [PairedMac(id: "pc-2", name: "PC", token: "t2")]
+        let decision = PairingPolicy.decide(hello: hello, paired: paired, owner: nil,
+                                            preferred: PairedMac(id: "pc-1", name: "Old", token: "t1"),
+                                            disconnected: nil, userInitiated: true)
+        XCTAssertEqual(decision, .accept)
+    }
+
+    /// Bypassing the door does not bypass identity: a phone-initiated computer
+    /// with no token is still `pending` (one approval card), never auto-accepted.
+    func testUserInitiatedStillNeedsTokenForAccept() {
+        let hello = IBClientHello(name: "PC", id: "pc-2", token: nil, appVersion: "1", platform: "windows")
+        let paired = [PairedMac(id: "pc-2", name: "PC", token: "t2")]
+        let decision = PairingPolicy.decide(hello: hello, paired: paired, owner: nil,
+                                            preferred: nil, disconnected: nil, userInitiated: true)
+        XCTAssertEqual(decision, .pending)   // 无 token → 需要挑战/审批，不自动接受
+    }
+
     // MARK: - Store
 
     private func freshStore() -> MacPairingStore {

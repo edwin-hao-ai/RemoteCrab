@@ -102,13 +102,19 @@ public enum PairingPolicy {
     ///     any. While a preference is outstanding, every *other* Mac —
     ///     paired or not — is answered `busy` so the preferred Mac can
     ///     take over on its next connect ("holding the door").
+    ///   - disconnected: the computer the user tapped Disconnect on, if any.
+    ///   - userInitiated: `true` when the phone dialled this computer itself.
+    ///     The user has already named the target, so owner/preferred must not
+    ///     refuse it (a phone-initiated connect is the strongest statement of
+    ///     intent there is). Identity is still required: no token means
+    ///     `pending`, never an implicit `accept`.
     public static func decide(
         hello: IBClientHello,
         paired: [PairedMac],
         owner: PairedMac?,
         preferred: PairedMac? = nil,
         disconnected: PairedMac? = nil,
-        current: PairedMac? = nil
+        userInitiated: Bool = false
     ) -> PairingDecision {
         // The user explicitly disconnected this computer. Applies before
         // everything else — including `accept` for a paired + valid-token
@@ -117,30 +123,33 @@ public enum PairingPolicy {
         if let disconnected, disconnected.id == hello.id {
             return .off(ownerName: disconnected.name)
         }
-        // A different Mac is already being served — even a paired one
-        // must wait for the owner to release the session.
-        if let owner, owner.id != hello.id {
-            return .busy(ownerName: owner.name)
+        // The owner/preferred door guards exist to stop a DIFFERENT computer
+        // taking a session the user did not ask for. They do not apply when the
+        // user dialled this computer from the phone: the user already named it.
+        if !userInitiated {
+            // A different Mac is already being served — even a paired one
+            // must wait for the owner to release the session.
+            if let owner, owner.id != hello.id {
+                return .busy(ownerName: owner.name)
+            }
+            // A preference is outstanding and this isn't the chosen Mac —
+            // hold the door (even for a paired Mac with a valid token) so
+            // the preferred Mac can take over on its next connect.
+            //
+            // The preferred record may be synthetic (a computer that has knocked
+            // but has never been approved), which is precisely the case this
+            // branch exists for: without it, "switch to my Windows PC" stores an
+            // id that resolves to nothing and the switch silently reverts.
+            if let preferred, preferred.id != hello.id {
+                return .busy(ownerName: preferred.name)
+            }
         }
-        // A preference is outstanding and this isn't the chosen Mac —
-        // hold the door (even for a paired Mac with a valid token) so
-        // the preferred Mac can take over on its next connect.
+        // NOTE: the persisted `current` gate is retired. It refused every
+        // computer except the one stored as "current" (a root cause of "这台能
+        // 连那台不能连"); switching is now handled by the transient
+        // `outboundTarget`/owner state instead (see the phone-initiated design).
+        // `MacPairingStore.current` is still stored, but no longer read here.
         //
-        // The preferred record may be synthetic (a computer that has knocked
-        // but has never been approved), which is precisely the case this
-        // branch exists for: without it, "switch to my Windows PC" stores an
-        // id that resolves to nothing and the switch silently reverts.
-        if let preferred, preferred.id != hello.id {
-            return .busy(ownerName: preferred.name)
-        }
-        // The phone is set to serve one computer. Any other computer — even a
-        // paired one with a valid token — stands by, so ownership is decided by
-        // the persisted choice instead of by who dialled first. Skipped when
-        // this connection IS the freshly chosen `preferred` one, or the switch
-        // could never complete.
-        if let current, current.id != hello.id, preferred?.id != hello.id {
-            return .busy(ownerName: current.name)
-        }
         // Owner reconnecting, or a fresh connection from a known Mac:
         // only auto-accept when the token proves identity.
         if let match = paired.first(where: { $0.id == hello.id }),

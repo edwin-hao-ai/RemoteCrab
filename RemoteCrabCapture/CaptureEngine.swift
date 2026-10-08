@@ -1696,10 +1696,11 @@ final class CaptureEngine: ObservableObject {
         // one failed switch lock the phone out for ten minutes — the chosen
         // computer was asleep or had been denied, and it still refused
         // everyone else until the TTL ran out.
+        // The `current` gate is retired; the outbound path (Task 11) will pass
+        // `userInitiated: true` when the phone dialled this computer itself.
         let decision = PairingPolicy.decide(hello: hello, paired: pairingStore.paired, owner: nil,
                                             preferred: pairingStore.effectivePreferred(),
-                                            disconnected: pairingStore.disconnected,
-                                            current: pairingStore.current)
+                                            disconnected: pairingStore.disconnected)
         Self.log.info("clientHello \(hello.name, privacy: .public) -> \(String(describing: decision), privacy: .public)")
 
         noteOutcome(decision, for: hello)
