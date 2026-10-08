@@ -45,20 +45,16 @@ pub(crate) const PING_INTERVAL: Duration = Duration::from_secs(2);
 pub(crate) const PONG_TIMEOUT: Duration = Duration::from_secs(8);
 pub(crate) const DIRECT_DIAL_TIMEOUT: Duration = Duration::from_secs(8);
 pub(crate) const RECONNECT_DELAY: Duration = Duration::from_secs(3);
-/// Slower than the normal reconnect — we're waiting for a human on another
-/// computer to disconnect, so retrying hard would just be noise.
-pub(crate) const BUSY_RETRY_DELAY: Duration = Duration::from_secs(10);
-/// The same idea as [`BUSY_RETRY_DELAY`], for the phone having been told to
-/// disconnect *us*. The iPhone clears its `off` state the moment its user picks
-/// a computer, so a slow knock is how "re-pick this PC on the phone" recovers
-/// without anyone walking over to the machine.
+/// How long a non-current computer waits before its safety-net re-dial after
+/// the phone answered `busy` or `off`.
 ///
-/// **5 seconds, matching the Mac receiver**, and deliberately not the 15 that
-/// `BUSY_RETRY_DELAY` implies — the two cases are not alike. `busy` means another
-/// computer holds the phone and is likely to keep holding it, so retrying hard
-/// is noise. `off` means this user was in the phone's list a moment ago and will
-/// probably be back, so the wait should be short enough not to be felt.
-pub(crate) const OFF_RETRY_DELAY: Duration = Duration::from_secs(5);
+/// This is **standby**, not "fighting": the phone deterministically answers
+/// `busy` to every non-current computer (its persisted "current computer"
+/// wins), so a re-dial can never steal the session. The 60 s poll exists for
+/// one reason only — to stop a computer being stranded forever when the fast
+/// path (a knock) cannot get through: VPN, client isolation, or a hotspot.
+/// Matches the Mac receiver's `standbyRetry`.
+pub(crate) const STANDBY_RETRY_DELAY: Duration = Duration::from_secs(60);
 pub(crate) const FALLBACK_TICK: Duration = Duration::from_secs(5);
 /// How often to try to (re)start mDNS after it failed. Discovery is the
 /// primary path, so it is worth retrying even though the direct-IP fallbacks
@@ -82,7 +78,8 @@ pub enum State {
     AwaitingApproval {
         name: String,
     },
-    /// Another computer owns the iPhone. We keep retrying automatically.
+    /// The phone is set to serve another computer. We stand by: the fast retry
+    /// loop stops and only a 60 s safety-net re-dial remains.
     Busy {
         owner: String,
     },
@@ -367,8 +364,8 @@ pub(crate) enum ConnEndKind {
     Lost,
     /// Handshake never got a `sessionReply` — reconnect is allowed.
     HandshakeTimeout,
-    /// Another computer owns the iPhone. Not fatal: we keep retrying so the
-    /// moment it frees up we take over, and the UI shows who holds it.
+    /// The phone is set to serve another computer. Not fatal: we stand by on a
+    /// 60 s safety net (a knock dials at once), and the UI shows who holds it.
     Busy { owner: String },
     /// The iPhone explicitly denied us — stop until a manual Retry.
     Denied,

@@ -144,23 +144,18 @@ pub fn state_line(state: &State, seen_frame: bool) -> String {
         State::Busy { owner } => {
             if i18n::is_chinese() {
                 format!(
-                    "[IN USE]  iPhone 已被 {owner} 占用。\n\
+                    "[IN USE]  这台 iPhone 正被 {owner} 使用。\n\
                      \x20          在那台电脑上断开（Mac：菜单栏 → RemoteCrab → 断开连接；\n\
                      \x20          Windows：托盘 → RemoteCrab → 断开连接），或者在 iPhone 的\n\
-                     \x20          「选择电脑」里直接切到这台。\n\
-                     \x20          断开之后本机每 10 秒重试一次，会自己接上——\n\
-                     \x20          但如果 {owner} 是这台 iPhone 的「首选电脑」，\n\
-                     \x20          断开也不会自动切过来，必须在 iPhone 上选一次这台。"
+                     \x20          「选择电脑」里直接切到这台电脑；单独点重试不会成功。"
                 )
             } else {
                 format!(
-                    "[IN USE]  {owner} is already connected to this iPhone.\n\
+                    "[IN USE]  This iPhone is being used by {owner}.\n\
                      \x20          Disconnect it there (Mac: menu bar → RemoteCrab → Disconnect;\n\
-                     \x20          Windows: tray → RemoteCrab → Disconnect), or switch straight to\n\
-                     \x20          this PC from the iPhone's \"Choose a computer\" list.\n\
-                     \x20          This PC retries every 10s and will pick it up on its own —\n\
-                     \x20          unless {owner} is the iPhone's preferred computer, in which\n\
-                     \x20          case you have to pick this PC there once."
+                     \x20          Windows: tray → RemoteCrab → Disconnect), or pick this PC in\n\
+                     \x20          the iPhone's \"Choose a Computer\" list. Retry on its own will\n\
+                     \x20          keep failing."
                 )
             }
         }
@@ -336,21 +331,21 @@ mod busy_copy_tests {
     use super::state_line;
     use rc_net::State;
 
-    /// The copy used to promise "it takes over on its own" and nothing more.
-    /// On the iPhone that is only true when the other computer is neither the
-    /// current owner nor the phone's *preferred* computer — and the preferred
-    /// case is the common one, because it is whoever the user picks normally.
-    /// A user who read that sentence, disconnected the other machine, and was
-    /// still handed `busy` had been told a lie by the product.
+    /// The copy used to promise "it retries every 10s and takes over on its
+    /// own". That is no longer true: the phone persistently serves its
+    /// "current computer", so a bare retry can never win — the only reliable
+    /// handover is picking this PC on the phone. The line must name the owner
+    /// and must NOT promise the old self-heal.
     #[test]
-    fn the_busy_copy_names_the_preferred_computer_caveat() {
-        let s = state_line(&State::Busy {
-            owner: "MacBook Pro".into(),
-        }, true);
-        assert!(
-            s.contains("MacBook Pro"),
-            "the owner must be named: {s}"
-        );
+    fn the_busy_copy_names_the_owner_and_drops_the_old_self_heal() {
+        for zh in [true, false] {
+            let s = state_line(&State::Busy {
+                owner: "MacBook Pro".into(),
+            }, zh);
+            assert!(s.contains("MacBook Pro"), "the owner must be named: {s}");
+            assert!(!s.contains("10 秒"), "zh={zh} stale 10s claim: {s}");
+            assert!(!s.contains("every 10s"), "zh={zh} stale 10s claim: {s}");
+        }
     }
 
     /// The only reliable handover is choosing this computer on the phone, so

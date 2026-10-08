@@ -25,9 +25,9 @@ use super::ping::PingProbe;
 use super::token::TokenStore;
 use super::{emit, set_health, set_state, Health};
 use super::{
-    Command, Config, ConnEndKind, ConnMsg, Event, State, Target, BUSY_RETRY_DELAY,
-    DIRECT_DIAL_TIMEOUT, DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, OFF_RETRY_DELAY,
-    PING_INTERVAL, PONG_TIMEOUT, RECONNECT_DELAY,
+    Command, Config, ConnEndKind, ConnMsg, Event, State, Target, DIRECT_DIAL_TIMEOUT,
+    DISCOVERY_RETRY, FALLBACK_TICK, HANDSHAKE_TIMEOUT, PING_INTERVAL, PONG_TIMEOUT,
+    RECONNECT_DELAY, STANDBY_RETRY_DELAY,
 };
 
 pub(crate) struct ActiveConn {
@@ -395,12 +395,12 @@ pub(crate) async fn supervisor(
                         }
                     }
                     ConnEndKind::Busy { owner } => {
-                        // Not fatal — another computer is using the iPhone.
-                        // Keep retrying (the iPhone releases the session the
-                        // moment that computer disconnects), and tell the
-                        // user exactly who holds it.
+                        // Not fatal — the phone is set to serve another
+                        // computer. Stand by: the fast loop stops and only a
+                        // 60 s safety net remains, so we neither fight for the
+                        // session nor spam it. A knock still dials at once.
                         if !suppress_auto {
-                            reconnect_at = Some(tokio::time::Instant::now() + BUSY_RETRY_DELAY);
+                            reconnect_at = Some(tokio::time::Instant::now() + STANDBY_RETRY_DELAY);
                         }
                         set_state(&state_tx, &events_tx, State::Busy { owner });
                     }
@@ -426,11 +426,11 @@ pub(crate) async fn supervisor(
                         );
                     }
                     ConnEndKind::Off => {
-                        // Deliberately **not** `suppress_auto`: the whole point is
-                        // that re-picking this computer on the phone brings it
-                        // back by itself.
+                        // Deliberately **not** `suppress_auto`: re-picking this
+                        // computer on the phone (or a knock) brings it back by
+                        // itself. Same 60 s standby as `busy`.
                         if !suppress_auto {
-                            reconnect_at = Some(tokio::time::Instant::now() + OFF_RETRY_DELAY);
+                            reconnect_at = Some(tokio::time::Instant::now() + STANDBY_RETRY_DELAY);
                         }
                         set_state(
                             &state_tx,
@@ -1289,6 +1289,15 @@ mod tests {
             !fallback_allowed(false, false, true),
             "already dialing something"
         );
+    }
+
+    /// Standby, not a fast loop: after `busy`/`off` a non-current computer
+    /// waits ≥ 60 s between safety-net re-dials (and longer than the normal 3 s
+    /// reconnect), so a phone that is set to another computer is not spammed.
+    #[test]
+    fn standby_retry_is_a_slow_safety_net_not_a_fast_loop() {
+        assert!(STANDBY_RETRY_DELAY >= Duration::from_secs(60));
+        assert!(STANDBY_RETRY_DELAY > RECONNECT_DELAY);
     }
 
     #[test]

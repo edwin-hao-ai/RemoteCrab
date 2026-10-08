@@ -532,11 +532,11 @@ fn hints(h: &rc_net::Health, zh: bool) -> Vec<(String, String)> {
     match &h.state {
         State::Busy { owner } => {
             out.push((
-                t(zh, &format!("iPhone 正被「{owner}」使用，所以这台电脑在等。"),
-                    &format!("Another computer ({owner}) is using the iPhone, so this one is waiting."),
+                t(zh, &format!("这台 iPhone 正被「{owner}」使用。"),
+                    &format!("This iPhone is being used by {owner}."),
                 ),
-                t(zh, "断开之后本机会每 10 秒重试并自己接上；但如果那台是这台 iPhone 的「首选电脑」，断开也不会切过来——要在 iPhone 的「选择电脑」里选这台。",
-                    "This PC retries every 10s and will pick it up on its own — unless that computer is the iPhone's preferred one, in which case pick this PC in \"Choose a computer\".",
+                t(zh, "请在手机「选择电脑」里切到这台电脑；单独点重试不会成功。",
+                    "Pick this computer in the iPhone's Choose a Computer list. Retry on its own will keep failing.",
                 ),
             ));
             return out;
@@ -806,6 +806,34 @@ mod tests {
                 zh,
             );
             assert!(busy.contains("MacBook"), "zh={zh} {busy}");
+        }
+    }
+
+    /// AGENTS rule 1: a status that is not "working" owes the user the reason
+    /// AND the next step. The busy hint must name who holds the phone and say
+    /// to pick this PC in the phone's picker — in both languages — and must NOT
+    /// promise the old "retries every 10s" self-heal (the phone now holds the
+    /// door for its current computer, so a bare retry can never win).
+    #[test]
+    fn the_busy_hint_names_the_holder_and_the_way_out() {
+        for zh in [true, false] {
+            let text = panel(
+                &health(rc_net::State::Busy {
+                    owner: "MacBook".into(),
+                }),
+                &RouteVerdict::Direct,
+                zh,
+            );
+            assert!(text.contains("MacBook"), "zh={zh} names the holder: {text}");
+            let picker = ["选择电脑", "Choose a Computer"];
+            assert!(picker.iter().any(|k| text.contains(k)), "zh={zh} {text}");
+            let retry = ["单独点重试", "Retry on its own"];
+            assert!(retry.iter().any(|k| text.contains(k)), "zh={zh} {text}");
+            assert!(!text.contains("10 秒"), "zh={zh} stale 10s claim: {text}");
+            assert!(
+                !text.contains("every 10s"),
+                "zh={zh} stale 10s claim: {text}"
+            );
         }
     }
 

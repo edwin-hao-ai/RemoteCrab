@@ -220,7 +220,7 @@ async fn pending_reply_goes_to_awaiting_approval_then_streams() {
 }
 
 #[tokio::test]
-async fn busy_reply_shows_the_owner_and_keeps_retrying() {
+async fn busy_reply_shows_the_owner_and_stands_by() {
     let phone = FakeIphone::start(FakeIphoneConfig {
         reply: SessionReplyResult::Busy,
         ..Default::default()
@@ -231,7 +231,8 @@ async fn busy_reply_shows_the_owner_and_keeps_retrying() {
     session.connect_manual("127.0.0.1", phone.addr.port());
 
     // Busy is NOT fatal: the state names the owner so the UI can tell the
-    // user where to disconnect, and the session keeps retrying.
+    // user where to disconnect, and the session stands by (60 s safety net,
+    // knock dials at once) rather than fighting for the session.
     let busy = wait_for_state(
         &session,
         |s| matches!(s, State::Busy { .. }),
