@@ -72,6 +72,11 @@ public enum IBWire {
         /// first, so an older phone that ignores an unknown kind is unaffected.
         /// Same number as `rc_protocol::Kind::ClientProof`.
         case clientProof   = 0x26
+        /// iPhone → receiver: the phone's identity handshake, sent as the FIRST
+        /// frame on a phone-initiated connection (`IBPhoneHello`, JSON). The
+        /// mirror of `.clientHello` for the direction where the phone dials the
+        /// receiver instead of the other way around.
+        case phoneHello    = 0x27
         /// A frame whose kind byte this build does not recognise.
         ///
         /// Not a real wire kind: it is what the parser produces instead of
@@ -162,6 +167,13 @@ public enum IBWire {
     public static func encode(clientProof: IBClientProof) throws -> Data {
         let json = try JSONEncoder().encode(clientProof)
         return encodeFrame(kind: .clientProof, payload: json)
+    }
+
+    /// Encode a PhoneHello (iPhone → receiver identity handshake on a
+    /// phone-initiated connection).
+    public static func encode(phoneHello: IBPhoneHello) throws -> Data {
+        let json = try JSONEncoder().encode(phoneHello)
+        return encodeFrame(kind: .phoneHello, payload: json)
     }
 
     /// Encode an app list (Mac → iPhone).
@@ -417,6 +429,21 @@ public enum IBWire {
     /// Decode a `.clientHello` frame's payload.
     public static func decodeClientHello(_ frame: Frame) throws -> IBClientHello {
         try JSONDecoder().decode(IBClientHello.self, from: frame.payload)
+    }
+
+    /// Decode a `.phoneHello` handshake.
+    ///
+    /// Accepts either a complete `.phoneHello` frame (what
+    /// `encode(phoneHello:)` produces, and what a real reader has after
+    /// `Parser`) or a bare JSON payload. The bare form keeps forward-compat
+    /// probes against a hand-written minimal sender ergonomic. Anything that
+    /// parses as a `.phoneHello` frame takes precedence; otherwise the bytes
+    /// are decoded as the JSON payload directly.
+    public static func decodePhoneHello(_ data: Data) throws -> IBPhoneHello {
+        if let frame = Parser().append(data).first, frame.kind == .phoneHello {
+            return try JSONDecoder().decode(IBPhoneHello.self, from: frame.payload)
+        }
+        return try JSONDecoder().decode(IBPhoneHello.self, from: data)
     }
 
     /// Decode a `.sessionReply` frame's payload.

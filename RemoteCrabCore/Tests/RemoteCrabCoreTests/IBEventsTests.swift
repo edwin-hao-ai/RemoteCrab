@@ -269,4 +269,29 @@ final class IBEventsTests: XCTestCase {
         XCTAssertNil(decoded.windowTitle)
         XCTAssertEqual(decoded.body, "done")
     }
+
+    // MARK: - IBPhoneHello (0x27)
+
+    func testPhoneHelloRoundTrips() throws {
+        let hello = IBPhoneHello(phoneId: "phone-uuid", phoneName: "Edwin's iPhone",
+                                 targetPcId: "pc-uuid", appVersion: "1.1",
+                                 nonce: "AAAA", capabilities: [.phoneInitiated, .peerAuth])
+        let data = try IBWire.encode(phoneHello: hello)
+        XCTAssertEqual(try IBWire.decodePhoneHello(data), hello)
+    }
+
+    func testPhoneHelloDecodesWithoutOptionalFields() throws {
+        // 旧/最小发送者不带 nonce/capabilities —— 必须能解码（前向兼容）
+        let json = #"{"phoneId":"p","phoneName":"n","targetPcId":"c","appVersion":"1.0"}"#
+        let decoded = try IBWire.decodePhoneHello(Data(json.utf8))
+        XCTAssertNil(decoded.nonce)
+        XCTAssertNil(decoded.capabilities)
+    }
+
+    func testPhoneHelloKindByteIs0x27() throws {
+        let data = try IBWire.encode(phoneHello: IBPhoneHello(phoneId: "p", phoneName: "n",
+                                                              targetPcId: "c", appVersion: "1"))
+        // 前 4 字节 = 大端长度；第 5 字节 = kind
+        XCTAssertEqual(data[4], 0x27)
+    }
 }

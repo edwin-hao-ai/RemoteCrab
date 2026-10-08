@@ -407,6 +407,79 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     }
 }
 
+/// iPhone → receiver: the phone's identity handshake, sent as the FIRST
+/// frame on a phone-initiated TCP connection (kind `0x27`).
+///
+/// The mirror image of `IBClientHello`: on a Mac-initiated connection the
+/// receiver dials and introduces itself, but when the phone initiates there is
+/// no inbound connection for the receiver to read a `clientHello` from. This
+/// frame lets the receiver learn the phone's stable `phoneId` and the computer
+/// the phone intends to reach, so it can look up the pairing token and answer
+/// the knock.
+public struct IBPhoneHello: Codable, Sendable, Equatable {
+    /// Stable per-phone UUID, persisted across launches. The receiver keys its
+    /// pairing allow-list off this.
+    public let phoneId: String
+    public let phoneName: String
+    /// The `IBClientHello.id` of the computer the phone wants to reach.
+    public let targetPcId: String
+    public let appVersion: String
+    /// Optional, base64 32 bytes. Used for de-duplication / future extension,
+    /// **not** part of authentication.
+    ///
+    /// ADDITIVE + OPTIONAL: absent from a minimal sender, and the custom
+    /// decoder below treats absence as nil rather than failing.
+    public let nonce: String?
+    /// What the phone can do, declared up front.
+    ///
+    /// ADDITIVE + OPTIONAL. Decoded as `[String]` and then filtered, NOT as
+    /// `[Capability]`: a phone newer than this build may name abilities it has
+    /// never heard of, and one unknown raw value must not fail the handshake —
+    /// same reasoning as `IBClientHello.Capability`.
+    public let capabilities: [Capability]?
+
+    /// Declared abilities. Raw values, because an unknown string from a newer
+    /// peer must decode rather than fail the whole handshake.
+    public enum Capability: String, Codable, Sendable, Equatable {
+        /// The phone can initiate the TCP connection itself (knock).
+        case phoneInitiated
+        /// The phone participates in the challenge-response identity exchange.
+        case peerAuth
+        /// The phone answers latency probes.
+        case latencyProbe
+    }
+
+    public init(phoneId: String, phoneName: String, targetPcId: String,
+                appVersion: String, nonce: String? = nil,
+                capabilities: [Capability]? = nil) {
+        self.phoneId = phoneId
+        self.phoneName = phoneName
+        self.targetPcId = targetPcId
+        self.appVersion = appVersion
+        self.nonce = nonce
+        self.capabilities = capabilities
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case phoneId, phoneName, targetPcId, appVersion, nonce, capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        phoneId = try c.decode(String.self, forKey: .phoneId)
+        phoneName = try c.decode(String.self, forKey: .phoneName)
+        targetPcId = try c.decode(String.self, forKey: .targetPcId)
+        // Absent from a minimal/older sender — default rather than fail.
+        appVersion = try c.decodeIfPresent(String.self, forKey: .appVersion) ?? "0"
+        // Absent means nil, not error (forward compatibility).
+        nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
+        // Decoded as [String] then filtered so an unknown capability from a
+        // newer phone does not cost the user their connection.
+        capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)?
+            .compactMap(Capability.init(rawValue:))
+    }
+}
+
 /// iPhone → Mac: the ownership decision for a `clientHello`
 /// (kind `0x0B`).
 public enum IBSessionReplyResult: String, Codable, Sendable {
