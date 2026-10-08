@@ -17,8 +17,14 @@ struct ComputerPickerView: View {
     @EnvironmentObject var engine: CaptureEngine
     @Environment(\.dismiss) private var dismiss
 
+    /// The row awaiting delete confirmation. Non-nil presents the dialog.
+    @State private var pendingDelete: ComputerRosterEntry?
+
     private var roster: [ComputerRosterEntry] {
         ComputerRoster.entries(online: engine.onlineComputers, seen: engine.seenComputers)
+            // A forgotten computer must leave *every* section — including the
+            // one fed by live presence, not just the history list (lesson 131).
+            .filter { !engine.forgottenComputerIds.contains($0.id) }
     }
 
     var body: some View {
@@ -60,6 +66,20 @@ struct ComputerPickerView: View {
                     engine.recheckPreferredMac()
                 }
                 engine.pruneSeenComputers()
+            }
+            .confirmationDialog(
+                pendingDelete.map { IBLocale.Pairing.confirmForget($0.name) } ?? "",
+                isPresented: Binding(
+                    get: { pendingDelete != nil },
+                    set: { if !$0 { pendingDelete = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(IBLocale.Pairing.forget, role: .destructive) {
+                    if let row = pendingDelete { engine.forgetComputer(id: row.id) }
+                    pendingDelete = nil
+                }
+                Button(IBLocale.Connection.cancel, role: .cancel) { pendingDelete = nil }
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -242,6 +262,13 @@ struct ComputerPickerView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isConnected)
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            pendingDelete = entry
+                        } label: {
+                            Label(IBLocale.Pairing.forget, systemImage: "trash")
+                        }
+                    }
                 }
             }
         } header: {

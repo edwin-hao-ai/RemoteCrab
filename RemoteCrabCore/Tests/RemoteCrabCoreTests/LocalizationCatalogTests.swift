@@ -304,6 +304,25 @@ final class LocalizationCatalogTests: XCTestCase {
         XCTAssertTrue(missing.isEmpty, "gesture rows with no zh-Hans: \(missing)")
     }
 
+    /// The per-row delete confirmation.
+    ///
+    /// Deleting is one swipe away and a paired computer needs a fresh
+    /// approval to come back, so this sentence is a real warning, not
+    /// chrome — a Chinese user must not read it in English.
+    func testForgetConfirmationIsBilingual() throws {
+        let key = "Forget %@? It will need approval again to reconnect."
+        let strings = try catalog()
+        let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
+        let locs = try XCTUnwrap(entry["localizations"] as? [String: Any], "no localizations: \(key)")
+        let en = (locs["en"] as? [String: Any])?["stringUnit"] as? [String: Any]
+        XCTAssertFalse((en?["value"] as? String)?.isEmpty != false, "missing en: \(key)")
+        let zh = (locs["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+        XCTAssertFalse((zh?["value"] as? String)?.isEmpty != false, "missing zh-Hans: \(key)")
+        // The format must carry the row's name, or the dialog cannot say who
+        // is about to be removed.
+        XCTAssertTrue(IBLocale.Pairing.confirmForget("EDWIN").contains("EDWIN"))
+    }
+
     /// The launcher's waiting / no-answer states. They exist because the
     /// sheet used to say "No apps listed yet" while the Mac was still
     /// building the list, so a Chinese user would have read a *lie* in their

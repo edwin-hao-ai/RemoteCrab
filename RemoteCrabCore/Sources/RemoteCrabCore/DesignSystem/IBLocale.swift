@@ -909,6 +909,12 @@ public enum IBLocale {
         public static let currentComputer = IBL("This iPhone")
         public static let releaseCurrent = IBL("Release this iPhone")
         public static let releaseCurrentHint = IBL("Let the next computer that connects become the one this iPhone serves.")
+        /// Per-row delete confirmation. A paired computer can otherwise be
+        /// removed with a single stray swipe, and getting it back means
+        /// approving it again from scratch — so the sentence says that.
+        public static func confirmForget(_ name: String) -> String {
+            String(format: IBL("Forget %@? It will need approval again to reconnect."), name)
+        }
     }
 
     public enum Error {

@@ -209,8 +209,19 @@ final class CaptureEngine: ObservableObject {
     /// Discovers computers announcing `_remotecrab-computer._tcp`, so the picker
     /// can show which are online right now. Independent of the listener/session.
     private var computerBrowser: NWBrowser?
-    /// Computers currently announcing themselves, freshest browse snapshot.
+    /// Computers currently announcing themselves, freshest browse snapshot,
+    /// minus any the user forgot this session.
     @Published private(set) var onlineComputers: [ComputerPresence] = []
+    /// The raw browse snapshot, before the forgotten-computer filter.
+    private var allOnlineComputers: [ComputerPresence] = []
+    /// Ids the user forgot this session. Presence is live Bonjour, not stored
+    /// history, so an online computer would reappear on the next browse and a
+    /// "Forget" that leaves the row behind is exactly lesson 131. Filtered out
+    /// of the roster until it is re-paired. Session-scoped on purpose:
+    /// forgetting erases history/pairing, it does not block the network, so a
+    /// computer that is genuinely still here may be offered again after a
+    /// relaunch (and is always offered once the user re-pairs it).
+    @Published private(set) var forgottenComputerIds: Set<String> = []
     /// id → the Bonjour endpoint each online computer announced, so a tap can
     /// knock it (dial once) instead of waiting for its retry poll.
     private var computerEndpoints: [String: NWEndpoint] = [:]
@@ -1075,7 +1086,8 @@ final class CaptureEngine: ObservableObject {
             }
             Forensic.log("[presence] results=\(results.count) bonjour=\(sawBonjour) online=\(found.count)")
             Task { @MainActor [weak self] in
-                self?.onlineComputers = found
+                self?.allOnlineComputers = found
+                self?.refreshOnlineComputers()
                 self?.computerEndpoints = endpoints
                 self?.dialPendingAutoDialIfPossible()
             }
@@ -1088,7 +1100,14 @@ final class CaptureEngine: ObservableObject {
     private func stopComputerBrowser() {
         computerBrowser?.cancel()
         computerBrowser = nil
+        allOnlineComputers = []
         onlineComputers = []
+    }
+
+    /// Re-derive the visible presence from the latest browse snapshot, dropping
+    /// computers the user forgot this session.
+    private func refreshOnlineComputers() {
+        onlineComputers = allOnlineComputers.filter { !forgottenComputerIds.contains($0.id) }
     }
 
     /// Called on every return to the foreground (scenePhase == .active).
@@ -2008,6 +2027,9 @@ final class CaptureEngine: ObservableObject {
         }
         if let mac {
             pairingStore.setCurrent(id: mac.id, name: mac.name)
+            // A re-paired computer is no longer ended: let its presence show
+            // again (it was only hidden while forgotten).
+            if forgottenComputerIds.remove(mac.id) != nil { refreshOnlineComputers() }
         }
         refreshPairedMacs()
 
@@ -2405,6 +2427,37 @@ final class CaptureEngine: ObservableObject {
 
     func forgetPairedMac(id: String) {
         pairingStore.forget(id: id)
+        refreshPairedMacs()
+    }
+
+    /// Forget a computer entirely, from the picker's per-row delete.
+    ///
+    /// `pairingStore.forget` already clears paired + seen + preferred +
+    /// disconnected + current, so the history row leaves every section and the
+    /// phone stops auto-dialing it (no `current`) and stops auto-accepting it
+    /// (not `paired` → a fresh knock goes `pending`). This method adds the
+    /// session-local parts: drop a live session or dial aimed at it, and
+    /// suppress its (live, non-stored) presence so the row really goes away.
+    ///
+    /// Deliberately does NOT clear the app-icon / window-thumbnail caches: those
+    /// are keyed by app/window id and belong to the *connected* computer, not to
+    /// this id. They are wiped by `clearPeerIdentity` when a session ends, which
+    /// `disconnectCurrentMac` triggers below when this computer is the owner.
+    func forgetComputer(id: String) {
+        if ownerMac?.id == id { disconnectCurrentMac() }
+        // Drop a dial aimed at it. `cancelOutboundSilently` leaves
+        // `connectionState` alone (a superseding dial must keep its own), so
+        // reset it here or a forgotten offline tap would leave the screen
+        // "starting" with nothing coming — but only when there is no live
+        // session to speak of.
+        if outboundTarget?.id == id {
+            cancelOutboundSilently()
+            if connection == nil { connectionState = .idle }
+        }
+        if pendingAutoDialId == id { pendingAutoDialId = nil }
+        pairingStore.forget(id: id)
+        forgottenComputerIds.insert(id)
+        refreshOnlineComputers()
         refreshPairedMacs()
     }
 

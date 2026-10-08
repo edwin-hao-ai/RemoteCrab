@@ -10697,6 +10697,23 @@
           }
         }
       }
+    },
+    "Forget %@? It will need approval again to reconnect.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forget %@? It will need approval again to reconnect."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘记 %@？重新连接时需要再次批准。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
