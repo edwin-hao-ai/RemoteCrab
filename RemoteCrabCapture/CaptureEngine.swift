@@ -326,6 +326,15 @@ final class CaptureEngine: ObservableObject {
     /// back — so this is what turns "no answer" into the inbound fallback.
     private var outboundWatchdog: Task<Void, Never>?
 
+    /// The computer a launch/foreground (or an offline row tap) wants to reach.
+    ///
+    /// Presence resolves a computer's endpoint a moment after the browser
+    /// starts, so a dial attempted too early finds nothing to dial. Keeping
+    /// the intent lets the browse results dial it the moment it is announced,
+    /// which is what makes "dial the last computer on launch" actually dial
+    /// instead of silently arming a knock with nothing to knock.
+    private var pendingAutoDialId: String?
+
     let pairingStore = MacPairingStore()
 
     /// Stable identity of this iPhone, persisted so the receiver keys pairings
@@ -968,6 +977,10 @@ final class CaptureEngine: ObservableObject {
             connectionState = .failed
             failureReason = .network
         }
+        // On launch/restart, reach the computer we last served. The endpoint
+        // may not be resolved yet; `connect` queues the intent and the browse
+        // results dial it (see `dialPendingAutoDialIfPossible`).
+        autoDialLastComputerIfAny()
         // E2E: the picker tap cannot be done headlessly (see the fn).
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_PICK_ONLINE"] == "1" {
             runE2EPickOnlineComputer()
@@ -985,6 +998,11 @@ final class CaptureEngine: ObservableObject {
         candidate?.cancel()
         candidate = nil
         candidateParser = nil
+        // An in-flight outbound dial must not outlive the stream it was for:
+        // otherwise its race gate (`outboundTarget`) survives into the next
+        // start and answers a legitimate inbound computer `busy`.
+        cancelOutboundSilently()
+        pendingAutoDialId = nil
         pendingConnection?.cancel()
         clearPending()
         connection?.cancel()
@@ -1055,6 +1073,7 @@ final class CaptureEngine: ObservableObject {
             Task { @MainActor [weak self] in
                 self?.onlineComputers = found
                 self?.computerEndpoints = endpoints
+                self?.dialPendingAutoDialIfPossible()
             }
         }
         browser.start(queue: queue)
@@ -1080,6 +1099,10 @@ final class CaptureEngine: ObservableObject {
         // picker is not stale the moment the user returns.
         stopComputerBrowser()
         startComputerBrowser()
+        // Reach the last computer again. This only dials; it never rebuilds the
+        // listener (keep-alive already keeps the listener alive — rebuilding it
+        // here tore down live connections, lesson 156).
+        autoDialLastComputerIfAny()
         if !captureSession.isRunning {
             // Backgrounding interrupts the capture session; audio
             // (separate AVAudioEngine) survives but video stays dead
@@ -1704,7 +1727,9 @@ final class CaptureEngine: ObservableObject {
             // a dead-but-still-"ready" owner never blocks anyone.
             let sameMac = (connectedMacId != nil && connectedMacId == hello.id)
             if existing.state == .ready && !sameMac {
-                replyBusy(on: conn, ownerName: connectedMacName ?? outboundTarget?.name ?? "another computer")
+                let ownerName = connectedMacName ?? outboundTarget?.name ?? "another computer"
+                if userInitiated { releaseOutboundTarget() }
+                replyBusy(on: conn, ownerName: ownerName)
                 return
             }
             // An outbound dial we have not granted yet is not an owner — it is
@@ -1712,6 +1737,7 @@ final class CaptureEngine: ObservableObject {
             // cancel it; the pairing policy below answers that computer `busy`
             // through `owner: outboundTarget`.
             if let out = outboundTarget, hello.id != out.id {
+                if userInitiated { releaseOutboundTarget() }
                 replyBusy(on: conn, ownerName: out.name)
                 return
             }
@@ -1736,6 +1762,7 @@ final class CaptureEngine: ObservableObject {
                 pending.cancel()
                 clearPending()
             } else {
+                if userInitiated { releaseOutboundTarget() }
                 replyBusy(on: conn, ownerName: pendingMacName ?? "another computer")
                 return
             }
@@ -1760,10 +1787,12 @@ final class CaptureEngine: ObservableObject {
         noteOutcome(decision, for: hello)
         switch decision {
         case .busy(let ownerName):
+            if userInitiated { releaseOutboundTarget() }
             replyBusy(on: conn, ownerName: ownerName)
         case .off(let name):
             // The user disconnected this computer; tell it to stand down, then
             // close so it does not sit on an open socket.
+            if userInitiated { releaseOutboundTarget() }
             sendSessionReply(IBSessionReply(result: .off, ownerName: name), on: conn)
             queue.asyncAfter(deadline: .now() + 0.4) { conn.cancel() }
         case .accept, .pending:
@@ -1774,6 +1803,10 @@ final class CaptureEngine: ObservableObject {
             // paired id (`.pending`): the MAC decides, not the badge.
             let paired = pairingStore.paired.first { $0.id == hello.id }
             if let paired, let nonce = hello.nonce, !nonce.isEmpty {
+                // The identity challenge keeps `outboundTarget` set for its
+                // ~5 s window: it is the race gate that stops an unrelated
+                // auto-dialer stealing the single `pendingChallenge` slot.
+                // `grant` / `refuseChallenge` release it.
                 beginChallenge(hello: hello, mac: paired, clientNonce: nonce, on: conn,
                                token: token, parser: parser)
             } else if case .accept = decision, let paired {
@@ -1787,11 +1820,15 @@ final class CaptureEngine: ObservableObject {
                 grant(connection: conn, mac: paired, platform: hello.platform)
             } else if case .accept = decision {
                 // Shouldn't happen, but never strand the Mac.
+                if userInitiated { releaseOutboundTarget() }
                 sendSessionReply(IBSessionReply(result: .pending), on: conn)
                 setPending(connection: conn, hello: hello, name: hello.name)
             } else {
                 // First pairing (unknown computer), or a paired id whose legacy
                 // token did not match — ask the human (the TOFU window).
+                // The approval slot holds the door from here; release the dial's
+                // gate so it cannot outlive the attempt.
+                if userInitiated { releaseOutboundTarget() }
                 sendSessionReply(IBSessionReply(result: .pending), on: conn)
                 setPending(connection: conn, hello: hello, name: hello.name)
                 // Headless e2e: auto-approve so a run needs no phone tap.
@@ -1891,6 +1928,10 @@ final class CaptureEngine: ObservableObject {
     private func refuseChallenge(_ challenge: PendingChallenge, reason: String) {
         challenge.timeout?.cancel()
         pendingChallenge = nil
+        // The dial (if this challenge came from one) is over and did not become
+        // a session — let the gate go so a later inbound computer is not
+        // answered `busy` by an attempt that already concluded.
+        releaseOutboundTarget()
         Self.log.error("REFUSED a computer that failed the identity challenge (\(reason, privacy: .public))")
         Forensic.log("[auth] REFUSED \(challenge.hello.id.prefix(8)): \(reason)")
         pairingStore.noteOutcome(.denied, for: challenge.hello.id)
@@ -1935,6 +1976,8 @@ final class CaptureEngine: ObservableObject {
         outboundTarget = nil
         outboundConnection = nil
         outboundToken = nil
+        // A session now exists, so any queued auto-dial intent is satisfied.
+        pendingAutoDialId = nil
         pendingChallenge?.timeout?.cancel()
         pendingChallenge = nil
         clearPending()
@@ -2369,6 +2412,7 @@ final class CaptureEngine: ObservableObject {
     /// Cancel an outstanding preference — the next Mac to ask gets the
     /// normal pairing treatment again.
     func clearPreferredMac() {
+        pendingAutoDialId = nil
         pairingStore.clearPreferred()
         refreshPairedMacs()
     }
@@ -2752,6 +2796,28 @@ final class CaptureEngine: ObservableObject {
         Forensic.log("[knock] dialed \(id.prefix(8))")
     }
 
+    /// Reach the computer this iPhone last served, on launch / return to
+    /// foreground. No-op once a session exists, and never touches the listener
+    /// (lesson 156: keep-alive already keeps it alive; rebuilding tore down
+    /// live connections). The endpoint often is not resolved yet this early, so
+    /// `connect` queues the intent and the browse results dial it.
+    private func autoDialLastComputerIfAny() {
+        guard isStreaming, connection == nil, outboundConnection == nil,
+              let id = pairingStore.currentId else { return }
+        Forensic.log("[dial] auto-dial last computer \(id.prefix(8))")
+        connect(toComputer: id)
+    }
+
+    /// Dial a queued target the moment presence resolves its endpoint. Called
+    /// from the browse handler, so an "arm now, dial when it appears" tap works
+    /// for a computer that was offline when the user picked it.
+    private func dialPendingAutoDialIfPossible() {
+        guard connection == nil, let id = pendingAutoDialId,
+              computerEndpoints[id] != nil else { return }
+        pendingAutoDialId = nil
+        connect(toComputer: id)
+    }
+
     // MARK: - Phone-initiated outbound dial
 
     /// Dial a computer the user tapped, instead of waiting for it to dial us.
@@ -2771,6 +2837,9 @@ final class CaptureEngine: ObservableObject {
         // A second tap supersedes the first dial: cancel it without arming a
         // fallback (the new target replaces it) so its socket cannot linger.
         cancelOutboundSilently()
+        // Any explicit or auto dial supersedes a queued intent; the offline
+        // branch below re-queues it for the target that could not be dialled.
+        pendingAutoDialId = nil
         // T3: `disconnected` is checked before `userInitiated` in the policy,
         // so an explicit dial of the computer the user disconnected must clear
         // that intent first — otherwise the `clientHello` on the socket we
@@ -2779,9 +2848,21 @@ final class CaptureEngine: ObservableObject {
             pairingStore.clearDisconnected()
             refreshPairedMacs()
         }
+        // Picking a computer is a switch: arm the preference — the UI's
+        // "Switching to <name>…" card, and the door held for it — and drop the
+        // current owner so its live session cannot answer this dial `busy` (the
+        // early `existing` guard in `handleHello`). Same drop the old
+        // `setPreferredComputer` performed. No separate knock: the dial below
+        // is the knock (a legacy receiver treats the unknown `phoneHello` as
+        // one).
+        pairingStore.setPreferred(id: id, name: nameForComputer(id: id))
+        refreshPairedMacs()
+        if let owner = ownerMac, owner.id != id {
+            disconnectCurrentMac()
+        }
         guard let endpoint = computerEndpoints[id] else {
             Forensic.log("[dial] \(id.prefix(8)) offline — arming instead")
-            setPreferredComputer(id: id)
+            pendingAutoDialId = id
             return
         }
 
@@ -2907,21 +2988,30 @@ final class CaptureEngine: ObservableObject {
     /// tap supersedes it. State is cleared BEFORE the cancel so a fast legacy
     /// dial-back is never answered `busy` by the very target we were dialling.
     private func cancelOutboundSilently() {
-        guard let conn = outboundConnection else { return }
         outboundWatchdog?.cancel()
         outboundWatchdog = nil
+        let conn = outboundConnection
         outboundConnection = nil
         outboundToken = nil
+        // Clear the gate even when the socket was already detached (an in-flight
+        // identity challenge has no `outboundConnection` but still holds it).
         outboundTarget = nil
+        guard let conn else { return }
         conn.stateUpdateHandler = { _ in }
         conn.cancel()
     }
 
-    /// An outbound `clientHello` led to the human-approval `pending` path. The
-    /// socket now belongs to the approval slot, not to the dial: drop the
-    /// outbound tracking and neutralise its handler so a later Deny/timeout
-    /// cancel cannot route to `failOutbound` and re-arm+knock a computer the
-    /// user just rejected. The socket stays in `pendingConnection`.
+    /// An outbound `clientHello` led to the shared handshake machinery. The
+    /// socket now belongs to the challenge / approval slot, not the dial: drop
+    /// the outbound socket tracking and neutralise its handler so a later
+    /// Deny/timeout cancel cannot route to `failOutbound` and re-arm+knock a
+    /// computer the user just rejected.
+    ///
+    /// `outboundTarget` is deliberately left set — it is the race gate for the
+    /// ~5 s identity challenge. Clearing it here (before `decide`) is what let
+    /// an unrelated auto-dialer arrive during the challenge and steal the single
+    /// `pendingChallenge` slot. It is released by `grant`, `refuseChallenge`, or
+    /// when the dial hands off to the approval slot (`releaseOutboundTarget`).
     private func detachOutboundForApproval(on conn: NWConnection) {
         guard outboundConnection === conn else { return }
         Forensic.log("[dial] outbound parked in the approval slot")
@@ -2929,8 +3019,14 @@ final class CaptureEngine: ObservableObject {
         outboundWatchdog = nil
         outboundConnection = nil
         outboundToken = nil
-        outboundTarget = nil
         conn.stateUpdateHandler = { _ in }
+    }
+
+    /// Release the transient outbound race gate once a dial has concluded
+    /// without becoming the session. Doing this here (rather than eagerly at
+    /// detach) is what keeps the gate effective for the whole challenge window.
+    private func releaseOutboundTarget() {
+        outboundTarget = nil
     }
 
     /// The outbound attempt did not become a session. Tear down the socket,
@@ -2963,6 +3059,13 @@ final class CaptureEngine: ObservableObject {
         outboundToken = nil
         outboundTarget = nil
         connectionState = .idle
+        // The switch was refused, so it is no longer "in progress" — drop the
+        // preference armed for the dial so the waiting card does not linger;
+        // the hint below is what says why.
+        if pairingStore.preferredId == target.id {
+            pairingStore.clearPreferred()
+            refreshPairedMacs()
+        }
         showHint(IBLocale.Pairing.waitingForCurrent(reply.ownerName ?? target.name))
         conn.stateUpdateHandler = { _ in }
         conn.cancel()

@@ -206,7 +206,8 @@ struct ComputerPickerView: View {
                     let isPaired = engine.pairedMacs.contains { $0.id == entry.id }
                     let seen = engine.seenComputers.first { $0.id == entry.id }
                     Button {
-                        engine.setPreferredComputer(id: entry.id)
+                        engine.connect(toComputer: entry.id)
+                        dismiss()
                     } label: {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
