@@ -45,6 +45,50 @@ final class InboundHelloClassifierTests: XCTestCase {
             .knock)
     }
 
+    // MARK: - Live-session guard (a stranger must not displace the owner)
+
+    func testSamePhoneIdReconnectingIsData() {
+        let owner = InboundSessionOwner(phoneId: "phone-a", name: "A")
+        XCTAssertEqual(
+            InboundHelloClassifier.classify(kind: .phoneHello, targetPcId: "mac-1",
+                                            myPcId: "mac-1", owner: owner,
+                                            incomingPhoneId: "phone-a"),
+            .data)
+    }
+
+    func testDifferentPhoneIdWhileOwnedIsBusy() {
+        let owner = InboundSessionOwner(phoneId: "phone-a", name: "A")
+        XCTAssertEqual(
+            InboundHelloClassifier.classify(kind: .phoneHello, targetPcId: "mac-1",
+                                            myPcId: "mac-1", owner: owner,
+                                            incomingPhoneId: "phone-b"),
+            .busy)
+    }
+
+    func testNameOnlyOwnerCannotProveIdentitySoBusy() {
+        // The outbound path knows only the name and cannot prove the hello is
+        // the same phone, so the live session is protected with a `busy`.
+        let owner = InboundSessionOwner(phoneId: nil, name: "Edwin's iPhone")
+        XCTAssertEqual(
+            InboundHelloClassifier.classify(kind: .phoneHello, targetPcId: "mac-1",
+                                            myPcId: "mac-1", owner: owner,
+                                            incomingPhoneId: "phone-b"),
+            .busy)
+    }
+
+    func testBusyNeverBeatsForeignOrKnock() {
+        let owner = InboundSessionOwner(phoneId: "phone-a", name: "A")
+        XCTAssertEqual(
+            InboundHelloClassifier.classify(kind: .phoneHello, targetPcId: "mac-2",
+                                            myPcId: "mac-1", owner: owner,
+                                            incomingPhoneId: "phone-b"),
+            .foreign)
+        XCTAssertEqual(
+            InboundHelloClassifier.classify(kind: nil, targetPcId: nil, myPcId: "mac-1",
+                                            owner: owner),
+            .knock)
+    }
+
     /// The real path, short of a socket: encode a `phoneHello`, feed the bytes
     /// to the same incremental parser the receiver uses, decode the first frame
     /// and classify it. This is what `routeInboundFirstFrame` does.

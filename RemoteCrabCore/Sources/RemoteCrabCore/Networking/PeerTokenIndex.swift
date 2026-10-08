@@ -63,4 +63,18 @@ public struct PeerTokenIndex: Equatable, Sendable {
         }
         phoneInitiated.remove(phoneId)
     }
+
+    /// Drop the token stored under a phone's display **name** (the legacy
+    /// outbound store's key) and any id entries that point at the same token.
+    ///
+    /// The phone-initiated path mirrors its token into both stores, so a
+    /// name-based "Forget" must clear both or the phone stays paired in one of
+    /// them — the split-brain the review found.
+    public mutating func forgetByName(_ name: String) {
+        guard let token = byName.removeValue(forKey: name) else { return }
+        for (id, value) in byPhoneId where value == token {
+            byPhoneId.removeValue(forKey: id)
+            phoneInitiated.remove(id)
+        }
+    }
 }

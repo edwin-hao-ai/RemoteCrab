@@ -263,6 +263,11 @@ final class ReceiverSession: ObservableObject {
     /// in `answerChallenge` / `handleSessionReply` from `tokenStore` to
     /// `tokenIndex`.
     private var inboundPeer: (phoneId: String, name: String)?
+    /// Who owns the live session, as best we know. Non-nil means a hello from a
+    /// *different* phone must be answered `busy` rather than allowed to displace
+    /// the live connection (the phone-initiated path sets `phoneId`; the
+    /// outbound path knows only the name).
+    private var sessionOwner: InboundSessionOwner?
     /// Names of iPhones this Mac has paired with (token store keys),
     /// surfaced for Preferences → Paired iPhones.
     @Published private(set) var pairedPhones: [String] = []
@@ -1033,6 +1038,14 @@ final class ReceiverSession: ObservableObject {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
+    /// The Bonjour service name an iPhone publishes, from its device name.
+    /// Mirrors `CaptureEngine.defaultServiceName()`. The outbound path and the
+    /// legacy token store key by this; an inbound `IBPhoneHello` carries only the
+    /// device name, so it must be reconstructed to look up/mirror a token.
+    static func bonjourServiceName(deviceName: String) -> String {
+        "RemoteCrab — \(deviceName)"
+    }
+
     private static func loadTokens() -> [String: String] {
         guard let data = UserDefaults.standard.data(forKey: "remotecrab.mac.tokens"),
               let dict = try? JSONDecoder().decode([String: String].self, from: data) else {
@@ -1306,6 +1319,11 @@ final class ReceiverSession: ObservableObject {
     func forgetPhone(named name: String) {
         tokenStore.removeValue(forKey: name)
         saveTokens()
+        // The phone-initiated path mirrors its token into both stores, so
+        // forgetting only the name-keyed one would leave the phone paired (and
+        // un-forgettable) in the id store.
+        tokenIndex.forgetByName(name)
+        savePeerTokenIndex()
         Self.log.info("forgot paired phone \(name, privacy: .public)")
     }
 
@@ -1541,6 +1559,7 @@ final class ReceiverSession: ObservableObject {
         conn.start(queue: .global())
         connection = conn
         connectedPhoneName = phone.name
+        sessionOwner = InboundSessionOwner(phoneId: nil, name: phone.name)
 
         // A dial that has not become ready can sit in `preparing` for the full
         // TCP timeout (~75 s), and that is true of a Bonjour *service endpoint*
@@ -1797,6 +1816,11 @@ final class ReceiverSession: ObservableObject {
                 if let peer = inboundPeer {
                     tokenIndex.set(phoneId: peer.phoneId, name: peer.name, token: token)
                     savePeerTokenIndex()
+                    // Mirror into the name-keyed store so the phone appears in
+                    // Preferences → Paired iPhones, can be forgotten, and is not
+                    // re-prompted if the outbound fallback dials it.
+                    tokenStore[peer.name] = token
+                    saveTokens()
                 } else if let key = currentTokenKey {
                     tokenStore[key] = token
                     saveTokens()
@@ -2023,6 +2047,7 @@ final class ReceiverSession: ObservableObject {
         connection = nil
         connectedPhoneName = nil
         inboundPeer = nil
+        sessionOwner = nil
         sessionGranted = false
         sessionAuthenticated = false
         clientNonce = nil
@@ -2059,8 +2084,13 @@ final class ReceiverSession: ObservableObject {
     @MainActor
     private func beginInboundFirstFrameRead(_ conn: NWConnection) {
         let state = InboundReadState()
-        parser.reset()
-        conn.stateUpdateHandler = { _ in }
+        // A dedicated parser: the handshake peek must not touch the session's
+        // parser, which may be mid-frame on a live outbound session.
+        conn.stateUpdateHandler = { [weak self] newState in
+            Task { @MainActor [weak self] in
+                self?.handleInboundConnectionState(conn, newState)
+            }
+        }
         conn.start(queue: .global())
         readInboundFirstFrame(conn, state: state)
         // An old phone's knock sends nothing and closes no faster than its TCP
@@ -2078,22 +2108,28 @@ final class ReceiverSession: ObservableObject {
     /// Read only until the first complete frame (or EOF / over-budget bytes),
     /// then hand the decision to the main actor. One `receive` is outstanding at
     /// a time and the next is armed from the same main-actor step, so chunks
-    /// cannot be reordered and `parser` is touched from one actor.
+    /// cannot be reordered. `state.buffer` keeps the raw bytes so anything after
+    /// the first frame can be handed to the session parser intact.
     @MainActor
     private func readInboundFirstFrame(_ conn: NWConnection, state: InboundReadState) {
         conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
             Task { @MainActor [weak self] in
                 guard let self, !state.decided else { return }
                 if let data, !data.isEmpty {
-                    state.bytes += data.count
-                    let frames = self.parser.append(data)
-                    if let frame = frames.first {
+                    state.buffer.append(data)
+                    if let frame = state.parser.append(data).first {
                         state.decided = true
-                        self.routeInboundFirstFrame(conn, frame: frame)
+                        // Wire size of the first frame: 4-byte length + 1-byte
+                        // kind + payload. Everything after it belongs to the
+                        // session; dropping it would drop a whole frame.
+                        let consumed = 5 + frame.payload.count
+                        let remainder = state.buffer.count > consumed
+                            ? Data(state.buffer.dropFirst(consumed)) : Data()
+                        self.routeInboundFirstFrame(conn, frame: frame, remainder: remainder)
                         return
                     }
                 }
-                if isComplete || error != nil || state.bytes > 4096 {
+                if isComplete || error != nil || state.buffer.count > 4096 {
                     state.decided = true
                     Self.log.info("inbound: connection ended before a first frame — treating as knock")
                     conn.cancel()
@@ -2106,18 +2142,21 @@ final class ReceiverSession: ObservableObject {
     }
 
     @MainActor
-    private func routeInboundFirstFrame(_ conn: NWConnection, frame: IBWire.Frame) {
+    private func routeInboundFirstFrame(_ conn: NWConnection, frame: IBWire.Frame, remainder: Data) {
         let hello = try? IBWire.decodePhoneHello(frame)
         switch InboundHelloClassifier.classify(kind: frame.kind,
                                                targetPcId: hello?.targetPcId,
-                                               myPcId: macId) {
+                                               myPcId: macId,
+                                               owner: sessionOwner,
+                                               incomingPhoneId: hello?.phoneId) {
         case .data:
-            guard let hello else {
-                conn.cancel()
-                retryNow()
-                return
-            }
-            beginServerSession(conn, hello: hello)
+            // `.data` is only produced when the frame decoded and its target is
+            // this Mac, so `hello` is guaranteed non-nil here.
+            beginServerSession(conn, hello: hello!, remainder: remainder)
+        case .busy:
+            let ownerName = sessionOwner?.name ?? connectedPhoneName
+            Self.log.info("inbound hello while \(ownerName ?? "?", privacy: .public) owns the session — replying busy")
+            sendBusyAndClose(on: conn, ownerName: ownerName)
         case .knock, .foreign:
             Self.log.info("inbound first frame is not for this Mac — treating as knock")
             conn.cancel()
@@ -2125,11 +2164,52 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    /// Answer a phone that dialed while another phone owns the session: a bare
+    /// `sessionReply{busy}` and close. The live connection is never touched — an
+    /// unauthenticated LAN peer must not be able to displace it.
+    @MainActor
+    private func sendBusyAndClose(on conn: NWConnection, ownerName: String?) {
+        let reply = IBSessionReply(result: .busy, ownerName: ownerName)
+        guard let data = try? IBWire.encode(sessionReply: reply) else {
+            conn.cancel()
+            return
+        }
+        conn.send(content: data, completion: .contentProcessed { _ in conn.cancel() })
+    }
+
+    /// Tear down the session when its socket dies. Installed on the inbound
+    /// connection and identity-guarded, so a `.cancelled` from a connection we
+    /// deliberately replaced cannot tear down the new one.
+    @MainActor
+    private func handleInboundConnectionState(_ conn: NWConnection, _ newState: NWConnection.State) {
+        guard connection === conn else { return }
+        switch newState {
+        case .failed(let error):
+            Self.log.error("inbound connection failed: \(error, privacy: .public)")
+            stopPingLoop()
+            pingProbe.reset()
+            latencyTracker.reset()
+            if !suppressReconnect { state = .error(IBLocale.Error.iPhoneConnectionLost) }
+            clearConnectionState()
+            scheduleReconnect()
+        case .cancelled:
+            stopPingLoop()
+            pingProbe.reset()
+            latencyTracker.reset()
+            let keepError = suppressReconnect
+            clearConnectionState()
+            if !keepError { state = .searching }
+            scheduleReconnect()
+        default:
+            break
+        }
+    }
+
     /// Run the receiver-side handshake with the Mac as the **server**. Protocol
     /// roles do not reverse: the Mac still sends `IBClientHello` and the phone
     /// still answers `IBSessionReply`; only the TCP initiator changed.
     @MainActor
-    private func beginServerSession(_ conn: NWConnection, hello: IBPhoneHello) {
+    private func beginServerSession(_ conn: NWConnection, hello: IBPhoneHello, remainder: Data) {
         Self.log.info("inbound phoneHello from \(hello.phoneName, privacy: .public) (\(hello.phoneId, privacy: .public))")
         // Drop any connection we were holding first. Its state handler checks
         // `self.connection === conn`, so once the new connection is assigned its
@@ -2137,9 +2217,18 @@ final class ReceiverSession: ObservableObject {
         // cannot keep feeding `handleInbound` under the new connection's name.
         connection?.cancel()
         connection = nil
+        // The session parser is the one `startReceiving` uses; the previous
+        // session's partial frame is garbage, so reset it and then feed it any
+        // bytes that followed the hello in the same read.
+        parser.reset()
         tokenIndex.markPhoneInitiated(phoneId: hello.phoneId)
         savePeerTokenIndex()
-        inboundPeer = (phoneId: hello.phoneId, name: hello.phoneName)
+        // The hello carries the phone's **device** name; the outbound path and
+        // the legacy token store key by its Bonjour service name. Derive it so
+        // the legacy name-fallback migration and the outbound mirror line up.
+        let serviceName = Self.bonjourServiceName(deviceName: hello.phoneName)
+        inboundPeer = (phoneId: hello.phoneId, name: serviceName)
+        sessionOwner = InboundSessionOwner(phoneId: hello.phoneId, name: hello.phoneName)
         currentTokenKey = nil
         sessionGranted = false
         sessionAuthenticated = false
@@ -2151,6 +2240,7 @@ final class ReceiverSession: ObservableObject {
         connectedDirectIP = nil
         state = .handshaking(name: hello.phoneName)
         startReceiving(on: conn)
+        if !remainder.isEmpty { handleInbound(remainder) }
         sendClientHello(on: conn, token: nil)
         startHandshakeTimeout(on: conn)
     }
@@ -2172,7 +2262,7 @@ final class ReceiverSession: ObservableObject {
                 }
                 return
             }
-            if !isComplete && self.connection != nil {
+            if !isComplete && self.connection === connection {
                 self.startReceiving(on: connection)
             }
         }
@@ -2425,7 +2515,7 @@ final class ReceiverSession: ObservableObject {
     /// direct dial is `paired: true` and reconnects silently.
     private func rekeyDirectConnection(realDeviceName: String) {
         guard connectedIsDirect, !realDeviceName.isEmpty else { return }
-        let realName = "RemoteCrab — \(realDeviceName)"
+        let realName = Self.bonjourServiceName(deviceName: realDeviceName)
         guard currentTokenKey != realName else { return }
         if let oldKey = currentTokenKey, let token = tokenStore[oldKey] {
             tokenStore.removeValue(forKey: oldKey)
@@ -2458,7 +2548,8 @@ final class ReceiverSession: ObservableObject {
 @MainActor
 private final class InboundReadState {
     var decided = false
-    var bytes = 0
+    var buffer = Data()
+    let parser = IBWire.Parser()
 }
 
 /// UI-friendly mirror of the most recent `TouchEvent`, consumed by

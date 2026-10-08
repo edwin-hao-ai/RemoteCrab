@@ -100,6 +100,27 @@ final class PeerTokenIndexTests: XCTestCase {
                        "the other phone's own id entry must survive forget")
     }
 
+    // MARK: - forgetByName (the outbound store's key)
+
+    func testForgetByNameClearsBothStores() {
+        var idx = PeerTokenIndex()
+        idx.set(phoneId: "p1", name: "Phone", token: "t")
+        idx.markPhoneInitiated(phoneId: "p1")
+        idx.forgetByName("Phone")
+        XCTAssertNil(idx.token(phoneId: "p1", name: "Phone"),
+                     "a name-based Forget must drop the id entry too, or the phone stays paired")
+        XCTAssertNil(idx.byPhoneId["p1"])
+        XCTAssertNil(idx.byName["Phone"])
+        XCTAssertFalse(idx.isPhoneInitiated(phoneId: "p1"))
+    }
+
+    func testForgetByNameOfUnknownNameIsANoOp() {
+        var idx = PeerTokenIndex()
+        idx.set(phoneId: "p1", name: "Phone", token: "t")
+        idx.forgetByName("Nope")
+        XCTAssertEqual(idx.token(phoneId: "p1", name: "Phone"), "t")
+    }
+
     // MARK: - value semantics
 
     func testValueSemanticsDoNotShareStorage() {
