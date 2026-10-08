@@ -118,30 +118,22 @@ final class SetupStatus: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Take the user straight to where the camera system extension is enabled,
-    /// not to a generic pane they then have to navigate.
+    /// Take the user to where the camera system extension is enabled.
     ///
     /// macOS 15+ moved system extensions out of Privacy & Security into
     /// **General → Login Items & Extensions**, and the extension itself is
-    /// enabled under the **Camera Extensions** section there. The anchors below
-    /// are undocumented URL-scheme territory, so this is best-effort and
-    /// ordered most-precise first: `?CameraExtensions` (jump to the section),
-    /// `?ExtensionItems` (the extensions list), the bare Login Items pane,
-    /// then the old Extensions pane and finally Privacy & Security. Any
-    /// candidate that opens *something* stops the loop, so the user lands as
-    /// close as the OS allows rather than on the wrong pane.
+    /// enabled under the **Camera Extensions** section there. Apple has no
+    /// supported deep link into a specific extension category, so the
+    /// candidates are just the supported panes, ordered most-precise first
+    /// (`ExtensionSettingsURL`, lesson 159). We still stop on the first
+    /// `NSWorkspace.open` that returns true, but note that return value only
+    /// means the request was accepted — which is exactly why no fabricated
+    /// anchor is in the list: a bogus one "succeeds" and starves the
+    /// fallback.
+    @MainActor
     static func openExtensionSettings() {
-        let candidates = [
-            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension?CameraExtensions",
-            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension?ExtensionItems",
-            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-            "x-apple.systempreferences:com.apple.ExtensionsPreferences",
-            "x-apple.systempreferences:com.apple.preference.security"
-        ]
-        for candidate in candidates {
-            if let url = URL(string: candidate), NSWorkspace.shared.open(url) {
-                return
-            }
+        for url in ExtensionSettingsURL.paneCandidates where NSWorkspace.shared.open(url) {
+            return
         }
     }
 }

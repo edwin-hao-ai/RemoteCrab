@@ -48,7 +48,7 @@ struct CameraExtensionCard: View {
                 Spacer(minLength: 0)
             }
 
-            Text(IBLocale.Settings.cameraExtensionGuide)
+            Text(guideText)
                 .font(IBFont.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -102,12 +102,12 @@ struct CameraExtensionCard: View {
     private var primaryAction: some View {
         switch displayedState {
         case .awaitingApproval:
-            Button(IBLocale.Settings.openExtensions) { openExtensionSettings() }
+            Button(IBLocale.Settings.openExtensions) { SetupStatus.openExtensionSettings() }
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
 
         case .active:
-            Button(IBLocale.Settings.openExtensions) { openExtensionSettings() }
+            Button(IBLocale.Settings.openExtensions) { SetupStatus.openExtensionSettings() }
                 .controlSize(.small)
 
         case .repairing:
@@ -131,6 +131,17 @@ struct CameraExtensionCard: View {
     }
 
     // MARK: - State mapping
+
+    /// While the extension isn't live, lead with the exact System Settings
+    /// path to enable it (the card is the only place this flow is visible
+    /// outside the setup wizard); once it is live, explain what it does.
+    /// The extension's enable-toggle lives under **Camera Extensions**, and
+    /// the pane naming is platform copy — hence the shared bilingual string.
+    private var guideText: String {
+        displayedState == .active
+            ? IBLocale.Settings.cameraExtensionGuide
+            : IBLocale.Setup.cameraSteps
+    }
 
     private var statusLabel: String {
         switch displayedState {
@@ -159,33 +170,6 @@ struct CameraExtensionCard: View {
         case .active:                 return IBColor.success
         case .repairing:              return IBColor.accent
         case .failed:                 return IBColor.error
-        }
-    }
-
-    private func openExtensionSettings() {
-        // Camera Extensions used to have their own pane,
-        // `com.apple.ExtensionsPreferences`. On macOS 26 that identifier is
-        // gone — it is not among the 32 pane identifiers the System Settings
-        // binary still contains — and the CMIO extension is approved from
-        // General ▸ Login Items & Extensions.
-        //
-        // Note we do NOT treat `NSWorkspace.open` returning true as "this
-        // pane exists": it only means the request was accepted, so the old
-        // first-candidate-is-invalid version silently opened whatever pane
-        // System Settings felt like and never tried the next URL. The list
-        // is therefore ordered best-first with nothing depending on the
-        // return value.
-        let candidates = [
-            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
-            "x-apple.systempreferences:com.apple.settings.LoginItems-Settings.extension",
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
-            "x-apple.systempreferences:com.apple.preferences"
-        ]
-        for candidate in candidates {
-            if let url = URL(string: candidate) {
-                NSWorkspace.shared.open(url)
-                return   // one panel, one open — not a tour
-            }
         }
     }
 }
