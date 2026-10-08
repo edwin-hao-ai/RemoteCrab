@@ -2455,6 +2455,29 @@ final class CaptureEngine: ObservableObject {
             if connection == nil { connectionState = .idle }
         }
         if pendingAutoDialId == id { pendingAutoDialId = nil }
+        // The approval slot is live state, not stored: leaving it would keep a
+        // swipeable `seen` row and, worse, tapping Allow would re-pair and
+        // re-current the computer the user just deleted (lesson 131).
+        if pendingHello?.id == id {
+            let conn = pendingConnection
+            clearPending()
+            conn?.cancel()
+        }
+        // An identity challenge in flight would `grant` this computer the
+        // moment its proof arrives, undoing the forget.
+        if pendingChallenge?.hello.id == id {
+            pendingChallenge?.timeout?.cancel()
+            pendingChallenge = nil
+        }
+        // Forgetting the armed computer makes its preference vanish. Without
+        // clearing the mirror first, `refreshPairedMacs` reads the stale
+        // `preferredMac` as "gave up waiting" and re-shows the removed row.
+        if preferredMac?.id == id { preferredMac = nil }
+        if preferredGaveUp?.id == id {
+            preferredGaveUpAutoClear?.cancel()
+            preferredGaveUpAutoClear = nil
+            preferredGaveUp = nil
+        }
         pairingStore.forget(id: id)
         forgottenComputerIds.insert(id)
         refreshOnlineComputers()
