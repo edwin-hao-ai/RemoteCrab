@@ -43,6 +43,10 @@ struct MenuBarMenu: View {
             }
             header
             Divider().opacity(0.4)
+            if let pending = session.pendingInboundApproval {
+                inboundApprovalSection(pending)
+                Divider().opacity(0.4)
+            }
             if showsDevicePicker {
                 devicesSection
                 Divider().opacity(0.4)
@@ -162,6 +166,41 @@ struct MenuBarMenu: View {
                     .ibEyebrowTracking()
             }
         }
+    }
+
+    // MARK: - Inbound first-contact approval
+
+    /// A brand-new phone dialed this Mac. The phone's own approval card is not
+    /// enough here — an unauthenticated LAN peer can open the advertised port
+    /// itself — so the Mac's user confirms the first pairing. Nothing is
+    /// granted until Allow; Deny (or the 30 s timeout) closes the connection.
+    private func inboundApprovalSection(_ pending: PendingInboundApproval) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "iphone.gen3.badge.exclamationmark")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(IBColor.warning)
+                    .frame(width: 18, alignment: .center)
+                Text(LocalizedStringKey(IBLocale.Connection.inboundApprovalTitle))
+                    .font(IBFont.bodySmall)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            Text(String(format: IBLocale.Connection.inboundApprovalBody, pending.phoneName))
+                .font(IBFont.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer()
+                Button(IBLocale.Connection.deny) { session.denyPendingInbound() }
+                    .controlSize(.small)
+                Button(IBLocale.Connection.inboundApprovalAllow) { session.approvePendingInbound() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     // MARK: - Stream row

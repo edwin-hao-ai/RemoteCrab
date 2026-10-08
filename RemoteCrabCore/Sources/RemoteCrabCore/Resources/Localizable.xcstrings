@@ -4183,6 +4183,57 @@
         }
       }
     },
+    "An iPhone wants to connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An iPhone wants to connect"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有 iPhone 请求连接"
+          }
+        }
+      }
+    },
+    "Only allow this if you recognise “%@”. It will be paired with this Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only allow this if you recognise “%@”. It will be paired with this Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅当你认识“%@”时才允许。允许后，这台 iPhone 将与这台电脑配对。"
+          }
+        }
+      }
+    },
+    "Allow Connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许连接"
+          }
+        }
+      }
+    },
     "Permissions": {
       "extractionState": "manual",
       "localizations": {

@@ -210,18 +210,17 @@ final class CaptureEngine: ObservableObject {
     /// can show which are online right now. Independent of the listener/session.
     private var computerBrowser: NWBrowser?
     /// Computers currently announcing themselves, freshest browse snapshot,
-    /// minus any the user forgot this session.
+    /// minus any the user forgot.
     @Published private(set) var onlineComputers: [ComputerPresence] = []
     /// The raw browse snapshot, before the forgotten-computer filter.
     private var allOnlineComputers: [ComputerPresence] = []
-    /// Ids the user forgot this session. Presence is live Bonjour, not stored
-    /// history, so an online computer would reappear on the next browse and a
-    /// "Forget" that leaves the row behind is exactly lesson 131. Filtered out
-    /// of the roster until it is re-paired. Session-scoped on purpose:
-    /// forgetting erases history/pairing, it does not block the network, so a
-    /// computer that is genuinely still here may be offered again after a
-    /// relaunch (and is always offered once the user re-pairs it).
-    @Published private(set) var forgottenComputerIds: Set<String> = []
+    /// Ids the user forgot. Persisted (additive key) so a forgotten computer
+    /// does not reappear when the app relaunches — presence is live Bonjour, so
+    /// without it the row returns the moment the app restarts (spec §7.3).
+    /// Re-pairing or explicitly picking a computer removes it again.
+    private var forgottenComputers = ForgottenComputers(ids: CaptureEngine.loadForgottenComputerIds())
+    /// The forgotten ids, for the picker's roster filter.
+    var forgottenComputerIds: Set<String> { forgottenComputers.ids }
     /// id → the Bonjour endpoint each online computer announced, so a tap can
     /// knock it (dial once) instead of waiting for its retry poll.
     private var computerEndpoints: [String: NWEndpoint] = [:]
@@ -2074,7 +2073,7 @@ final class CaptureEngine: ObservableObject {
             pairingStore.setCurrent(id: mac.id, name: mac.name)
             // A re-paired computer is no longer ended: let its presence show
             // again (it was only hidden while forgotten).
-            if forgottenComputerIds.remove(mac.id) != nil { refreshOnlineComputers() }
+            clearForgotten(mac.id)
         }
         refreshPairedMacs()
 
@@ -2525,9 +2524,32 @@ final class CaptureEngine: ObservableObject {
             preferredGaveUp = nil
         }
         pairingStore.forget(id: id)
-        forgottenComputerIds.insert(id)
+        forgottenComputers.forget(id)
+        saveForgottenComputerIds()
         refreshOnlineComputers()
         refreshPairedMacs()
+    }
+
+    /// Remove a computer from the forgotten set (it was re-paired or the user
+    /// explicitly picked it), and persist that. No-op when it was not forgotten.
+    private func clearForgotten(_ id: String) {
+        guard forgottenComputers.contains(id) else { return }
+        forgottenComputers.remember(id)
+        saveForgottenComputerIds()
+        refreshOnlineComputers()
+    }
+
+    private static func loadForgottenComputerIds() -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: "remotecrab.ios.forgottenComputers"),
+              let decoded = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(decoded)
+    }
+
+    private func saveForgottenComputerIds() {
+        guard let data = try? JSONEncoder().encode(Array(forgottenComputers.ids)) else { return }
+        UserDefaults.standard.set(data, forKey: "remotecrab.ios.forgottenComputers")
     }
 
     /// Mark a paired Mac as the one this iPhone should serve. If a
@@ -2894,7 +2916,16 @@ final class CaptureEngine: ObservableObject {
     /// (a first-contact Windows PC has no `PairedMac` record). This is what
     /// makes "Choose a Computer" work when the current Mac won't release.
     func setPreferredComputer(id: String) {
+        armPreferred(id: id, knock: true)
+    }
+
+    /// The arming half of `setPreferredComputer`. `knock` is false when the
+    /// caller's own connection already served as the knock — the post-`.ready`
+    /// legacy fallback — so the receiver is not woken twice.
+    private func armPreferred(id: String, knock: Bool) {
         guard ownerMac?.id != id else { return }
+        // An explicit pick un-forgets the computer.
+        clearForgotten(id)
         Forensic.log("[gv] arm preferred id=\(id.prefix(8)) owner=\(ownerMac?.id.prefix(8) ?? "nil")")
         // The name travels with the preference so the policy can name this
         // computer in `busy` even before it has ever been approved — without
@@ -2906,8 +2937,9 @@ final class CaptureEngine: ObservableObject {
         }
         // Wake the chosen computer now so it dials at once — the phone cannot
         // open the data socket, so this short knock is how "tap to connect"
-        // becomes immediate instead of waiting for the retry poll.
-        knockComputer(id)
+        // becomes immediate instead of waiting for the retry poll. A dial that
+        // already reached the receiver was itself the knock, so skip it there.
+        if knock { knockComputer(id) }
     }
 
     /// Dial a computer's advertised Bonjour endpoint once and drop it. The
@@ -2976,6 +3008,8 @@ final class CaptureEngine: ObservableObject {
     /// preference (and knocks) instead; when it appears it dials in and the
     /// ordinary inbound path serves it.
     func connect(toComputer id: String) {
+        // An explicit pick un-forgets the computer: the user clearly wants it.
+        clearForgotten(id)
         // A second tap supersedes the first dial: cancel it without arming a
         // fallback (the new target replaces it) so its socket cannot linger.
         cancelOutboundSilently()
@@ -3107,7 +3141,8 @@ final class CaptureEngine: ObservableObject {
     private func outboundTerminated(on conn: NWConnection, target: PairedMac) {
         guard outboundConnection === conn else { return }
         if outboundReachedReady {
-            armOutboundFallback(target: target, on: conn)
+            // The socket routed, so our connect was the knock the receiver saw.
+            armOutboundFallback(target: target, on: conn, knock: false)
         } else {
             failOutbound(on: conn, target: target)
         }
@@ -3142,7 +3177,7 @@ final class CaptureEngine: ObservableObject {
                                 // socket. It is an identity mismatch, not a
                                 // routing failure — never advance a candidate.
                                 if self.outboundConnection === conn {
-                                    self.armOutboundFallback(target: target, on: conn)
+                                    self.armOutboundFallback(target: target, on: conn, knock: false)
                                 }
                                 return
                             }
@@ -3187,7 +3222,8 @@ final class CaptureEngine: ObservableObject {
             // candidate would be the same computer and answer the same way.
             // This is the legacy-receiver path, not a routing failure.
             Forensic.log("[dial] no clientHello from \(target.id.prefix(8)) — legacy fallback")
-            self.armOutboundFallback(target: target, on: conn)
+            // The socket reached `.ready`: the receiver saw our dial as the knock.
+            self.armOutboundFallback(target: target, on: conn, knock: false)
         }
     }
 
@@ -3295,7 +3331,12 @@ final class CaptureEngine: ObservableObject {
     /// No candidate connected. Drop the gate BEFORE closing the socket (T11
     /// review: a fast legacy dial-back must not be answered `busy` by the very
     /// target we dialled), then arm + knock so the inbound path serves it.
-    private func armOutboundFallback(target: PairedMac, on conn: NWConnection? = nil) {
+    ///
+    /// `knock` is false for the post-`.ready` fallback: the receiver already
+    /// treated our original connection as the knock, so a second one is a
+    /// redundant dial-back prompt.
+    private func armOutboundFallback(target: PairedMac, on conn: NWConnection? = nil,
+                                     knock: Bool = true) {
         outboundTarget = nil
         outboundCandidates = []
         outboundCandidateIndex = 0
@@ -3311,7 +3352,7 @@ final class CaptureEngine: ObservableObject {
             conn.stateUpdateHandler = { _ in }
             conn.cancel()
         }
-        setPreferredComputer(id: target.id)
+        armPreferred(id: target.id, knock: knock)
     }
 
     /// The receiver answered our dial with a `sessionReply` of its own —

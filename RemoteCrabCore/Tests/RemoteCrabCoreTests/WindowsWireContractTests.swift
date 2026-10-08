@@ -117,6 +117,8 @@ final class WindowsWireContractTests: XCTestCase {
         XCTAssertEqual(IBWire.Kind.notification.rawValue, 0x22)
         XCTAssertEqual(IBWire.Kind.commandResult.rawValue, 0x23)
         XCTAssertEqual(IBWire.Kind.requestKeyframe.rawValue, 0x25)
+        XCTAssertEqual(IBWire.Kind.clientProof.rawValue, 0x26)
+        XCTAssertEqual(IBWire.Kind.phoneHello.rawValue, 0x27)
     }
 
     /// And the Rust side, read out of the workspace rather than repeated.
@@ -137,6 +139,10 @@ final class WindowsWireContractTests: XCTestCase {
         XCTAssertTrue(
             wire.contains("RequestKeyframe = 0x25"),
             "the Rust kind for keyframe requests is no longer 0x25"
+        )
+        XCTAssertTrue(
+            wire.contains("PhoneHello = 0x27"),
+            "the Rust kind for the phone-initiated hello is no longer 0x27"
         )
     }
 

@@ -272,6 +272,18 @@ final class ReceiverSession: ObservableObject {
     /// in `answerChallenge` / `handleSessionReply` from `tokenStore` to
     /// `tokenIndex`.
     private var inboundPeer: (phoneId: String, name: String)?
+    /// An inbound (phone-initiated) connection whose session is **not yet
+    /// granted**. Held here instead of `connection` until the identity check
+    /// (paired phone) or the Mac user's first-contact confirmation (unpaired
+    /// phone) resolves. `connection` is the live session; leaving the candidate
+    /// off it means an unauthenticated LAN peer who read the advertised id
+    /// cannot tear the live session down or earn input injection by opening the
+    /// port. Only `adoptCandidate` moves a candidate onto `connection`.
+    private var inboundCandidate: InboundCandidate?
+    /// An unpaired inbound phone waiting for the Mac user to Allow/Deny.
+    /// Published so the menu bar can raise the prompt.
+    @Published private(set) var pendingInboundApproval: PendingInboundApproval?
+    private var inboundApprovalTimeoutTask: Task<Void, Never>?
     /// Who owns the live session, as best we know. Non-nil means a hello from a
     /// *different* phone must be answered `busy` rather than allowed to displace
     /// the live connection (the phone-initiated path sets `phoneId`; the
@@ -1149,7 +1161,15 @@ final class ReceiverSession: ObservableObject {
     /// the phone is already making). An unknown name is a legacy phone and keeps
     /// the outbound auto-dial.
     private func isPhoneInitiated(name: String) -> Bool {
-        guard let id = phoneIdByName[name] else { return false }
+        if let id = phoneIdByName[name] {
+            return tokenIndex.isPhoneInitiated(phoneId: id)
+        }
+        // Bonjour disambiguates a name collision with a " (2)" suffix, but the
+        // identity map is keyed by the base name. Normalise before giving up,
+        // or a collided phone-initiated phone is dialed by the receiver (the
+        // race this whole path removes).
+        let base = BonjourName.base(name)
+        guard base != name, let id = phoneIdByName[base] else { return false }
         return tokenIndex.isPhoneInitiated(phoneId: id)
     }
 
@@ -1586,6 +1606,9 @@ final class ReceiverSession: ObservableObject {
     private func connect(to phone: DiscoveredPhone, peerToPeer: Bool? = nil) {
         connection?.cancel()
         connection = nil
+        // A fresh outbound dial must not inherit a partial frame from the
+        // previous session's parser (the inbound path no longer resets it).
+        parser.reset()
         // Tear down the old capture now: nil-ing the connection makes the
         // old connection's `.cancelled` handler early-return, so relying
         // on it alone could leave a relay timer polling while disconnected.
@@ -1756,11 +1779,18 @@ final class ReceiverSession: ObservableObject {
     }
 
     private func sendClientHello(on conn: NWConnection, token: String?) {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
         // This connection's half of the identity challenge. New every time, so a
         // MAC a listener copied from an earlier session is useless.
         let nonce = PeerAuth.newNonce()
         clientNonce = nonce
+        sendClientHello(on: conn, token: token, nonce: nonce)
+    }
+
+    /// Send a `clientHello` with a caller-supplied nonce. The inbound candidate
+    /// path uses this so its challenge half lives on the candidate, not on the
+    /// live session's `clientNonce`.
+    private func sendClientHello(on conn: NWConnection, token: String?, nonce: String) {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
         // Declare what this receiver can cope with, so the phone knows when
         // to stay quiet. It MUST list `latencyProbe` here: a phone that sends
         // probes to a receiver which has not advertised the ability has its
@@ -1796,24 +1826,11 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
-    /// The four outcomes of the phone's half of the identity exchange. Three are
-    /// not failures and only one is an attack, so they cannot share a `bool`.
-    private enum ChallengeOutcome: Equatable {
-        /// The phone did not offer a proof (an older app) — unauthenticated.
-        case notOffered
-        /// The phone offered a proof and this Mac has no token to check it with.
-        case noKey
-        /// The phone proved it holds the token; we answered with our own proof.
-        case proven
-        /// Someone answered on the phone's port who does not hold the token.
-        case failed
-    }
-
     /// Verify the phone's MAC and answer with this receiver's own.
     ///
     /// See `PeerAuth` for the byte layout. Both sides MAC the same four fields
     /// under different labels, so neither proof can be replayed as the other.
-    private func answerChallenge(_ reply: IBSessionReply) -> ChallengeOutcome {
+    private func answerChallenge(_ reply: IBSessionReply) -> InboundChallengeOutcome {
         guard let serverNonce = reply.nonce, let presented = reply.mac else {
             return .notOffered
         }
@@ -1889,66 +1906,8 @@ final class ReceiverSession: ObservableObject {
             slowRetryTask?.cancel()
             slowRetryTask = nil
             sessionGranted = true
-            if let peer = inboundPeer {
-                // A server-side session earns its durable identity only HERE.
-                // The `IBPhoneHello` that opened it is an unauthenticated LAN
-                // frame, and this classification drives the outbound auto-dial
-                // gate — recording it from that frame would let any peer who
-                // knows this Mac's id and a phone's name stop that phone being
-                // dialed. Acceptance is the phone's own decision (spec §9).
-                if phoneIdByNameStore[peer.name] != peer.phoneId {
-                    phoneIdByNameStore[peer.name] = peer.phoneId
-                    savePhoneIdByName()
-                }
-                if !tokenIndex.isPhoneInitiated(phoneId: peer.phoneId) {
-                    tokenIndex.markPhoneInitiated(phoneId: peer.phoneId)
-                    savePeerTokenIndex()
-                }
-            }
-            if let token = reply.token {
-                if let peer = inboundPeer {
-                    tokenIndex.set(phoneId: peer.phoneId, name: peer.name, token: token)
-                    savePeerTokenIndex()
-                    // Mirror into the name-keyed store so the phone appears in
-                    // Preferences → Paired iPhones, can be forgotten, and is not
-                    // re-prompted if the outbound fallback dials it.
-                    tokenStore[peer.name] = token
-                    saveTokens()
-                } else if let key = currentTokenKey {
-                    tokenStore[key] = token
-                    saveTokens()
-                }
-            }
-            if let name = currentPhoneName() {
-                state = .streaming(name: name, latencyMs: 0)
-            }
-            if let connection {
-                startPingLoop(on: connection)
-                broadcaster = IBEventBroadcaster(connection: connection, queue: .global())
-            }
-            publishMacApps()
-            startNotificationRelay()
-            // Headless e2e: apply a text transform to whatever is
-            // selected on the Mac (point TextEdit at a scratch doc and
-            // select-all first).
-            if let name = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_TEXT_COMMAND"],
-               let command = IBTextCommand(rawValue: name) {
-                Task { @MainActor [weak self] in
-                    // 10 s gives the tester time to focus a text field
-                    // and select something after the session connects.
-                    try? await Task.sleep(for: .seconds(10))
-                    self?.applyTextCommand(command)
-                }
-            }
-            // Headless e2e: record a few seconds of the live stream.
-            if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RECORD"] == "1" {
-                Task { @MainActor [weak self] in
-                    try? await Task.sleep(for: .seconds(4))
-                    self?.toggleRecording()
-                    try? await Task.sleep(for: .seconds(6))
-                    self?.toggleRecording()
-                }
-            }
+            recordAcceptedPairing(token: reply.token, peer: inboundPeer)
+            startGrantedSession()
 
         case .pending:
             sessionGranted = false
@@ -2003,6 +1962,81 @@ final class ReceiverSession: ObservableObject {
         // the switch, so `stateKind` is the resolved state.
         if reply.result != .pending {
             clearApprovalNoticeIfResolved(previous: previous)
+        }
+    }
+
+    /// Persist what an `accepted` reply earned. Shared by the outbound path and
+    /// `adoptCandidate`, so a phone-initiated approval and a Mac-dialed approval
+    /// record the same durable identity.
+    ///
+    /// A server-side session (non-nil `peer`) earns its durable identity only
+    /// here: the `IBPhoneHello` that opened it is an unauthenticated LAN frame,
+    /// and the phone-initiated classification drives the outbound auto-dial
+    /// gate, so recording it from that frame would let any peer who knows this
+    /// Mac's id and a phone's name stop that phone being dialed. Acceptance is
+    /// the phone's own decision (spec §9).
+    private func recordAcceptedPairing(token: String?,
+                                       peer: (phoneId: String, name: String)?) {
+        if let peer {
+            if phoneIdByNameStore[peer.name] != peer.phoneId {
+                phoneIdByNameStore[peer.name] = peer.phoneId
+                savePhoneIdByName()
+            }
+            if !tokenIndex.isPhoneInitiated(phoneId: peer.phoneId) {
+                tokenIndex.markPhoneInitiated(phoneId: peer.phoneId)
+                savePeerTokenIndex()
+            }
+        }
+        if let token {
+            if let peer {
+                tokenIndex.set(phoneId: peer.phoneId, name: peer.name, token: token)
+                savePeerTokenIndex()
+                // Mirror into the name-keyed store so the phone appears in
+                // Preferences → Paired iPhones, can be forgotten, and is not
+                // re-prompted if the outbound fallback dials it.
+                tokenStore[peer.name] = token
+                saveTokens()
+            } else if let key = currentTokenKey {
+                tokenStore[key] = token
+                saveTokens()
+            }
+        }
+    }
+
+    /// Everything a granted session does once `connection` and the peer
+    /// identity are already set: report streaming, start the ping loop and
+    /// broadcaster, publish the app list, start the relay, and run the headless
+    /// e2e hooks. Called by the outbound `handleSessionReply` and by
+    /// `adoptCandidate`.
+    private func startGrantedSession() {
+        if let name = currentPhoneName() {
+            state = .streaming(name: name, latencyMs: 0)
+        }
+        if let connection {
+            startPingLoop(on: connection)
+            broadcaster = IBEventBroadcaster(connection: connection, queue: .global())
+        }
+        publishMacApps()
+        startNotificationRelay()
+        // Headless e2e: apply a text transform to whatever is selected on the
+        // Mac (point TextEdit at a scratch doc and select-all first).
+        if let name = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_TEXT_COMMAND"],
+           let command = IBTextCommand(rawValue: name) {
+            Task { @MainActor [weak self] in
+                // 10 s gives the tester time to focus a text field
+                // and select something after the session connects.
+                try? await Task.sleep(for: .seconds(10))
+                self?.applyTextCommand(command)
+            }
+        }
+        // Headless e2e: record a few seconds of the live stream.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RECORD"] == "1" {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(4))
+                self?.toggleRecording()
+                try? await Task.sleep(for: .seconds(6))
+                self?.toggleRecording()
+            }
         }
     }
 
@@ -2145,6 +2179,11 @@ final class ReceiverSession: ObservableObject {
         connection = nil
         connectedPhoneName = nil
         inboundPeer = nil
+        // An un-granted candidate is not the session, but a late one must not
+        // survive a disconnect either: its socket and any approval prompt go
+        // with the link.
+        inboundCandidate = nil
+        clearPendingInboundApproval()
         sessionOwner = nil
         sessionGranted = false
         sessionAuthenticated = false
@@ -2250,15 +2289,22 @@ final class ReceiverSession: ObservableObject {
         case .data:
             // `.data` is only produced when the frame decoded and its target is
             // this Mac, so `hello` is guaranteed non-nil here.
-            beginServerSession(conn, hello: hello!, remainder: remainder)
+            beginInboundCandidate(conn, hello: hello!, remainder: remainder)
         case .busy:
             let ownerName = sessionOwner?.name ?? connectedPhoneName
             Self.log.info("inbound hello while \(ownerName ?? "?", privacy: .public) owns the session — replying busy")
             sendBusyAndClose(on: conn, ownerName: ownerName)
-        case .knock, .foreign:
-            Self.log.info("inbound first frame is not for this Mac — treating as knock")
+        case .knock:
+            Self.log.info("inbound first frame is not a phoneHello — treating as knock")
             conn.cancel()
             retryNow()
+        case .foreign:
+            // A hello addressed to a DIFFERENT computer is not ours: close
+            // politely. Dialing back (`retryNow`) belongs to a phone that
+            // actually wants this Mac, and a foreign hello would otherwise make
+            // us knock a computer we were never asked to serve.
+            Self.log.info("inbound phoneHello targets another computer — closing")
+            conn.cancel()
         }
     }
 
@@ -2303,46 +2349,332 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
-    /// Run the receiver-side handshake with the Mac as the **server**. Protocol
-    /// roles do not reverse: the Mac still sends `IBClientHello` and the phone
-    /// still answers `IBSessionReply`; only the TCP initiator changed.
+    /// Run the receiver-side handshake with the Mac as the **server**, on a
+    /// connection that is **not** the live session yet. Protocol roles do not
+    /// reverse: the Mac still sends `IBClientHello` and the phone still answers
+    /// `IBSessionReply`; only the TCP initiator changed.
+    ///
+    /// Everything here is candidate-local until `adoptCandidate` promotes it:
+    /// the live `connection`, its parser, its `clientNonce` and its
+    /// `sessionGranted` are never touched. That is what stops a peer who
+    /// sniffed the non-secret `phoneId` from tearing down the live session (or
+    /// earning input injection) just by opening the advertised port.
     @MainActor
-    private func beginServerSession(_ conn: NWConnection, hello: IBPhoneHello, remainder: Data) {
+    private func beginInboundCandidate(_ conn: NWConnection, hello: IBPhoneHello, remainder: Data) {
         Self.log.info("inbound phoneHello from \(hello.phoneName, privacy: .public) (\(hello.phoneId, privacy: .public))")
-        // Drop any connection we were holding first. Its state handler checks
-        // `self.connection === conn`, so once the new connection is assigned its
-        // late `.cancelled` cannot tear this session down — and its receive loop
-        // cannot keep feeding `handleInbound` under the new connection's name.
-        connection?.cancel()
-        connection = nil
-        // The session parser is the one `startReceiving` uses; the previous
-        // session's partial frame is garbage, so reset it and then feed it any
-        // bytes that followed the hello in the same read.
-        parser.reset()
+        // Only one candidate is read at a time; a newer hello supersedes an
+        // older still-unapproved one. Neither can grant before this resolves,
+        // so nothing of value is lost.
+        if let old = inboundCandidate {
+            old.handshakeTimeout?.cancel()
+            old.handshakeTimeout = nil
+            old.conn.stateUpdateHandler = { _ in }
+            old.conn.cancel()
+            inboundCandidate = nil
+            clearPendingInboundApproval()
+        }
         // The hello carries the phone's **device** name; the outbound path and
         // the legacy token store key by its Bonjour service name. Derive it so
         // the legacy name-fallback migration and the outbound mirror line up.
-        // The peer stays in memory only: the durable phone-initiated mark and
-        // name→id link are written once `sessionReply` accepts us, never from
-        // this unauthenticated frame (see `handleSessionReply`, spec §9).
         let serviceName = Self.bonjourServiceName(deviceName: hello.phoneName)
-        inboundPeer = (phoneId: hello.phoneId, name: serviceName)
+        // Resolve the pairing token by id (the legacy name fallback migrates in
+        // place). A hit means this phone is paired and must prove itself.
+        let token = tokenIndex.token(phoneId: hello.phoneId, name: serviceName)
+        let candidate = InboundCandidate(conn: conn, hello: hello,
+                                         serviceName: serviceName, token: token)
+        candidate.clientNonce = PeerAuth.newNonce()
+        inboundCandidate = candidate
+
+        conn.stateUpdateHandler = { [weak self] newState in
+            Task { @MainActor [weak self] in
+                self?.handleCandidateConnectionState(candidate, newState)
+            }
+        }
+        conn.start(queue: .global())
+        startCandidateReceiving(candidate)
+        if !remainder.isEmpty { consumeCandidate(candidate, remainder) }
+        sendClientHello(on: conn, token: nil, nonce: candidate.clientNonce!)
+        startCandidateHandshakeTimeout(candidate)
+    }
+
+    /// The candidate's own receive loop. It keeps running after adoption — the
+    /// adopted candidate IS the live session's frame source — and the
+    /// continuation test accepts either "still a candidate" or "now the live
+    /// connection".
+    @MainActor
+    private func startCandidateReceiving(_ candidate: InboundCandidate) {
+        let conn = candidate.conn
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let data, !data.isEmpty { self.consumeCandidate(candidate, data) }
+                if error != nil {
+                    self.handleCandidateConnectionState(candidate, .failed(error!))
+                    return
+                }
+                if !isComplete && (self.inboundCandidate === candidate || self.connection === conn) {
+                    self.startCandidateReceiving(candidate)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func consumeCandidate(_ candidate: InboundCandidate, _ data: Data) {
+        for frame in candidate.parser.append(data) {
+            // Once adopted, the candidate IS the live session: everything after
+            // the grant goes through the shared frame dispatcher.
+            if connection === candidate.conn {
+                processFrames([frame])
+                continue
+            }
+            if frame.kind == .sessionReply, let reply = try? IBWire.decodeSessionReply(frame) {
+                handleCandidateReply(candidate, reply)
+                continue
+            }
+            // Not a reply, and we have not granted yet: hold it for replay. The
+            // phone starts streaming the moment it grants, which for a first
+            // pairing is before the Mac user confirms — dropping these would
+            // lose the metadata / SPS / PPS that head the stream.
+            bufferPreGrantFrame(candidate, frame)
+        }
+    }
+
+    /// Keep a bounded prefix of the frames that arrive before the grant. The
+    /// head of a stream is metadata, SPS and PPS, so the prefix is the part that
+    /// matters; once full, later frames are dropped (live frames resume after
+    /// adoption anyway).
+    private static let preGrantBufferLimit = 1 << 20
+    @MainActor
+    private func bufferPreGrantFrame(_ candidate: InboundCandidate, _ frame: IBWire.Frame) {
+        let size = 5 + frame.payload.count
+        guard candidate.pendingBytes + size <= Self.preGrantBufferLimit else {
+            if !candidate.loggedBufferFull {
+                candidate.loggedBufferFull = true
+                Self.log.info("pre-grant inbound buffer full — dropping further frames until granted")
+            }
+            return
+        }
+        candidate.pendingFrames.append(frame)
+        candidate.pendingBytes += size
+    }
+
+    /// Verify the phone's MAC on the candidate and answer with this receiver's
+    /// own. The candidate-local twin of `answerChallenge`: it sends on the
+    /// candidate socket and never touches the live session's `clientNonce`.
+    @MainActor
+    private func candidateChallenge(_ reply: IBSessionReply,
+                                    candidate: InboundCandidate) -> InboundChallengeOutcome {
+        guard let serverNonce = reply.nonce, let presented = reply.mac else {
+            return .notOffered
+        }
+        guard let token = candidate.token, let clientNonce = candidate.clientNonce else {
+            Self.log.error("an inbound phone offered an identity proof and this Mac has no token for it — re-pair from the phone")
+            return .noKey
+        }
+        let expected = PeerAuth.serverMac(token: token, pcID: macId,
+                                          clientNonce: clientNonce, serverNonce: serverNonce)
+        guard PeerAuth.matches(expected: expected, presented: presented) else {
+            return .failed
+        }
+        let proof = IBClientProof(mac: PeerAuth.clientMac(token: token, pcID: macId,
+                                                          clientNonce: clientNonce,
+                                                          serverNonce: serverNonce))
+        if let data = try? IBWire.encode(clientProof: proof) {
+            candidate.conn.send(content: data, completion: .contentProcessed { _ in })
+            Self.log.info("clientProof sent on an inbound connection — identity verified")
+        }
+        return .proven
+    }
+
+    @MainActor
+    private func handleCandidateReply(_ candidate: InboundCandidate, _ reply: IBSessionReply) {
+        // Any reply means the phone is talking to us; the "no reply at all"
+        // timeout is done. A `pending` reply in particular can legitimately wait
+        // on the phone's own approval card for a while.
+        candidate.handshakeTimeout?.cancel()
+        candidate.handshakeTimeout = nil
+        Self.log.info("inbound sessionReply: \(reply.result.rawValue, privacy: .public) owner=\(reply.ownerName ?? "-", privacy: .public)")
+        let challenge = candidateChallenge(reply, candidate: candidate)
+        if challenge == .failed {
+            Self.log.error("REFUSED: an inbound peer does not hold the pairing token")
+            closeCandidate(candidate)
+            return
+        }
+        if challenge == .proven { candidate.proved = true }
+        candidate.lastChallenge = challenge
+
+        switch reply.result {
+        case .accepted:
+            candidate.acceptedToken = reply.token
+            resolveAcceptedCandidate(candidate)
+        case .pending:
+            // The phone is deciding (first-contact approval card) or has just
+            // proven itself and is about to send `accepted` on this socket. Hold
+            // the candidate; the "no reply" timeout was cancelled above, and an
+            // unpaired first contact is bounded by the approval timeout instead.
+            Self.log.info("inbound candidate is pending the phone's decision")
+        case .busy, .off, .denied:
+            // The phone is the arbiter and refused this dial. Close the
+            // candidate and leave any live session untouched.
+            Self.log.info("inbound candidate refused by the phone: \(reply.result.rawValue, privacy: .public)")
+            closeCandidate(candidate)
+        }
+    }
+
+    /// Apply the admission policy to an accepted candidate. A granted candidate
+    /// is adopted; an unpaired one raises the Mac-side first-contact prompt;
+    /// a paired one that could not prove itself is refused.
+    @MainActor
+    private func resolveAcceptedCandidate(_ candidate: InboundCandidate) {
+        let decision = InboundGrantPolicy.decide(
+            paired: candidate.token != nil,
+            challenge: candidate.proved ? .proven : candidate.lastChallenge,
+            firstContactApproved: candidate.firstContactApproved)
+        switch decision {
+        case .grant:
+            adoptCandidate(candidate)
+        case .promptFirstContact:
+            promptFirstContact(candidate)
+        case .refuse:
+            Self.log.error("REFUSED: a paired inbound phone did not prove its identity")
+            closeCandidate(candidate)
+        }
+    }
+
+    @MainActor
+    private func promptFirstContact(_ candidate: InboundCandidate) {
+        candidate.firstContactApprovalPending = true
+        pendingInboundApproval = PendingInboundApproval(id: candidate.hello.phoneId,
+                                                        phoneName: candidate.hello.phoneName)
+        Self.log.info("first contact from \(candidate.hello.phoneName, privacy: .public) — waiting for this Mac's user")
+        inboundApprovalTimeoutTask?.cancel()
+        inboundApprovalTimeoutTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            guard let self, self.inboundCandidate === candidate,
+                  candidate.firstContactApprovalPending else { return }
+            Self.log.info("first-contact approval timed out — closing the inbound connection")
+            self.denyPendingInbound()
+        }
+    }
+
+    /// The Mac user approved a first-contact phone: pair it and adopt.
+    func approvePendingInbound() {
+        guard let candidate = inboundCandidate, candidate.firstContactApprovalPending else { return }
+        candidate.firstContactApproved = true
+        candidate.firstContactApprovalPending = false
+        clearPendingInboundApproval()
+        resolveAcceptedCandidate(candidate)
+    }
+
+    /// The Mac user denied a first-contact phone (or it timed out): close the
+    /// candidate without granting anything, leaving any live session untouched.
+    func denyPendingInbound() {
+        if let candidate = inboundCandidate { closeCandidate(candidate) }
+        clearPendingInboundApproval()
+    }
+
+    @MainActor
+    private func clearPendingInboundApproval() {
+        inboundApprovalTimeoutTask?.cancel()
+        inboundApprovalTimeoutTask = nil
+        pendingInboundApproval = nil
+    }
+
+    /// Drop an un-granted candidate. Never touches an adopted one: once
+    /// `connection` is the candidate's socket, only the live disconnect paths
+    /// may close it.
+    @MainActor
+    private func closeCandidate(_ candidate: InboundCandidate) {
+        guard connection !== candidate.conn else { return }
+        candidate.handshakeTimeout?.cancel()
+        candidate.handshakeTimeout = nil
+        candidate.pendingFrames = []
+        candidate.pendingBytes = 0
+        if inboundCandidate === candidate { inboundCandidate = nil }
+        clearPendingInboundApproval()
+        candidate.conn.stateUpdateHandler = { _ in }
+        candidate.conn.cancel()
+    }
+
+    /// Promote a granted candidate to the live session. This is the only place
+    /// a candidate touches shared session state. The old connection is torn
+    /// down through `clearConnectionState` so no streamer / broadcaster / relay
+    /// / ping loop leaks into the new session (review I2), and its socket is
+    /// cancelled after `connection` no longer points at it.
+    @MainActor
+    private func adoptCandidate(_ candidate: InboundCandidate) {
+        let conn = candidate.conn
+        let hello = candidate.hello
+        Self.log.info("adopting inbound session with \(hello.phoneName, privacy: .public)")
+        candidate.handshakeTimeout?.cancel()
+        candidate.handshakeTimeout = nil
+        clearPendingInboundApproval()
+        let old = connection
+        stopPingLoop()
+        clearConnectionState()
+        old?.cancel()
+
+        connection = conn
+        inboundPeer = (phoneId: hello.phoneId, name: candidate.serviceName)
         sessionOwner = InboundSessionOwner(phoneId: hello.phoneId, name: hello.phoneName)
         currentTokenKey = nil
-        waitingForPhone = false
-        sessionGranted = false
-        sessionAuthenticated = false
-        clientNonce = nil
-        suppressReconnect = false
-        connection = conn
+        clientNonce = candidate.clientNonce
         connectedPhoneName = hello.phoneName
         connectedIsDirect = false
         connectedDirectIP = nil
-        state = .handshaking(name: hello.phoneName)
-        startReceiving(on: conn)
-        if !remainder.isEmpty { handleInbound(remainder) }
-        sendClientHello(on: conn, token: nil)
-        startHandshakeTimeout(on: conn)
+        waitingForPhone = false
+        suppressReconnect = false
+        waitingInBackground = false
+        slowRetryTask?.cancel()
+        slowRetryTask = nil
+        sessionAuthenticated = candidate.proved
+        sessionGranted = true
+        if inboundCandidate === candidate { inboundCandidate = nil }
+        recordAcceptedPairing(token: candidate.acceptedToken,
+                              peer: (phoneId: hello.phoneId, name: candidate.serviceName))
+        // Replay what the phone sent while we waited (metadata / SPS / PPS and
+        // the first frames), so the decoder starts from the head of the stream.
+        if !candidate.pendingFrames.isEmpty {
+            let pending = candidate.pendingFrames
+            candidate.pendingFrames = []
+            candidate.pendingBytes = 0
+            processFrames(pending)
+        }
+        startGrantedSession()
+    }
+
+    @MainActor
+    private func handleCandidateConnectionState(_ candidate: InboundCandidate,
+                                                _ newState: NWConnection.State) {
+        // An adopted candidate's socket IS the live session; its state is the
+        // live session's to handle.
+        if connection === candidate.conn {
+            handleInboundConnectionState(candidate.conn, newState)
+            return
+        }
+        switch newState {
+        case .failed, .cancelled:
+            candidate.handshakeTimeout?.cancel()
+            candidate.handshakeTimeout = nil
+            if inboundCandidate === candidate { inboundCandidate = nil }
+            clearPendingInboundApproval()
+        default:
+            break
+        }
+    }
+
+    /// Bound the wait for the phone's `sessionReply`. Only fires while the
+    /// candidate is still un-granted.
+    @MainActor
+    private func startCandidateHandshakeTimeout(_ candidate: InboundCandidate) {
+        candidate.handshakeTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
+            guard let self, self.inboundCandidate === candidate,
+                  self.connection !== candidate.conn else { return }
+            Self.log.info("no sessionReply on an inbound hello after 6s — closing")
+            self.closeCandidate(candidate)
+        }
     }
 
     // MARK: - Receive loop
@@ -2369,7 +2701,13 @@ final class ReceiverSession: ObservableObject {
     }
 
     private func handleInbound(_ data: Data) {
-        let frames = parser.append(data)
+        processFrames(parser.append(data))
+    }
+
+    /// The shared frame dispatcher for the live session. `handleInbound` feeds
+    /// it from the outbound parser; an adopted inbound candidate feeds it from
+    /// its own parser.
+    private func processFrames(_ frames: [IBWire.Frame]) {
         let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
         for frame in frames {
             // The ownership decision is always processed: it is what
@@ -2650,6 +2988,56 @@ private final class InboundReadState {
     var decided = false
     var buffer = Data()
     let parser = IBWire.Parser()
+}
+
+/// An inbound (phone-initiated) connection whose session has not been granted
+/// yet. It owns its parser and its half of the identity challenge, so the live
+/// session's state is untouched until `adoptCandidate` promotes it.
+@MainActor
+private final class InboundCandidate {
+    let conn: NWConnection
+    let hello: IBPhoneHello
+    let serviceName: String
+    /// The pairing token this Mac holds for the phone, resolved on connect.
+    /// `nil` means unpaired → first contact.
+    let token: String?
+    let parser = IBWire.Parser()
+    var clientNonce: String?
+    /// The most recent challenge outcome, and whether any reply ever proved
+    /// identity (the phone sends `pending{mac}` then a bare `accepted`, so the
+    /// proof must be remembered across replies).
+    var lastChallenge: InboundChallengeOutcome = .notOffered
+    var proved = false
+    /// Bounds the wait for the first `sessionReply`. Cancelled once one arrives,
+    /// because a `pending` reply is a legitimate long wait (the phone's user is
+    /// deciding) and must not be cut off.
+    var handshakeTimeout: Task<Void, Never>?
+    /// The token from the phone's `accepted`, stored at adoption.
+    var acceptedToken: String?
+    var firstContactApproved = false
+    var firstContactApprovalPending = false
+    /// Frames the phone sent after `accepted` but before this Mac granted
+    /// (unpaired first contact waits on the Mac user). Replayed on adoption so
+    /// the decoder still gets the metadata / SPS / PPS that head the stream.
+    /// Bounded so an unapproved peer cannot grow memory without limit.
+    var pendingFrames: [IBWire.Frame] = []
+    var pendingBytes = 0
+    var loggedBufferFull = false
+
+    init(conn: NWConnection, hello: IBPhoneHello, serviceName: String, token: String?) {
+        self.conn = conn
+        self.hello = hello
+        self.serviceName = serviceName
+        self.token = token
+    }
+}
+
+/// A first-contact phone waiting for the Mac user to Allow/Deny. Published so
+/// the menu bar can raise the prompt.
+struct PendingInboundApproval: Identifiable, Equatable {
+    /// The phone's stable id.
+    let id: String
+    let phoneName: String
 }
 
 /// UI-friendly mirror of the most recent `TouchEvent`, consumed by

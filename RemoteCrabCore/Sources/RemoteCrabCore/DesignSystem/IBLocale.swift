@@ -281,6 +281,14 @@ public enum IBLocale {
         public static let noPairedPhones = IBL("No paired iPhones yet")
         public static let forget = IBL("Forget")
         public static let pairedBadge = IBL("Paired — connects automatically")
+        public static let deny = IBL("Deny")
+        /// Mac-side first-contact confirmation for an inbound phone that is not
+        /// paired yet. The phone's own approval card is not enough here: an
+        /// unauthenticated LAN peer can open the advertised port itself, so the
+        /// receiver's user must confirm a brand-new phone before it is granted.
+        public static let inboundApprovalTitle = IBL("An iPhone wants to connect")
+        public static let inboundApprovalBody = IBL("Only allow this if you recognise “%@”. It will be paired with this Mac.")
+        public static let inboundApprovalAllow = IBL("Allow Connection")
         public static let pairedPhonesFooter = IBL("Paired iPhones connect automatically when they appear on the network. Forget one to require approval again.")
         /// Display name for a phone reached via the direct-IP fallback
         /// (Bonjour blocked) before its real name is known.
