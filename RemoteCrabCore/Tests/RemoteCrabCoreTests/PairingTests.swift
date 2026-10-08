@@ -467,12 +467,14 @@ final class PairingTests: XCTestCase {
         XCTAssertNil(store.platform(for: "pc-1"))
     }
 
-    // MARK: - Superseded identities and stale rows
+    // MARK: - Stale rows
     //
-    // A receiver used to mint a new `pc_id` on every install, and `seen` is
-    // keyed by id alone — so every reinstall added a row that could never be
-    // removed by id, and the user's picker filled with identical
-    // "Windows PC" entries. Two rules, both self-healing.
+    // `seen` is keyed by id alone, and identities are now stable across
+    // reinstalls (Mac `remotecrab.mac.id`, Windows `MachineGuid`), so the only
+    // pruning rule that remains is expiry. Two computers that happen to share a
+    // display name are genuinely different computers and must both survive —
+    // name-merge was removed because with stable ids its only effect was to
+    // collapse two real computers into one unpickable row.
 
     private func seen(_ id: String, _ name: String,
                       platform: String = "windows",
@@ -481,30 +483,31 @@ final class PairingTests: XCTestCase {
                      lastSeen: Date().addingTimeInterval(-daysAgo * 24 * 60 * 60))
     }
 
-    /// The reported bug, as a pure function: two ids, one machine.
-    func testASupersededIdentityDoesNotLeaveADuplicateRow() {
-        // Newest first, the way `noteSeen` stores it.
+    /// Two ids are two computers, whatever they call themselves. Merging them
+    /// by name would leave one unselectable row, which is indistinguishable
+    /// from "the switch is broken".
+    func testSameNameDifferentIdBothSurvive() {
         let out = MacPairingStore.pruned([
             seen("new-id", "EDWIN", daysAgo: 0),
             seen("old-id", "EDWIN", daysAgo: 1),
         ])
-        XCTAssertEqual(out.map(\.id), ["new-id"])
+        XCTAssertEqual(out.map(\.id), ["new-id", "old-id"])
+        XCTAssertEqual(Set(out.map(\.id)), ["new-id", "old-id"],
+                       "同名不同 id 必须都保留，否则无法在它们之间切换")
     }
 
-    /// Case-insensitive, because the same machine names itself differently
-    /// across operating systems.
-    func testTheSameNameCollapsesRegardlessOfCase() {
-        // Newest first, the way `noteSeen` stores it.
+    /// Names are no longer compared at all, so case cannot collapse anything:
+    /// each id is its own row.
+    func testSameNameDifferentIdSurviveRegardlessOfCase() {
         let out = MacPairingStore.pruned([
             seen("c", "Edwin-PC", daysAgo: 0),
             seen("b", "EDWIN", daysAgo: 1),
             seen("a", "edwin", daysAgo: 2),
         ])
-        XCTAssertEqual(out.map(\.id), ["c", "b"])
+        XCTAssertEqual(out.map(\.id), ["c", "b", "a"])
     }
 
-    /// The cost of the rule, stated as a decision: a genuinely different
-    /// machine is only collapsed when it shares a hostname.
+    /// Different names all survive, as they always did.
     func testDifferentNamesAllSurvive() {
         let out = MacPairingStore.pruned([
             seen("mac", "MacBook Pro", platform: "macos", daysAgo: 3),
@@ -567,7 +570,7 @@ final class PairingTests: XCTestCase {
 
     // MARK: - Store integration
 
-    func testKnockingUnderANewIdCollapsesTheOldRowOnDisk() {
+    func testKnockingUnderANewIdKeepsBothRowsOnDisk() {
         let suite = "test.remotecrab.pairing.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -575,19 +578,21 @@ final class PairingTests: XCTestCase {
 
         store.noteSeen(IBClientHello(name: "EDWIN", id: "id-1", platform: "windows"))
         store.noteSeen(IBClientHello(name: "EDWIN", id: "id-2", platform: "windows"))
-        XCTAssertEqual(store.seen.map(\.id), ["id-2"])
+        XCTAssertEqual(store.seen.map(\.id), ["id-2", "id-1"])
         // Persisted, not just in memory — the picker re-reads from disk.
-        XCTAssertEqual(MacPairingStore(defaults: defaults).seen.map(\.id), ["id-2"])
+        XCTAssertEqual(MacPairingStore(defaults: defaults).seen.map(\.id), ["id-2", "id-1"])
     }
 
     /// A preference naming a row that pruning removes is cleared. Left
     /// dangling it would keep answering every other computer "in use" for a
-    /// machine that can no longer connect.
+    /// machine that can no longer connect. Expiry is now the only way pruning
+    /// drops a row (there is no name-merge), so that is what this exercises.
     func testPruningClearsADanglingPreference() {
         let store = freshStore()
         store.noteSeen(IBClientHello(name: "EDWIN", id: "old", platform: "windows"))
         store.setPreferred(id: "old", name: "EDWIN")
-        store.noteSeen(IBClientHello(name: "EDWIN", id: "new", platform: "windows"))
+        store.pruneStale(now: Date().addingTimeInterval(MacPairingStore.staleSeenTTL + 1))
+        XCTAssertTrue(store.seen.isEmpty, "the row should have expired")
         XCTAssertNil(store.preferredId, "the armed preference named a computer that no longer exists")
     }
 
@@ -784,7 +789,8 @@ final class PairingTests: XCTestCase {
         store.pair(hello)
         store.noteSeen(IBClientHello(name: "EDWIN", id: "new", platform: "windows"))
         XCTAssertEqual(store.paired.map(\.id), ["old"], "the token must survive a display prune")
-        XCTAssertEqual(store.seen.map(\.id), ["new"])
+        XCTAssertEqual(Set(store.seen.map(\.id)), ["old", "new"],
+                       "pruning is by id only, so it must not have dropped the other name's row")
     }
 
     /// A brand-new machine must never be pruned for being unseen — it just
