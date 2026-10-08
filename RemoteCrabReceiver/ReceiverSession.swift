@@ -1317,6 +1317,10 @@ final class ReceiverSession: ObservableObject {
 
     private func handleDiscovered(_ phones: [DiscoveredPhone]) {
         discovered = phones
+        // Nothing discovered means there is no phone to wait for; keeping the
+        // flag set would leave the status line telling the user to pick a
+        // computer while the list is empty.
+        if phones.isEmpty { waitingForPhone = false }
         Self.log.info("discovered \(phones.count, privacy: .public) phone(s); connection==nil: \(self.connection == nil, privacy: .public)")
         let autoConnectEnabled = UserDefaults.standard.object(forKey: "remotecrab.autoReconnect") as? Bool ?? true
         guard !autoConnectSuppressed, autoConnectEnabled else { return }
@@ -1885,6 +1889,22 @@ final class ReceiverSession: ObservableObject {
             slowRetryTask?.cancel()
             slowRetryTask = nil
             sessionGranted = true
+            if let peer = inboundPeer {
+                // A server-side session earns its durable identity only HERE.
+                // The `IBPhoneHello` that opened it is an unauthenticated LAN
+                // frame, and this classification drives the outbound auto-dial
+                // gate — recording it from that frame would let any peer who
+                // knows this Mac's id and a phone's name stop that phone being
+                // dialed. Acceptance is the phone's own decision (spec §9).
+                if phoneIdByNameStore[peer.name] != peer.phoneId {
+                    phoneIdByNameStore[peer.name] = peer.phoneId
+                    savePhoneIdByName()
+                }
+                if !tokenIndex.isPhoneInitiated(phoneId: peer.phoneId) {
+                    tokenIndex.markPhoneInitiated(phoneId: peer.phoneId)
+                    savePeerTokenIndex()
+                }
+            }
             if let token = reply.token {
                 if let peer = inboundPeer {
                     tokenIndex.set(phoneId: peer.phoneId, name: peer.name, token: token)
@@ -2299,16 +2319,13 @@ final class ReceiverSession: ObservableObject {
         // session's partial frame is garbage, so reset it and then feed it any
         // bytes that followed the hello in the same read.
         parser.reset()
-        tokenIndex.markPhoneInitiated(phoneId: hello.phoneId)
-        savePeerTokenIndex()
         // The hello carries the phone's **device** name; the outbound path and
         // the legacy token store key by its Bonjour service name. Derive it so
         // the legacy name-fallback migration and the outbound mirror line up.
+        // The peer stays in memory only: the durable phone-initiated mark and
+        // name→id link are written once `sessionReply` accepts us, never from
+        // this unauthenticated frame (see `handleSessionReply`, spec §9).
         let serviceName = Self.bonjourServiceName(deviceName: hello.phoneName)
-        if phoneIdByNameStore[serviceName] != hello.phoneId {
-            phoneIdByNameStore[serviceName] = hello.phoneId
-            savePhoneIdByName()
-        }
         inboundPeer = (phoneId: hello.phoneId, name: serviceName)
         sessionOwner = InboundSessionOwner(phoneId: hello.phoneId, name: hello.phoneName)
         currentTokenKey = nil
