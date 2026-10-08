@@ -159,6 +159,15 @@ wait_accepted() { # wait_accepted <mac-log> <seconds>
   for _ in $(seq 1 "$2"); do grep -aq "sessionReply: accepted" "$1" && return 0; sleep 1; done
   return 1
 }
+# `adopting inbound session` is emitted ONLY when the receiver actually grants
+# the inbound candidate. `sessionReply: accepted` also matches the phone's own
+# `inbound sessionReply: accepted` line — which the receiver logs even while it
+# is still holding the connection for the first-contact prompt — so it is NOT a
+# grant. A security fix made that distinction load-bearing; assert the grant.
+wait_granted() { # wait_granted <mac-log> <seconds>
+  for _ in $(seq 1 "$2"); do grep -aq "adopting inbound session" "$1" && return 0; sleep 1; done
+  return 1
+}
 # make_computer <src.app> <dst.app> <bundleid> → independent copy, signed, with
 # the extension manager frozen at its own path.
 make_computer() {
@@ -175,9 +184,18 @@ make_computer() {
   # dial path would never be exercised. The phone dialling us is the whole point.
   defaults write "$3" remotecrab.autoReconnect -bool false
 }
-run_mac() { # run_mac <id> <app> → starts the receiver, sets MAC_PID
-  local id="$1" app="$2"
-  REMOTECRAB_E2E_MAC_ID="$id" "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
+run_mac() { # run_mac <id> <app> [approve|no-approve] → starts the receiver, sets MAC_PID
+  # `approve` (default) sets REMOTECRAB_E2E_AUTO_APPROVE_INBOUND=1 so an
+  # unpaired phone's first contact is granted without a Mac-side click.
+  # `no-approve` is the negative case: the hook is absent, so the first-contact
+  # prompt must hold the line and the phone must NOT be granted.
+  local id="$1" app="$2" mode="${3:-approve}"
+  if [ "$mode" = "no-approve" ]; then
+    REMOTECRAB_E2E_MAC_ID="$id" "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
+  else
+    REMOTECRAB_E2E_MAC_ID="$id" REMOTECRAB_E2E_AUTO_APPROVE_INBOUND=1 \
+      "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
+  fi
   MAC_PID=$!
   sleep 4
 }
@@ -190,13 +208,13 @@ seed_data() { # seed_data <bundleid> <key> <json> → write a JSON string as the
 echo "== RemoteCrab phone-initiated-connection v2 device e2e =="
 echo "   identities: A=${ID_A}  B=${ID_B}  legacy=${ID_L}"
 
-echo "[0/8] preconditions"
+echo "[0/9] preconditions"
 if ! xcrun devicectl list devices 2>/dev/null | grep -Eq "$DEVICE.*(available|connected)"; then
   echo "  device $DEVICE not available — connect + unlock it"; exit 2
 fi
 xcrun simctl shutdown all >/dev/null 2>&1 || true
 
-echo "[1/8] build (signed)"
+echo "[1/9] build (signed)"
 xcodebuild -project "$ROOT/RemoteCrabReceiver.xcodeproj" -scheme RemoteCrabReceiver -configuration Debug \
   -destination 'platform=macOS' -derivedDataPath "$DD_ROOT" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Automatic \
   DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-ec-macbuild.log 2>&1 \
@@ -206,7 +224,7 @@ xcodebuild -project "$ROOT/RemoteCrabCapture.xcodeproj" -scheme RemoteCrabCaptur
   DEVELOPMENT_TEAM=$TEAM -allowProvisioningUpdates >/tmp/remotecrab-ec-iosbuild.log 2>&1 \
   || { echo "  ios build failed (see /tmp/remotecrab-ec-iosbuild.log)"; exit 1; }
 
-echo "[2/8] deploy"
+echo "[2/9] deploy"
 kill_mac
 make_computer "$DD_MAC" "$APP_A" "$BID_A"
 make_computer "$DD_MAC" "$APP_B" "$BID_B"
@@ -219,7 +237,38 @@ xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1 
   || { echo "  iOS install failed"; exit 1; }
 
 # ---------------------------------------------------------------------------
-echo "[3/8] Phase A — phone pairs with computer A (fresh, first contact)"
+echo "[3/9] Phase A0 — unpaired first contact WITHOUT the auto-approve hook"
+# The security fix (58e3851) holds an unpaired inbound phone at a Mac-side
+# first-contact prompt until a human confirms. With the hook OFF the phone must
+# NOT be granted — the negative the grant assertions below depend on. Without
+# this, a run could "pass" A/B on the phone's own `accepted` while the Mac never
+# actually admitted the phone.
+LOG_A0=/tmp/remotecrab-ec-a0.log
+start_log "$LOG_A0"
+run_mac "$ID_A" "$APP_A" no-approve
+# The phone's presence browser occasionally delivers the computer without its
+# TXT id on the first snapshot (lesson 155's intermittent cousin), so the pick
+# hook loops out seeing "no eligible online computer" and never dials. Relaunch
+# gives a fresh browse; the Mac stays up throughout. Up to 3 tries. (If the flag
+# leaked on, the Mac would grant on the first dial and the absent-grant
+# assertion below would still catch it — the retry does not weaken the negative.)
+A0_ENV='{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_RESET_PAIRING":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}'
+for attempt in 1 2 3; do
+  LAUNCH_OUT=$(launch_ios "$A0_ENV" 2>&1)
+  if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
+    echo "  ✗ could not launch the app: $LAUNCH_OUT"; exit 2
+  fi
+  # The pick loop runs up to 20 s; 30 s also covers the handshake + prompt.
+  for _ in $(seq 1 30); do grep -aq "first contact from" "$LOG_A0" && break; sleep 1; done
+  grep -aq "first contact from" "$LOG_A0" && break
+  echo "  … A0 attempt $attempt: the Mac did not see a dial (phone presence flapped) — retrying"
+done
+stop_log
+pull_ios /tmp/remotecrab-ec-ios-a0.log
+kill_mac
+
+# ---------------------------------------------------------------------------
+echo "[4/9] Phase A — phone pairs with computer A (fresh, first contact)"
 LOG_A=/tmp/remotecrab-ec-a.log
 start_log "$LOG_A"
 run_mac "$ID_A" "$APP_A"
@@ -228,7 +277,7 @@ if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not launch the app on the iPhone:"; echo "$LAUNCH_OUT" | sed 's/^/      /' | head -10
   echo "  → UNLOCK THE IPHONE and keep the screen on, then re-run."; exit 2
 fi
-wait_accepted "$LOG_A" 40 || echo "  ⚠ no accepted within 40s in Phase A"
+wait_granted "$LOG_A" 40 || echo "  ⚠ not granted within 40s in Phase A"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-a.log
 kill_mac
@@ -248,7 +297,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-echo "[4/8] Phase B — switch to computer B (paired second; must not be busy-locked)"
+echo "[5/9] Phase B — switch to computer B (paired second; must not be busy-locked)"
 LOG_B=/tmp/remotecrab-ec-b.log
 start_log "$LOG_B"
 run_mac "$ID_B" "$APP_B"
@@ -256,13 +305,13 @@ LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1
 if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not relaunch the app: $LAUNCH_OUT"; exit 2
 fi
-wait_accepted "$LOG_B" 40 || echo "  ⚠ no accepted within 40s in Phase B"
+wait_granted "$LOG_B" 40 || echo "  ⚠ not granted within 40s in Phase B"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-b.log
 kill_mac
 
 # ---------------------------------------------------------------------------
-echo "[5/8] Phase C — switch BACK to already-paired A (no approval; must be accepted)"
+echo "[6/9] Phase C — switch BACK to already-paired A (no approval; must be accepted)"
 # A keeps its own token store (independent bundle id), so peer-auth proves it.
 LOG_C=/tmp/remotecrab-ec-c.log
 start_log "$LOG_C"
@@ -273,12 +322,12 @@ LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1
 if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
   echo "  ✗ could not relaunch the app: $LAUNCH_OUT"; exit 2
 fi
-wait_accepted "$LOG_C" 40 || echo "  ⚠ no accepted within 40s in Phase C"
+wait_granted "$LOG_C" 40 || echo "  ⚠ not granted within 40s in Phase C"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-c.log
 
 # ---------------------------------------------------------------------------
-echo "[6/8] Phase D — forget the current computer (row gone + no auto-dial + pending)"
+echo "[7/9] Phase D — forget the current computer (row gone + no auto-dial + pending)"
 # A (dev copy) is still running from Phase C, so the picker sees A online yet
 # suppressed — that is the row-gone proof. Relaunch the phone with the forget
 # hook; the hook runs BEFORE auto-dial, so nothing may dial A.
@@ -305,7 +354,7 @@ pull_ios /tmp/remotecrab-ec-ios-d.log
 kill_mac
 
 # ---------------------------------------------------------------------------
-echo "[7/8] Phase E — legacy receiver (release build, no IBPhoneHello support)"
+echo "[8/9] Phase E — legacy receiver (release build, no IBPhoneHello support)"
 # Disable the legacy copy's own auto-dial this time, so the phone's dial to it is
 # the only connection: that is what exercises the §4.4 fallback (the receiver
 # treats the dial as a knock and dials back).
@@ -323,32 +372,38 @@ pull_ios /tmp/remotecrab-ec-ios-e.log
 kill_mac
 
 # ---------------------------------------------------------------------------
-echo "[8/8] assertions"
-DELTA_A=$(delta "$LOG_A" "inbound phoneHello from" "sessionReply: accepted")
-DELTA_B=$(delta "$LOG_B" "inbound phoneHello from" "sessionReply: accepted")
-DELTA_C=$(delta "$LOG_C" "inbound phoneHello from" "sessionReply: accepted")
+echo "[9/9] assertions"
+DELTA_A=$(delta "$LOG_A" "inbound phoneHello from" "adopting inbound session")
+DELTA_B=$(delta "$LOG_B" "inbound phoneHello from" "adopting inbound session")
+DELTA_C=$(delta "$LOG_C" "inbound phoneHello from" "adopting inbound session")
+
+echo "  -- Phase A0 (unpaired inbound, NO auto-approve) --"
+check "$LOG_A0" "first contact from" "Mac raised the first-contact prompt for an unpaired phone"
+check "$LOG_A0" "inbound phoneHello from" "the A0 dial really reached the receiver (negative is not vacuous)"
+check_absent "$LOG_A0" "adopting inbound session" "unpaired inbound phone was NOT granted before approval"
+check_absent "$LOG_A0" "[e2e] auto-approving" "auto-approve hook stayed inert without the flag"
 
 echo "  -- Phase A (pair A) --"
-check "$LOG_A" "sessionReply: accepted" "A accepted the phone's dial"
+check "$LOG_A" "adopting inbound session" "A granted the phone's dial (grant marker, not the phone's reply)"
 check "$LOG_A" "inbound phoneHello from" "A saw the phone-initiated hello (dial path, not knock)"
 check /tmp/remotecrab-ec-ios-a.log "[e2e] pick online dial" "phone ran the picker row's dial action"
 check /tmp/remotecrab-ec-ios-a.log "[dial] outbound to" "phone opened an outbound dial"
 check /tmp/remotecrab-ec-ios-a.log "[hs] hello id=${ID_A}" "phone accepted a session with A"
 check_absent /tmp/remotecrab-ec-ios-a.log "[hs] sendSessionReply busy" "phone did not answer busy"
-lt2 "$DELTA_A" "Phase A dial→accepted"
+lt2 "$DELTA_A" "Phase A dial→granted"
 
 echo "  -- Phase B (switch to B) --"
-check "$LOG_B" "sessionReply: accepted" "B accepted (no busy lock from current=A)"
+check "$LOG_B" "adopting inbound session" "B granted (no busy lock from current=A)"
 check "$LOG_B" "inbound phoneHello from" "B saw the phone-initiated hello"
 check /tmp/remotecrab-ec-ios-b.log "[hs] hello id=${ID_B}" "phone accepted a session with B"
 check_absent /tmp/remotecrab-ec-ios-b.log "[hs] sendSessionReply busy" "phone did not answer busy"
-lt2 "$DELTA_B" "Phase B dial→accepted"
+lt2 "$DELTA_B" "Phase B dial→granted"
 
 echo "  -- Phase C (switch back to paired A, no AUTOPAIR) --"
-check "$LOG_C" "sessionReply: accepted" "paired A accepted without re-confirmation"
+check "$LOG_C" "adopting inbound session" "paired A granted without re-confirmation"
 check /tmp/remotecrab-ec-ios-c.log "[auth] receiver proved the token" "peer-auth proved the stored token (no approval card)"
 check_absent /tmp/remotecrab-ec-ios-c.log "[hs] sendSessionReply busy" "phone did not answer busy"
-lt2 "$DELTA_C" "Phase C dial→accepted"
+lt2 "$DELTA_C" "Phase C dial→granted"
 
 echo "  -- Phase D (forget current) --"
 check /tmp/remotecrab-ec-ios-d.log "[e2e] forgot current computer ${ID_A:0:8}" "phone forgot the current computer on launch"

@@ -94,6 +94,7 @@ sleep 1
 open -a TextEdit; sleep 1
 open -a "Script Editor"; sleep 1
 env REMOTECRAB_E2E_RECORD=1 REMOTECRAB_DEBUG_NOTIFY=1 REMOTECRAB_E2E_NOTIFY_RELAY=1 \
+    REMOTECRAB_E2E_AUTO_APPROVE_INBOUND=1 \
     /Applications/RemoteCrab.app/Contents/MacOS/RemoteCrab >/dev/null 2>&1 &
 disown 2>/dev/null || true
 sleep 3
