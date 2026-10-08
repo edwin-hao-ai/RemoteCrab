@@ -80,4 +80,72 @@ final class ComputerRosterTests: XCTestCase {
     func testNameIsNilWhenTheComputerIsUnknown() {
         XCTAssertNil(ComputerRoster.name(for: "x", online: [], seen: []))
     }
+
+    // MARK: - N-computer invariants (store + policy)
+    //
+    // With N computers on the network: every one is listed, only the owner is
+    // served, and `forget` removes a computer from every list it appears on.
+    // These are the "N computers never steal or collapse into one" guarantees
+    // that would otherwise only be exercised by hand on a real LAN.
+
+    func testTenComputersAllListed() {
+        let store = MacPairingStore(defaults: UserDefaults(suiteName: "roster-\(UUID())")!)
+        for i in 0..<10 {
+            let hello = IBClientHello(name: "PC\(i)", id: "id-\(i)", token: nil,
+                                      appVersion: "1", platform: "windows")
+            store.noteSeen(hello)
+        }
+        XCTAssertEqual(store.seen.count, 10)
+        // By id, not collapsed by name — none share an id or a name here.
+        XCTAssertEqual(Set(store.seen.map(\.id)).count, 10)
+    }
+
+    func testOnlyChosenIsAcceptedRestBusy() {
+        let chosen = PairedMac(id: "id-3", name: "PC3", token: "t3")
+        let others = (0..<10).filter { $0 != 3 }.map {
+            PairedMac(id: "id-\($0)", name: "PC\($0)", token: "t\($0)")
+        }
+        let all = [chosen] + others
+        for o in others {
+            let hello = IBClientHello(name: o.name, id: o.id, token: o.token, appVersion: "1")
+            XCTAssertEqual(PairingPolicy.decide(hello: hello, paired: all,
+                                                owner: chosen, preferred: nil, disconnected: nil),
+                           .busy(ownerName: chosen.name))
+        }
+        // The owner itself, presenting its valid token, is accepted.
+        let ownerHello = IBClientHello(name: chosen.name, id: chosen.id,
+                                       token: chosen.token, appVersion: "1")
+        XCTAssertEqual(PairingPolicy.decide(hello: ownerHello, paired: all,
+                                            owner: chosen, preferred: nil, disconnected: nil),
+                       .accept)
+    }
+
+    func testForgetRemovesFromEveryList() {
+        let store = MacPairingStore(defaults: UserDefaults(suiteName: "roster-forget-\(UUID())")!)
+        store.pair(IBClientHello(name: "PC", id: "id-x", token: nil, appVersion: "1"))
+        store.noteSeen(IBClientHello(name: "PC", id: "id-x", token: nil, appVersion: "1"))
+        store.setPreferred(id: "id-x", name: "PC")
+        store.markDisconnected(id: "id-x", name: "PC")
+        store.setCurrent(id: "id-x", name: "PC")
+        store.forget(id: "id-x")
+        XCTAssertTrue(store.paired.isEmpty)
+        XCTAssertFalse(store.seen.contains { $0.id == "id-x" })
+        XCTAssertNil(store.preferredId)
+        XCTAssertNil(store.disconnected)
+        XCTAssertNil(store.currentId)
+    }
+
+    /// Forgetting the computer the phone is currently set to serve must clear
+    /// `currentId` (and not trap) — otherwise a forgotten computer would keep
+    /// owning the session. Store-level; the UI disconnect wiring is a later task.
+    func testForgetCurrentComputerClearsCurrent() {
+        let store = MacPairingStore(defaults: UserDefaults(suiteName: "roster-cur-\(UUID())")!)
+        store.setCurrent(id: "id-cur", name: "PC-cur")
+        XCTAssertEqual(store.currentId, "id-cur")
+
+        store.forget(id: "id-cur")
+
+        XCTAssertNil(store.currentId)
+        XCTAssertNil(store.current)
+    }
 }
