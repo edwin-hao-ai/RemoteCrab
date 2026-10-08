@@ -305,6 +305,11 @@ final class CaptureEngine: ObservableObject {
 
     let pairingStore = MacPairingStore()
 
+    /// Stable identity of this iPhone, persisted so the receiver keys pairings
+    /// by id rather than the display name (a rename no longer forces a
+    /// re-pair). Loaded once; T11 puts it in the first wire frame.
+    let phoneId: String = PhoneIdentity.loadPhoneId()
+
     /// Shared broadcaster for touch / key / audio events. Created when
     /// a Mac connects and torn down when the connection drops.
     private(set) var broadcaster: IBEventBroadcaster?
