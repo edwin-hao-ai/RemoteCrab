@@ -251,8 +251,18 @@ final class ReceiverSession: ObservableObject {
     /// which computers are online right now.
     private var presenceAdvertiser: PresenceAdvertiser?
     /// iPhone-name → pairing token, persisted across launches. Lets the
-    /// iPhone recognise this Mac without re-prompting.
+    /// iPhone recognise this Mac without re-prompting. This is the **outbound**
+    /// (Mac-dials-phone) store; the phone-initiated path uses `tokenIndex`.
     private var tokenStore: [String: String] = ReceiverSession.loadTokens()
+    /// Pairing tokens keyed by the phone's stable id, with a legacy name
+    /// fallback — the phone-initiated path's store. Persisted under its own
+    /// additive keys so the outbound store above is untouched.
+    private var tokenIndex: PeerTokenIndex = ReceiverSession.loadPeerTokenIndex()
+    /// The phone-id identity of a **server-side** (phone-initiated) handshake,
+    /// set while that connection is live. Its presence switches token lookups
+    /// in `answerChallenge` / `handleSessionReply` from `tokenStore` to
+    /// `tokenIndex`.
+    private var inboundPeer: (phoneId: String, name: String)?
     /// Names of iPhones this Mac has paired with (token store keys),
     /// surfaced for Preferences → Paired iPhones.
     @Published private(set) var pairedPhones: [String] = []
@@ -359,6 +369,13 @@ final class ReceiverSession: ObservableObject {
         // poll.
         advertiser.onKnock = { [weak self] in
             Task { @MainActor in self?.retryNow() }
+        }
+        // A phone that initiates the session dials this same port and sends
+        // `IBPhoneHello` as its first frame — the session reads it and runs the
+        // handshake with the Mac as the server.
+        advertiser.onInbound = { [weak self] conn in
+            guard let self else { return false }
+            return self.handleInboundData(conn)
         }
         advertiser.start()
         presenceAdvertiser = advertiser
@@ -1030,6 +1047,51 @@ final class ReceiverSession: ObservableObject {
         pairedPhones = tokenStore.keys.sorted()
     }
 
+    /// Additive persistence for the phone-initiated token index. The legacy
+    /// `remotecrab.mac.tokens` key is left alone so the outbound path keeps
+    /// working unchanged.
+    ///
+    /// The name table is seeded from the legacy store at load: a phone that
+    /// paired before this change has its token only under its old **name**, so
+    /// without that migration its id lookup would miss and it would be asked to
+    /// approve the Mac again.
+    private static func loadPeerTokenIndex() -> PeerTokenIndex {
+        let decoder = JSONDecoder()
+        var byPhoneId: [String: String] = [:]
+        var byName: [String: String] = [:]
+        var phoneInitiated: Set<String> = []
+        if let data = UserDefaults.standard.data(forKey: "remotecrab.mac.tokensById"),
+           let decoded = try? decoder.decode([String: String].self, from: data) {
+            byPhoneId = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: "remotecrab.mac.tokensByName"),
+           let decoded = try? decoder.decode([String: String].self, from: data) {
+            byName = decoded
+        }
+        if let data = UserDefaults.standard.data(forKey: "remotecrab.mac.phoneInitiated"),
+           let decoded = try? decoder.decode([String].self, from: data) {
+            phoneInitiated = Set(decoded)
+        }
+        for (name, token) in loadTokens() where byName[name] == nil {
+            byName[name] = token
+        }
+        return PeerTokenIndex(byPhoneId: byPhoneId, byName: byName,
+                              phoneInitiated: phoneInitiated)
+    }
+
+    private func savePeerTokenIndex() {
+        let defaults = UserDefaults.standard
+        if let data = try? JSONEncoder().encode(tokenIndex.byPhoneId) {
+            defaults.set(data, forKey: "remotecrab.mac.tokensById")
+        }
+        if let data = try? JSONEncoder().encode(tokenIndex.byName) {
+            defaults.set(data, forKey: "remotecrab.mac.tokensByName")
+        }
+        if let data = try? JSONEncoder().encode(Array(tokenIndex.phoneInitiated)) {
+            defaults.set(data, forKey: "remotecrab.mac.phoneInitiated")
+        }
+    }
+
     // MARK: - Discovery
 
     func start() {
@@ -1440,6 +1502,7 @@ final class ReceiverSession: ObservableObject {
         suppressReconnect = false
         slowRetryTask?.cancel()
         slowRetryTask = nil
+        inboundPeer = nil
         currentTokenKey = phone.name
         lastAttemptedPhoneName = phone.name
         connectedIsDirect = phone.serviceEndpoint == nil
@@ -1587,8 +1650,16 @@ final class ReceiverSession: ObservableObject {
         }
     }
     /// Send this Mac's identity so the iPhone can pair/authorize it.
+    ///
+    /// The outbound (Mac-dials-phone) path presents the stored token. The
+    /// phone-initiated path must present `nil`: the phone already holds the
+    /// secret, so it is the phone that proves ownership, and the receiver never
+    /// puts the token on the wire.
     private func sendClientHello(on conn: NWConnection) {
-        let token = currentTokenKey.flatMap { tokenStore[$0] }
+        sendClientHello(on: conn, token: currentTokenKey.flatMap { tokenStore[$0] })
+    }
+
+    private func sendClientHello(on conn: NWConnection, token: String?) {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.2"
         // This connection's half of the identity challenge. New every time, so a
         // MAC a listener copied from an earlier session is useless.
@@ -1650,7 +1721,13 @@ final class ReceiverSession: ObservableObject {
         guard let serverNonce = reply.nonce, let presented = reply.mac else {
             return .notOffered
         }
-        guard let key = currentTokenKey, let token = tokenStore[key], let clientNonce else {
+        let token: String?
+        if let peer = inboundPeer {
+            token = tokenIndex.token(phoneId: peer.phoneId, name: peer.name)
+        } else {
+            token = currentTokenKey.flatMap { tokenStore[$0] }
+        }
+        guard let token, let clientNonce else {
             // The phone says it knows us; we have nothing to check it against.
             // A lost pairing, not an attack — the phone's own timeout will deny
             // us, and re-pairing is the way back.
@@ -1716,9 +1793,14 @@ final class ReceiverSession: ObservableObject {
             slowRetryTask?.cancel()
             slowRetryTask = nil
             sessionGranted = true
-            if let token = reply.token, let key = currentTokenKey {
-                tokenStore[key] = token
-                saveTokens()
+            if let token = reply.token {
+                if let peer = inboundPeer {
+                    tokenIndex.set(phoneId: peer.phoneId, name: peer.name, token: token)
+                    savePeerTokenIndex()
+                } else if let key = currentTokenKey {
+                    tokenStore[key] = token
+                    saveTokens()
+                }
             }
             if let name = currentPhoneName() {
                 state = .streaming(name: name, latencyMs: 0)
@@ -1940,6 +2022,7 @@ final class ReceiverSession: ObservableObject {
         broadcaster = nil
         connection = nil
         connectedPhoneName = nil
+        inboundPeer = nil
         sessionGranted = false
         sessionAuthenticated = false
         clientNonce = nil
@@ -1955,6 +2038,121 @@ final class ReceiverSession: ObservableObject {
         touchVisual = nil
         touchTrail = []
         micLevel = 0
+    }
+
+    // MARK: - Inbound (phone-initiated) path
+
+    /// The `PresenceAdvertiser` hands every inbound connection here.
+    ///
+    /// Always returns `true` — "the session owns this connection". The real
+    /// decision needs the first frame, which has not arrived when this returns,
+    /// so refusing here would let the advertiser `cancel()` before we could read
+    /// it. A connection that turns out to be a knock is cancelled and retried
+    /// from the read loop, which is the same outcome as the old knock path.
+    nonisolated func handleInboundData(_ conn: NWConnection) -> Bool {
+        Task { @MainActor [weak self] in
+            self?.beginInboundFirstFrameRead(conn)
+        }
+        return true
+    }
+
+    @MainActor
+    private func beginInboundFirstFrameRead(_ conn: NWConnection) {
+        let state = InboundReadState()
+        parser.reset()
+        conn.stateUpdateHandler = { _ in }
+        conn.start(queue: .global())
+        readInboundFirstFrame(conn, state: state)
+        // An old phone's knock sends nothing and closes no faster than its TCP
+        // teardown, so bound the wait: no frame within the budget is a knock.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, !state.decided else { return }
+            state.decided = true
+            Self.log.info("inbound: no first frame within 500ms — treating as knock")
+            conn.cancel()
+            self.retryNow()
+        }
+    }
+
+    /// Read only until the first complete frame (or EOF / over-budget bytes),
+    /// then hand the decision to the main actor. One `receive` is outstanding at
+    /// a time and the next is armed from the same main-actor step, so chunks
+    /// cannot be reordered and `parser` is touched from one actor.
+    @MainActor
+    private func readInboundFirstFrame(_ conn: NWConnection, state: InboundReadState) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            Task { @MainActor [weak self] in
+                guard let self, !state.decided else { return }
+                if let data, !data.isEmpty {
+                    state.bytes += data.count
+                    let frames = self.parser.append(data)
+                    if let frame = frames.first {
+                        state.decided = true
+                        self.routeInboundFirstFrame(conn, frame: frame)
+                        return
+                    }
+                }
+                if isComplete || error != nil || state.bytes > 4096 {
+                    state.decided = true
+                    Self.log.info("inbound: connection ended before a first frame — treating as knock")
+                    conn.cancel()
+                    self.retryNow()
+                    return
+                }
+                self.readInboundFirstFrame(conn, state: state)
+            }
+        }
+    }
+
+    @MainActor
+    private func routeInboundFirstFrame(_ conn: NWConnection, frame: IBWire.Frame) {
+        let hello = try? IBWire.decodePhoneHello(frame)
+        switch InboundHelloClassifier.classify(kind: frame.kind,
+                                               targetPcId: hello?.targetPcId,
+                                               myPcId: macId) {
+        case .data:
+            guard let hello else {
+                conn.cancel()
+                retryNow()
+                return
+            }
+            beginServerSession(conn, hello: hello)
+        case .knock, .foreign:
+            Self.log.info("inbound first frame is not for this Mac — treating as knock")
+            conn.cancel()
+            retryNow()
+        }
+    }
+
+    /// Run the receiver-side handshake with the Mac as the **server**. Protocol
+    /// roles do not reverse: the Mac still sends `IBClientHello` and the phone
+    /// still answers `IBSessionReply`; only the TCP initiator changed.
+    @MainActor
+    private func beginServerSession(_ conn: NWConnection, hello: IBPhoneHello) {
+        Self.log.info("inbound phoneHello from \(hello.phoneName, privacy: .public) (\(hello.phoneId, privacy: .public))")
+        // Drop any connection we were holding first. Its state handler checks
+        // `self.connection === conn`, so once the new connection is assigned its
+        // late `.cancelled` cannot tear this session down — and its receive loop
+        // cannot keep feeding `handleInbound` under the new connection's name.
+        connection?.cancel()
+        connection = nil
+        tokenIndex.markPhoneInitiated(phoneId: hello.phoneId)
+        savePeerTokenIndex()
+        inboundPeer = (phoneId: hello.phoneId, name: hello.phoneName)
+        currentTokenKey = nil
+        sessionGranted = false
+        sessionAuthenticated = false
+        clientNonce = nil
+        suppressReconnect = false
+        connection = conn
+        connectedPhoneName = hello.phoneName
+        connectedIsDirect = false
+        connectedDirectIP = nil
+        state = .handshaking(name: hello.phoneName)
+        startReceiving(on: conn)
+        sendClientHello(on: conn, token: nil)
+        startHandshakeTimeout(on: conn)
     }
 
     // MARK: - Receive loop
@@ -2252,6 +2450,15 @@ final class ReceiverSession: ObservableObject {
         }
         Self.log.info("direct connection identified as \(realName, privacy: .public) — token re-keyed")
     }
+}
+
+/// Per-inbound-connection bookkeeping for the first-frame decision, so two
+/// connections arriving at once cannot share one `decided` flag. Main-actor
+/// only; both the read loop and its timeout hop here.
+@MainActor
+private final class InboundReadState {
+    var decided = false
+    var bytes = 0
 }
 
 /// UI-friendly mirror of the most recent `TouchEvent`, consumed by
