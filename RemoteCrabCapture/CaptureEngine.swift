@@ -905,6 +905,19 @@ final class CaptureEngine: ObservableObject {
     func startStreaming() async {
         Forensic.log("[e2e] startStreaming called, isStreaming=\(isStreaming)")
         guard !isStreaming else { return }
+        // E2E: deterministic start. These must run BEFORE the listener
+        // advertises, or the receiver may dial first, be answered `busy` by a
+        // leftover `current`, and stand by for its 60 s safety net — which the
+        // e2e window never waits out.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RELEASE_CURRENT"] == "1" {
+            releaseCurrentComputer()
+            Forensic.log("[e2e] released current computer at launch")
+        }
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RESET_PAIRING"] == "1" {
+            pairingStore.removeAll()
+            refreshPairedMacs()
+            Forensic.log("[e2e] reset pairing at launch")
+        }
         connectionState = .starting
         do {
             try startListener()
@@ -930,23 +943,6 @@ final class CaptureEngine: ObservableObject {
         // E2E: the picker tap cannot be done headlessly (see the fn).
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_PICK_ONLINE"] == "1" {
             runE2EPickOnlineComputer()
-        }
-        // E2E: start from "no current computer" so a run does not inherit the
-        // previous run's chosen id (which would make Phase A of the
-        // current-computer test refuse the normal one as busy).
-        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RELEASE_CURRENT"] == "1" {
-            releaseCurrentComputer()
-            Forensic.log("[e2e] released current computer at launch")
-        }
-        // E2E: drop every pairing/allow-list entry so a run starts from a known
-        // slate. Repeated runs leave mismatched tokens (the phone's `paired`
-        // token vs the receiver's stored one), which send the normal-id
-        // handshake into the peer-auth challenge, where AUTOPAIR does not apply
-        // and the accept never happens — making Phase A nondeterministic.
-        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RESET_PAIRING"] == "1" {
-            pairingStore.removeAll()
-            refreshPairedMacs()
-            Forensic.log("[e2e] reset pairing at launch")
         }
     }
 
