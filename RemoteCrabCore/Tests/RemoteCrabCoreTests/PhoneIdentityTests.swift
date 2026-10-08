@@ -10,15 +10,18 @@ final class PhoneIdentityTests: XCTestCase {
         return (defaults, suite)
     }
 
+    // These three pass `override: nil` explicitly: the default argument reads
+    // the ambient `REMOTECRAB_E2E_PHONE_ID`, so under an e2e run they would
+    // otherwise short-circuit generation/persistence and pass vacuously.
     func testFreshStoreGeneratesANonEmptyId() {
         let (defaults, _) = freshStore()
-        XCTAssertFalse(PhoneIdentity.loadPhoneId(defaults: defaults).isEmpty)
+        XCTAssertFalse(PhoneIdentity.loadPhoneId(defaults: defaults, override: nil).isEmpty)
     }
 
     func testTwoCallsWithTheSameDefaultsReturnTheSameId() {
         let (defaults, _) = freshStore()
-        XCTAssertEqual(PhoneIdentity.loadPhoneId(defaults: defaults),
-                       PhoneIdentity.loadPhoneId(defaults: defaults))
+        XCTAssertEqual(PhoneIdentity.loadPhoneId(defaults: defaults, override: nil),
+                       PhoneIdentity.loadPhoneId(defaults: defaults, override: nil))
     }
 
     /// The id must be *persisted*, not merely stable within one object: a
@@ -26,10 +29,10 @@ final class PhoneIdentityTests: XCTestCase {
     /// looks like.
     func testIdSurvivesAFreshStoreHandle() {
         let (first, suite) = freshStore()
-        let id = PhoneIdentity.loadPhoneId(defaults: first)
+        let id = PhoneIdentity.loadPhoneId(defaults: first, override: nil)
 
         let relaunched = UserDefaults(suiteName: suite)!
-        XCTAssertEqual(PhoneIdentity.loadPhoneId(defaults: relaunched), id)
+        XCTAssertEqual(PhoneIdentity.loadPhoneId(defaults: relaunched, override: nil), id)
     }
 
     func testOverrideWins() {
