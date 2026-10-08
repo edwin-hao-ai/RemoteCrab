@@ -2548,6 +2548,14 @@ final class ReceiverSession: ObservableObject {
         pendingInboundApproval = PendingInboundApproval(id: candidate.hello.phoneId,
                                                         phoneName: candidate.hello.phoneName)
         Self.log.info("first contact from \(candidate.hello.phoneName, privacy: .public) — waiting for this Mac's user")
+        // Headless device e2e only: approve the prompt from the environment so a
+        // run needs no Mac-side click. Strictly gated on "...=1", so a real
+        // user's receiver (which never sets it) always waits for the human.
+        if InboundAutoApprove.isEnabled(in: ProcessInfo.processInfo.environment) {
+            Self.log.info("[e2e] auto-approving inbound first contact from \(candidate.hello.phoneName, privacy: .public)")
+            approvePendingInbound()
+            return
+        }
         inboundApprovalTimeoutTask?.cancel()
         inboundApprovalTimeoutTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
