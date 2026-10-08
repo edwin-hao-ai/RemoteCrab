@@ -997,6 +997,14 @@ final class ReceiverSession: ObservableObject {
     // MARK: - Identity
 
     private static func loadMacId() -> String {
+        // E2E-only: let the device test relaunch this receiver under a fresh
+        // identity. That is how one Mac stands in for "a computer the phone is
+        // online with but has never seen" (the picker's "pair a new computer"
+        // path). Inert unless the env var is set.
+        if let override = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MAC_ID"],
+           !override.isEmpty {
+            return override
+        }
         let key = "remotecrab.mac.id"
         if let existing = UserDefaults.standard.string(forKey: key) { return existing }
         let fresh = UUID().uuidString

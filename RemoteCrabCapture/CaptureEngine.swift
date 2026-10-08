@@ -927,6 +927,27 @@ final class CaptureEngine: ObservableObject {
             connectionState = .failed
             failureReason = .network
         }
+        // E2E: the picker tap cannot be done headlessly (see the fn).
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_PICK_ONLINE"] == "1" {
+            runE2EPickOnlineComputer()
+        }
+        // E2E: start from "no current computer" so a run does not inherit the
+        // previous run's chosen id (which would make Phase A of the
+        // current-computer test refuse the normal one as busy).
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RELEASE_CURRENT"] == "1" {
+            releaseCurrentComputer()
+            Forensic.log("[e2e] released current computer at launch")
+        }
+        // E2E: drop every pairing/allow-list entry so a run starts from a known
+        // slate. Repeated runs leave mismatched tokens (the phone's `paired`
+        // token vs the receiver's stored one), which send the normal-id
+        // handshake into the peer-auth challenge, where AUTOPAIR does not apply
+        // and the accept never happens — making Phase A nondeterministic.
+        if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RESET_PAIRING"] == "1" {
+            pairingStore.removeAll()
+            refreshPairedMacs()
+            Forensic.log("[e2e] reset pairing at launch")
+        }
     }
 
     func stopStreaming() {
@@ -948,6 +969,28 @@ final class CaptureEngine: ObservableObject {
         parser.reset()
         stopVideoWatchdog()
         UIApplication.shared.isIdleTimerDisabled = false
+    }
+
+    /// E2E-only: the picker's tap on an online computer needs a human finger,
+    /// so this runs the *same* action `ComputerPickerView`'s row tap runs —
+    /// pick the first online computer that is not the current one, once
+    /// presence has reported it. Proves the 10-07 "pair a new computer" path
+    /// (arming `preferred` for a computer the phone has only seen announce
+    /// itself, never connected to) end-to-end on a device.
+    private func runE2EPickOnlineComputer() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<40 {
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                guard let target = self.onlineComputers.first(where: { $0.id != self.currentComputerId })
+                else { continue }
+                Forensic.log("[e2e] pick online computer id=\(target.id.prefix(8)) name=\(target.name)")
+                self.setPreferredComputer(id: target.id)
+                Forensic.log("[e2e] pick online resolved=\(self.preferredMac?.id == target.id)")
+                return
+            }
+            Forensic.log("[e2e] pick online: no eligible online computer found")
+        }
     }
 
     // MARK: - Computer presence
@@ -1843,6 +1886,13 @@ final class CaptureEngine: ObservableObject {
         if let mac, mac.id == pairingStore.preferredId {
             Forensic.log("[gv] granted: clearing preferred for \(mac.id.prefix(8))")
             pairingStore.clearPreferred()
+            // The switch SUCCEEDED, so the "gave up waiting" note must not be
+            // raised by the refresh below: `preferredMac` is still the armed
+            // record while `effectivePreferred()` is now nil (we just cleared
+            // it), which is exactly the condition that raises it. Clear both
+            // first so a successful switch never flashes "gave up".
+            preferredMac = nil
+            preferredGaveUp = nil
         }
         if let mac {
             pairingStore.setCurrent(id: mac.id, name: mac.name)
