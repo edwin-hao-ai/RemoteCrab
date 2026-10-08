@@ -68,6 +68,21 @@ final class LocalizationCatalogTests: XCTestCase {
         }
     }
 
+    /// The receiver's idle wait for a phone that dials itself. It replaced
+    /// "Looking for an iPhone…" for that case, so it must be a real
+    /// translated sentence in both locales — otherwise a Chinese user gets
+    /// an English instruction on the one screen that tells them what to do.
+    func testWaitingForPhoneIsBilingual() throws {
+        let key = "Open RemoteCrab on your iPhone and pick this computer."
+        let strings = try catalog()
+        let entry = try XCTUnwrap(strings[key] as? [String: Any], "missing key: \(key)")
+        let locs = try XCTUnwrap(entry["localizations"] as? [String: Any], "no localizations: \(key)")
+        let en = (locs["en"] as? [String: Any])?["stringUnit"] as? [String: Any]
+        XCTAssertFalse((en?["value"] as? String)?.isEmpty != false, "missing en: \(key)")
+        let zh = (locs["zh-Hans"] as? [String: Any])?["stringUnit"] as? [String: Any]
+        XCTAssertFalse((zh?["value"] as? String)?.isEmpty != false, "missing zh-Hans: \(key)")
+    }
+
     /// Every context-mode action label must ship a `zh-Hans` translation.
     ///
     /// The labels are *data* (`ContextProfiles`), so they cannot be `IBL(...)`

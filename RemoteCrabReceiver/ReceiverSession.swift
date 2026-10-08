@@ -92,6 +92,9 @@ final class ReceiverSession: ObservableObject {
     }
 
     @Published private(set) var state: State = .searching
+    /// Whether the idle wait is for a phone we know dials itself, so the status
+    /// line names the action on the phone instead of "looking for an iPhone".
+    @Published private(set) var waitingForPhone = false
     @Published private(set) var metadata: IBStreamMetadata?
     @Published private(set) var discovered: [DiscoveredPhone] = []
 
@@ -258,6 +261,12 @@ final class ReceiverSession: ObservableObject {
     /// fallback — the phone-initiated path's store. Persisted under its own
     /// additive keys so the outbound store above is untouched.
     private var tokenIndex: PeerTokenIndex = ReceiverSession.loadPeerTokenIndex()
+    /// Bonjour service name → the stable `phoneId` learned from a
+    /// phone-initiated handshake. The outbound (legacy) path knows a phone only
+    /// by its name, so this is what lets the gate below tell "this phone dials
+    /// itself" apart from "this phone waits for us to dial". Additive key; a
+    /// phone that never dialed us is absent, which keeps its auto-dial intact.
+    private var phoneIdByNameStore: [String: String] = ReceiverSession.loadPhoneIdByName()
     /// The phone-id identity of a **server-side** (phone-initiated) handshake,
     /// set while that connection is live. Its presence switches token lookups
     /// in `answerChallenge` / `handleSessionReply` from `tokenStore` to
@@ -1105,6 +1114,49 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
+    private static func loadPhoneIdByName() -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: "remotecrab.mac.phoneIdByName"),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func savePhoneIdByName() {
+        guard let data = try? JSONEncoder().encode(phoneIdByNameStore) else { return }
+        UserDefaults.standard.set(data, forKey: "remotecrab.mac.phoneIdByName")
+    }
+
+    /// Service name → the id we have learned for that phone, so a discovered
+    /// phone can be matched to its phone-initiated flag before a session exists.
+    ///
+    /// The persisted map is seeded from a phoneInitiated handshake. A phone that
+    /// was marked before this map existed (or whose token arrived without a
+    /// recorded name) still resolves through the shared token in `tokenIndex`,
+    /// so the gate is correct on the first launch after an upgrade.
+    private var phoneIdByName: [String: String] {
+        var out = phoneIdByNameStore
+        for (name, token) in tokenIndex.byName where out[name] == nil {
+            if let id = tokenIndex.byPhoneId.first(where: { $0.value == token })?.key {
+                out[name] = id
+            }
+        }
+        return out
+    }
+
+    /// True when the phone identified by this Bonjour service name dials this
+    /// Mac itself, so the receiver must not dial it (it would race a connection
+    /// the phone is already making). An unknown name is a legacy phone and keeps
+    /// the outbound auto-dial.
+    private func isPhoneInitiated(name: String) -> Bool {
+        guard let id = phoneIdByName[name] else { return false }
+        return tokenIndex.isPhoneInitiated(phoneId: id)
+    }
+
+    private func isPhoneInitiated(_ phone: DiscoveredPhone) -> Bool {
+        isPhoneInitiated(name: phone.name)
+    }
+
     // MARK: - Discovery
 
     func start() {
@@ -1278,7 +1330,16 @@ final class ReceiverSession: ObservableObject {
         // (accepted / pending / busy) and shows its approval card, instead
         // of leaving the user stuck on "waiting" because a reinstall or a
         // settings migration dropped the local token.
-        guard let phone = phones.first(where: { tokenStore[$0.name] != nil }) ?? phones.first else { return }
+        // A phone that dials itself must not be dialed by us — the race is what
+        // made it flip busy and self-heal. Prefer a paired legacy phone, then
+        // any legacy phone, and only wait when every phone here dials itself.
+        guard let phone = phones.first(where: { tokenStore[$0.name] != nil && !isPhoneInitiated($0) })
+                ?? phones.first(where: { !isPhoneInitiated($0) }) else {
+            if connection == nil, phones.contains(where: { isPhoneInitiated($0) }) {
+                waitingForPhone = true
+            }
+            return
+        }
         if connection == nil {
             connect(to: phone)
         } else if case .connecting = state {
@@ -1310,6 +1371,7 @@ final class ReceiverSession: ObservableObject {
         // The .cancelled state callback keeps the current state when
         // suppressReconnect is set, so land on .searching ourselves.
         state = .searching
+        waitingForPhone = false
         Self.log.info("user disconnected")
     }
 
@@ -1324,6 +1386,12 @@ final class ReceiverSession: ObservableObject {
         // un-forgettable) in the id store.
         tokenIndex.forgetByName(name)
         savePeerTokenIndex()
+        // Drop the name→id link too, or the phone stays classified as
+        // phone-initiated and the receiver never auto-dials it again
+        // (spec §7.4: Forget must return it to the auto-dial state).
+        if phoneIdByNameStore.removeValue(forKey: name) != nil {
+            savePhoneIdByName()
+        }
         Self.log.info("forgot paired phone \(name, privacy: .public)")
     }
 
@@ -1399,8 +1467,12 @@ final class ReceiverSession: ObservableObject {
         let port: UInt16 = 8765
         for host in fallbackCandidates() {
             if Task.isCancelled || connection != nil { return }
-            guard await Self.probeReachable(host: host, port: port) else { continue }
             let name = Self.phoneNameByIP[host] ?? IBLocale.Connection.directPhone
+            // This probe is the legacy phone's only way in when mDNS is blocked.
+            // A phone that dials itself reaches us on its own, so dialing its
+            // last-known IP would race the connection it is already making.
+            if isPhoneInitiated(name: name) { continue }
+            guard await Self.probeReachable(host: host, port: port) else { continue }
             Self.log.info("Bonjour empty; direct-connecting to \(host, privacy: .public)")
             connect(to: DiscoveredPhone(id: "direct:\(host):\(port)",
                                         name: name,
@@ -1521,6 +1593,7 @@ final class ReceiverSession: ObservableObject {
         slowRetryTask?.cancel()
         slowRetryTask = nil
         inboundPeer = nil
+        waitingForPhone = false
         currentTokenKey = phone.name
         lastAttemptedPhoneName = phone.name
         connectedIsDirect = phone.serviceEndpoint == nil
@@ -2000,9 +2073,14 @@ final class ReceiverSession: ObservableObject {
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard let self, self.connection == nil else { return }
-            if let phone = self.preferredPhone() {
-                self.connect(to: phone)
+            guard let phone = self.preferredPhone() else { return }
+            if self.isPhoneInitiated(phone) {
+                // The phone re-dials itself after a drop; racing it is what
+                // produced the spurious busy/self-heal cycle. Show the wait copy.
+                if case .searching = self.state { self.waitingForPhone = true }
+                return
             }
+            self.connect(to: phone)
         }
     }
 
@@ -2227,9 +2305,14 @@ final class ReceiverSession: ObservableObject {
         // the legacy token store key by its Bonjour service name. Derive it so
         // the legacy name-fallback migration and the outbound mirror line up.
         let serviceName = Self.bonjourServiceName(deviceName: hello.phoneName)
+        if phoneIdByNameStore[serviceName] != hello.phoneId {
+            phoneIdByNameStore[serviceName] = hello.phoneId
+            savePhoneIdByName()
+        }
         inboundPeer = (phoneId: hello.phoneId, name: serviceName)
         sessionOwner = InboundSessionOwner(phoneId: hello.phoneId, name: hello.phoneName)
         currentTokenKey = nil
+        waitingForPhone = false
         sessionGranted = false
         sessionAuthenticated = false
         clientNonce = nil
@@ -2644,5 +2727,18 @@ extension ReceiverSession.State {
         case .streaming(let name, _):     return name
         case .searching, .error:          return nil
         }
+    }
+}
+
+extension ReceiverSession {
+    /// The single line the menu bar and preview show for the current state.
+    /// In the idle wait for a phone that dials itself, it names the action on
+    /// the phone — the generic "looking for an iPhone" would be a lie, because
+    /// nothing on this Mac is looking.
+    var statusMessage: LocalizedStringKey {
+        if case .searching = state, waitingForPhone {
+            return LocalizedStringKey(IBLocale.Error.waitingForPhone)
+        }
+        return state.message
     }
 }

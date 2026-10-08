@@ -969,6 +969,10 @@ public enum IBLocale {
         /// (AGENTS rule 1): pick this computer again on the phone.
         public static let connectionOff = IBL("Disconnected on the iPhone — open Choose a Computer there and pick this one to reconnect.")
         public static let awaitingApproval = IBL("Waiting for approval on the iPhone…")
+        /// The idle wait once the receiver has learned the phone dials itself:
+        /// there is nothing for this Mac to do, so the line names the action on
+        /// the phone instead of the legacy "looking for an iPhone".
+        public static let waitingForPhone = IBL("Open RemoteCrab on your iPhone and pick this computer.")
         public static let retry = IBL("Retry")
         /// The receiver verified that the machine on this address holds the
         /// pairing token, but the phone could not prove the same to us, or

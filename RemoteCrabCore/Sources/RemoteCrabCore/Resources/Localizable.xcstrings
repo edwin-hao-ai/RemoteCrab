@@ -3928,6 +3928,23 @@
         }
       }
     },
+    "Open RemoteCrab on your iPhone and pick this computer.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open RemoteCrab on your iPhone and pick this computer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请打开手机上的 RemoteCrab，在「选择电脑」里选本机。"
+          }
+        }
+      }
+    },
     "Open RemoteCrab settings": {
       "extractionState": "manual",
       "localizations": {

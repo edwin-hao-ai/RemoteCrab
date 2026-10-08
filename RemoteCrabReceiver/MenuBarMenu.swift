@@ -265,7 +265,7 @@ struct MenuBarMenu: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 12, height: 12)
                 }
-                Text(session.state.message)
+                Text(session.statusMessage)
                     .font(IBFont.bodySmall)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

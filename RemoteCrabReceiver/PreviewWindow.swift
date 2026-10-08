@@ -40,7 +40,7 @@ struct PreviewWindow: View {
                 .font(.system(size: 56))
                 .foregroundStyle(.white.opacity(0.3))
             IBStatusPill(status: session.state.statusPillStatus)
-            Text(session.state.message)
+            Text(session.statusMessage)
                 .font(IBFont.caption)
                 .foregroundStyle(.white.opacity(0.5))
                 .multilineTextAlignment(.center)
