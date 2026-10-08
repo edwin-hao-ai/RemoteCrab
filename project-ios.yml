@@ -38,7 +38,7 @@ targets:
       properties:
         CFBundleDisplayName: RemoteCrab
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "2026092404"
+        CFBundleVersion: "2026100801"
         # Apple export compliance: the app uses HTTPS only. Kept here (not
         # only in the checked-in plist) because xcodegen rewrites the plist
         # from these properties on every `xcodegen generate`.
