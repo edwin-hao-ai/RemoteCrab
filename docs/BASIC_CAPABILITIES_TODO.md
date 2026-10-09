@@ -474,18 +474,16 @@
 
 ## 8.5 工作流 H：Mac 托盘菜单逐项可用性（用户 2026-10-09 提出）
 
-### H1. 🟡 逐项点一遍托盘 popover 的每一行（偏好设置已修）
+### H1. 🟡 逐项点一遍托盘 popover 的每一行（偏好设置已修 + 已真机验）
 - **根因（已修）**：托盘 → **偏好设置点了没反应**。`openPreferences()` 用的是
   `NSApp.sendAction(Selector("showSettingsWindow:"))`——这个 selector 在 **macOS 26 已失效**。
-  改为 SwiftUI 的 `openSettings()`（macOS 14+，`MenuBarMenu.swift`）。已编译通过。
-- **未验**：其余行**从未逐项点过**。要逐个确认有可见响应：
-  功能开关（camera / mic / trackpad / keyboard）、扬声器**状态行**（不是开关，是状态 +
-  "在手机上开关"）、动作行——**控制面板 ⌘P** / **预览窗口 ⌘⇧P** / **连接测试 ⌘T** /
-  切换摄像头 / 录制 ⌘R / 剪贴板→iPhone / 在 Finder 显示 / 手动连接 / 断开 /
-  更新两行（Restart to Update / Check for Updates…）/ **偏好设置 ⌘,** / **退出 ⌘Q**。
-- **验证**：每一项都有可见响应（窗口打开 / 状态改变 / 动作发生）。
-- **方式**：GUI 测试（需窗口或 AppleScript UI 脚本；脚本需 Accessibility 授权）。
-- **影响面**：仅 Mac 托盘 UI。
+  改为 SwiftUI 的 `openSettings()`（macOS 14+，`MenuBarMenu.swift`）。
+- **已运行时验证**（AppleScript UI 脚本，Accessibility 已授权）：
+  **偏好设置 ⌘, → 打开"通用"设置窗**（修复前无反应）、**控制面板 ⌘P**、
+  **预览窗口 ⌘⇧P**、**连接自检 ⌘T** 均打开对应窗口。
+- **待验（需手机在线）**：功能开关（camera / mic / trackpad / keyboard，离线时禁用）、
+  切换摄像头、开始录制、发送剪贴板、手动连接、检查更新、退出。
+  扬声器是**状态行**不是开关（设计如此）。
 
 ---
 
@@ -509,6 +507,7 @@
 | 2026-10-09 | A e2e | **4K 摄像头端到端通过**：同版本原地替换 + 杀扩展进程重载后，探针打印 1080p+3840×2160、exit 0 | `./scripts/e2e-camera-formats.sh` ✓ |
 | 2026-10-09 | A 决策 | 因此**不 bump 扩展版本**（保住用户已有批准、零支持成本），回到 8 | 待你确认发版策略 |
 | 2026-10-09 | H1 | 修托盘"偏好设置"死键：`showSettingsWindow:`（macOS 26 失效）→ `openSettings()` | 编译通过；其余托盘行待 GUI 逐项验 |
+| 2026-10-09 | H1 验证 | AppleScript 逐键实测托盘：⌘, 设置 / ⌘P 控制面板 / ⌘⇧P 预览 / ⌘T 连接自检 全部打开对应窗口 | 均在窗口列表中确认 |
 
 ---
 
