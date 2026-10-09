@@ -290,6 +290,10 @@ final class CaptureEngine: ObservableObject {
     private var e2eLinkLossFired = false
     /// Watchdog that releases a silent owner (see `lastInboundAt`).
     private var ownerWatchdog: Timer?
+    /// Redials the current computer after an unexpected drop (never after a
+    /// user Disconnect). Cancelled the moment a session is established or the
+    /// stream is torn down.
+    private var ownerReconnectTask: Task<Void, Never>?
     /// Connection currently awaiting a `clientHello` (not yet granted).
     private var candidate: NWConnection?
     private var candidateParser: IBWire.Parser?
@@ -1059,6 +1063,7 @@ final class CaptureEngine: ObservableObject {
         // start and answers a legitimate inbound computer `busy`.
         cancelOutboundSilently()
         pendingAutoDialId = nil
+        stopOwnerReconnect()
         // A challenge in flight must not outlive the stream either: its socket
         // is gone, so its 5 s timeout would otherwise fire against a dead link.
         pendingChallenge?.timeout?.cancel()
@@ -2072,6 +2077,7 @@ final class CaptureEngine: ObservableObject {
             pendingChallenge = nil
         }
         clearPending()
+        stopOwnerReconnect()
 
         // The preferred Mac arrived — the switch is done, open the door, and
         // remember it: the phone now serves this computer until the user says
@@ -2487,6 +2493,7 @@ final class CaptureEngine: ObservableObject {
         if let mac = ownerMac {
             pairingStore.markDisconnected(id: mac.id, name: mac.name)
         }
+        stopOwnerReconnect()
         connection?.cancel()
         clearOwner(reason: .disconnected)
         refreshPairedMacs()
@@ -3639,6 +3646,41 @@ final class CaptureEngine: ObservableObject {
         screenInfo = nil
         screenDecoder.reset()
         screenDisplayView.displayLayer.flushAndRemoveImage()
+        // An unexpected drop is the common case on flaky WiFi or after the app
+        // was backgrounded: redial the computer we were on, so a transient loss
+        // self-heals instead of needing a manual reconnect (the old Mac-driven
+        // reconnect loop no longer exists for phone-initiated phones).
+        if case .lost = reason { startOwnerReconnect() }
+    }
+
+    /// Keep dialing the current computer until a session is established again,
+    /// or the user disconnects / the stream stops. Bounded, event-driven, and
+    /// silent: it is the "we'll retry automatically" half of reconnect.
+    private func startOwnerReconnect() {
+        stopOwnerReconnect()
+        guard isStreaming, let id = pairingStore.currentId,
+              pairingStore.disconnected?.id != id else { return }
+        Forensic.log("[reconnect] link lost — will redial \(id.prefix(8))")
+        ownerReconnectTask = Task { @MainActor [weak self] in
+            var delay: UInt64 = 1
+            while !Task.isCancelled {
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                if Task.isCancelled { return }
+                guard self.isStreaming, self.connection == nil,
+                      self.outboundConnection == nil, self.pendingChallenge == nil,
+                      self.pendingConnection == nil,
+                      self.pairingStore.disconnected?.id != id else { return }
+                Forensic.log("[reconnect] redialing \(id.prefix(8))")
+                self.connect(toComputer: id)
+                delay = min(delay * 2, 5)
+            }
+        }
+    }
+
+    private func stopOwnerReconnect() {
+        ownerReconnectTask?.cancel()
+        ownerReconnectTask = nil
     }
 
     /// Release the session when the owner goes silent. The Mac pings

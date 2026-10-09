@@ -184,18 +184,9 @@ make_computer() {
   # dial path would never be exercised. The phone dialling us is the whole point.
   defaults write "$3" remotecrab.autoReconnect -bool false
 }
-run_mac() { # run_mac <id> <app> [approve|no-approve] → starts the receiver, sets MAC_PID
-  # `approve` (default) sets REMOTECRAB_E2E_AUTO_APPROVE_INBOUND=1 so an
-  # unpaired phone's first contact is granted without a Mac-side click.
-  # `no-approve` is the negative case: the hook is absent, so the first-contact
-  # prompt must hold the line and the phone must NOT be granted.
-  local id="$1" app="$2" mode="${3:-approve}"
-  if [ "$mode" = "no-approve" ]; then
-    REMOTECRAB_E2E_MAC_ID="$id" "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
-  else
-    REMOTECRAB_E2E_MAC_ID="$id" REMOTECRAB_E2E_AUTO_APPROVE_INBOUND=1 \
-      "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
-  fi
+run_mac() { # run_mac <id> <app> → starts the receiver, sets MAC_PID
+  local id="$1" app="$2"
+  REMOTECRAB_E2E_MAC_ID="$id" "$app/Contents/MacOS/RemoteCrab" >/dev/null 2>&1 &
   MAC_PID=$!
   sleep 4
 }
@@ -244,31 +235,23 @@ xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1 
   || { echo "  iOS install failed"; exit 1; }
 
 # ---------------------------------------------------------------------------
-echo "[3/9] Phase A0 — unpaired first contact WITHOUT the auto-approve hook"
-# The security fix (58e3851) holds an unpaired inbound phone at a Mac-side
-# first-contact prompt until a human confirms. With the hook OFF the phone must
-# NOT be granted — the negative the grant assertions below depend on. Without
-# this, a run could "pass" A/B on the phone's own `accepted` while the Mac never
-# actually admitted the phone.
+echo "[3/9] Phase A0 — unpaired first contact is admitted (no Mac-side gate)"
+# The phone's own confirmation card is the only consent; the receiver must not
+# add a hidden second gate. That gate held the phone for 30 s and then closed
+# the socket — the "it won't connect" report — so the phone must be granted on
+# its own `accepted`, with no receiver-side click.
 LOG_A0=/tmp/remotecrab-ec-a0.log
 start_log "$LOG_A0"
-run_mac "$ID_A" "$APP_A" no-approve
-# The phone's presence browser occasionally delivers the computer without its
-# TXT id on the first snapshot (lesson 155's intermittent cousin), so the pick
-# hook loops out seeing "no eligible online computer" and never dials. Relaunch
-# gives a fresh browse; the Mac stays up throughout. Up to 3 tries. (If the flag
-# leaked on, the Mac would grant on the first dial and the absent-grant
-# assertion below would still catch it — the retry does not weaken the negative.)
+run_mac "$ID_A" "$APP_A"
 A0_ENV='{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_RESET_PAIRING":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}'
 for attempt in 1 2 3; do
   LAUNCH_OUT=$(launch_ios "$A0_ENV" 2>&1)
   if echo "$LAUNCH_OUT" | grep -qi "error\|denied\|Locked"; then
     echo "  ✗ could not launch the app: $LAUNCH_OUT"; exit 2
   fi
-  # The pick loop runs up to 20 s; 30 s also covers the handshake + prompt.
-  for _ in $(seq 1 30); do grep -aq "first contact from" "$LOG_A0" && break; sleep 1; done
-  grep -aq "first contact from" "$LOG_A0" && break
-  echo "  … A0 attempt $attempt: the Mac did not see a dial (phone presence flapped) — retrying"
+  for _ in $(seq 1 30); do grep -aq "adopting inbound session" "$LOG_A0" && break; sleep 1; done
+  grep -aq "adopting inbound session" "$LOG_A0" && break
+  echo "  … A0 attempt $attempt: the Mac did not admit a dial (phone presence flapped) — retrying"
 done
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-a0.log
@@ -384,11 +367,10 @@ DELTA_A=$(delta "$LOG_A" "inbound phoneHello from" "adopting inbound session")
 DELTA_B=$(delta "$LOG_B" "inbound phoneHello from" "adopting inbound session")
 DELTA_C=$(delta "$LOG_C" "inbound phoneHello from" "adopting inbound session")
 
-echo "  -- Phase A0 (unpaired inbound, NO auto-approve) --"
-check "$LOG_A0" "first contact from" "Mac raised the first-contact prompt for an unpaired phone"
-check "$LOG_A0" "inbound phoneHello from" "the A0 dial really reached the receiver (negative is not vacuous)"
-check_absent "$LOG_A0" "adopting inbound session" "unpaired inbound phone was NOT granted before approval"
-check_absent "$LOG_A0" "[e2e] auto-approving" "auto-approve hook stayed inert without the flag"
+echo "  -- Phase A0 (unpaired inbound, no Mac-side gate) --"
+check "$LOG_A0" "inbound phoneHello from" "the unpaired phone dialed the receiver"
+check "$LOG_A0" "adopting inbound session" "the unpaired phone was granted — the phone's tap is the consent"
+check_absent "$LOG_A0" "waiting for this Mac's user" "no hidden Mac-side confirmation gate"
 
 echo "  -- Phase A (pair A) --"
 check "$LOG_A" "adopting inbound session" "A granted the phone's dial (grant marker, not the phone's reply)"

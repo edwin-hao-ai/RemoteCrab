@@ -2531,16 +2531,12 @@ final class ReceiverSession: ObservableObject {
     @MainActor
     private func resolveAcceptedCandidate(_ candidate: InboundCandidate) {
         let decision = InboundGrantPolicy.decide(
-            paired: candidate.token != nil,
-            challenge: candidate.proved ? .proven : candidate.lastChallenge,
-            firstContactApproved: candidate.firstContactApproved)
+            challenge: candidate.proved ? .proven : candidate.lastChallenge)
         switch decision {
         case .grant:
             adoptCandidate(candidate)
-        case .promptFirstContact:
-            promptFirstContact(candidate)
         case .refuse:
-            Self.log.error("REFUSED: a paired inbound phone did not prove its identity")
+            Self.log.error("REFUSED: an inbound peer presented a proof that does not match the pairing token")
             closeCandidate(candidate)
         }
     }

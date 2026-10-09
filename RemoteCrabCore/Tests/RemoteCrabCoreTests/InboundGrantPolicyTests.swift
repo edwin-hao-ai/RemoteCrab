@@ -1,90 +1,33 @@
 import XCTest
 @testable import RemoteCrabCore
 
-/// The inbound (phone-initiated) admission rule. An unauthenticated LAN peer
-/// can read the advertised id and open the presence port itself, so the
-/// decision to grant input injection must be a tested function, not a
-/// fall-through in a socket handler.
+/// The inbound (phone-initiated) admission rule.
+///
+/// The user's tap in the phone's picker is the consent, so the receiver does
+/// not add a second hidden gate: every outcome except a *wrong proof* is
+/// admitted. Only a proof that does not match a paired token — an impersonation
+/// attempt on an existing pairing — is refused.
 final class InboundGrantPolicyTests: XCTestCase {
 
-    // MARK: - Paired phone: proof, or a human-gated re-pair
-
-    func testPairedPhoneWithValidProofIsGranted() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: true, challenge: .proven,
-                                      firstContactApproved: false),
-            .grant)
+    func testProvenIsGranted() {
+        XCTAssertEqual(InboundGrantPolicy.decide(challenge: .proven), .grant)
     }
 
-    /// The receiver still has a token for this phone, but the phone offered no
-    /// proof at all — a reinstalled app, a new phone, or a lost token. This is
-    /// the case that must NOT be refused: refusing it made a reinstall
-    /// unrecoverable, because the phone then minted a fresh token and the two
-    /// ends disagreed about the token forever. The receiver's own user confirms
-    /// the re-pair, exactly as for a first contact.
-    func testPairedPhoneWithBareAcceptedPromptsToRepair() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: true, challenge: .notOffered,
-                                      firstContactApproved: false),
-            .promptFirstContact)
+    /// A reinstalled app / new phone / lost token offers no proof. The phone's
+    /// own confirmation card is the consent, so it is admitted (and re-paired
+    /// with the token it sends).
+    func testNotOfferedIsGranted() {
+        XCTAssertEqual(InboundGrantPolicy.decide(challenge: .notOffered), .grant)
     }
 
-    /// A proof this receiver cannot match — the phone holds a token this Mac
-    /// does not — is a stale pairing too, not an impostor we can tell apart
-    /// (the impostor and the reinstalled phone look identical here). So it is
-    /// the receiver's user who decides, never a silent fall-through.
-    func testPairedPhoneWithNoKeyPromptsToRepair() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: true, challenge: .noKey,
-                                      firstContactApproved: false),
-            .promptFirstContact)
+    /// The phone holds a token this receiver does not know — a re-pair. Admitted.
+    func testNoKeyIsGranted() {
+        XCTAssertEqual(InboundGrantPolicy.decide(challenge: .noKey), .grant)
     }
 
-    /// With the receiver's user's approval the stale pairing is replaced (the
-    /// phone's fresh token is stored when the candidate is adopted).
-    func testPairedPhoneWithApprovalIsGrantedOnRepair() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: true, challenge: .notOffered,
-                                      firstContactApproved: true),
-            .grant)
-    }
-
-    // MARK: - Unpaired phone: first contact needs the receiver's user
-
-    func testUnpairedAcceptedWithoutApprovalPrompts() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: false, challenge: .notOffered,
-                                      firstContactApproved: false),
-            .promptFirstContact)
-    }
-
-    func testUnpairedWithAKeyThisReceiverLacksStillPrompts() {
-        // The phone thinks it is paired (it offered a MAC) but this receiver
-        // has lost the token. Re-pairing is the way back, so it prompts rather
-        // than being refused like an impostor.
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: false, challenge: .noKey,
-                                      firstContactApproved: false),
-            .promptFirstContact)
-    }
-
-    func testUnpairedWithApprovalIsGranted() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: false, challenge: .notOffered,
-                                      firstContactApproved: true),
-            .grant)
-    }
-
-    // MARK: - A failed challenge is always refused
-
-    func testFailedChallengeIsRefusedWhetherPairedOrNot() {
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: true, challenge: .failed,
-                                      firstContactApproved: true),
-            .refuse)
-        XCTAssertEqual(
-            InboundGrantPolicy.decide(paired: false, challenge: .failed,
-                                      firstContactApproved: true),
-            .refuse)
+    /// The one refusal: a proof that does not match the paired token. That is an
+    /// impersonation attempt on an existing pairing, not a re-pair.
+    func testFailedIsRefused() {
+        XCTAssertEqual(InboundGrantPolicy.decide(challenge: .failed), .refuse)
     }
 }

@@ -19,43 +19,27 @@ public enum InboundChallengeOutcome: Equatable, Sendable {
 public enum InboundGrantDecision: Equatable, Sendable {
     /// Admit the phone and start the session.
     case grant
-    /// The phone is not paired yet — hold the connection and ask the receiver's
-    /// user to confirm first contact.
-    case promptFirstContact
-    /// Refuse and close. A paired phone that cannot prove it holds the token is
-    /// not this receiver's phone, whatever it claims.
+    /// Refuse and close. A phone that presented a proof which does not match a
+    /// paired token is an impersonation attempt.
     case refuse
 }
 
 /// The receiver-side admission rule for a **phone-initiated** connection.
 ///
-/// The outbound (receiver-dials-phone) path is untouched: only this call site
-/// gates the inbound path, because only there does an unauthenticated LAN peer
-/// know the advertised id and can open the socket itself. The rule is pure so
-/// the security decision is machine-verified where the socket wiring is not.
-///
-/// - A paired phone proves identity with the token challenge-response. A bare
-///   `accepted` (or an `accepted` with no proof at all) from a paired phone is
-///   refused: only new-build phones dial inbound, so a paired inbound phone is
-///   expected to do peer-auth.
-/// - An unpaired phone is a first pairing. The phone's `accepted{token}` alone
-///   is not enough — the receiver's own user must confirm first contact, and
-///   until then the connection is held without a grant.
+/// The user's own tap in the phone's picker is the consent: the phone shows the
+/// one confirmation card, and its `accepted` is the decision. The receiver does
+/// not add a second, hidden gate — that is the category norm (Remote Mouse, TV
+/// remotes) and the reason a first connect "just works". Identity is still
+/// enforced *after* pairing: a paired phone proves the token, so an impersonator
+/// cannot silently take over an existing pairing, and a wrong proof is refused.
 public enum InboundGrantPolicy {
-    public static func decide(paired: Bool,
-                              challenge: InboundChallengeOutcome,
-                              firstContactApproved: Bool) -> InboundGrantDecision {
-        // A wrong proof is an impersonation attempt, not a re-pair.
+    public static func decide(challenge: InboundChallengeOutcome) -> InboundGrantDecision {
+        // A wrong proof is an impersonation attempt on a paired session.
         if challenge == .failed { return .refuse }
-        // A proven phone is admitted silently.
-        if challenge == .proven { return .grant }
-        // Everything else is a re-pair waiting on the receiver's user: an
-        // unpaired first contact, and — importantly — a phone this receiver
-        // still has a token for but which offered no proof (a reinstalled app,
-        // a new phone, or a lost token). Refusing that case is what made a
-        // reinstall unrecoverable: the phone would mint a fresh token and the
-        // two ends would then disagree forever. The receiver's own user is the
-        // gate, exactly as for a first contact, so it is prompted either way.
-        return firstContactApproved ? .grant : .promptFirstContact
+        // Everything else is the phone deciding for itself: admit it. An
+        // unpaired first contact is trusted on first use (the phone's own card
+        // is the consent); a stale/missing proof is re-paired by the token the
+        // phone seconds later.
+        return .grant
     }
 }

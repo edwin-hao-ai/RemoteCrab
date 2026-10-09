@@ -27,6 +27,13 @@ struct ComputerPickerView: View {
             .filter { !engine.forgottenComputerIds.contains($0.id) }
     }
 
+    /// The rows the roster section actually lists: everything except the one
+    /// shown above with its own Disconnect control. `onDelete` indexes into
+    /// this, not `roster`, so the two must never drift.
+    private var rosterRows: [ComputerRosterEntry] {
+        roster.filter { $0.id != engine.connectedMacId }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -82,6 +89,9 @@ struct ComputerPickerView: View {
                 Button(IBLocale.Connection.cancel, role: .cancel) { pendingDelete = nil }
             }
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    EditButton()
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button { dismiss() } label: {
                         Text(IBLocale.Settings.done)
@@ -221,7 +231,7 @@ struct ComputerPickerView: View {
             } else {
                 // The connected computer is already shown above with its
                 // Disconnect control; listing it again here was a duplicate row.
-                ForEach(roster.filter { $0.id != engine.connectedMacId }) { entry in
+                ForEach(rosterRows) { entry in
                     let isConnected = engine.connectedMacId == entry.id
                     let isPaired = engine.pairedMacs.contains { $0.id == entry.id }
                     let seen = engine.seenComputers.first { $0.id == entry.id }
@@ -276,6 +286,12 @@ struct ComputerPickerView: View {
                             Label(IBLocale.Pairing.forget, systemImage: "trash")
                         }
                     }
+                }
+                // Standard iOS edit-mode delete (the toolbar's EditButton reveals
+                // a visible minus on every row) — the discoverable counterpart to
+                // the swipe/long-press gestures, which many users never find.
+                .onDelete { offsets in
+                    if let i = offsets.first { pendingDelete = rosterRows[i] }
                 }
             }
         } header: {
