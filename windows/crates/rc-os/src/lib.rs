@@ -19,6 +19,18 @@ pub mod apps;
 pub mod windows;
 #[cfg(windows)]
 pub mod autostart;
+#[cfg(not(windows))]
+pub mod autostart {
+    //! Non-Windows stub: start-at-login is the Windows logon task, so the
+    //! setting is always "off" here. Same two-function face as the real module,
+    //! so `rc-app` compiles unchanged on the host.
+    pub fn is_enabled() -> bool {
+        false
+    }
+    pub fn set_enabled(_on: bool) -> bool {
+        false
+    }
+}
 pub mod logon_task;
 pub mod notify;
 pub mod uninstall;

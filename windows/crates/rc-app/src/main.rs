@@ -58,6 +58,7 @@ mod stream_stats;
 mod tray;
 mod tray_menu;
 mod updater;
+#[cfg(windows)]
 mod vcam;
 
 /// Owns the toggleable preview window thread (tray → Show/Hide Preview).
@@ -339,6 +340,9 @@ fn spawn_update_check(interactive: bool) {
         }
     });
 }
+
+#[cfg(not(windows))]
+fn spawn_update_check(_interactive: bool) {}
 
 /// A release is published: say so, and install it if the user says yes.
 ///

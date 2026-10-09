@@ -643,9 +643,13 @@ mod win32 {
             // `speaker::status_line` instead.
             connected: features.is_some(),
             speaker_on: features.as_ref().is_some_and(|f| f.speaker_on),
-            vcam_installed: cfg!(windows)
-                .then(crate::vcam::is_registered)
-                .unwrap_or(true),
+            vcam_installed: {
+                #[cfg(windows)]
+                let installed = crate::vcam::is_registered();
+                #[cfg(not(windows))]
+                let installed = true;
+                installed
+            },
         };
         let mut model = super::menu_rows(&state);
         // The status line goes first, above the readouts submenu.
