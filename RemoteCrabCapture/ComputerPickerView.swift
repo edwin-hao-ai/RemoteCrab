@@ -235,43 +235,63 @@ struct ComputerPickerView: View {
                     let isConnected = engine.connectedMacId == entry.id
                     let isPaired = engine.pairedMacs.contains { $0.id == entry.id }
                     let seen = engine.seenComputers.first { $0.id == entry.id }
-                    Button {
-                        engine.connect(toComputer: entry.id)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                computerIcon(for: entry.name, platform: entry.platform)
-                                if entry.isOnline { onlineDot }
-                                if entry.id == engine.currentComputerId {
-                                    Text(IBLocale.Pairing.currentComputer)
-                                        .font(IBFont.caption)
-                                        .foregroundStyle(Color.accentColor)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1)
-                                        .background {
-                                            Capsule().fill(Color.accentColor.opacity(0.15))
-                                        }
+                    HStack(spacing: 8) {
+                        Button {
+                            engine.connect(toComputer: entry.id)
+                            dismiss()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    computerIcon(for: entry.name, platform: entry.platform)
+                                    if entry.isOnline { onlineDot }
+                                    if entry.id == engine.currentComputerId {
+                                        Text(IBLocale.Pairing.currentComputer)
+                                            .font(IBFont.caption)
+                                            .foregroundStyle(Color.accentColor)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background {
+                                                Capsule().fill(Color.accentColor.opacity(0.15))
+                                            }
+                                    }
+                                    if !isPaired {
+                                        Text(IBLocale.Pairing.notPairedBadge)
+                                            .font(IBFont.caption)
+                                            .foregroundStyle(Color.accentColor)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background {
+                                                Capsule().fill(Color.accentColor.opacity(0.15))
+                                            }
+                                    }
+                                    Spacer(minLength: 8)
+                                    trailingBadge(for: entry, isConnected: isConnected)
                                 }
-                                if !isPaired {
-                                    Text(IBLocale.Pairing.notPairedBadge)
-                                        .font(IBFont.caption)
-                                        .foregroundStyle(Color.accentColor)
-                                        .padding(.horizontal, 5)
-                                        .padding(.vertical, 1)
-                                        .background {
-                                            Capsule().fill(Color.accentColor.opacity(0.15))
-                                        }
-                                }
-                                Spacer(minLength: 8)
-                                trailingBadge(for: entry, isConnected: isConnected)
+                                statusLine(for: entry, seen: seen)
                             }
-                            statusLine(for: entry, seen: seen)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .disabled(isConnected)
+
+                        // A visible per-row delete. Swipe / long-press / Edit are
+                        // all there too, but people do not discover swipe — an
+                        // always-visible red trash leaves no doubt how to remove a
+                        // computer you no longer use.
+                        Button {
+                            pendingDelete = entry
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 15))
+                                .foregroundStyle(Color.red)
+                                .frame(width: 36, height: 36)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isConnected)
+                        .accessibilityLabel(Text(IBLocale.Pairing.forget))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(isConnected)
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             pendingDelete = entry

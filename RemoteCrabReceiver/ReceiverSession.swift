@@ -280,10 +280,6 @@ final class ReceiverSession: ObservableObject {
     /// cannot tear the live session down or earn input injection by opening the
     /// port. Only `adoptCandidate` moves a candidate onto `connection`.
     private var inboundCandidate: InboundCandidate?
-    /// An unpaired inbound phone waiting for the Mac user to Allow/Deny.
-    /// Published so the menu bar can raise the prompt.
-    @Published private(set) var pendingInboundApproval: PendingInboundApproval?
-    private var inboundApprovalTimeoutTask: Task<Void, Never>?
     /// Who owns the live session, as best we know. Non-nil means a hello from a
     /// *different* phone must be answered `busy` rather than allowed to displace
     /// the live connection (the phone-initiated path sets `phoneId`; the
@@ -2218,10 +2214,8 @@ final class ReceiverSession: ObservableObject {
         connectedPhoneName = nil
         inboundPeer = nil
         // An un-granted candidate is not the session, but a late one must not
-        // survive a disconnect either: its socket and any approval prompt go
-        // with the link.
+        // survive a disconnect either: its socket goes with the link.
         inboundCandidate = nil
-        clearPendingInboundApproval()
         sessionOwner = nil
         sessionGranted = false
         sessionAuthenticated = false
@@ -2409,7 +2403,6 @@ final class ReceiverSession: ObservableObject {
             old.conn.stateUpdateHandler = { _ in }
             old.conn.cancel()
             inboundCandidate = nil
-            clearPendingInboundApproval()
         }
         // The hello carries the phone's **device** name; the outbound path and
         // the legacy token store key by its Bonjour service name. Derive it so
@@ -2576,53 +2569,6 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
-    @MainActor
-    private func promptFirstContact(_ candidate: InboundCandidate) {
-        candidate.firstContactApprovalPending = true
-        pendingInboundApproval = PendingInboundApproval(id: candidate.hello.phoneId,
-                                                        phoneName: candidate.hello.phoneName)
-        Self.log.info("first contact from \(candidate.hello.phoneName, privacy: .public) — waiting for this Mac's user")
-        // Headless device e2e only: approve the prompt from the environment so a
-        // run needs no Mac-side click. Strictly gated on "...=1", so a real
-        // user's receiver (which never sets it) always waits for the human.
-        if InboundAutoApprove.isEnabled(in: ProcessInfo.processInfo.environment) {
-            Self.log.info("[e2e] auto-approving inbound first contact from \(candidate.hello.phoneName, privacy: .public)")
-            approvePendingInbound()
-            return
-        }
-        inboundApprovalTimeoutTask?.cancel()
-        inboundApprovalTimeoutTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(30)) } catch { return }
-            guard let self, self.inboundCandidate === candidate,
-                  candidate.firstContactApprovalPending else { return }
-            Self.log.info("first-contact approval timed out — closing the inbound connection")
-            self.denyPendingInbound()
-        }
-    }
-
-    /// The Mac user approved a first-contact phone: pair it and adopt.
-    func approvePendingInbound() {
-        guard let candidate = inboundCandidate, candidate.firstContactApprovalPending else { return }
-        candidate.firstContactApproved = true
-        candidate.firstContactApprovalPending = false
-        clearPendingInboundApproval()
-        resolveAcceptedCandidate(candidate)
-    }
-
-    /// The Mac user denied a first-contact phone (or it timed out): close the
-    /// candidate without granting anything, leaving any live session untouched.
-    func denyPendingInbound() {
-        if let candidate = inboundCandidate { closeCandidate(candidate) }
-        clearPendingInboundApproval()
-    }
-
-    @MainActor
-    private func clearPendingInboundApproval() {
-        inboundApprovalTimeoutTask?.cancel()
-        inboundApprovalTimeoutTask = nil
-        pendingInboundApproval = nil
-    }
-
     /// Drop an un-granted candidate. Never touches an adopted one: once
     /// `connection` is the candidate's socket, only the live disconnect paths
     /// may close it.
@@ -2634,7 +2580,6 @@ final class ReceiverSession: ObservableObject {
         candidate.pendingFrames = []
         candidate.pendingBytes = 0
         if inboundCandidate === candidate { inboundCandidate = nil }
-        clearPendingInboundApproval()
         candidate.conn.stateUpdateHandler = { _ in }
         candidate.conn.cancel()
     }
@@ -2651,7 +2596,6 @@ final class ReceiverSession: ObservableObject {
         Self.log.info("adopting inbound session with \(hello.phoneName, privacy: .public)")
         candidate.handshakeTimeout?.cancel()
         candidate.handshakeTimeout = nil
-        clearPendingInboundApproval()
         let old = connection
         stopPingLoop()
         clearConnectionState()
@@ -2700,7 +2644,6 @@ final class ReceiverSession: ObservableObject {
             candidate.handshakeTimeout?.cancel()
             candidate.handshakeTimeout = nil
             if inboundCandidate === candidate { inboundCandidate = nil }
-            clearPendingInboundApproval()
         default:
             break
         }
@@ -3061,12 +3004,11 @@ private final class InboundCandidate {
     var handshakeTimeout: Task<Void, Never>?
     /// The token from the phone's `accepted`, stored at adoption.
     var acceptedToken: String?
-    var firstContactApproved = false
-    var firstContactApprovalPending = false
     /// Frames the phone sent after `accepted` but before this Mac granted
-    /// (unpaired first contact waits on the Mac user). Replayed on adoption so
-    /// the decoder still gets the metadata / SPS / PPS that head the stream.
-    /// Bounded so an unapproved peer cannot grow memory without limit.
+    /// (the adoption is immediate now, but a stream can still arrive in the
+    /// same read as the handshake). Replayed on adoption so the decoder gets
+    /// the metadata / SPS / PPS that head the stream. Bounded so a peer cannot
+    /// grow memory without limit.
     var pendingFrames: [IBWire.Frame] = []
     var pendingBytes = 0
     var loggedBufferFull = false
@@ -3077,14 +3019,6 @@ private final class InboundCandidate {
         self.serviceName = serviceName
         self.token = token
     }
-}
-
-/// A first-contact phone waiting for the Mac user to Allow/Deny. Published so
-/// the menu bar can raise the prompt.
-struct PendingInboundApproval: Identifiable, Equatable {
-    /// The phone's stable id.
-    let id: String
-    let phoneName: String
 }
 
 /// UI-friendly mirror of the most recent `TouchEvent`, consumed by

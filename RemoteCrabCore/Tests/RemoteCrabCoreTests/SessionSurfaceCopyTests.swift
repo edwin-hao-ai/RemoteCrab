@@ -190,8 +190,6 @@ final class SessionSurfaceCopyTests: XCTestCase {
          """),
         ("This Mac did not provide an audio tap (error %d). Update macOS and try again.",
          "Mac receiver's own menu, and “this Mac” is the machine reporting on itself"),
-        ("Only allow this if you recognise “%@”. It will be paired with this Mac.",
-         "Mac receiver's first-contact approval prompt: the Mac is the machine showing the prompt and being paired, so “this Mac” is the accurate name"),
         ("The audio tap could not be opened for reading (error %d). Reconnect or restart the Mac's audio and try again.",
          "Mac receiver's own menu — the audio being described is the Mac's own output"),
         ("Relay non-denylisted Mac notification banners to your iPhone",
