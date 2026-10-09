@@ -66,6 +66,7 @@
 | release 实际码率/fps | ❌（env-gated） | `H264Encoder.swift:408-442` |
 | 码率自适应 / 拥塞控制 | ❌ 固定 `Quality=0.75` | `VideoEncodingPolicy.swift:37` |
 | `UIBackgroundModes:[audio]` | ✅（文档说没有，是文档错） | `Info.plist:54-57`，`project-ios.yml:74-75` |
+| 后台保活是否真的保住进程 | ❌ 实测被挂起 | C1：`[keepalive] session playback active` 后仍 suspend（main-stall 217318ms） |
 | 锁屏检测 | ❌ | 全仓零命中 |
 | 打断恢复（mic/speaker/keepalive） | ❌ 只有语音听写有 | `VoiceRecognizer.swift:562-573` |
 | 热 / 低电 / 内存压力 | ❌ | 全仓零命中 |
@@ -150,17 +151,13 @@
 
 ## 3. 工作流 B：网络连接确定性（含两种传输模式）
 
-### B1. iOS listener 拆除日志（一行，解锁所有排障）
-- **现状**：启动有三条日志（`CaptureEngine.swift:1021,1631,1667`），
-  `stopStreaming()` 与 `.cancelled` 分支**无任何日志**（`:1050-1079,1674-1675`）。
-  这正是 §7「listener 有时没起来」悬着的原因（无法区分"没起"和"起了又停"）。
-- **步骤**：
-  1. 精读 `startListener` / `handleListenerState` / `stopStreaming`。
-  2. 在 `stopStreaming` 与 `.cancelled`/`.failed` 分支加 `Forensic.log("[hs] listener stopped/teardown …")`
-     （**release 也可见**？见 D 决策；至少 e2e 可见）。
-  3. 真机跑一次「连接→断开→再连接」，日志能读出完整生命周期。
-- **影响面**：极小（只加日志）。注意 `Forensic` 是 DEBUG/env-gated，确认 e2e 下可见。
-- **验证**：真机日志同时出现 started + stopped。
+### B1. iOS listener 拆除日志 ✅ 已实现并真机验证（2026-10-09）
+- **改动**：`startListener` 加 `[hs] listener creating fixedPort=…`；
+  `handleListenerState` 加 `.waiting`/`.failed`/`.cancelled` 的 `[hs]` 日志；
+  `stopStreaming` 加 `[hs] stopStreaming listener=… isStreaming=…`。
+- **验证**：真机日志出现 `[hs] listener creating fixedPort=true preferred=8765`
+  → `[hs] listener ready port=Optional(8765)`（见 §9）。
+- **收获**：这条日志**当场抓到了 C1a/C1b 的 bug**（`[hs] listener failed: -65569 DefunctConnection`）。
 
 ### B2. 修复直连回退端口不一致
 - **现状**：iOS 8765 被占就退到**随机端口**（`CaptureEngine.swift:1606-1611`）；
@@ -244,17 +241,43 @@
 
 ## 4. 工作流 C：后台 / 锁屏 / 打断连续性
 
-### C1. 锁屏存活性的真机测量 + 断言
-- **现状**：❌ 无锁屏检测；存活完全押在 `.playback` 静音保活上
-  （`BackgroundKeepAlive.swift:37-67`），代码无任何断言。
+### C1. 后台/锁屏存活性 ✅ 已真机测量（2026-10-09）—— 结论：后台即挂起、回前台不可达
+- **实测**（iPhone 14 / iOS 26）：前台 streaming 正常 → `15:34:09` 进后台 →
+  进程被 suspend（`[main-stall] main thread busy 217318ms`）→ `15:37:52` 回前台时
+  `[hs] listener failed: -65569: DefunctConnection`，capture listener 已死且**未被重建**；
+  Mac 侧 `nc 192.168.31.148:8765` = **CLOSED**、Bonjour `_remotecrab._tcp` 为空，
+  而手机前台**仍在推视频**。→ 手机在出画面，却既发现不到也连不上。
+- **结论**：`BackgroundKeepAlive` 的 `.playback` + 零静音循环**没有阻止 iOS 挂起**，
+  回前台后不可达，直到手动重开流。与规则 1「承诺与事实不符」同类。
+- **拆出的两个缺陷见 C1a / C1b。**
+
+### C1a. 🔴 回前台时 listener 修复被"过期的 isActive"挡住（小改、高价值）
+- **现状**：`handleDidBecomeActive`（`CaptureEngine.swift:1204-1207`）只在
+  `!BackgroundKeepAlive.shared.isActive` 时才 `stopStreaming/startStreaming`。
+  实测 listener 已 `failed`，但 `isActive` 仍为 true → **跳过重建** → 死 listener 不修复。
+  （与 lesson 154 同族：一个软件标志代替真实状态。）
 - **步骤**：
-  1. 精读 `BackgroundKeepAlive.swift`、`CaptureEngine.applyKeepAlive`、
-     `ContentView` 的 scenePhase 处理。
-  2. 真机测：流媒体中手动锁屏 → 看连接/listener/mic 是否续；
-     记录（`[hs] listener stopped` 之类，依赖 B1）。
-  3. 把观测固化为断言/日志。
-- **影响面**：只加观测；改动保活机制风险高，单独评估。
-- **验证**：真机数字。
+  1. 精读 `handleDidBecomeActive` + `BackgroundKeepAlive.isActive` 的全部写入点。
+  2. 设计：判据从"keep-alive 是否 active"改成"**capture listener 是否真的 ready**"
+     （`listener?.state`）。keep-alive 只回答"谁在保命"，不回答"listener 活着没"。
+  3. 把判据抽成纯函数放 Core 并加测试。
+- **影响面**：⚠️ 中。它决定前台恢复路径；必须保证不重新引入 lesson 156
+  （"保活有效时重建 listener 会打断所有连接"）——所以判据是"listener 真的死了才重建"，
+  不是"每次回前台都重建"。
+- **验证**：真机后台→前台一轮，8765 重新 OPEN 且 Bonjour 恢复。
+
+### C1b. 🔴 BackgroundKeepAlive 实际没保住进程（需调查 iOS 26 行为）
+- **现状**：保活启动了（`[keepalive] session playback active`）但进程仍被 suspend。
+  可疑点：`engine.mainMixerNode.outputVolume = 0`（`BackgroundKeepAlive.swift:64`）
+  让 iOS 视为"没有实际音频输出"；或 `.mixWithOthers` + 静音 buffer 在 iOS 26 不再被
+  判为后台音频。
+- **步骤**：
+  1. 精读 `BackgroundKeepAlive` 全部 + `CaptureEngine.applyKeepAlive`。
+  2. 对照试验（去掉 `outputVolume=0`；或改 buffer 为非零极低幅度；或换 category），
+     **每个变体都真机验证**是否还被 suspend —— 不要只靠读代码。
+  3. 若无法可靠保活，则明确产品口径（后台会断），并确保 C1a 的恢复路径可靠兜底。
+- **影响面**：⚠️ 高。共享 `AVAudioSession`，可能影响麦克风/扬声器（lesson 123/161）。
+- **验证**：真机：后台 30s 后进程**未被** suspend（日志持续），且 listener 仍 ready。
 
 ### C2. mic / speaker / keep-alive 的打断恢复
 - **现状**：❌ 只有语音听写有 `interruptionNotification`
@@ -407,6 +430,8 @@
 | 日期 | 条目 | 做了什么 | 验证数字/证据 |
 |---|---|---|---|
 | 2026-10-09 | 审计 | 5 路代码审计 + 人工复核，建立本文档 | 见 §1 矩阵 |
+| 2026-10-09 | B1 | iOS listener 生命周期日志（creating/ready/waiting/failed/cancelled + stopStreaming），仅加日志 | 真机 `[hs] listener creating` → `ready port=8765`；并抓到 `[hs] listener failed: -65569` |
+| 2026-10-09 | C1 | 真机测量后台/回前台连续性 | 后台 suspend（main-stall 217318ms）→ 回前台 listener failed 且未重建 → 8765 CLOSED、Bonjour 空 |
 
 ---
 
