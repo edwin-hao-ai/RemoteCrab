@@ -269,6 +269,13 @@ struct ComputerPickerView: View {
                             Label(IBLocale.Pairing.forget, systemImage: "trash")
                         }
                     }
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            pendingDelete = entry
+                        } label: {
+                            Label(IBLocale.Pairing.forget, systemImage: "trash")
+                        }
+                    }
                 }
             }
         } header: {

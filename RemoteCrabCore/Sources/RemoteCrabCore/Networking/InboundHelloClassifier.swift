@@ -49,8 +49,9 @@ public enum InboundHelloClassifier {
     ///     owner reconnecting (allowed) or a stranger.
     ///
     /// When the owner is known only by name (the outbound path has no phoneId),
-    /// the incoming hello is answered `busy`: identity cannot be proven, and a
-    /// spurious `busy` is far cheaper than displacing a live session.
+    /// the incoming hello is admitted (`.data`): a session this receiver dialed
+    /// is not a phone that initiated, so the phone that dials now takes the
+    /// lead. Nothing is displaced until the candidate passes the grant policy.
     public static func classify(kind: IBWire.Kind?, targetPcId: String?,
                                 myPcId: String,
                                 owner: InboundSessionOwner? = nil,
@@ -58,7 +59,15 @@ public enum InboundHelloClassifier {
         guard kind == .phoneHello, let targetPcId else { return .knock }
         guard targetPcId == myPcId else { return .foreign }
         guard let owner else { return .data }
-        guard let ownerId = owner.phoneId else { return .busy }
+        // A name-only owner is a session THIS receiver dialed (the outbound path
+        // has no phoneId to record). It is not a phone that initiated, so a
+        // phone that dials us now must win: the receiver yields instead of
+        // answering `busy`. Answering busy here was the race that made a first
+        // contact intermittent — the Mac's auto-dial and the phone's own dial
+        // fired together and the phone's dial lost. The candidate still passes
+        // the grant policy (a stranger gets the Mac-side prompt, never a silent
+        // grant), and the live session is not torn down until a granted adopt.
+        guard let ownerId = owner.phoneId else { return .data }
         return incomingPhoneId == ownerId ? .data : .busy
     }
 }

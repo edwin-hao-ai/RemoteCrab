@@ -45,10 +45,17 @@ public enum InboundGrantPolicy {
     public static func decide(paired: Bool,
                               challenge: InboundChallengeOutcome,
                               firstContactApproved: Bool) -> InboundGrantDecision {
+        // A wrong proof is an impersonation attempt, not a re-pair.
         if challenge == .failed { return .refuse }
-        if paired {
-            return challenge == .proven ? .grant : .refuse
-        }
+        // A proven phone is admitted silently.
+        if challenge == .proven { return .grant }
+        // Everything else is a re-pair waiting on the receiver's user: an
+        // unpaired first contact, and — importantly — a phone this receiver
+        // still has a token for but which offered no proof (a reinstalled app,
+        // a new phone, or a lost token). Refusing that case is what made a
+        // reinstall unrecoverable: the phone would mint a fresh token and the
+        // two ends would then disagree forever. The receiver's own user is the
+        // gate, exactly as for a first contact, so it is prompted either way.
         return firstContactApproved ? .grant : .promptFirstContact
     }
 }

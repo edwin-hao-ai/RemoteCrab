@@ -7,7 +7,7 @@ import XCTest
 /// fall-through in a socket handler.
 final class InboundGrantPolicyTests: XCTestCase {
 
-    // MARK: - Paired phone: proof or nothing
+    // MARK: - Paired phone: proof, or a human-gated re-pair
 
     func testPairedPhoneWithValidProofIsGranted() {
         XCTAssertEqual(
@@ -16,28 +16,37 @@ final class InboundGrantPolicyTests: XCTestCase {
             .grant)
     }
 
-    func testPairedPhoneWithBareAcceptedIsRefused() {
+    /// The receiver still has a token for this phone, but the phone offered no
+    /// proof at all — a reinstalled app, a new phone, or a lost token. This is
+    /// the case that must NOT be refused: refusing it made a reinstall
+    /// unrecoverable, because the phone then minted a fresh token and the two
+    /// ends disagreed about the token forever. The receiver's own user confirms
+    /// the re-pair, exactly as for a first contact.
+    func testPairedPhoneWithBareAcceptedPromptsToRepair() {
         XCTAssertEqual(
             InboundGrantPolicy.decide(paired: true, challenge: .notOffered,
                                       firstContactApproved: false),
-            .refuse)
+            .promptFirstContact)
     }
 
-    func testPairedPhoneWithNoKeyIsRefused() {
+    /// A proof this receiver cannot match — the phone holds a token this Mac
+    /// does not — is a stale pairing too, not an impostor we can tell apart
+    /// (the impostor and the reinstalled phone look identical here). So it is
+    /// the receiver's user who decides, never a silent fall-through.
+    func testPairedPhoneWithNoKeyPromptsToRepair() {
         XCTAssertEqual(
             InboundGrantPolicy.decide(paired: true, challenge: .noKey,
                                       firstContactApproved: false),
-            .refuse)
+            .promptFirstContact)
     }
 
-    /// A first-contact approval must not rescue a paired phone that could not
-    /// prove itself — the approval prompt is only ever raised for an unpaired
-    /// phone, so this combination means the caller mis-wired the flow.
-    func testPairedPhoneIsRefusedEvenIfApprovalFlagIsSet() {
+    /// With the receiver's user's approval the stale pairing is replaced (the
+    /// phone's fresh token is stored when the candidate is adopted).
+    func testPairedPhoneWithApprovalIsGrantedOnRepair() {
         XCTAssertEqual(
             InboundGrantPolicy.decide(paired: true, challenge: .notOffered,
                                       firstContactApproved: true),
-            .refuse)
+            .grant)
     }
 
     // MARK: - Unpaired phone: first contact needs the receiver's user

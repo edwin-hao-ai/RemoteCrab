@@ -228,10 +228,17 @@ echo "[2/9] deploy"
 kill_mac
 make_computer "$DD_MAC" "$APP_A" "$BID_A"
 make_computer "$DD_MAC" "$APP_B" "$BID_B"
-if [ ! -d /Applications/RemoteCrab.app ]; then
-  echo "  ✗ /Applications/RemoteCrab.app not found (needed as the genuine legacy receiver)"; exit 1
+LEGACY_APP="${REMOTECRAB_LEGACY_APP:-/Applications/RemoteCrab.app}"
+if [ ! -d "$LEGACY_APP" ]; then
+  echo "  ✗ no legacy receiver at $LEGACY_APP (needed as the genuine legacy receiver)"; exit 1
 fi
-make_computer /Applications/RemoteCrab.app "$APP_L" "$BID_L"
+# The legacy copy must be a build WITHOUT `IBPhoneHello` support; a current
+# /Applications install is not one, so point REMOTECRAB_LEGACY_APP at an old
+# release when testing a machine that has the new build installed.
+if strings "$LEGACY_APP/Contents/MacOS/RemoteCrab" 2>/dev/null | grep -q "phoneHello"; then
+  echo "  ✗ $LEGACY_APP is a NEW build (it speaks phoneHello) — set REMOTECRAB_LEGACY_APP to a pre-phoneHello release"; exit 1
+fi
+make_computer "$LEGACY_APP" "$APP_L" "$BID_L"
 echo "  (3 isolated receiver copies in /tmp; the user's install is untouched)"
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1 \
   || { echo "  iOS install failed"; exit 1; }

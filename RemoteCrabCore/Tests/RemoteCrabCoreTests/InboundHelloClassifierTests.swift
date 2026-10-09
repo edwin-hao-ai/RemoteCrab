@@ -65,15 +65,18 @@ final class InboundHelloClassifierTests: XCTestCase {
             .busy)
     }
 
-    func testNameOnlyOwnerCannotProveIdentitySoBusy() {
-        // The outbound path knows only the name and cannot prove the hello is
-        // the same phone, so the live session is protected with a `busy`.
+    func testNameOnlyOwnerYieldsToThePhoneThatDials() {
+        // A name-only owner is a session THIS receiver dialed (the outbound path
+        // records no phoneId). A phone that dials us asserts it can initiate, so
+        // it wins — answering `busy` here was the auto-dial-vs-own-dial race
+        // that made a first contact intermittent. The candidate still has to
+        // pass the grant policy before anything is displaced.
         let owner = InboundSessionOwner(phoneId: nil, name: "Edwin's iPhone")
         XCTAssertEqual(
             InboundHelloClassifier.classify(kind: .phoneHello, targetPcId: "mac-1",
                                             myPcId: "mac-1", owner: owner,
                                             incomingPhoneId: "phone-b"),
-            .busy)
+            .data)
     }
 
     func testBusyNeverBeatsForeignOrKnock() {
