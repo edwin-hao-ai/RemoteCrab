@@ -68,8 +68,8 @@ targets:
       path: RemoteCrabReceiver/Info.plist
       properties:
         CFBundleDisplayName: RemoteCrab
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "12"
+        CFBundleShortVersionString: "1.0.1"
+        CFBundleVersion: "13"
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSHighResolutionCapable: true
