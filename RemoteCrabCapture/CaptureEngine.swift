@@ -1048,6 +1048,10 @@ final class CaptureEngine: ObservableObject {
     }
 
     func stopStreaming() {
+        // The teardown half of the listener lifecycle. Without it, "the phone
+        // is not listening" could not be told apart from "the phone stopped
+        // listening" (see the unfiled §7 in HANDOFF-IOS-QUALITY.md).
+        Forensic.log("[hs] stopStreaming listener=\(listener != nil) isStreaming=\(isStreaming)")
         BackgroundKeepAlive.shared.stop()
         stopComputerBrowser()
         listener?.cancel()
@@ -1190,17 +1194,19 @@ final class CaptureEngine: ObservableObject {
         let linkAlive = connection?.state == .ready
         Self.log.info("foreground: isStreaming=true linkAlive=\(linkAlive, privacy: .public)")
         guard !linkAlive else { return }
-        // If the audio keep-alive is holding the app alive, iOS did NOT
-        // suspend the Bonjour listener — so a full stop/start would only tear
-        // down a perfectly good listener, and the Mac saw "connection reset by
-        // peer" every time the user foregrounded the app (which read as
-        // "reconnect almost never works"). Only rebuild when nothing is
-        // holding the app: keep-alive off, i.e. the listener really may have
-        // been suspended.
-        guard !BackgroundKeepAlive.shared.isActive else {
-            Self.log.info("foreground: keep-alive holds the listener — not rebuilding")
+        // Ask the LISTENER, not the keep-alive, whether it needs rebuilding.
+        // Backgrounding can leave the listener `.failed` (DefunctConnection)
+        // while `BackgroundKeepAlive.isActive` is still true, and the old gate
+        // then skipped the repair — measured 2026-10-09: the phone kept
+        // streaming video while 8765 was CLOSED and Bonjour was empty. The
+        // `linkAlive` guard above still protects a live session from being torn
+        // down (lesson 156). See `ForegroundRecoveryPolicy`.
+        let liveness = listenerLiveness
+        guard ForegroundRecoveryPolicy.shouldRebuildListener(linkAlive: linkAlive, listener: liveness) else {
+            Self.log.info("foreground: listener \(String(describing: liveness), privacy: .public) — not rebuilding")
             return
         }
+        Self.log.info("foreground: listener \(String(describing: liveness), privacy: .public) — rebuilding")
         Task {
             stopStreaming()
             await startStreaming()
@@ -1596,6 +1602,19 @@ final class CaptureEngine: ObservableObject {
     /// Preferred fixed port so the Mac can reach us without Bonjour.
     static let preferredPort: UInt16 = 8765
 
+    /// The capture listener's liveness, reduced to the form
+    /// `ForegroundRecoveryPolicy` reasons about. The only place that reads
+    /// `NWListener.State` for the foreground-recovery decision.
+    private var listenerLiveness: ForegroundRecoveryPolicy.ListenerLiveness {
+        guard let listener else { return .absent }
+        switch listener.state {
+        case .ready: return .ready
+        case .failed: return .failed
+        case .cancelled: return .cancelled
+        default: return .other
+        }
+    }
+
     private func startListener() throws {
         let parameters = NWParameters.tcp
         parameters.includePeerToPeer = true   // AWDL: accept direct Wi-Fi when no LAN exists
@@ -1603,12 +1622,20 @@ final class CaptureEngine: ObservableObject {
         // Try the fixed port first (manual-IP fallback); fall back to a
         // dynamic port if it's taken.
         let listener: NWListener
+        let boundFixedPort: Bool
         if let fixed = NWEndpoint.Port(rawValue: Self.preferredPort),
            let fixedListener = try? NWListener(using: parameters, on: fixed) {
             listener = fixedListener
+            boundFixedPort = true
         } else {
             listener = try NWListener(using: parameters)
+            boundFixedPort = false
         }
+        // `[hs] listener creating` is the "we got here" half of the
+        // never-started/started-then-stopped question: if this line is absent
+        // the listener was never created, and if it is present without a
+        // following `ready`/`cancelled`, the state machine is where it wedged.
+        Forensic.log("[hs] listener creating fixedPort=\(boundFixedPort) preferred=\(Self.preferredPort)")
         listener.service = NWListener.Service(
             name: defaultServiceName(),
             type: IBServiceType.tcp,
@@ -1666,12 +1693,20 @@ final class CaptureEngine: ObservableObject {
         case .ready:
             Self.log.info("listener ready")
             refreshNetworkInfo()
-            Forensic.log("[e2e] listener port: \(String(describing: self.listener?.port))")
+            Forensic.log("[hs] listener ready port=\(String(describing: self.listener?.port))")
+        case .waiting(let error):
+            // A listener can sit in `.waiting` (no usable interface / Bonjour
+            // not yet up) and, from the Mac, look identical to "nothing is
+            // listening". Log it so the two are distinguishable on the phone.
+            Self.log.info("listener waiting: \(error, privacy: .public)")
+            Forensic.log("[hs] listener waiting: \(error)")
         case .failed(let error):
             Self.log.error("listener failed: \(error, privacy: .public)")
+            Forensic.log("[hs] listener failed: \(error)")
             connectionState = .failed
             failureReason = .network
         case .cancelled:
+            Forensic.log("[hs] listener cancelled (teardown)")
             connectionState = connection == nil ? .idle : .connected
         default:
             break
