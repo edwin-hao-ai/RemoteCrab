@@ -502,6 +502,36 @@ final class CaptureEngine: ObservableObject {
 
     /// Request permissions and start the AVCaptureSession. Called from
     /// the SwiftUI `.task` modifier on the root view.
+    /// Heat / Low Power Mode, surfaced for the UI (C5). Observation + logging
+    /// only for now: the goal is that the user can see *why* the picture changed
+    /// instead of the app degrading (or cooking) silently.
+    private(set) var thermalSeverity: ThermalPolicy.Severity = .nominal
+    private var thermalObservers: [NSObjectProtocol] = []
+
+    private func observeThermals() {
+        guard thermalObservers.isEmpty else { return }
+        let nc = NotificationCenter.default
+        let refresh: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor in self?.refreshThermal() }
+        }
+        thermalObservers.append(nc.addObserver(forName: ProcessInfo.thermalStateDidChangeNotification,
+                                               object: nil, queue: .main, using: refresh))
+        thermalObservers.append(nc.addObserver(forName: .NSProcessInfoPowerStateDidChange,
+                                               object: nil, queue: .main, using: refresh))
+        refreshThermal()
+    }
+
+    private func refreshThermal() {
+        let severity = ThermalPolicy.severity(thermal: ProcessInfo.processInfo.thermalState,
+                                              lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        guard severity != thermalSeverity else { return }
+        thermalSeverity = severity
+        Forensic.log("[thermal] severity=\(severity)")
+        if let msg = ThermalPolicy.message(severity) {
+            Self.log.info("thermal \(String(describing: severity), privacy: .public): \(msg, privacy: .public)")
+        }
+    }
+
     func startIfNeeded() async {
         guard !didConfigure else { return }
         didConfigure = true
@@ -509,6 +539,7 @@ final class CaptureEngine: ObservableObject {
         Forensic.MainStallMonitor.start()
         Forensic.SelfShot.install()
         installNotificationTapRouting()
+        observeThermals()
         Self.forensic("startIfNeeded begin")
         Forensic.log("[e2e] startIfNeeded begin")
         // E2E: measures whether the audio session can hand over between the

@@ -76,8 +76,11 @@ Developer ID 签名 + 公证、可分发。剩下的只有**人工操作**（ASC
 - **[人工]** 装 TestFlight `2026091802` 确认引导第 3 页 / 「等待 Mac 连接」卡片的下载按钮。
 - **[可能]** 若审核要求真机摄像头演示：录一段 iPhone 屏（控制中心 → 录制），
   用 `scripts/demo-video.sh` 的思路重新并排合成，替换同一 URL 即可。
-- **后台麦克风并未实现**：`UIBackgroundModes` 在代码库中不存在 → 进后台 iOS 挂起，
-  mic 停止。要启用需加进 `project-ios.yml` 并能向 Apple 解释（当前反而规避了 2.5.4）。
+- **后台麦克风（已实现，但后台连续性未达标）**：`UIBackgroundModes: [audio]` 确实
+  **存在**（`RemoteCrabCapture/Info.plist:54-57`、`project-ios.yml:74-75`），并配有
+  `BackgroundKeepAlive`（`.playback` 静音循环）。⚠️ 但真机实测**进程仍会被 suspend**、
+  后台/回前台后相机监听会失效（见 `BASIC_CAPABILITIES_TODO.md` C1/C1a/C1b），
+  所以"后台连续可用"这一条**尚未达标**，仍在修。
 - **VoiceOver / Dynamic Type 真机走查**（核心批已做，剩真机确认）。
 - **崩溃上报**（OSLog + 第三方，隐私优先）。
 - **iOS 端发起选择 Mac**（架构改动）。

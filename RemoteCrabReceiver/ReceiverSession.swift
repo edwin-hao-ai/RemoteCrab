@@ -101,6 +101,10 @@ final class ReceiverSession: ObservableObject {
     /// The most recent decoded frame as a `CGImage` ready for display.
     @Published private(set) var latestFrame: CGImage?
     private var videoFrameCount = 0
+    /// Achieved-stream telemetry (real fps / kbps), sampled every ~2 s.
+    private var telemetryBytes = 0
+    private var telemetryFrames = 0
+    private var telemetryStartedAt = Date()
     private var audioPacketCount = 0
     /// Lazily created on the first Opus packet; nil-decodable packets
     /// (legacy senders) never touch it.
@@ -2718,8 +2722,18 @@ final class ReceiverSession: ObservableObject {
                 decoder.feedPPS(frame.payload)
             case .video:
                 videoFrameCount += 1
-                if videoFrameCount == 1 || videoFrameCount % 60 == 0 {
-                    Self.log.info("video frames received: \(self.videoFrameCount)")
+                telemetryBytes += frame.payload.count
+                telemetryFrames += 1
+                let now = Date()
+                let elapsed = now.timeIntervalSince(telemetryStartedAt)
+                if elapsed >= 2 {
+                    let s = StreamTelemetry.sample(bytes: telemetryBytes,
+                                                   frames: telemetryFrames,
+                                                   interval: elapsed)
+                    Self.log.info("stream: \(s.summary, privacy: .public) (total \(self.videoFrameCount) frames)")
+                    telemetryBytes = 0
+                    telemetryFrames = 0
+                    telemetryStartedAt = now
                 }
                 decoder.feedVideo(frame.payload)
             case .touch:
