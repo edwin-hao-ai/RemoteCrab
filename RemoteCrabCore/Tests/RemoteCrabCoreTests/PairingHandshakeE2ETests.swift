@@ -96,6 +96,26 @@ final class PairingHandshakeE2ETests: XCTestCase {
         client.cancel()
         listener.cancel()
     }
+
+    /// The audit found the Swift suite only ever tests ONE connection. The bug
+    /// class that survives one-connection tests is persistence across a
+    /// restart: the Windows receiver shipped a "the token was never persisted"
+    /// bug that no single-connection test could catch. This spans the boundary
+    /// — pair, rebuild the store (simulated relaunch) from the SAME defaults,
+    /// and assert the token is still there and a reconnect is accepted.
+    func testAPairedTokenSurvivesRestartAndReconnectIsAccepted() {
+        let suite = "pairing-restart-\(UUID().uuidString)"
+        let mac = MacPairingStore(defaults: UserDefaults(suiteName: suite)!)
+            .pair(IBClientHello(name: "Mac R", id: "mac-r", token: nil))
+        XCTAssertFalse(mac.token.isEmpty)
+
+        let afterRestart = MacPairingStore(defaults: UserDefaults(suiteName: suite)!)
+        XCTAssertEqual(afterRestart.paired.first(where: { $0.id == "mac-r" })?.token, mac.token,
+                       "token did not survive a restart")
+
+        let hello = IBClientHello(name: "Mac R", id: "mac-r", token: mac.token)
+        XCTAssertEqual(PairingPolicy.decide(hello: hello, paired: afterRestart.paired, owner: nil), .accept)
+    }
 }
 
 private final class PortBox: @unchecked Sendable {
