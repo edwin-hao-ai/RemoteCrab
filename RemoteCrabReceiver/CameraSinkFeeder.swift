@@ -136,6 +136,10 @@ final class CameraSinkFeeder: @unchecked Sendable {
     // MARK: - Enqueue
 
     private func enqueue(image: CGImage) {
+        // The client may have switched format (e.g. picked 4K in Zoom). Re-check
+        // every ~2 s so a change is picked up without a per-frame query.
+        sinceFormatCheck += 1
+        if sinceFormatCheck >= 60 { sinceFormatCheck = 0; refreshActiveResolution() }
         guard running, isReady, let sinkQueue, let bufferPool, let formatDescription else { return }
         let queue = sinkQueue.takeUnretainedValue()
         guard CMSimpleQueueGetCount(queue) < CMSimpleQueueGetCapacity(queue) else { return }
@@ -144,20 +148,22 @@ final class CameraSinkFeeder: @unchecked Sendable {
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, bufferPool, &pixelBuffer) == kCVReturnSuccess,
               let pixelBuffer else { return }
 
+        let w = currentResolution.width
+        let h = currentResolution.height
         CVPixelBufferLockBaseAddress(pixelBuffer, [])
         if let base = CVPixelBufferGetBaseAddress(pixelBuffer),
            let context = CGContext(
                 data: base,
-                width: IBCameraDevice.width,
-                height: IBCameraDevice.height,
+                width: w,
+                height: h,
                 bitsPerComponent: 8,
                 bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue) {
-            // Aspect-fit into the fixed 1080p landscape sink: a portrait
-            // iPhone stream (1080×1920) gets black pillarbox bars instead
+            // Aspect-fit into the selected landscape sink: a portrait
+            // iPhone stream (e.g. 1080×1920) gets black pillarbox bars instead
             // of being stretched wide.
-            let canvas = CGRect(x: 0, y: 0, width: IBCameraDevice.width, height: IBCameraDevice.height)
+            let canvas = CGRect(x: 0, y: 0, width: w, height: h)
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fill(canvas)
             let scale = min(canvas.width / CGFloat(image.width),
@@ -219,6 +225,40 @@ final class CameraSinkFeeder: @unchecked Sendable {
 
     // MARK: - Buffer pool
 
+    /// The size the client (app) selected. The host must fill the sink with
+    /// **exactly** this: the extension forwards the buffer out the source, so a
+    /// mismatch breaks the picture. Defaults to 1080p, so if the query below
+    /// can't read a client choice the camera behaves exactly as before.
+    private var currentResolution = IBCameraDevice.resolutions[IBCameraDevice.defaultFormatIndex]
+    private var sinceFormatCheck = 0
+
+    /// Read the app's chosen source format and, if it changed, resize the pool.
+    /// A CMIO client can read the source stream's active format index; anything
+    /// unexpected leaves 1080p in place.
+    private func refreshActiveResolution() {
+        guard let device = deviceID,
+              let source = streams(of: device).first(where: { streamDirection($0) == 1 }) else { return }
+        var address = CMIOObjectPropertyAddress(
+            mSelector: CMIOObjectPropertySelector(kCMIOStreamPropertyFormatDescription),
+            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
+        var dataSize: UInt32 = 0
+        guard CMIOObjectGetPropertyDataSize(source, &address, 0, nil, &dataSize) == 0, dataSize > 0 else { return }
+        var formatRef: Unmanaged<CMFormatDescription>?
+        var used: UInt32 = 0
+        let status = withUnsafeMutablePointer(to: &formatRef) { ptr -> OSStatus in
+            CMIOObjectGetPropertyData(source, &address, 0, nil, dataSize, &used, ptr)
+        }
+        guard status == 0, let format = formatRef?.takeRetainedValue() else { return }
+        let dims = CMVideoFormatDescriptionGetDimensions(format)
+        let res = IBCameraDevice.Resolution(width: Int(dims.width), height: Int(dims.height))
+        guard IBCameraDevice.resolutions.contains(res), res != currentResolution else { return }
+        currentResolution = res
+        bufferPool = nil
+        _ = prepareBufferPool()
+        Self.log.info("virtual camera format → \(res.width)x\(res.height)")
+    }
+
     private func prepareBufferPool() -> Bool {
         if bufferPool != nil { return true }
 
@@ -226,8 +266,8 @@ final class CameraSinkFeeder: @unchecked Sendable {
         CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
             codecType: kCVPixelFormatType_32BGRA,
-            width: Int32(IBCameraDevice.width),
-            height: Int32(IBCameraDevice.height),
+            width: Int32(currentResolution.width),
+            height: Int32(currentResolution.height),
             extensions: nil,
             formatDescriptionOut: &description
         )
@@ -235,8 +275,8 @@ final class CameraSinkFeeder: @unchecked Sendable {
         formatDescription = description
 
         let attributes: NSDictionary = [
-            kCVPixelBufferWidthKey: IBCameraDevice.width,
-            kCVPixelBufferHeightKey: IBCameraDevice.height,
+            kCVPixelBufferWidthKey: currentResolution.width,
+            kCVPixelBufferHeightKey: currentResolution.height,
             kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_32BGRA,
             kCVPixelBufferIOSurfacePropertiesKey: [:]
         ]

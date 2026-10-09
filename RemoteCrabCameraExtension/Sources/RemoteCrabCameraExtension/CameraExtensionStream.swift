@@ -21,6 +21,8 @@ final class CameraExtensionStream: NSObject {
     /// feeding video into the void.
     private var attachedClients = 0
     private var sentCount = 0
+    /// The format index the client selected (default = 1080p).
+    private var activeFormatIndex = IBCameraDevice.defaultFormatIndex
 
     override init() {
         super.init()
@@ -55,12 +57,14 @@ final class CameraExtensionStream: NSObject {
 extension CameraExtensionStream: CMIOExtensionStreamSource {
 
     var formats: [CMIOExtensionStreamFormat] {
-        [CMIOExtensionStreamFormat(
-            formatDescription: Self.formatDescription(),
-            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
-            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
-            validFrameDurations: nil
-        )]
+        IBCameraDevice.resolutions.map { res in
+            CMIOExtensionStreamFormat(
+                formatDescription: Self.formatDescription(res),
+                maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
+                minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
+                validFrameDurations: nil
+            )
+        }
     }
 
     var availableProperties: Set<CMIOExtensionProperty> {
@@ -70,12 +74,18 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     func streamProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionStreamProperties {
         let streamProperties = CMIOExtensionStreamProperties(dictionary: [:])
         if properties.contains(.streamActiveFormatIndex) {
-            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: 0)), forProperty: .streamActiveFormatIndex)
+            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: activeFormatIndex)), forProperty: .streamActiveFormatIndex)
         }
         return streamProperties
     }
 
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {
+        // Remember the client's choice so `streamProperties()` reports it back
+        // and the host can size its buffers to the same format.
+        if let index = streamProperties.activeFormatIndex,
+           IBCameraDevice.resolutions.indices.contains(index) {
+            activeFormatIndex = index
+        }
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
@@ -91,14 +101,14 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
         attachedClients = max(0, attachedClients - 1)
     }
 
-    /// 1080p BGRA — the format the host fills the sink stream with.
-    private static func formatDescription() -> CMVideoFormatDescription {
+    /// BGRA at the given resolution — the format the host fills the sink with.
+    private static func formatDescription(_ res: IBCameraDevice.Resolution) -> CMVideoFormatDescription {
         var description: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
             codecType: kCVPixelFormatType_32BGRA,
-            width: Int32(IBCameraDevice.width),
-            height: Int32(IBCameraDevice.height),
+            width: Int32(res.width),
+            height: Int32(res.height),
             extensions: nil,
             formatDescriptionOut: &description
         )

@@ -200,6 +200,15 @@ struct IOSSettingsView: View {
             .onChange(of: frameRate) { _, new in
                 Task { await engine.applyVideoConfig(resolution: resolution, fps: new) }
             }
+
+            // Honest cost of 4K: it is the format that actually heats the
+            // phone and drains the battery, so say so where the choice is made.
+            if resolution == "4K" {
+                Label(IBLocale.Settings.fourKWarning, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .accessibilityElement(children: .combine)
+            }
         } header: {
             Text(IBLocale.Connection.streamSection)
         } footer: {

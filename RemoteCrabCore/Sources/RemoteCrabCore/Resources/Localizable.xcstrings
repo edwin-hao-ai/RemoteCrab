@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "4K uses a lot of CPU and battery and makes the phone warm. For long sessions, keep it plugged in and well ventilated.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4K uses a lot of CPU and battery and makes the phone warm. For long sessions, keep it plugged in and well ventilated."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "4K 很吃 CPU 和电量，手机会明显发热。长时间使用建议插上电源并保持通风。"
+          }
+        }
+      }
+    },
     "Screen Recording": {
       "extractionState": "manual",
       "localizations": {

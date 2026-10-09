@@ -394,6 +394,8 @@ public enum IBLocale {
         /// iOS settings section footers.
         public static let connectionFooter = IBL("RemoteCrab streams over your local WiFi using Bonjour. No data ever leaves your network.")
         public static let streamFooter = IBL("Higher resolutions and frame rates use more WiFi bandwidth. 1080p / 30 fps is the recommended balance.")
+        /// Shown only when 4K is selected — the honest cost of the format.
+        public static let fourKWarning = IBL("4K uses a lot of CPU and battery and makes the phone warm. For long sessions, keep it plugged in and well ventilated.")
         public static let inputFooter = IBL("Trackpad sensitivity: 1 = slowest, 5 = fastest. Default is 3.")
 
         public static let cameraExtension = IBL("Camera Extension")

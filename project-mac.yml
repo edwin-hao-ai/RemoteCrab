@@ -128,7 +128,7 @@ targets:
       properties:
         CFBundleDisplayName: RemoteCrab Camera
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "8"
+        CFBundleVersion: "9"
         CFBundlePackageType: SYSX
         CMIOExtension:
           CMIOExtensionMachServiceName: 5XNDF727Y6.com.remotecrab.RemoteCrabReceiver.Camera

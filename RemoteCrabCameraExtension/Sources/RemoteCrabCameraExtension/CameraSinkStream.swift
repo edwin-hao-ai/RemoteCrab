@@ -28,6 +28,8 @@ final class CameraSinkStream: NSObject {
     private var client: CMIOExtensionClient?
     private var active = false
     private var receivedCount = 0
+    /// The format index the client selected (default = 1080p).
+    private var activeFormatIndex = IBCameraDevice.defaultFormatIndex
 
     override init() {
         super.init()
@@ -75,12 +77,14 @@ final class CameraSinkStream: NSObject {
 extension CameraSinkStream: CMIOExtensionStreamSource {
 
     var formats: [CMIOExtensionStreamFormat] {
-        [CMIOExtensionStreamFormat(
-            formatDescription: Self.formatDescription(),
-            maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
-            minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
-            validFrameDurations: nil
-        )]
+        IBCameraDevice.resolutions.map { res in
+            CMIOExtensionStreamFormat(
+                formatDescription: Self.formatDescription(res),
+                maxFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
+                minFrameDuration: CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate)),
+                validFrameDurations: nil
+            )
+        }
     }
 
     var availableProperties: Set<CMIOExtensionProperty> {
@@ -90,7 +94,7 @@ extension CameraSinkStream: CMIOExtensionStreamSource {
     func streamProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionStreamProperties {
         let streamProperties = CMIOExtensionStreamProperties(dictionary: [:])
         if properties.contains(.streamActiveFormatIndex) {
-            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: 0)), forProperty: .streamActiveFormatIndex)
+            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: activeFormatIndex)), forProperty: .streamActiveFormatIndex)
         }
         if properties.contains(.streamFrameDuration) {
             streamProperties.frameDuration = CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate))
@@ -105,6 +109,10 @@ extension CameraSinkStream: CMIOExtensionStreamSource {
     }
 
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {
+        if let index = streamProperties.activeFormatIndex,
+           IBCameraDevice.resolutions.indices.contains(index) {
+            activeFormatIndex = index
+        }
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
@@ -122,13 +130,13 @@ extension CameraSinkStream: CMIOExtensionStreamSource {
         lock.lock(); active = false; lock.unlock()
     }
 
-    private static func formatDescription() -> CMVideoFormatDescription {
+    private static func formatDescription(_ res: IBCameraDevice.Resolution) -> CMVideoFormatDescription {
         var description: CMVideoFormatDescription?
         CMVideoFormatDescriptionCreate(
             allocator: kCFAllocatorDefault,
             codecType: kCVPixelFormatType_32BGRA,
-            width: Int32(IBCameraDevice.width),
-            height: Int32(IBCameraDevice.height),
+            width: Int32(res.width),
+            height: Int32(res.height),
             extensions: nil,
             formatDescriptionOut: &description
         )
