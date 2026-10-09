@@ -1386,6 +1386,30 @@ final class ReceiverSession: ObservableObject {
     }
 
     /// UI action: hang up and stay idle until the user connects again.
+    /// RMS of little-endian Int16 PCM, for the e2e microphone assertion.
+    static func pcmRMS(_ data: Data) -> Float {
+        guard data.count >= 2 else { return 0 }
+        var sum = 0.0
+        var n = 0
+        data.withUnsafeBytes { raw in
+            let samples = raw.bindMemory(to: Int16.self)
+            for s in samples { let v = Double(s); sum += v * v; n += 1 }
+        }
+        guard n > 0 else { return 0 }
+        return Float((sum / Double(n)).squareRoot())
+    }
+
+    /// Peak absolute value of little-endian Int16 PCM.
+    static func pcmPeak(_ data: Data) -> Int {
+        guard data.count >= 2 else { return 0 }
+        var peak = 0
+        data.withUnsafeBytes { raw in
+            let samples = raw.bindMemory(to: Int16.self)
+            for s in samples { peak = max(peak, abs(Int(s))) }
+        }
+        return peak
+    }
+
     func disconnect() {
         autoConnectSuppressed = true
         suppressReconnect = true
@@ -2834,6 +2858,11 @@ final class ReceiverSession: ObservableObject {
                     recorder.appendAudio(pcm)
                     micRing?.write(pcm)
                     audioPlayer.consume(pcmPacket)
+                    // E2E: a periodic level marker so a test can prove the mic
+                    // path carries REAL audio, not just that packets arrive.
+                    if audioPacketCount == 1 || audioPacketCount % 50 == 0 {
+                        Self.log.info("mic level: rms=\(Int(Self.pcmRMS(pcm))) peak=\(Int(Self.pcmPeak(pcm))) packets=\(self.audioPacketCount)")
+                    }
                 }
             case .featureControl:
                 // Mac → iPhone direction only; ignore if we ever receive one.
