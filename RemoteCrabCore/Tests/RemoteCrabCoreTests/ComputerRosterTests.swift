@@ -171,4 +171,16 @@ final class ComputerRosterTests: XCTestCase {
         XCTAssertNil(store.currentId)
         XCTAssertNil(store.current)
     }
+
+    /// `removeAll` is the e2e reset; it must clear the history too, or every
+    /// run's stand-in computers (same name, unique ids) pile up in the picker.
+    func testRemoveAllAlsoClearsSeenHistory() {
+        let store = MacPairingStore(defaults: UserDefaults(suiteName: "roster-removeall-\(UUID())")!)
+        store.pair(IBClientHello(name: "PC", id: "id-x", token: nil, appVersion: "1"))
+        store.noteSeen(IBClientHello(name: "PC", id: "id-x", token: nil, appVersion: "1"))
+        XCTAssertFalse(store.seen.isEmpty)
+        store.removeAll()
+        XCTAssertTrue(store.paired.isEmpty)
+        XCTAssertTrue(store.seen.isEmpty, "removeAll left stale seen rows behind")
+    }
 }

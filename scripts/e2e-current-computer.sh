@@ -78,7 +78,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-pass=0; fail=0
+pass=0; fail=0; skipped=0
+skip() { # a fixture could not exercise the path — say so, do not fail
+  printf '  \033[33m⤼ SKIP\033[0m %s\n' "$1"; skipped=$((skipped+1))
+}
 check() { # check <file> <literal> <label>
   # -F: markers contain `[e2e]` / `[hs]` — as a regex `[...]` is a character
   # class, so `grep "[e2e] …"` matches nothing and every assertion false-fails.
@@ -220,16 +223,18 @@ kill_mac
 make_computer "$DD_MAC" "$APP_A" "$BID_A"
 make_computer "$DD_MAC" "$APP_B" "$BID_B"
 LEGACY_APP="${REMOTECRAB_LEGACY_APP:-/Applications/RemoteCrab.app}"
-if [ ! -d "$LEGACY_APP" ]; then
-  echo "  ✗ no legacy receiver at $LEGACY_APP (needed as the genuine legacy receiver)"; exit 1
+# The legacy copy must be a build WITHOUT `IBPhoneHello` support. A current
+# /Applications install now speaks phone-initiated v2, so it is NOT a legacy
+# receiver. When none is available, Phase E SKIPs rather than failing — the
+# dial-back fallback cannot be exercised without a genuinely old build.
+LEGACY_OK=0
+if [ -d "$LEGACY_APP" ] && ! strings "$LEGACY_APP/Contents/MacOS/RemoteCrab" 2>/dev/null | grep -q "phoneHello"; then
+  LEGACY_OK=1
+  make_computer "$LEGACY_APP" "$APP_L" "$BID_L"
+else
+  echo "  ⚠ no genuine pre-phoneHello receiver at $LEGACY_APP — Phase E will SKIP"
+  echo "    (set REMOTECRAB_LEGACY_APP to an old release to exercise the fallback)"
 fi
-# The legacy copy must be a build WITHOUT `IBPhoneHello` support; a current
-# /Applications install is not one, so point REMOTECRAB_LEGACY_APP at an old
-# release when testing a machine that has the new build installed.
-if strings "$LEGACY_APP/Contents/MacOS/RemoteCrab" 2>/dev/null | grep -q "phoneHello"; then
-  echo "  ✗ $LEGACY_APP is a NEW build (it speaks phoneHello) — set REMOTECRAB_LEGACY_APP to a pre-phoneHello release"; exit 1
-fi
-make_computer "$LEGACY_APP" "$APP_L" "$BID_L"
 echo "  (3 isolated receiver copies in /tmp; the user's install is untouched)"
 xcrun devicectl device install app --device "$DEVICE" "$DD_IOS" >/dev/null 2>&1 \
   || { echo "  iOS install failed"; exit 1; }
@@ -317,10 +322,12 @@ stop_log
 pull_ios /tmp/remotecrab-ec-ios-c.log
 
 # ---------------------------------------------------------------------------
-echo "[7/9] Phase D — forget the current computer (row gone + no auto-dial + pending)"
-# A (dev copy) is still running from Phase C, so the picker sees A online yet
-# suppressed — that is the row-gone proof. Relaunch the phone with the forget
-# hook; the hook runs BEFORE auto-dial, so nothing may dial A.
+echo "[7/9] Phase D — forget the current computer (stays re-addable + no auto-dial + pending)"
+# A (dev copy) is still running from Phase C, so the picker sees A online. Since
+# B10, forgetting hides only an OFFLINE row: an online forgotten computer stays
+# in the roster (re-addable, like an in-range WiFi network) — so the pick hook
+# FINDS A instead of reporting none. What must still hold: the phone does NOT
+# auto-dial A, and A's own dial-in is answered pending.
 LOG_D=/tmp/remotecrab-ec-d.log
 start_log "$LOG_D"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_FORGET_CURRENT":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
@@ -344,12 +351,15 @@ pull_ios /tmp/remotecrab-ec-ios-d.log
 kill_mac
 
 # ---------------------------------------------------------------------------
-echo "[8/9] Phase E — legacy receiver (release build, no IBPhoneHello support)"
+echo "[8/9] Phase E — legacy receiver (pre-phoneHello) fallback"
+LOG_E=/tmp/remotecrab-ec-e.log
+if [ "$LEGACY_OK" != 1 ]; then
+  echo "  ⤼ skipped — no pre-phoneHello receiver fixture"
+else
 # Disable the legacy copy's own auto-dial this time, so the phone's dial to it is
 # the only connection: that is what exercises the §4.4 fallback (the receiver
 # treats the dial as a knock and dials back).
 defaults write "$BID_L" remotecrab.autoReconnect -bool false
-LOG_E=/tmp/remotecrab-ec-e.log
 start_log "$LOG_E"
 run_mac "$ID_L" "$APP_L"
 LAUNCH_OUT=$(launch_ios '{"REMOTECRAB_AUTO_START":"1","REMOTECRAB_AUTOSTREAM":"1","REMOTECRAB_E2E_AUTOPAIR":"1","REMOTECRAB_E2E_PICK_ONLINE":"1"}' 2>&1)
@@ -360,6 +370,7 @@ wait_accepted "$LOG_E" 40 || echo "  ⚠ no accepted within 40s in Phase E"
 stop_log
 pull_ios /tmp/remotecrab-ec-ios-e.log
 kill_mac
+fi
 
 # ---------------------------------------------------------------------------
 echo "[9/9] assertions"
@@ -396,18 +407,25 @@ lt2 "$DELTA_C" "Phase C dial→granted"
 
 echo "  -- Phase D (forget current) --"
 check /tmp/remotecrab-ec-ios-d.log "[e2e] forgot current computer ${ID_A:0:8}" "phone forgot the current computer on launch"
-check /tmp/remotecrab-ec-ios-d.log "[e2e] pick online: no eligible online computer found" "forgotten computer is gone from the picker roster (suppressed)"
+check /tmp/remotecrab-ec-ios-d.log "[e2e] pick online computer id=${ID_A:0:8}" "forgotten online computer stays in the roster (re-addable — B10)"
 check_absent /tmp/remotecrab-ec-ios-d.log "[dial] auto-dial last computer" "phone did not auto-dial the forgotten computer"
 check "$LOG_D" "sessionReply: pending" "the forgotten computer dialing in is answered pending (re-approval)"
 check_first_reply_pending "$LOG_D" "the forgotten computer is NOT auto-accepted (first reply is pending)"
 
 echo "  -- Phase E (legacy receiver fallback) --"
-check /tmp/remotecrab-ec-ios-e.log "[dial] outbound to ${ID_L:0:8}" "phone dialed the legacy receiver"
-check /tmp/remotecrab-ec-ios-e.log "userInitiated=false" "phone's accepted session arrived inbound (fallback, not the dial)"
-check "$LOG_E" "sessionReply: accepted" "legacy receiver's dial-back was accepted (inbound fallback connected)"
+# Runtime detection, not a `strings` pre-check: /Applications is a live install
+# that Sparkle can replace mid-session, so the only reliable test of "was this a
+# pre-phoneHello receiver?" is whether it actually answered a phoneHello.
+if [ "$LEGACY_OK" != 1 ] || grep -aqF "inbound phoneHello" "$LOG_E" 2>/dev/null; then
+  skip "legacy fallback (dial-back) — the receiver speaks phone-initiated v2, not a pre-phoneHello build"
+else
+  check /tmp/remotecrab-ec-ios-e.log "[dial] outbound to ${ID_L:0:8}" "phone dialed the legacy receiver"
+  check /tmp/remotecrab-ec-ios-e.log "userInitiated=false" "phone's accepted session arrived inbound (fallback, not the dial)"
+  check "$LOG_E" "sessionReply: accepted" "legacy receiver's dial-back was accepted (inbound fallback connected)"
+fi
 
 echo ""
-echo "pass=$pass fail=$fail"
+echo "pass=$pass fail=$fail skipped=$skipped"
 echo "  timing: A=${DELTA_A}s  B=${DELTA_B}s  C=${DELTA_C}s"
 
 # Leave the phone without this run's e2e identities in its pairing list.

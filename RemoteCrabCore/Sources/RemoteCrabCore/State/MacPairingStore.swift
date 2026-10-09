@@ -542,10 +542,16 @@ public final class MacPairingStore {
 
     public func removeAll() {
         paired = []
+        // "Remove all" must clear the history too, not just the allow-list.
+        // The e2e reset hook is the only caller, and it left `seen` behind:
+        // every run's stand-in computers (same advertised name, unique ids)
+        // piled up in the picker as offline duplicate-looking rows.
+        seen = []
+        save()
+        saveSeen()
         clearPreferred()
         clearDisconnected()
         clearCurrent()
-        save()
     }
 
     private func save() {
