@@ -476,6 +476,8 @@
 | 2026-10-09 | B4 证据 | `dns-sd` 实测手机 `_remotecrab._tcp` 同时在 if 21/22/13 广播 | 印证多接口发现/去重问题 |
 | 2026-10-09 | B10 | 忘记的电脑只要在线就仍显示、可重新添加（`ComputerRoster.isVisible` 纯函数+3 测） | `test.sh` 全绿（724 Core + 两 target + Windows） |
 | 2026-10-09 | B9 | 发现"启动即开流+浏览"，故原场景存疑；加防御性 picker 浏览 + `E2E_SHEET=picker` | 真机 `[presence] results=1 online=1`（未显式开流） |
+| 2026-10-09 | B10 e2e | `e2e-current-computer.sh` Phase D 改为断言 B10 行为；Phase E 改运行时判定 legacy 并 SKIP | `pass=24 fail=0 skipped=1` |
+| 2026-10-09 | harness | 根因：`MacPairingStore.removeAll`（e2e reset）**不清 `seen`** → 每轮 stand-in（同名不同 id）堆成"重复电脑"。已修 + 测试 | 手机 prefs 事后 `seen=[]`、`paired=[]`、`preferred=None` |
 
 ---
 
