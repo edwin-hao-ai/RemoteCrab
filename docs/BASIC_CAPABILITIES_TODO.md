@@ -237,6 +237,22 @@
 - **影响面**：三端。确认不是有意差异后再动。
 - **验证**：真机切网/切电脑。
 
+### B9. 🆕 手机在"未开流/未连接"时也能列出并选择附近电脑（用户 2026-10-09 提出）
+- **现状**：`startComputerBrowser()` 只在 `startStreaming()` 里被调用
+  （`CaptureEngine.swift:1022`）；首次打开 app、还没开流时 presence 浏览没跑，
+  列表为空 → 用户**只能等电脑主动连**，手机上选不了电脑。体验不好。
+- **步骤**：
+  1. 精读 `startComputerBrowser/stopComputerBrowser`、`ComputerPickerView`、
+     `ContentView` 里 picker 的呈现时机，以及 phone-initiated 的 knock 流程
+     （`IBPhoneHello`、`RemoteCrabCore/State/PhoneIdentity.swift`）。
+  2. 设计：让 presence 浏览**独立于 streaming**（app 打开即浏览），
+     选中某台在线电脑 → 走既有 knock/直拨流程触发连接。
+  3. 电量/隐私取舍：不开流时是否持续浏览？可只在连接界面可见时浏览。
+- **影响面**：⚠️ 中。监听/浏览生命周期、后台保活、启动顺序，别和 `startStreaming`
+  起两个 browser。
+- **验证**：真机冷启动、未开流时，picker 能列出局域网内开着 Mac/Windows 端的电脑，
+  点一下能连上。
+
 ---
 
 ## 4. 工作流 C：后台 / 锁屏 / 打断连续性
@@ -251,20 +267,23 @@
   回前台后不可达，直到手动重开流。与规则 1「承诺与事实不符」同类。
 - **拆出的两个缺陷见 C1a / C1b。**
 
-### C1a. 🔴 回前台时 listener 修复被"过期的 isActive"挡住（小改、高价值）
-- **现状**：`handleDidBecomeActive`（`CaptureEngine.swift:1204-1207`）只在
-  `!BackgroundKeepAlive.shared.isActive` 时才 `stopStreaming/startStreaming`。
-  实测 listener 已 `failed`，但 `isActive` 仍为 true → **跳过重建** → 死 listener 不修复。
-  （与 lesson 154 同族：一个软件标志代替真实状态。）
-- **步骤**：
-  1. 精读 `handleDidBecomeActive` + `BackgroundKeepAlive.isActive` 的全部写入点。
-  2. 设计：判据从"keep-alive 是否 active"改成"**capture listener 是否真的 ready**"
-     （`listener?.state`）。keep-alive 只回答"谁在保命"，不回答"listener 活着没"。
-  3. 把判据抽成纯函数放 Core 并加测试。
-- **影响面**：⚠️ 中。它决定前台恢复路径；必须保证不重新引入 lesson 156
-  （"保活有效时重建 listener 会打断所有连接"）——所以判据是"listener 真的死了才重建"，
-  不是"每次回前台都重建"。
-- **验证**：真机后台→前台一轮，8765 重新 OPEN 且 Bonjour 恢复。
+### C1a. ✅ 已实现 + 单测 + 真机部分验证（2026-10-09）
+- **改动**：新增 `RemoteCrabCore/State/ForegroundRecoveryPolicy.swift`（纯函数
+  `shouldRebuildListener(linkAlive:listener:)` + `ListenerLiveness` 枚举）+ 6 个单测；
+  `CaptureEngine.handleDidBecomeActive` 把判据从 `!BackgroundKeepAlive.shared.isActive`
+  换成 `listenerLiveness`（读 `NWListener.State`），并加 `listenerLiveness` 计算属性。
+- **为什么**：老判据用 keep-alive 的软件标志当"listener 活着没"的替身（lesson 154 同族）。
+  run1 实测 listener 已 `failed` 但 `isActive` 仍 true → 跳过重建 → 手机不可达。
+- **单测**：`ForegroundRecoveryPolicyTests`（6/6）覆盖全部分支：
+  活跃连接不重建（lesson 156）、`.absent/.failed/.cancelled` 重建、
+  `.ready/.other` 不动。
+- **真机**：`./scripts/test.sh` 全绿（Core + 两 target + Windows）；真机 5 轮后台→前台中，
+  **健康监听不动**的分支已验证（无多余重建、无 lesson 156 回归）；
+  **`.failed → 重建`分支本轮未在真机复现**——5 轮里只有 run1（223s 长挂起、无连接）
+  才让 listener 挂，其余（30–43s）listener 存活。
+  → **诚实记录**：listener 死亡依赖"真被 suspend"的时长，间歇性；重建逻辑由单测保证。
+- **顺带证据（供 B4）**：手机 `_remotecrab._tcp` **同时在 3 个接口广播**
+  （`dns-sd` 实测 `if 21 / if 22 / if 13`），印证 B4 的多接口发现/去重问题。
 
 ### C1b. 🔴 BackgroundKeepAlive 实际没保住进程（需调查 iOS 26 行为）
 - **现状**：保活启动了（`[keepalive] session playback active`）但进程仍被 suspend。
@@ -432,6 +451,8 @@
 | 2026-10-09 | 审计 | 5 路代码审计 + 人工复核，建立本文档 | 见 §1 矩阵 |
 | 2026-10-09 | B1 | iOS listener 生命周期日志（creating/ready/waiting/failed/cancelled + stopStreaming），仅加日志 | 真机 `[hs] listener creating` → `ready port=8765`；并抓到 `[hs] listener failed: -65569` |
 | 2026-10-09 | C1 | 真机测量后台/回前台连续性 | 后台 suspend（main-stall 217318ms）→ 回前台 listener failed 且未重建 → 8765 CLOSED、Bonjour 空 |
+| 2026-10-09 | C1a | 新增 `ForegroundRecoveryPolicy`（纯函数+6 测）并接线，判据从 keep-alive 改为 listener 真实状态 | `test.sh` 全绿；真机验证"健康不动"分支；`.failed→重建`分支未稳定复现（间歇，依赖长 suspend） |
+| 2026-10-09 | B4 证据 | `dns-sd` 实测手机 `_remotecrab._tcp` 同时在 if 21/22/13 广播 | 印证多接口发现/去重问题 |
 
 ---
 
