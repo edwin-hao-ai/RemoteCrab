@@ -375,6 +375,7 @@ struct ContentView: View {
             case "context":             engine.showContextSheet = true
             case "send":                showSendDialog = true
             case "settings":            showSettings = true
+            case "picker":              showMacPicker = true
             case "notifications":
                 // Screenshot run: show a realistic inbox. The content comes
                 // from the capture script (never shipped with the app).

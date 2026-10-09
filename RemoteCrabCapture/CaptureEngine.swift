@@ -1162,10 +1162,33 @@ final class CaptureEngine: ObservableObject {
         onlineComputers = []
     }
 
-    /// Re-derive the visible presence from the latest browse snapshot, dropping
-    /// computers the user forgot this session.
+    /// The picker can browse computers even when the app is not streaming, so
+    /// the list is populated on first launch — before any session exists — and
+    /// the user can pick a computer from the phone. No-op while streaming: that
+    /// lifecycle already owns the browser, and stopping it from the picker
+    /// would kill discovery for the live session.
+    private var pickerBrowseActive = false
+
+    func beginPickerBrowsing() {
+        guard !isStreaming, !pickerBrowseActive else { return }
+        pickerBrowseActive = true
+        startComputerBrowser()
+    }
+
+    func endPickerBrowsing() {
+        guard pickerBrowseActive else { return }
+        pickerBrowseActive = false
+        // Streaming took over the browser meanwhile — leave it alone.
+        guard !isStreaming else { return }
+        stopComputerBrowser()
+    }
+
+    /// Publish the live presence as-is. Hiding a **forgotten** computer is the
+    /// view's job (`ComputerRoster.isVisible`): forgetting hides only an
+    /// offline one, because an online forgotten computer must stay visible to
+    /// be re-added (like an in-range WiFi network).
     private func refreshOnlineComputers() {
-        onlineComputers = allOnlineComputers.filter { !forgottenComputerIds.contains($0.id) }
+        onlineComputers = allOnlineComputers
     }
 
     /// Called on every return to the foreground (scenePhase == .active).

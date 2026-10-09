@@ -47,6 +47,19 @@ public enum ComputerRoster {
         return seen.first(where: { $0.id == id })?.name
     }
 
+    /// Whether a roster row should be shown, given the forgotten set.
+    ///
+    /// Forgetting a computer erases its history and pairing, but it must NOT
+    /// erase it from the world: if the computer is **online right now**, it
+    /// still shows (with a "not paired" badge and a tap-to-connect action), so
+    /// the user can add it back — exactly like a WiFi network you forgot that
+    /// is still in range under "Other Networks". Forgetting only hides an
+    /// **offline** row, whose history there is nothing left to show.
+    public static func isVisible(_ entry: ComputerRosterEntry, forgotten: Set<String>) -> Bool {
+        if !forgotten.contains(entry.id) { return true }
+        return entry.isOnline
+    }
+
     public static func entries(online: [ComputerPresence],
                                seen: [SeenComputer]) -> [ComputerRosterEntry] {
         let liveById = Dictionary(online.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })

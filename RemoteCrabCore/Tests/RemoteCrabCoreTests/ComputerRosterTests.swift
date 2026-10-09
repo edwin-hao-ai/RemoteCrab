@@ -81,6 +81,29 @@ final class ComputerRosterTests: XCTestCase {
         XCTAssertNil(ComputerRoster.name(for: "x", online: [], seen: []))
     }
 
+    // MARK: - isVisible (forget must leave an ONLINE computer re-addable)
+
+    private func entry(_ id: String, online: Bool) -> ComputerRosterEntry {
+        ComputerRosterEntry(id: id, name: id, platform: "macos",
+                            state: online ? .online : .offline(lastSeen: Date(timeIntervalSince1970: 1)))
+    }
+
+    func testAForgottenOnlineComputerStaysVisibleToBeReaded() {
+        // The whole point: forgetting erases history, not reachability. If it
+        // is online it must remain, with a tap-to-connect, like a forgotten
+        // WiFi network still in range.
+        XCTAssertTrue(ComputerRoster.isVisible(entry("a", online: true), forgotten: ["a"]))
+    }
+
+    func testAForgottenOfflineComputerIsHidden() {
+        XCTAssertFalse(ComputerRoster.isVisible(entry("a", online: false), forgotten: ["a"]))
+    }
+
+    func testAnUnforgottenComputerIsAlwaysVisible() {
+        XCTAssertTrue(ComputerRoster.isVisible(entry("a", online: true), forgotten: []))
+        XCTAssertTrue(ComputerRoster.isVisible(entry("a", online: false), forgotten: []))
+    }
+
     // MARK: - N-computer invariants (store + policy)
     //
     // With N computers on the network: every one is listed, only the owner is

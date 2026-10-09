@@ -22,9 +22,10 @@ struct ComputerPickerView: View {
 
     private var roster: [ComputerRosterEntry] {
         ComputerRoster.entries(online: engine.onlineComputers, seen: engine.seenComputers)
-            // A forgotten computer must leave *every* section — including the
-            // one fed by live presence, not just the history list (lesson 131).
-            .filter { !engine.forgottenComputerIds.contains($0.id) }
+            // Forgetting hides a computer's *history*, but an ONLINE forgotten
+            // computer stays visible so it can be re-added (like a WiFi network
+            // still in range) — the pure rule lives in `ComputerRoster.isVisible`.
+            .filter { ComputerRoster.isVisible($0, forgotten: engine.forgottenComputerIds) }
     }
 
     /// The rows the roster section actually lists: everything except the one
@@ -64,6 +65,9 @@ struct ComputerPickerView: View {
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
             .task {
+                // Browse nearby computers even with no session yet, so the
+                // list is populated on first launch (B9).
+                engine.beginPickerBrowsing()
                 if let armed = engine.preferredArmedAt {
                     let remaining = MacPairingStore.preferredGrace
                         - Date().timeIntervalSince(armed)
@@ -74,6 +78,7 @@ struct ComputerPickerView: View {
                 }
                 engine.pruneSeenComputers()
             }
+            .onDisappear { engine.endPickerBrowsing() }
             .confirmationDialog(
                 pendingDelete.map { IBLocale.Pairing.confirmForget($0.name) } ?? "",
                 isPresented: Binding(
