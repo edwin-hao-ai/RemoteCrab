@@ -1391,7 +1391,14 @@ final class ReceiverSession: ObservableObject {
         suppressReconnect = true
         slowRetryTask?.cancel()
         slowRetryTask = nil
-        connection?.cancel()
+        // Tell the phone this is deliberate before the socket goes away. The
+        // phone redials on an unexpected drop, so without this a Mac-side
+        // Disconnect would be undone a second later by the phone reconnecting.
+        if let connection, let data = try? IBWire.encode(sessionReply: IBSessionReply(result: .off)) {
+            connection.send(content: data, completion: .contentProcessed { _ in connection.cancel() })
+        } else {
+            connection?.cancel()
+        }
         // The .cancelled state callback keeps the current state when
         // suppressReconnect is set, so land on .searching ourselves.
         state = .searching
@@ -2012,6 +2019,10 @@ final class ReceiverSession: ObservableObject {
     /// e2e hooks. Called by the outbound `handleSessionReply` and by
     /// `adoptCandidate`.
     private func startGrantedSession() {
+        // The trackpad is joystick-relative: seed the tracked cursor from where
+        // the physical pointer actually is, or the first move after a connect
+        // jumps from (0,0) to the top-left.
+        inputInjector.syncToSystemCursor()
         if let name = currentPhoneName() {
             state = .streaming(name: name, latencyMs: 0)
         }

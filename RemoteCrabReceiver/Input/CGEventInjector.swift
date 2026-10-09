@@ -18,6 +18,13 @@ public final class CGEventInjector: InputInjector {
 
     public init() {}
 
+    /// Seed the tracked cursor from the live system pointer. Without this the
+    /// first relative move after a fresh connect is applied to `(0,0)`, so the
+    /// Mac cursor snaps to the top-left however far the finger moves.
+    public func syncToSystemCursor() {
+        if let loc = CGEvent(source: nil)?.location { lastCursor = loc }
+    }
+
     public func inject(touch: TouchEvent, screenSize: CGSize) {
         switch touch.phase {
         case .down:

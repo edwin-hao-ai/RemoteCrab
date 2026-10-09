@@ -33,6 +33,12 @@ public protocol InputInjector: AnyObject {
 
     /// Last cursor position — tests read this back to verify movement.
     var lastCursor: CGPoint { get }
+
+    /// Seed the tracked cursor from the real system cursor, at the start of a
+    /// session. The joystick model applies deltas to `lastCursor`; leaving it at
+    /// `.zero` made the first trackpad move after a fresh connect jump the Mac
+    /// cursor to the top-left instead of nudging it from where it already was.
+    func syncToSystemCursor()
 }
 
 public extension InputInjector {
@@ -40,6 +46,7 @@ public extension InputInjector {
     /// conform (e.g. a future test double).
     func inject(screenInput: IBScreenInput, windowOrigin: CGPoint, windowSize: CGSize) {}
     func resetMirrorCursor() {}
+    func syncToSystemCursor() {}
     var hasMirrorCursor: Bool { false }
 }
 

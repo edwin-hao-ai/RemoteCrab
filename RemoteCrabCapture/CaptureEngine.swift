@@ -2607,7 +2607,15 @@ final class CaptureEngine: ObservableObject {
     /// Forget which computer this iPhone is set to, so the next computer to
     /// connect becomes current again (the picker's "Release this iPhone").
     func releaseCurrentComputer() {
+        // "Release this iPhone" = give up the computer that currently has us, so
+        // the NEXT computer to connect becomes the one we serve. Dropping the
+        // link alone is not enough — the reconnect flow would immediately redial
+        // it — so also forget the "last computer" auto-dial target, any armed
+        // preference, and the off-intent, leaving us free for whatever dials next.
+        disconnectCurrentMac()
         pairingStore.clearCurrent()
+        pairingStore.clearPreferred()
+        pairingStore.clearDisconnected()
         refreshPairedMacs()
     }
 
@@ -3665,14 +3673,17 @@ final class CaptureEngine: ObservableObject {
             var delay: UInt64 = 1
             while !Task.isCancelled {
                 guard let self else { return }
+                if self.connection != nil { return }   // back on
+                guard self.isStreaming, self.pairingStore.disconnected?.id != id else { return }
+                // Dial whenever idle; if a previous attempt is still in flight,
+                // just wait and try again — a single dial that lands before the
+                // computer is back must not end the retry loop.
+                if self.outboundConnection == nil, self.pendingChallenge == nil,
+                   self.pendingConnection == nil {
+                    Forensic.log("[reconnect] redialing \(id.prefix(8))")
+                    self.connect(toComputer: id)
+                }
                 try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
-                if Task.isCancelled { return }
-                guard self.isStreaming, self.connection == nil,
-                      self.outboundConnection == nil, self.pendingChallenge == nil,
-                      self.pendingConnection == nil,
-                      self.pairingStore.disconnected?.id != id else { return }
-                Forensic.log("[reconnect] redialing \(id.prefix(8))")
-                self.connect(toComputer: id)
                 delay = min(delay * 2, 5)
             }
         }
@@ -3856,6 +3867,19 @@ final class CaptureEngine: ObservableObject {
                     Forensic.log("[audio] speaker frame ignored: channels=\(packet.channels) expected 2")
                 }
 
+            case .sessionReply:
+                // The Mac released us deliberately (its own Disconnect). Mark it
+                // so the reconnect flow does not immediately redial — otherwise
+                // a Mac-side Disconnect is undone a second later.
+                if let reply = try? IBWire.decodeSessionReply(frame), reply.result == .off {
+                    Forensic.log("[link] Mac released us (off) — staying disconnected")
+                    if let mac = ownerMac {
+                        pairingStore.markDisconnected(id: mac.id, name: mac.name)
+                    }
+                    stopOwnerReconnect()
+                    clearOwner(reason: .disconnected)
+                    refreshPairedMacs()
+                }
             case .ping:
                 // Either the echo of our own probe (a measurement) or the
                 // Mac's own probe (echo it back so ITS round trip closes).

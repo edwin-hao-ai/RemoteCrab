@@ -68,11 +68,13 @@ struct RemoteCrabReceiverApp: App {
         // The sandbox was removed (V1.3); bring the old container's
         // paired-Mac tokens + settings over before anything reads them.
         SandboxDefaultsMigration.runIfNeeded()
-        // Prompt for Accessibility only as part of the first-launch
-        // flow (so the app appears in the user's Accessibility list).
-        // On later launches the setup assistant / Preferences check
-        // with AXIsProcessTrusted() without re-prompting.
-        if !UserDefaults.standard.bool(forKey: "remotecrab.didFirstLaunch") {
+        // Prompt for Accessibility whenever it is missing, not only on the
+        // very first launch. A macOS update, a moved/re-signed build, or a
+        // reset can leave the grant absent, and this is an LSUIElement app whose
+        // input injection is silently dropped without it — the user has no way
+        // to know the trackpad went dead. macOS shows the prompt at most once
+        // per launch, so this is not naggy.
+        if !AXIsProcessTrusted() {
             let opts: NSDictionary = [
                 "AXTrustedCheckOptionPrompt" as NSString: kCFBooleanTrue
             ]
