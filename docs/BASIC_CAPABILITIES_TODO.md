@@ -472,6 +472,23 @@
 
 ---
 
+## 8.5 工作流 H：Mac 托盘菜单逐项可用性（用户 2026-10-09 提出）
+
+### H1. 🟡 逐项点一遍托盘 popover 的每一行（偏好设置已修）
+- **根因（已修）**：托盘 → **偏好设置点了没反应**。`openPreferences()` 用的是
+  `NSApp.sendAction(Selector("showSettingsWindow:"))`——这个 selector 在 **macOS 26 已失效**。
+  改为 SwiftUI 的 `openSettings()`（macOS 14+，`MenuBarMenu.swift`）。已编译通过。
+- **未验**：其余行**从未逐项点过**。要逐个确认有可见响应：
+  功能开关（camera / mic / trackpad / keyboard）、扬声器**状态行**（不是开关，是状态 +
+  "在手机上开关"）、动作行——**控制面板 ⌘P** / **预览窗口 ⌘⇧P** / **连接测试 ⌘T** /
+  切换摄像头 / 录制 ⌘R / 剪贴板→iPhone / 在 Finder 显示 / 手动连接 / 断开 /
+  更新两行（Restart to Update / Check for Updates…）/ **偏好设置 ⌘,** / **退出 ⌘Q**。
+- **验证**：每一项都有可见响应（窗口打开 / 状态改变 / 动作发生）。
+- **方式**：GUI 测试（需窗口或 AppleScript UI 脚本；脚本需 Accessibility 授权）。
+- **影响面**：仅 Mac 托盘 UI。
+
+---
+
 ## 9. 进度日志
 
 | 日期 | 条目 | 做了什么 | 验证数字/证据 |
@@ -488,6 +505,10 @@
 | 2026-10-09 | A 复核 | 精读后更正：4K 的墙是**虚拟摄像头单一 1080p 格式**；16Mbps 天花板在 iOS 惰性（A3 作废） | `VideoEncodingPolicy.swift:12,37,64` |
 | 2026-10-09 | A 实测 | 加 `REMOTECRAB_E2E_RESOLUTION` 钩子，真机测 4K 编码 | 4K30 真跑 30fps（frames=61/2s），关键帧 42,954 kbps > req 16,000 |
 | 2026-10-09 | G/网站 | 确认真相：线上 camera 页写 "1080p 30 帧"（诚实）；4K 只在内部 campaign 文档 | `~/VGOAPP/remotecrab/features/camera/index.html:7` |
+| 2026-10-09 | A2 实现 | 扩展广告 1080p+4K，host 按客户端选择的格式喂帧；iOS 加 4K 发热/耗电提醒 | `test.sh` 全绿（725 Core + 两 target + Windows） |
+| 2026-10-09 | A e2e | **4K 摄像头端到端通过**：同版本原地替换 + 杀扩展进程重载后，探针打印 1080p+3840×2160、exit 0 | `./scripts/e2e-camera-formats.sh` ✓ |
+| 2026-10-09 | A 决策 | 因此**不 bump 扩展版本**（保住用户已有批准、零支持成本），回到 8 | 待你确认发版策略 |
+| 2026-10-09 | H1 | 修托盘"偏好设置"死键：`showSettingsWindow:`（macOS 26 失效）→ `openSettings()` | 编译通过；其余托盘行待 GUI 逐项验 |
 
 ---
 

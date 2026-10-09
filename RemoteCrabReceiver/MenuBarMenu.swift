@@ -23,6 +23,7 @@ struct MenuBarMenu: View {
     @EnvironmentObject private var session: ReceiverSession
     @EnvironmentObject private var setupStatus: SetupStatus
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @AppStorage("remotecrab.didFirstLaunch") private var didFirstLaunch: Bool = false
     // Subscribes to the updater's `@Published pendingUpdate` so the
     // "Restart to Update" row appears/refreshes live. Read via the
@@ -540,10 +541,11 @@ struct MenuBarMenu: View {
         NSApp.activate()
     }
 
-    /// The Settings scene has no `openWindow(id:)`; it opens through
-    /// the responder chain instead.
+    /// Opens the Settings scene. `showSettingsWindow:` (the old
+    /// responder-chain selector) is dead on macOS 26 — the Preferences row
+    /// did nothing. `openSettings` is the supported SwiftUI action (macOS 14+).
     private func openPreferences() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        openSettings()
         NSApp.activate()
     }
 
