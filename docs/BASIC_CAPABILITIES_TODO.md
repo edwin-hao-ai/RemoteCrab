@@ -121,6 +121,16 @@
 - **验证工具已就绪**：`scripts/e2e-camera-formats.sh`（枚举格式，无需相机权限）+
   `/tmp/rcprobe/CamProbe.app`（打开相机在 4K 抓一帧、读像素，需相机权限）。
 
+### A2 真机复测（2026-10-10，用户重启+重新批准 v10 后）
+- ✅ **扩展已加载 v10**（`systemextensionsctl` v10 `[activated enabled]`），
+  `e2e-camera-formats.sh` = **单一 `3840x2160`**（1080p 消失）＝虚拟摄像头真的对外广告 4K 了。
+- ✅ 手机 4K 采集 → Mac `video frames received` → `feeding virtual camera: N frames` →
+  扩展 `sink received N frames`（整条链路活）。
+- 🔴 **未通**：扩展**没有**调用 `source.send`（日志无 `source sent`），客户端（探针）拿不到帧（`TIMEOUT`）。
+  `sink received` 出现但 `source sent` 不出现 → sink→source 转发没送达客户端。
+  `CameraExtensionDevice` 的 `onSampleBuffer → sourceStream.send` 源码是接好的，**原因未定**，
+  需要一次扩展调试循环（每次改都要重新部署）才能定位。**这是当前唯一的 4K 遗留点。**
+
 ### A3. ❌ 作废（2026-10-09）—— 天花板在 iOS 上是惰性的
 - 原以为要抬 `ceilingBps`。精读 `VideoEncodingPolicy.swift:12,37,64` 后确认：
   iOS 上 `kVTCompressionPropertyKey_Quality` **完全覆盖** `AverageBitRate`，
@@ -484,6 +494,15 @@
   ② Pencil 绘画板落地后新增 feature 页 + 首页卖点；③ 全站逐页核对与真实能力一致。
 - **依赖**：**先有实现再宣传**（别重演内部 4K 文档领先于代码的事）。
 - **影响面**：仅文案/网站（`~/VGOAPP/remotecrab`），发布走 `VGOAPP/scripts/deploy.sh`。
+- **已做（2026-10-10，VGOAPP `22b02da`）**：
+  - **摄像头文案 1080p → 4K**：feature 页 hero/description/详情 + 首页 blurb，**中英双向**，
+    以及 `features/camera/index.html` 的 meta（title/og/twitter）。
+  - **SEO 修复**：`public/sitemap.xml` 原来**只列了 4 条 URL**，**漏掉全部 11 个 feature 页
+    + suites + privacy** → 已补全（带 lastmod/priority）。
+- **待做**：① **全站逐页核对**与真实能力一致（你提到"很多没对齐"）——还没逐页过；
+  ② Pencil 绘板落地后加 feature 页 + 首页卖点；③ 英文页 / hreflang（如需要）；
+  ④ 各 feature 页的 JSON-LD 结构化数据（首页有，内页没有）。
+- **未部署**：只提交了源码，**没跑 `deploy.sh`**（生产动作，等你确认）。
 
 ---
 
