@@ -136,10 +136,6 @@ final class CameraSinkFeeder: @unchecked Sendable {
     // MARK: - Enqueue
 
     private func enqueue(image: CGImage) {
-        // The client may have switched format (e.g. picked 4K in Zoom). Re-check
-        // every ~2 s so a change is picked up without a per-frame query.
-        sinceFormatCheck += 1
-        if sinceFormatCheck >= 60 { sinceFormatCheck = 0; refreshActiveResolution() }
         guard running, isReady, let sinkQueue, let bufferPool, let formatDescription else { return }
         let queue = sinkQueue.takeUnretainedValue()
         guard CMSimpleQueueGetCount(queue) < CMSimpleQueueGetCapacity(queue) else { return }
@@ -229,35 +225,10 @@ final class CameraSinkFeeder: @unchecked Sendable {
     /// **exactly** this: the extension forwards the buffer out the source, so a
     /// mismatch breaks the picture. Defaults to 1080p, so if the query below
     /// can't read a client choice the camera behaves exactly as before.
-    private var currentResolution = IBCameraDevice.resolutions[IBCameraDevice.defaultFormatIndex]
-    private var sinceFormatCheck = 0
-
-    /// Read the app's chosen source format and, if it changed, resize the pool.
-    /// A CMIO client can read the source stream's active format index; anything
-    /// unexpected leaves 1080p in place.
-    private func refreshActiveResolution() {
-        guard let device = deviceID,
-              let source = streams(of: device).first(where: { streamDirection($0) == 1 }) else { return }
-        var address = CMIOObjectPropertyAddress(
-            mSelector: CMIOObjectPropertySelector(kCMIOStreamPropertyFormatDescription),
-            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
-            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
-        var dataSize: UInt32 = 0
-        guard CMIOObjectGetPropertyDataSize(source, &address, 0, nil, &dataSize) == 0, dataSize > 0 else { return }
-        var formatRef: Unmanaged<CMFormatDescription>?
-        var used: UInt32 = 0
-        let status = withUnsafeMutablePointer(to: &formatRef) { ptr -> OSStatus in
-            CMIOObjectGetPropertyData(source, &address, 0, nil, dataSize, &used, ptr)
-        }
-        guard status == 0, let format = formatRef?.takeRetainedValue() else { return }
-        let dims = CMVideoFormatDescriptionGetDimensions(format)
-        let res = IBCameraDevice.Resolution(width: Int(dims.width), height: Int(dims.height))
-        guard IBCameraDevice.resolutions.contains(res), res != currentResolution else { return }
-        currentResolution = res
-        bufferPool = nil
-        _ = prepareBufferPool()
-        Self.log.info("virtual camera format → \(res.width)x\(res.height)")
-    }
+    /// The size the extension advertises (a single 4K format). The host fills
+    /// the sink with exactly this, so the buffer the extension forwards out the
+    /// source always matches the advertised format — nothing to negotiate.
+    private var currentResolution = IBCameraDevice.resolutions[0]
 
     private func prepareBufferPool() -> Bool {
         if bufferPool != nil { return true }
