@@ -544,6 +544,12 @@
 | 2026-10-09 | H1 验证 | AppleScript 逐键实测托盘：⌘, 设置 / ⌘P 控制面板 / ⌘⇧P 预览 / ⌘T 连接自检 全部打开对应窗口 | 均在窗口列表中确认 |
 | 2026-10-10 | A2 真机 | 手机端 4K 全链路：手机 `capture 2160x3840` → Mac `video frames received` → `feeding virtual camera`；探针证明**双格式设计坏**（host 读 source 格式恒为 1920x1080）→ 改单一 4K | 手机 forensic + host 日志 |
 | 2026-10-10 | A2 部署 | 单一 4K（v10）已装 `/Applications`，但扩展注册表脏（v8 待重启卸载 + v9 旧二进制），新二进制**未加载** | ⛔ 需重启 + Re-register + 批准（用户） |
+| 2026-10-10 | A2 v10 | 用户重启+批准后 v10 加载；`e2e-camera-formats.sh` = **单一 `3840x2160`**；手机→Mac→feeder→扩展 sink 全活；**唯一遗留**：扩展不调 `source.send`，客户端拿不到帧 | 探针 TIMEOUT（待扩展调试） |
+| 2026-10-10 | C5 | `ThermalPolicy`（7 测）+ CaptureEngine 观测 thermal/low-power | 编译 + 测通过 |
+| 2026-10-10 | D2 | `StreamTelemetry`：算真实 fps/kbps，Mac 每 ~2s 记 `stream: N fps, M kbps` | 测通过 |
+| 2026-10-10 | E2 | 修正 `RELEASE_READINESS.md`「后台麦未实现」的错误陈述（`UIBackgroundModes` 确实存在） | 文档与代码一致 |
+| 2026-10-10 | B7 | 新增"token 跨重启持久 + 重连被接受"测试（此前只测单次连接） | 测通过 |
+| 2026-10-10 | 网站 | 摄像头文案 1080p→4K（中英+meta）；sitemap 补全 11 feature 页+suites+privacy | **已 push + 部署**，线上确认 4K |
 
 ---
 
