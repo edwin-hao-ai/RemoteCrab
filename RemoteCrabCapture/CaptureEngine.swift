@@ -551,6 +551,13 @@ final class CaptureEngine: ObservableObject {
         currentRotationAngle = initialAngle
         encoderIsPortrait = initialAngle == 90 || initialAngle == 270
 
+        // E2E: force a resolution before the config reads it, so a headless run
+        // can exercise 4K/720p (there is no way to open Settings and tap
+        // headlessly).
+        if let forced = ProcessInfo.processInfo.environment["REMOTECRAB_E2E_RESOLUTION"], !forced.isEmpty {
+            UserDefaults.standard.set(forced, forKey: "remotecrab.ios.resolution")
+            Forensic.log("[e2e] resolution override → \(forced)")
+        }
         let savedResolution = UserDefaults.standard.string(forKey: "remotecrab.ios.resolution") ?? "1080p"
         let savedFps = UserDefaults.standard.integer(forKey: "remotecrab.ios.frameRate")
         currentResolution = savedResolution
