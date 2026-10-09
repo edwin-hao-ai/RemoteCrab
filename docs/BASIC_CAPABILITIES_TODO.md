@@ -106,6 +106,21 @@
   **不能盲改**（现扩展已验证可用；改坏 = 用户相机失效直到再次批准修复）。
 - **验证**：真机在 Zoom/QuickTime 看到 4K 选项并取到非零像素（CMIO 像素探针）。
 
+### A2 进展与真机结论（2026-10-10）
+- **e2e 抓到设计缺陷**：曾经做成"扩展广告 1080p+4K、host 按客户端选择喂帧"。
+  真机探针证明**行不通**：客户端把 source 选成 4K，但 host 读到的
+  `kCMIOStreamPropertyFormatDescription` **始终是 1920x1080**（host 读不到客户端的选择），
+  于是 host 喂 1080p 进 4K source → **4K 客户端拿不到任何帧**（探针 `TIMEOUT`）。
+  `source↔sink 透传`无法调和"客户端选格式"与"host 独立填帧"。
+- **改为单一 4K 格式**（`IBCameraDevice.resolutions = [3840×2160]`，host 恒喂 4K）——
+  没有可协商的东西。代价：手机设低于 4K 时被放大（想真 4K 就把手机设 4K）。已提交 `4a2357b`。
+- **🔴 部署卡住（需用户）**：改扩展要重新注册才加载新二进制。当前注册表脏了——
+  `v8 [terminated waiting to uninstall on reboot]` + `v9 [activated enabled]`（旧的、两份格式）。
+  要让 `v10`（单一 4K）生效需要：**① 重启 Mac 清掉 v8 挂起项；② 在托盘 → 偏好设置 → 相机扩展
+  点 "Re-register"；③ 在系统设置批准**。这三步我替代不了（点不了批准、不能重启你的机器）。
+- **验证工具已就绪**：`scripts/e2e-camera-formats.sh`（枚举格式，无需相机权限）+
+  `/tmp/rcprobe/CamProbe.app`（打开相机在 4K 抓一帧、读像素，需相机权限）。
+
 ### A3. ❌ 作废（2026-10-09）—— 天花板在 iOS 上是惰性的
 - 原以为要抬 `ceilingBps`。精读 `VideoEncodingPolicy.swift:12,37,64` 后确认：
   iOS 上 `kVTCompressionPropertyKey_Quality` **完全覆盖** `AverageBitRate`，
@@ -508,6 +523,8 @@
 | 2026-10-09 | A 决策 | 因此**不 bump 扩展版本**（保住用户已有批准、零支持成本），回到 8 | 待你确认发版策略 |
 | 2026-10-09 | H1 | 修托盘"偏好设置"死键：`showSettingsWindow:`（macOS 26 失效）→ `openSettings()` | 编译通过；其余托盘行待 GUI 逐项验 |
 | 2026-10-09 | H1 验证 | AppleScript 逐键实测托盘：⌘, 设置 / ⌘P 控制面板 / ⌘⇧P 预览 / ⌘T 连接自检 全部打开对应窗口 | 均在窗口列表中确认 |
+| 2026-10-10 | A2 真机 | 手机端 4K 全链路：手机 `capture 2160x3840` → Mac `video frames received` → `feeding virtual camera`；探针证明**双格式设计坏**（host 读 source 格式恒为 1920x1080）→ 改单一 4K | 手机 forensic + host 日志 |
+| 2026-10-10 | A2 部署 | 单一 4K（v10）已装 `/Applications`，但扩展注册表脏（v8 待重启卸载 + v9 旧二进制），新二进制**未加载** | ⛔ 需重启 + Re-register + 批准（用户） |
 
 ---
 
