@@ -962,3 +962,33 @@ codesign -d --verbose=4 /Applications/X.app | grep CDHash
        所以是 best-effort；Setup Assistant 的文案把确切路径也写出来，用户不用自己找。
     3. 部署规则（AGENTS「Deploy rules」）要**显式**列出这三条副作用，否则下一个人
        会把它们当成新 bug 再查一遍。
+
+163. **反复的开发重装会在 TCC 里堆出十几条陈旧记录，表现成「列表里明明有，授权却无效」。**
+    一次 `tccutil reset Accessibility com.remotecrab.RemoteCrabReceiver` 打印出
+    **18 条**同一个 bundle id 的记录——这一路为了修 bug 重建/重签/替换了十几次
+    `/Applications`，每次都在 TCC 留下一条对不上当前二进制的行。于是 App 出现在
+    「辅助功能」列表里，`AXIsProcessTrusted()` 却一直是 `false`——用户去开关也没用，
+    因为生效的不是当前那个二进制。**修法**：`tccutil reset Accessibility <bundleid>`
+    清干净 → 触发一次系统提示 → **给一次授权**；之后**同一 Developer ID** 的替换
+    （Sparkle 更新也一样）就不会再重置（lesson 158/159 的实测补充）。
+    **另外**：授权后 macOS **缓存**了旧的判定，运行中的进程必须**重启 App** 才能读到
+    `true`；本轮顺手把「只在首次启动才弹授权提示」改成「检测到没授权就弹」，
+    让 LSUIElement 的静默失败至少自己冒头一次。
+
+166. **摇杆式的相对光标若从 `(0,0)` 起步，第一次移动就跳到左上角。**
+    `CGEventInjector` 用的是 joystick 模型（把增量加到 `lastCursor` 上），而
+    `lastCursor` 默认 `.zero`。连接后第一次滑动不是从鼠标当前所在处挪，而是从
+    `(0,0)` 加上一个增量——于是光标「啪」地跳到屏幕左上角（用户以为坏了）。
+    **修法**：会话开始时用 `CGEvent(source: nil)?.location` **播种** `lastCursor`
+    （在 `InputInjector` 协议上加 `syncToSystemCursor()`，`startGrantedSession` 调它）。
+
+167. **`main` 上的 macOS host-build 门禁在本轮之前就是红的。**
+    `scripts/test.sh` 的 `cargo build --workspace` 在 macOS 上失败：`rc-app` 引用了
+    仅 Windows 的 `rc-vcam`、`rc_os::autostart`、`spawn_update_check` 却没加
+    `#[cfg(windows)]`。这是一个 `#[cfg]` 门禁漏洞（lesson 142 的形状），
+    **与本次功能无关**，但它让共享门禁常红、教人忽略。**修法**：给 `rc-os` 加
+    `#[cfg(not(windows))]` 的 `autostart` 桩、把 `mod vcam` 用 `#[cfg(windows)]` 门起来、
+    给 `spawn_update_check` 加非 Windows 桩、把 `tray.rs` 里
+    `cfg!(windows).then(crate::vcam::is_registered)`（两分支都要编译）改成 `#[cfg]` 分派。
+    **Windows 的 `cfg(windows)` 分支逐字未动**；改前先在**一次性 worktree 里构建
+    `origin/main`** 证明它本来就红，别把别人的红算成自己的。

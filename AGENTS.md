@@ -1045,6 +1045,13 @@ cross-references rather than the file order.
 | 159 | **换签名替换 `/Applications` 的 app 会打掉辅助功能授权 + 注销系统扩展** — 三条都像「功能被改坏」；相机扩展开关在「登录项与扩展→相机扩展」不在隐私与安全性；深链是未文档化的 best-effort | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 160 | **英文源会落后于它自己的中文翻译** — 中文早写「电脑」英文还写 "your Mac"；批量 Mac→computer 会误伤**平台分支**的手势指南 Mac 侧，被 deliberate-Mac 清单测试当场抓住 | [`ios-device`](docs/lessons/ios-device.md) |
 | 161 | **把共享 `AVAudioSession` 从保活交给麦克风：同 runloop 里 deactivate→reactivate 会让 `setActive` 失败（561017449）** — 调用点没照模块注释做（该 `deactivateSession:false`）；我的保活改动触发潜伏 bug | [`ios-device`](docs/lessons/ios-device.md) |
+| 162 | **一个「被拨入」的接收端去拨一台自己也会拨号的手机，首次连接必然赛跑** — 接收端还不知道它会自己拨就先拨了；name-only owner 必须让位给主动拨入的手机 | [`connection`](docs/lessons/connection.md) |
+| 163 | **反复的开发重装会在 TCC 里堆出 18 条陈旧记录 → 「列表里明明有、授权却无效」** — `tccutil reset Accessibility <bundleid>` 清干净 + 一次干净授权 + 重启 App；同 Developer ID 的替换之后不再重置 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 164 | **藏在菜单栏 popover、通知又 denied 的「同意」不是同意界面** — 首次接触确认要么自己置前，要么不做（手机点一下即同意，也是本品类做法） | [`connection`](docs/lessons/connection.md) |
+| 165 | **「一有拨号在飞就退出」的重试循环只会拨一次** — 判据是「直到连上」，不是「拨过一次」；只在空闲时才拨、用 sleep 留着循环 | [`ios-device`](docs/lessons/ios-device.md) |
+| 166 | **摇杆式相对光标从 (0,0) 起步 → 首次移动跳到左上角** — 会话开始用 `CGEvent(source:nil)?.location` 播种 `lastCursor` | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 167 | **`main` 的 macOS host-build 门禁本来就红**（`rc-app` 引用 Windows-only crate 未加 `#[cfg(windows)]`）— 先用一次性 worktree 构建 `origin/main` 证明它本来就红，别把别人的红算成自己的 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 168 | **一次发布需要两个互相冲突的网络方向** — 公证要 `timestamp.apple.com`（`global`），VPS 部署要 SSH:22（非 global）；分段做 | [`release-web`](docs/lessons/release-web.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1287,6 +1294,18 @@ have saved most of them:
 If you're new, also read:
 - **`RemoteCrabReceiver/MenuBarMenu.swift`** — the most polished piece of UI
 - **`RemoteCrabCapture/OnboardingFlow.swift`** — how the user gets into the app
+
+---
+
+_Last updated: 2026-10-09 (**手机主动连接 v2 全三端 + 真机打磨 + 发布；顺手把 macOS host-build 门禁修绿**)._
+
+**手机主动连接 v2**（`docs/superpowers/specs/2026-10-08-phone-initiated-connection-v2-design.md` + 同名 plan）：手机从「被动服务端」改成**主动发起者**——点「选择电脑」里一台已配对电脑，手机直接 TCP 拨它的 presence 口 `8766`，第一帧发新帧 `IBPhoneHello`（kind **0x27**，含稳定 `phoneId`）。**协议角色不反转**：电脑仍发 `clientHello`、手机仍回 `sessionReply`，peer-auth 方向/label 一字不改。配套：`current` 硬门卫退役（`decide` 去 `current`、加 `userInitiated`）；配对 key 从手机名迁到稳定 `phoneId`（`PeerTokenIndex`，旧 name key 一次性回退+backfill）；`pruned` 取消按名合并（只按 id + TTL）；picker 逐行「忘记」；接收端**按能力协商**停自动重拨（旧手机保留自动拨，苹果审核中的旧版**零降级**）；候选地址抽象（不含中继）。17 个 task 走 subagent-driven + 每步 review + 最终整支 review（捕到一个 **Critical**：未认证 LAN 设备可拿到已授权会话）。
+
+**上真机后被用户抓出 6 个真问题**，全部先取证再改：① 旧 token 不一致被拒 → 最终改成「**接收端不再拦路、手机点一下 + 手机侧配对卡即同意**，错误证明仍拒绝」（品类做法；lesson 162/164）；② **手机掉线不重连**（初版重试循环「一有拨号在飞就退出」= 只拨一次；lesson 165）；③ **触控板光标跳左上角**（joystick 光标从 (0,0) 起步，改为会话开始从系统光标播种；lesson 166）；④ 「释放此 iPhone」空操作（只清了已失效的 `current`）；⑤ Mac 侧「断开要点两次」（Mac 主动断开前发 `sessionReply{off}`，手机据此不再重连）；⑥ `accessibility trusted:false`——**18 条陈旧 TCC 记录**（反复开发重装堆出来的，lesson 163）。删除做成**每行常驻红垃圾桶** + Edit + 左滑 + 长按。
+
+**Windows 端**四项（读首帧分流 / `rc-net` 服务端握手 token=nil / 对 `supportsPhoneInitiated` 停自动重拨 / accepted socket 的 `IP_UNICAST_IF`）已实现（`cff9eb6`/`ac09d40`），host 测试 326 + `x86_64-pc-windows-gnu` clippy 干净，**真机未验**（`docs/HANDOFF-WINDOWS-PHONE-INITIATED.md` §4）。
+
+**发布**：iOS **TestFlight build `2026100901`**（**版本仍 1.0**，不动审核中的版本号）+ 公共链接 `testflight.apple.com/join/6VNNHAyx`（官网 hero 已有该按钮并在线）；Mac **1.0.1（build 13）**公证 DMG + **Sparkle appcast v13** 上线，`/Applications` 已换公证版。真机 e2e：`e2e-current-computer.sh` **27/0**（多 Mac A↔B→A 切换 0.05/0.06/0.17s、零 busy）、新的 `scripts/e2e-mic.sh` **通过**（600 包 / rms=793，真实非静音）、`e2e-device.sh` **25/0 + 2 skip**。Lessons 162–168（含 168：一次发布要两个互相冲突的网络方向）。
 
 ---
 

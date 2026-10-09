@@ -925,3 +925,13 @@ when two properties are set, do not assume the more obvious one is in charge.
     教训不是「别改那个 guard」，而是：**当一个模块的注释已经把正确做法写清楚时，
     先 grep 它的每个调用点有没有照做**——正确性常常已经在注释里，只是调用点没跟上。
     （同类：SpeakerPlayer 的注释也要求先 `BackgroundKeepAlive.stop()`。）
+
+165. **一个「一有拨号在飞就退出」的重试循环，其实只会拨一次。**
+    「掉线自动重拨」我第一版写成：`while !cancelled { sleep; guard 没有在飞的连接
+    else { return }; dial }`。可是 `dial` 会立刻把 `outboundConnection` 置上，于是
+    下一次循环的 guard 直接 `return` —— 循环结束。若那第一拨在电脑还没回来时落地，
+    就再也不重试了，链路永远回不来（真机：kill Mac 后手机只拨一次就放弃）。
+    **修法**：循环里**只在空闲时才拨**（`if outboundConnection == nil …` 才 call dial），
+    然后用 `sleep` 把循环留着，直到 `connection != nil`（连上）或用户主动断开。
+    真机验证：kill Mac → 手机日志连续 `[reconnect] redialing` → Mac 重启后
+    `adopting inbound session` 计数回到 2。**判据是「直到连上」，不是「拨过一次」。**

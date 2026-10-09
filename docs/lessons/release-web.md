@@ -117,3 +117,13 @@ so a cross-reference from another lesson still resolves.
     forget; it blocked uploads on its own). Also: `ExportOptions.plist` must
     be `method: app-store-connect`; a leftover `debugging` produces a
     dev-signed IPA that ASC rejects with `90161 Invalid Provisioning Profile`.
+
+168. **一次发布需要两个互相冲突的网络方向。** Mac 公证（`codesign --timestamp` +
+    `notarytool`）要通 **`timestamp.apple.com`**（在本机常规代理模式下被 `000` 挡掉，
+    必须把 mihomo 切 `global`）；而把产物发到 VPS（`root@158.247.219.230`）走 **SSH:22**，
+    在 `global` 模式下又会被代理吞掉 SSH 的 banner（`nc` 显示 22 端口能连、但
+    `Connection timed out during banner exchange`）。**一次发布要按方向分段**：
+    先在 `global` 下完成**所有 Apple 公证 + ASC 上传**，**再切回常规模式**做
+    VPS 部署（`~/VGOAPP/scripts/deploy.sh`，SSH key `~/MDDock/certs/mddock-vps-root`）。
+    判据不是「网络通」，而是**哪一个方向**通——ASC API（`api.appstoreconnect.apple.com`）
+    和 TSA（`timestamp.apple.com`）就不是同一条规则。
