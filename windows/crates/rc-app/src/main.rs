@@ -428,32 +428,93 @@ fn confirm(question: &str) -> bool {
     answer == IDYES
 }
 
-/// How long to ignore knocks after acting on one.
+/// How long an inbound connection may take to send its first frame before it is
+/// treated as a knock.
 ///
-/// The alternative to a floor is a receiver that can be made to re-dial in a
-/// loop by anything on the LAN, which is a denial of service against the user's
-/// own session. Two seconds is far below the time it takes a person to tap a
-/// computer twice and far above anything a flood can do.
+/// A knock is "connect, hang up, say nothing", so the wait has to be bounded.
+/// 500 ms mirrors the Mac receiver (`beginInboundFirstFrameRead`): a phone that
+/// sends `phoneHello` does so immediately, and a LAN RTT is microseconds.
+#[cfg(windows)]
+const INBOUND_FIRST_FRAME_BUDGET: Duration = Duration::from_millis(500);
+
+/// How long to ignore *knocks* after acting on one.
+///
+/// Applies only to the no-frame path now. A real `phoneHello` is a data path,
+/// not a knock: rate-limiting it would make "tap to connect" fail at random
+/// under rapid taps, so the handshake branch is gated only by "one session at a
+/// time". The floor still stops a flood of knocks from driving a re-dial loop —
+/// a denial of service against the user's own session — and two seconds is far
+/// below the time it takes a person to tap a computer twice.
 #[cfg(windows)]
 const KNOCK_MIN_INTERVAL: Duration = Duration::from_secs(2);
 
-/// Listen on the knock port: an inbound connection means "dial me back now".
+/// Read a single length-prefixed frame from `stream`, giving up after `budget`.
 ///
-/// The phone is the TCP server, so it cannot open the data socket — tapping a
-/// computer on the phone used to mean waiting for that computer's own retry
-/// poll. A knock closes that gap without changing the session at all: the phone
-/// connects to this port, hangs up, and the receiver dials it immediately. No
-/// handshake happens here, no bytes are exchanged; **the connection itself is
-/// the message**.
+/// Returns `None` on a timeout, EOF, read error, or a partial frame the peer
+/// never completes — all of which mean "this was a knock".
+#[cfg(windows)]
+async fn read_first_inbound_frame(
+    stream: &mut tokio::net::TcpStream,
+    budget: Duration,
+) -> Option<rc_protocol::Frame> {
+    use tokio::io::AsyncReadExt;
+
+    let mut parser = rc_protocol::Parser::new();
+    let mut buf = [0u8; 16 * 1024];
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        match tokio::time::timeout_at(deadline, stream.read(&mut buf)).await {
+            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => return None,
+            Ok(Ok(n)) => {
+                if let Some(frame) = parser.append(&buf[..n]).into_iter().next() {
+                    return Some(frame);
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+/// Answer a phone that dialed while another phone owns the session: a bare
+/// `sessionReply{busy}` and close. The live connection is never touched — an
+/// unauthenticated LAN peer must not be able to displace it.
+#[cfg(windows)]
+async fn send_busy_and_close(mut stream: tokio::net::TcpStream, owner_name: Option<String>) {
+    use tokio::io::AsyncWriteExt;
+
+    let reply = rc_protocol::SessionReply {
+        result: rc_protocol::SessionReplyResult::Busy,
+        owner_name,
+        token: None,
+        nonce: None,
+        mac: None,
+        capabilities: None,
+    };
+    if let Ok(frame) = rc_protocol::encode_session_reply(&reply) {
+        let _ = stream.write_all(&frame).await;
+        let _ = stream.flush().await;
+    }
+    drop(stream);
+}
+
+/// Listen on the presence/knock port and decide what each connection is.
 ///
-/// Two guards, and neither needs the knock to be authenticated — a knock cannot
-/// do anything except ask for a dial the receiver would have made anyway:
+/// An old phone "knocks" (connect, drop, no frame) and the receiver dials it
+/// back. A phone that initiates a session instead sends `phoneHello` as its
+/// first frame, naming the computer it wants; the receiver then runs the
+/// server-side handshake on that same socket (`rc_net`'s `start_inbound`). Both
+/// share port 8766, which is why the first frame is the only thing that
+/// distinguishes them.
 ///
-/// * ignored while already streaming, so a knock cannot tear down a live
-///   session (the phone knocking is usually the phone that is already here);
-/// * rate-limited, so a flood costs a reconnect rather than a loop of them.
+/// The classification is the pure [`rc_net::inbound::classify_inbound`]; this
+/// function only reads the frame and acts on the verdict.
 #[cfg(windows)]
 fn spawn_knock_listener(session: rc_net::Session) {
+    use rc_net::inbound::{classify_inbound, InboundDecision};
+    use rc_protocol::Kind;
+
     tokio::spawn(async move {
         let listener =
             match tokio::net::TcpListener::bind(("0.0.0.0", rc_discovery::KNOCK_PORT)).await {
@@ -475,20 +536,89 @@ fn spawn_knock_listener(session: rc_net::Session) {
             rc_discovery::KNOCK_PORT
         );
 
+        let (pc_id, _) = rc_net::Session::pc_identity();
         let state = session.state();
         let mut last_acted = std::time::Instant::now() - KNOCK_MIN_INTERVAL;
         loop {
-            let Ok((stream, peer)) = listener.accept().await else {
+            let Ok((mut stream, peer)) = listener.accept().await else {
                 // A failed accept on a bound listener is transient (EMFILE and
                 // friends); dropping the listener over it would take the feature
                 // away for the rest of the run.
                 tokio::time::sleep(Duration::from_millis(200)).await;
                 continue;
             };
-            // Nothing is read and nothing is written: closing immediately is the
-            // contract, and it also means a caller cannot make us wait.
-            drop(stream);
 
+            // Pin the accepted socket's egress to the physical NIC that shares
+            // the phone's subnet, when there is one: under a TUN proxy the route
+            // back to the phone would otherwise enter the tunnel, so the reply
+            // handshake dies even though the accept succeeded. Best-effort — a
+            // refusal just leaves the ordinary route (no worse than before).
+            if let std::net::IpAddr::V4(ip) = peer.ip() {
+                if let Some(adapter) = rc_discovery::pick_lan_adapter(&rc_discovery::adapters(), ip)
+                {
+                    rc_discovery::pin_unicast_interface(&stream, adapter.index);
+                }
+            }
+
+            let first = read_first_inbound_frame(&mut stream, INBOUND_FIRST_FRAME_BUDGET).await;
+
+            if let Some(frame) = &first {
+                if frame.kind == Kind::PhoneHello {
+                    if let Ok(hello) = rc_protocol::decode_phone_hello(frame) {
+                        // The owner is only a phone id when the session is a
+                        // phone-initiated one; an outbound session has no id, and
+                        // the classifier lets the dialing phone win over it.
+                        let owner = match &*state.borrow() {
+                            rc_net::State::Streaming { .. } | rc_net::State::Busy { .. } => {
+                                session.owner_phone_id()
+                            }
+                            _ => None,
+                        };
+                        match classify_inbound(
+                            Some(Kind::PhoneHello),
+                            Some(&hello.target_pc_id),
+                            &pc_id,
+                            owner.as_deref(),
+                            Some(&hello.phone_id),
+                        ) {
+                            InboundDecision::Data => {
+                                println!(
+                                    "[knock] {peer} phoneHello for this PC — beginning server handshake"
+                                );
+                                // The phone sends `phoneHello` alone and waits for
+                                // `clientHello`, so no trailing frames are expected
+                                // to be dropped here.
+                                session.accept_inbound(stream, hello);
+                                continue;
+                            }
+                            InboundDecision::Busy => {
+                                let owner_name = match &*state.borrow() {
+                                    rc_net::State::Streaming { name, .. } => Some(name.clone()),
+                                    rc_net::State::Busy { owner } => Some(owner.clone()),
+                                    _ => None,
+                                };
+                                println!(
+                                    "[knock] {peer} phoneHello while another phone owns the session — replying busy"
+                                );
+                                send_busy_and_close(stream, owner_name).await;
+                                continue;
+                            }
+                            InboundDecision::Foreign => {
+                                println!(
+                                    "[knock] {peer} phoneHello for a different PC — ignored"
+                                );
+                                drop(stream);
+                                continue;
+                            }
+                            InboundDecision::Knock => {}
+                        }
+                    }
+                }
+            }
+
+            // No phoneHello: EOF, timeout, or a kind that is not a hello. This
+            // is the legacy knock — the receiver dials back.
+            drop(stream);
             if matches!(*state.borrow(), rc_net::State::Streaming { .. }) {
                 println!("[knock] {peer} knocked while already streaming — ignored");
                 continue;

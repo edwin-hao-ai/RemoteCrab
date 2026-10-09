@@ -14,7 +14,8 @@ use rc_discovery::{DiscoveredPhone, DiscoveryEvent};
 use rc_protocol::{
     decode_session_reply, encode_camera_command, encode_client_hello, encode_client_proof,
     encode_feature_control, encode_ping, ClientHello, ClientProof, FeatureControl,
-    FeatureStateSnapshot, Frame, Kind, Parser, SessionReply, SessionReplyResult, StreamMetadata,
+    FeatureStateSnapshot, Frame, Kind, Parser, PhoneHello, SessionReply, SessionReplyResult,
+    StreamMetadata,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -48,6 +49,7 @@ pub(crate) async fn supervisor(
     events_tx: broadcast::Sender<Event>,
     state_tx: watch::Sender<State>,
     health_tx: watch::Sender<Health>,
+    owner_phone_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 ) {
     let mut tokens = TokenStore::load(config.token_path.clone());
     let mut discovered: Vec<DiscoveredPhone> = Vec::new();
@@ -256,6 +258,7 @@ pub(crate) async fn supervisor(
                 suppress_auto = true;
                 explicit_disconnect = true;
                 reconnect_at = None;
+                *owner_phone_id.lock().unwrap() = None;
                 set_state(&state_tx, &events_tx, State::Searching);
             }
             Action::Cmd(Command::Retry) => {
@@ -306,6 +309,29 @@ pub(crate) async fn supervisor(
                 tokens.forget(&name);
                 tokens.forget_addresses_for(&name);
             }
+            Action::Cmd(Command::AcceptInbound { stream, hello }) => {
+                // Reached only when the listener's classifier said `data`: no
+                // owner, the same owner reconnecting, or a name-only owner (an
+                // outbound session, which the phone's dial wins over by design).
+                // Replacing `active` here is safe — it drops the old conn task's
+                // `outbound_rx`, so the old task ends without a `ConnMsg::End`
+                // reaching this new session (its `msg_rx` was replaced too).
+                explicit_disconnect = false;
+                reconnect_at = None;
+                start_inbound(
+                    &config,
+                    &mut tokens,
+                    &events_tx,
+                    &state_tx,
+                    &mut active,
+                    &mut conn_rx,
+                    &mut conn_keepalive,
+                    &mut target,
+                    stream,
+                    hello,
+                    &owner_phone_id,
+                );
+            }
             Action::Cmd(Command::SendFrame(frame)) => {
                 if let Some(conn) = &active {
                     let _ = conn.outbound_tx.send(frame);
@@ -316,29 +342,54 @@ pub(crate) async fn supervisor(
                 port,
                 token,
                 key,
+                phone_id,
+                service_name,
 }) => {
-                  tokens.remember_endpoint(&host, port);
-                  last_endpoint = Some(format!("{host}:{port}"));
-                  // The handshake completed, so this connection *did* stream.
-                  // `ConnMsg::End` arrives with no such news, and by then the
-                  // state has been cleared — so this is the only place the
-                  // supervisor can learn "it dropped" as opposed to "it never
-                  // answered". Those need different words and different user
-                  // actions, and one message for both is how you end up telling
-                  // someone to check their WiFi when the phone was never there.
-                  ever_streamed.store(true, std::sync::atomic::Ordering::Relaxed);
-                if let Some(token) = token {
-                    if !key.is_empty() && !token.is_empty() {
-                        tokens.set_token(&key, &token);
-                        // `metadata` may have been processed before this
-                        // message (different channel, `select!` order), in
-                        // which case the rekey above had no token to move yet.
-                        settle_token_key(&mut tokens, &learned_name, &key);
+                last_endpoint = Some(format!("{host}:{port}"));
+                // The handshake completed, so this connection *did* stream.
+                // `ConnMsg::End` arrives with no such news, and by then the
+                // state has been cleared — so this is the only place the
+                // supervisor can learn "it dropped" as opposed to "it never
+                // answered". Those need different words and different user
+                // actions, and one message for both is how you end up telling
+                // someone to check their WiFi when the phone was never there.
+                ever_streamed.store(true, std::sync::atomic::Ordering::Relaxed);
+                if let Some(pid) = phone_id {
+                    // Phone-initiated: key the durable identity by the stable
+                    // id, mirror it into the name store so the settings list and
+                    // the legacy outbound path still see the phone, and mark it
+                    // as one that dials itself so we never dial it back. The
+                    // peer endpoint is deliberately NOT persisted: it is the
+                    // phone's *ephemeral* source port, useless as a dial-back.
+                    if let Some(sn) = &service_name {
+                        tokens.set_phone_id_for_name(sn, &pid);
+                    }
+                    if let Some(tok) = token {
+                        if !tok.is_empty() {
+                            tokens.set_token_for_phone_id(&pid, &tok);
+                            if let Some(sn) = &service_name {
+                                tokens.set_token(sn, &tok);
+                            }
+                        }
+                    }
+                    tokens.mark_phone_initiated(&pid);
+                    *owner_phone_id.lock().unwrap() = Some(pid);
+                } else {
+                    tokens.remember_endpoint(&host, port);
+                    if let Some(token) = token {
+                        if !key.is_empty() && !token.is_empty() {
+                            tokens.set_token(&key, &token);
+                            // `metadata` may have been processed before this
+                            // message (different channel, `select!` order), in
+                            // which case the rekey above had no token to move yet.
+                            settle_token_key(&mut tokens, &learned_name, &key);
+                        }
                     }
                 }
             }
             Action::Conn(ConnMsg::End(kind)) => {
                 active = None;
+                *owner_phone_id.lock().unwrap() = None;
                 // Read before clearing: this branch needs to know whether the
                 // connection that just ended had reached `Streaming`.
                 let reason = if ever_streamed.load(std::sync::atomic::Ordering::Relaxed) {
@@ -600,10 +651,19 @@ pub(crate) fn maybe_autoconnect(
     }
     // Prefer a paired phone; otherwise dial the first discovered one — the
     // iPhone gates access itself (accepted/pending/busy).
+    //
+    // A phone that dials this receiver itself is skipped entirely: it is the
+    // initiator now, and dialing it would race a connection it is already
+    // making. Legacy phones (never sent a `phoneHello`, so never marked) keep
+    // the old auto-dial — an old iOS build under review must not be stranded.
     let chosen = discovered
         .iter()
-        .find(|p| tokens.token_for(&p.name).is_some())
-        .or_else(|| discovered.first())
+        .find(|p| tokens.token_for(&p.name).is_some() && !tokens.is_phone_initiated_name(&p.name))
+        .or_else(|| {
+            discovered
+                .iter()
+                .find(|p| !tokens.is_phone_initiated_name(&p.name))
+        })
         .cloned();
     if let Some(phone) = chosen {
         start_connection(
@@ -682,6 +742,93 @@ let state_tx = state_tx.clone();
           )
           .await;
           let _ = msg_tx.send(ConnMsg::End(kind));
+    });
+}
+
+/// The Bonjour service name an iPhone publishes, from the device name its
+/// `phoneHello` carries.
+///
+/// Mirrors `CaptureEngine.defaultServiceName()` and the Mac's
+/// `bonjourServiceName(deviceName:)`. The legacy name-keyed token store is keyed
+/// by this, and an inbound hello carries only the device name — so it must be
+/// reconstructed to look up / mirror a token and to match a discovered phone to
+/// its phone-initiated flag.
+pub(crate) fn bonjour_service_name(device_name: &str) -> String {
+    format!("RemoteCrab — {device_name}")
+}
+
+/// Start the server-side handshake on an accepted phone-initiated connection.
+///
+/// The token is looked up by the phone's stable id (falling back once to the
+/// legacy name key and backfilling), because the phone presents no token of its
+/// own: identity is proven by the HMAC challenge on the accepted socket. The
+/// supervisor resolves it here so it remains the store's only writer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn start_inbound(
+    config: &Config,
+    tokens: &mut TokenStore,
+    events_tx: &broadcast::Sender<Event>,
+    state_tx: &watch::Sender<State>,
+    active: &mut Option<ActiveConn>,
+    conn_rx: &mut mpsc::UnboundedReceiver<ConnMsg>,
+    conn_keepalive: &mut Option<mpsc::UnboundedSender<ConnMsg>>,
+    _current: &mut Option<Target>,
+    stream: TcpStream,
+    hello: PhoneHello,
+    owner_phone_id: &std::sync::Arc<std::sync::Mutex<Option<String>>>,
+) {
+    // The receiver never dials a phone-initiated phone back, so there is no
+    // `Target` to retry: the phone re-dials. `End(Lost)` therefore schedules a
+    // reconnect the `Reconnect` arm turns into a no-op, which is intended.
+    *_current = None;
+
+    let service_name = bonjour_service_name(&hello.phone_name);
+    let token = tokens.token_for_phone_id(&hello.phone_id, &service_name);
+    let pc_id = tokens.pc_id().to_string();
+    let pc_name = tokens.pc_name().to_string();
+
+    set_state(
+        state_tx,
+        events_tx,
+        State::Connecting {
+            name: hello.phone_name.clone(),
+        },
+    );
+
+    let (msg_tx, msg_rx) = mpsc::unbounded_channel::<ConnMsg>();
+    *conn_rx = msg_rx;
+    *conn_keepalive = Some(msg_tx.clone());
+
+    let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    *active = Some(ActiveConn {
+        outbound_tx: out_tx,
+    });
+
+    // The owner is recorded only when the phone is accepted (in the
+    // `ConnMsg::Accepted` handler), so a second dial during the handshake is not
+    // wrongly answered `busy`. Clearing here keeps a previous session's owner
+    // from leaking into this attempt.
+    *owner_phone_id.lock().unwrap() = None;
+
+    let config = config.clone();
+    let events_tx = events_tx.clone();
+    let state_tx = state_tx.clone();
+
+    tokio::spawn(async move {
+        let kind = run_server_session(
+            config,
+            hello,
+            stream,
+            token,
+            pc_id,
+            pc_name,
+            out_rx,
+            &events_tx,
+            &state_tx,
+            &msg_tx,
+        )
+        .await;
+        let _ = msg_tx.send(ConnMsg::End(kind));
     });
 }
 
@@ -807,11 +954,11 @@ pub(crate) async fn run_connection(
     token_key: String,
     pc_id: String,
     pc_name: String,
-    mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
-events_tx: &broadcast::Sender<Event>,
-      state_tx: &watch::Sender<State>,
-      msg_tx: &mpsc::UnboundedSender<ConnMsg>,
-  ) -> ConnEndKind {
+    outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    events_tx: &broadcast::Sender<Event>,
+    state_tx: &watch::Sender<State>,
+    msg_tx: &mpsc::UnboundedSender<ConnMsg>,
+) -> ConnEndKind {
     let name = target.name();
     let Some((host, port)) = target.host_port() else {
         // No resolved address yet (mDNS still resolving) — retry shortly.
@@ -823,8 +970,106 @@ events_tx: &broadcast::Sender<Event>,
         Ok(Ok(s)) => s,
         _ => return ConnEndKind::Lost,
     };
-    let (mut read_half, mut write_half) = stream.into_split();
+    let (read_half, write_half) = stream.into_split();
 
+    // The outbound path presents its stored token in the hello AND uses it to
+    // verify the phone's challenge; there is no phone id (a name is all we have).
+    run_session(
+        config,
+        host,
+        port,
+        name,
+        read_half,
+        write_half,
+        token.clone(),
+        token,
+        token_key,
+        None,
+        None,
+        pc_id,
+        pc_name,
+        outbound_rx,
+        events_tx,
+        state_tx,
+        msg_tx,
+    )
+    .await
+}
+
+/// Run the receiver-side handshake with this machine as the **server**, on a
+/// socket the phone dialed.
+///
+/// Protocol roles do not reverse: the receiver still sends `clientHello` and the
+/// phone still answers `sessionReply`. The differences from [`run_connection`]
+/// are exactly two, and both are the design (spec §4.2/§9):
+///
+/// * the `clientHello` carries **no token** — the phone dialed us, so the token
+///   travels nowhere and identity is proven only by the HMAC challenge; and
+/// * the challenge is keyed by the token resolved from the phone's stable id.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_server_session(
+    config: Config,
+    hello: PhoneHello,
+    stream: TcpStream,
+    token: Option<String>,
+    pc_id: String,
+    pc_name: String,
+    outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    events_tx: &broadcast::Sender<Event>,
+    state_tx: &watch::Sender<State>,
+    msg_tx: &mpsc::UnboundedSender<ConnMsg>,
+) -> ConnEndKind {
+    let service_name = bonjour_service_name(&hello.phone_name);
+    let name = hello.phone_name.clone();
+    let phone_id = hello.phone_id.clone();
+    let (host, port) = match stream.peer_addr() {
+        Ok(addr) => (addr.ip().to_string(), addr.port()),
+        Err(_) => (String::new(), 0),
+    };
+    let (read_half, write_half) = stream.into_split();
+
+    run_session(
+        config,
+        host,
+        port,
+        name,
+        read_half,
+        write_half,
+        None, // phone-initiated: never present a secret the phone did not ask for
+        token,
+        phone_id.clone(),
+        Some(phone_id),
+        Some(service_name),
+        pc_id,
+        pc_name,
+        outbound_rx,
+        events_tx,
+        state_tx,
+        msg_tx,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_session(
+    config: Config,
+    host: String,
+    port: u16,
+    name: String,
+    mut read_half: tokio::net::tcp::OwnedReadHalf,
+    mut write_half: tokio::net::tcp::OwnedWriteHalf,
+    hello_token: Option<String>,
+    challenge_token: Option<String>,
+    token_key: String,
+    phone_id: Option<String>,
+    service_name: Option<String>,
+    pc_id: String,
+    pc_name: String,
+    mut outbound_rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    events_tx: &broadcast::Sender<Event>,
+    state_tx: &watch::Sender<State>,
+    msg_tx: &mpsc::UnboundedSender<ConnMsg>,
+) -> ConnEndKind {
     // --- Handshake: clientHello → sessionReply --------------------------
     set_state(
         state_tx,
@@ -837,13 +1082,13 @@ events_tx: &broadcast::Sender<Event>,
     let client_nonce = crate::peer_auth::new_nonce();
     // Kept: the hello takes ownership of the token, and the challenge needs it
     // afterwards to check what the phone sends back.
-    let stored_token = token.clone();
+    let stored_token = challenge_token.clone();
 
     let hello = ClientHello {
         name: pc_name,
         // Cloned: the challenge below needs the id after the hello has taken it.
         id: pc_id.clone(),
-        token,
+        token: hello_token,
         nonce: Some(client_nonce.clone()),
         app_version: config.app_version.clone(),
         platform: Some("windows".to_string()),
@@ -1059,6 +1304,8 @@ events_tx: &broadcast::Sender<Event>,
         port,
         token: accepted_token,
         key: token_key,
+        phone_id,
+        service_name,
     });
     set_state(
         state_tx,

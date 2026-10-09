@@ -11,6 +11,7 @@
 
 pub mod dispatch;
 pub mod firstrun;
+pub mod inbound;
 pub mod notify;
 // Re-exported rather than defined here: the MAC is part of the wire contract the
 // iOS side has to reproduce byte for byte, so it lives next to the messages that
@@ -219,6 +220,14 @@ pub struct Session {
     events_tx: broadcast::Sender<Event>,
     state_rx: watch::Receiver<State>,
     health_rx: watch::Receiver<Health>,
+    /// The phone id that owns the live session, when it is known.
+    ///
+    /// Shared with the supervisor, which is the only writer. It exists so the
+    /// presence listener (another task) can tell "the owner is reconnecting"
+    /// from "a second phone is dialing" and answer `busy` only for the latter.
+    /// `None` also means a session this receiver dialed (no phone id recorded),
+    /// which the classifier deliberately lets the phone win.
+    owner_phone_id: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl Session {
@@ -256,6 +265,7 @@ impl Session {
         let (events_tx, _) = broadcast::channel(1024);
         let (state_tx, state_rx) = watch::channel(State::Searching);
         let (health_tx, health_rx) = watch::channel(Health::default());
+        let owner_phone_id = std::sync::Arc::new(std::sync::Mutex::new(None));
 
         tokio::spawn(supervisor::supervisor(
             config,
@@ -263,6 +273,7 @@ impl Session {
             events_tx.clone(),
             state_tx,
             health_tx,
+            owner_phone_id.clone(),
         ));
 
         Session {
@@ -270,7 +281,26 @@ impl Session {
             events_tx,
             state_rx,
             health_rx,
+            owner_phone_id,
         }
+    }
+
+    /// The phone id that owns the live session, or `None` when it is idle or the
+    /// owner is known only by name. Read by the presence listener to classify an
+    /// inbound `phoneHello`.
+    pub fn owner_phone_id(&self) -> Option<String> {
+        self.owner_phone_id.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Hand an accepted, phone-initiated connection to the session.
+    ///
+    /// The caller has already read the first frame (`phoneHello`) off `stream`
+    /// and decided (via [`inbound::classify_inbound`]) that this receiver should
+    /// serve it. The supervisor runs the server-side handshake on it — protocol
+    /// roles do not reverse, so the session still sends `clientHello` and the
+    /// phone still answers `sessionReply`.
+    pub fn accept_inbound(&self, stream: tokio::net::TcpStream, hello: rc_protocol::PhoneHello) {
+        let _ = self.cmd_tx.send(Command::AcceptInbound { stream, hello });
     }
 
     /// What the receiver currently knows and has already tried. Cheap: no
@@ -341,6 +371,15 @@ pub(crate) enum Command {
     /// be silently overwritten by the supervisor's next save, and the user
     /// would watch the phone reappear in the list.
     ForgetPhone(String),
+    /// A phone dialed us and sent `phoneHello`; run the server-side handshake.
+    ///
+    /// A command for the same reason as [`Command::ForgetPhone`]: the stream
+    /// must be driven by the supervisor, which owns the one live connection and
+    /// the token store.
+    AcceptInbound {
+        stream: tokio::net::TcpStream,
+        hello: rc_protocol::PhoneHello,
+    },
 }
 
 #[derive(Debug)]
@@ -361,6 +400,14 @@ pub(crate) enum ConnMsg {
         /// The token key this connection resolved to, captured at spawn time
         /// so it can never disagree with the token it travels with.
         key: String,
+        /// The phone's stable id, when this was a phone-initiated session. Its
+        /// presence is what marks the phone `supportsPhoneInitiated` and keys
+        /// the persisted token by id. `None` on the outbound path.
+        phone_id: Option<String>,
+        /// The Bonjour service name derived from the hello's device name, so the
+        /// inbound token can be mirrored into the legacy name-keyed store and
+        /// `maybe_autoconnect` can match a discovered phone to its flag.
+        service_name: Option<String>,
     },
     End(ConnEndKind),
 }

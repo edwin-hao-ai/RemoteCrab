@@ -491,21 +491,52 @@ pub async fn connect_bound(host: &str, port: u16) -> std::io::Result<TcpStream> 
 #[cfg(windows)]
 fn force_unicast_interface(socket: &tokio::net::TcpSocket, ifindex: u32) {
     use std::os::windows::io::AsRawSocket;
-    use windows::Win32::Networking::WinSock::{setsockopt, IPPROTO_IP, IP_UNICAST_IF, SOCKET};
 
-    let bytes = ifindex.to_be_bytes();
-    let raw = SOCKET(socket.as_raw_socket() as usize);
-    // SAFETY: `raw` is a live socket owned by `socket`; `bytes` outlives the
-    // call and `setsockopt` only reads it.
-    unsafe {
-        let _ = setsockopt(raw, IPPROTO_IP.0, IP_UNICAST_IF, Some(&bytes));
+    let _ = force_unicast_interface_raw(socket.as_raw_socket(), ifindex);
+}
+
+/// Pin an **already-connected** socket's egress to a physical interface.
+///
+/// The inbound twin of the outbound pin. The phone now dials the receiver, so
+/// the listener accepts on `0.0.0.0:8766`, but under a TUN `auto-route` the
+/// *reply* to that accepted socket can still be routed into the tunnel even
+/// though the accept succeeded — which from outside reads as "the listener saw
+/// the connection and the handshake still failed". Best-effort by design: a
+/// refused option leaves the socket on the ordinary route, no worse than before
+/// (spec §8.3(4)).
+#[cfg(windows)]
+pub fn pin_unicast_interface(stream: &TcpStream, ifindex: u32) {
+    use std::os::windows::io::AsRawSocket;
+
+    if !force_unicast_interface_raw(stream.as_raw_socket(), ifindex) {
+        // Reported rather than silent: this is the one place a user could be
+        // asked to send a log for "the phone dialed in and the handshake failed
+        // anyway". The session still runs on the ordinary route.
+        eprintln!("[net] could not pin inbound socket to interface {ifindex} — using the default route");
     }
 }
+
+/// Off Windows there is no adapter table and no `IP_UNICAST_IF`; the plain
+/// socket is the whole behaviour.
+#[cfg(not(windows))]
+pub fn pin_unicast_interface(_stream: &TcpStream, _ifindex: u32) {}
 
 /// Off Windows there is no adapter table (`adapters()` is empty) and no
 /// `IP_UNICAST_IF`; the caller's plain bound connect is the whole behaviour.
 #[cfg(not(windows))]
 fn force_unicast_interface(_socket: &tokio::net::TcpSocket, _ifindex: u32) {}
+
+/// `true` when the option was accepted.
+#[cfg(windows)]
+fn force_unicast_interface_raw(raw_socket: std::os::windows::io::RawSocket, ifindex: u32) -> bool {
+    use windows::Win32::Networking::WinSock::{setsockopt, IPPROTO_IP, IP_UNICAST_IF, SOCKET};
+
+    let bytes = ifindex.to_be_bytes();
+    let raw = SOCKET(raw_socket as usize);
+    // SAFETY: `raw` is a live socket; `bytes` outlives the call and `setsockopt`
+    // only reads it. The call returns a WinSock error code; 0 is success.
+    unsafe { setsockopt(raw, IPPROTO_IP.0, IP_UNICAST_IF, Some(&bytes)) == 0 }
+}
 
 /// The machine's own IPv4 addresses (excluding loopback + link-local).
 ///

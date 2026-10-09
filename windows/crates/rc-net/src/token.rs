@@ -42,6 +42,32 @@ pub struct TokenStoreData {
     /// `phoneNameByIP` (`ReceiverSession.rekeyDirectConnection`).
     #[serde(default)]
     pub phones_by_ip: HashMap<String, String>,
+    /// phone id → pairing token.
+    ///
+    /// The phone-initiated path keys by the phone's stable `phoneId` (the id a
+    /// name cannot provide: two phones can share one, and the user can rename
+    /// theirs). The legacy `tokens` map stays name-keyed so the outbound path is
+    /// untouched; a lookup by id falls back once to the name and backfills here.
+    ///
+    /// ADDITIVE: `#[serde(default)]` is load-bearing — `load` swallows decode
+    /// errors and falls back to `default()`, so a missing default would silently
+    /// wipe every existing pairing (AGENTS.md rule 2).
+    #[serde(default)]
+    pub tokens_by_phone_id: HashMap<String, String>,
+    /// Phone ids that dial this receiver themselves (sent a `phoneHello`).
+    ///
+    /// A `Vec` rather than a `HashSet` so the on-disk JSON is a stable array;
+    /// membership is the only operation. Marked only on an *accepted* session,
+    /// never from the unauthenticated hello itself.
+    #[serde(default)]
+    pub phone_initiated: Vec<String>,
+    /// Bonjour service name → phone id.
+    ///
+    /// Discovery yields a name, not an id, so this is what lets
+    /// `maybe_autoconnect` decide whether a discovered phone is one that dials
+    /// us (and must therefore not be dialed). Mirrors the Mac's `phoneIdByName`.
+    #[serde(default)]
+    pub phone_id_by_name: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,7 +129,84 @@ impl TokenStore {
 
     pub fn forget(&mut self, phone_name: &str) {
         self.data.tokens.remove(phone_name);
+        // Drop the phone-initiated half too. Forgetting only the legacy name key
+        // would leave the phone marked as "dials us itself", so `maybe_autoconnect`
+        // would never dial it again and nothing on either side would say why
+        // (spec §7.4).
+        if let Some(pid) = self.data.phone_id_by_name.remove(phone_name) {
+            self.data.tokens_by_phone_id.remove(&pid);
+            self.data.phone_initiated.retain(|p| p != &pid);
+        }
         self.save();
+    }
+
+    /// Look a token up by the phone's stable id, falling back once to the legacy
+    /// name key and **backfilling** the id entry on a hit.
+    ///
+    /// Mirrors the Mac's `PeerTokenIndex.token(phoneId:name:)`. A phone that
+    /// paired before this field existed has its token under the name only, and
+    /// without the fallback it would be asked to approve this PC all over again.
+    /// `&mut` because the backfill is a write.
+    pub fn token_for_phone_id(&mut self, phone_id: &str, service_name: &str) -> Option<String> {
+        if let Some(t) = self.data.tokens_by_phone_id.get(phone_id) {
+            return Some(t.clone());
+        }
+        let token = self.data.tokens.get(service_name).cloned()?;
+        self.data
+            .tokens_by_phone_id
+            .insert(phone_id.to_string(), token.clone());
+        self.save();
+        Some(token)
+    }
+
+    pub fn set_token_for_phone_id(&mut self, phone_id: &str, token: &str) {
+        self.data
+            .tokens_by_phone_id
+            .insert(phone_id.to_string(), token.to_string());
+        self.save();
+    }
+
+    /// Record that this phone dials the receiver itself, so it is never
+    /// auto-dialed back (spec §6 capability negotiation).
+    pub fn mark_phone_initiated(&mut self, phone_id: &str) {
+        if !self.data.phone_initiated.iter().any(|p| p == phone_id) {
+            self.data.phone_initiated.push(phone_id.to_string());
+            self.save();
+        }
+    }
+
+    pub fn is_phone_initiated(&self, phone_id: &str) -> bool {
+        self.data.phone_initiated.iter().any(|p| p == phone_id)
+    }
+
+    pub fn set_phone_id_for_name(&mut self, service_name: &str, phone_id: &str) {
+        if self.data.phone_id_by_name.get(service_name).map(String::as_str) != Some(phone_id) {
+            self.data
+                .phone_id_by_name
+                .insert(service_name.to_string(), phone_id.to_string());
+            self.save();
+        }
+    }
+
+    pub fn phone_id_for_name(&self, service_name: &str) -> Option<&str> {
+        self.data
+            .phone_id_by_name
+            .get(service_name)
+            .map(String::as_str)
+    }
+
+    /// True when the phone identified by this Bonjour service name dials this
+    /// receiver itself.
+    ///
+    /// mDNS disambiguates a name collision with a `" (2)"` suffix, but the
+    /// identity map is keyed by the base name; normalise before giving up, or a
+    /// collided phone-initiated phone would be dialed by the receiver — the very
+    /// race this path removes.
+    pub fn is_phone_initiated_name(&self, service_name: &str) -> bool {
+        let id = self
+            .phone_id_for_name(service_name)
+            .or_else(|| self.phone_id_for_name(&base_service_name(service_name)));
+        id.is_some_and(|id| self.is_phone_initiated(id))
     }
 
     /// The paired phones, in a stable order.
@@ -362,6 +465,19 @@ fn default_pc_name() -> String {
         .unwrap_or_else(|_| "Windows PC".to_string())
 }
 
+/// Strip the `" (2)"`, `" (3)"` … suffix mDNS appends when two services share an
+/// instance name, so an identity keyed by the base name still matches.
+fn base_service_name(name: &str) -> String {
+    if let Some(idx) = name.rfind(" (") {
+        if let Some(rest) = name[idx + 2..].strip_suffix(')') {
+            if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+                return name[..idx].to_string();
+            }
+        }
+    }
+    name.to_string()
+}
+
 /// The default on-disk location: `%APPDATA%\RemoteCrab\tokens.json`.
 pub fn default_token_path() -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|base| Path::new(&base).join("RemoteCrab").join("tokens.json"))
@@ -434,8 +550,53 @@ mod tests {
         // default that would make the receiver dial a wrong port.
         assert!(store.last_phone_port().is_none());
         assert!(store.name_for_ip("192.168.1.5").is_none());
+        // The phone-initiated additions must default to empty, not fail the
+        // whole decode (which `load` would swallow into a total wipe).
+        assert!(store.phone_id_for_name("RemoteCrab — iPhone").is_none());
+        assert!(!store.is_phone_initiated("any-id"));
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// A token stored by the legacy name key must migrate to the id key on the
+    /// first id lookup, and then be found by id alone.
+    #[test]
+    fn a_name_keyed_token_backfills_into_the_id_table() {
+        let mut store = TokenStore::load(None);
+        store.set_token("RemoteCrab — Dana's iPhone", "tok-1");
+
+        let got = store.token_for_phone_id("phone-uuid", "RemoteCrab — Dana's iPhone");
+        assert_eq!(got.as_deref(), Some("tok-1"), "legacy name hit must migrate");
+        // A second call resolves from the id table even if the name table is gone.
+        store.forget("RemoteCrab — Dana's iPhone");
+        assert_eq!(
+            store
+                .token_for_phone_id("phone-uuid", "RemoteCrab — Dana's iPhone")
+                .as_deref(),
+            Some("tok-1")
+        );
+    }
+
+    /// The discovered name (possibly collision-suffixed) maps to the id that
+    /// carries the phone-initiated flag, and forgetting clears both halves.
+    #[test]
+    fn phone_initiated_lookup_handles_a_collision_suffix_and_forget() {
+        let mut store = TokenStore::load(None);
+        store.set_phone_id_for_name("RemoteCrab — Dana's iPhone", "phone-uuid");
+        store.mark_phone_initiated("phone-uuid");
+
+        assert!(store.is_phone_initiated_name("RemoteCrab — Dana's iPhone"));
+        assert!(
+            store.is_phone_initiated_name("RemoteCrab — Dana's iPhone (2)"),
+            "mDNS disambiguates a collision with a suffix; the identity must still match"
+        );
+        assert!(!store.is_phone_initiated_name("RemoteCrab — Someone else"));
+
+        store.forget("RemoteCrab — Dana's iPhone");
+        assert!(
+            !store.is_phone_initiated_name("RemoteCrab — Dana's iPhone"),
+            "forget must clear the phone-initiated flag too"
+        );
     }
 }
 
