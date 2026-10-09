@@ -237,13 +237,11 @@
 - **影响面**：三端。确认不是有意差异后再动。
 - **验证**：真机切网/切电脑。
 
-### B9. 🟡 部分实现（2026-10-09）—— 原始场景待确认
-- **重要发现**：本 build **启动即 `startStreaming()`**（`CaptureEngine.swift:624-627`，
-  注释 "Advertise + accept the Mac as soon as the app is ready — NOT tied to the
-  camera"），presence 浏览本来就在跑（真机 `[presence] results=1 online=1`，未显式开流）。
-  → 用户报的"首次打开选不了电脑"**可能不是"没浏览"**，需确切首次启动步骤复现，别乱改。
-- **已做（防御性）**：picker 打开时若未开流，调用 `beginPickerBrowsing()`
-  （`endPickerBrowsing` 收尾，开流时 no-op）；加 `REMOTECRAB_E2E_SHEET=picker` 供无头观察。
+### B9. ✅ 非 bug（用户 2026-10-09 澄清：之前 Mac 客户端没开）
+- **结论**：picker 本来就会列出"此网络上的电脑"；之前看不到是因为 **Mac 端客户端没运行**，
+  而不是手机侧的问题。列表空 = 网络上没有在广播 presence 的电脑。
+- **保留的改动（无副作用）**：picker 打开时若未在开流则 `beginPickerBrowsing()`
+  （开流时 no-op）；`REMOTECRAB_E2E_SHEET=picker` 无头钩子。这两条留着无害、便于观察。
 - **现状**：`startComputerBrowser()` 只在 `startStreaming()` 里被调用
   （`CaptureEngine.swift:1022`）；首次打开 app、还没开流时 presence 浏览没跑，
   列表为空 → 用户**只能等电脑主动连**，手机上选不了电脑。体验不好。
