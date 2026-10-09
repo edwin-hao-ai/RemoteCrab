@@ -237,7 +237,13 @@
 - **影响面**：三端。确认不是有意差异后再动。
 - **验证**：真机切网/切电脑。
 
-### B9. 🆕 手机在"未开流/未连接"时也能列出并选择附近电脑（用户 2026-10-09 提出）
+### B9. 🟡 部分实现（2026-10-09）—— 原始场景待确认
+- **重要发现**：本 build **启动即 `startStreaming()`**（`CaptureEngine.swift:624-627`，
+  注释 "Advertise + accept the Mac as soon as the app is ready — NOT tied to the
+  camera"），presence 浏览本来就在跑（真机 `[presence] results=1 online=1`，未显式开流）。
+  → 用户报的"首次打开选不了电脑"**可能不是"没浏览"**，需确切首次启动步骤复现，别乱改。
+- **已做（防御性）**：picker 打开时若未开流，调用 `beginPickerBrowsing()`
+  （`endPickerBrowsing` 收尾，开流时 no-op）；加 `REMOTECRAB_E2E_SHEET=picker` 供无头观察。
 - **现状**：`startComputerBrowser()` 只在 `startStreaming()` 里被调用
   （`CaptureEngine.swift:1022`）；首次打开 app、还没开流时 presence 浏览没跑，
   列表为空 → 用户**只能等电脑主动连**，手机上选不了电脑。体验不好。
@@ -253,7 +259,10 @@
 - **验证**：真机冷启动、未开流时，picker 能列出局域网内开着 Mac/Windows 端的电脑，
   点一下能连上。
 
-### B10. 🆕 忘掉某台电脑后，它应仍能在"扫描到的电脑"里被重新加回（用户 2026-10-09 提出）
+### B10. ✅ 已实现 + 单测（2026-10-09）
+- **改动**：`ComputerRoster.isVisible`（纯函数 + 3 测）——忘掉的电脑只在**离线**时隐藏，
+  **在线**时仍显示（带"未配对"徽标、点一下即 `connect(toComputer:)` 重新添加并 `clearForgotten`）。
+  `refreshOnlineComputers` 不再按 forgotten 过滤，隐藏交给视图。
 - **现状**：iOS 上"忘记当前电脑"后，那台电脑不再显示；要加回来只能从 Mac 端主动连。
 - **期望（用户原话）**：像 iOS 的 WiFi 列表——**"已记录的"**和**"扫描到的"**都要列，
   忘了也能从扫描列表里重新添加。
@@ -467,6 +476,8 @@
 | 2026-10-09 | C1 | 真机测量后台/回前台连续性 | 后台 suspend（main-stall 217318ms）→ 回前台 listener failed 且未重建 → 8765 CLOSED、Bonjour 空 |
 | 2026-10-09 | C1a | 新增 `ForegroundRecoveryPolicy`（纯函数+6 测）并接线，判据从 keep-alive 改为 listener 真实状态 | `test.sh` 全绿；真机验证"健康不动"分支；`.failed→重建`分支未稳定复现（间歇，依赖长 suspend） |
 | 2026-10-09 | B4 证据 | `dns-sd` 实测手机 `_remotecrab._tcp` 同时在 if 21/22/13 广播 | 印证多接口发现/去重问题 |
+| 2026-10-09 | B10 | 忘记的电脑只要在线就仍显示、可重新添加（`ComputerRoster.isVisible` 纯函数+3 测） | `test.sh` 全绿（724 Core + 两 target + Windows） |
+| 2026-10-09 | B9 | 发现"启动即开流+浏览"，故原场景存疑；加防御性 picker 浏览 + `E2E_SHEET=picker` | 真机 `[presence] results=1 online=1`（未显式开流） |
 
 ---
 
