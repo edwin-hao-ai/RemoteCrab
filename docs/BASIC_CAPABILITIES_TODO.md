@@ -76,43 +76,42 @@
 
 ## 2. 工作流 A：4K 的真实性
 
-### A1. ✅/❌ 决定 4K 的对外口径（先决策，再动手）
-- **现状**：4K 只出现在 Mac 预览窗口和录制文件；虚拟摄像头（Zoom/OBS/FaceTime
-  真正消费的）写死 1080p；Windows 解码 ~15fps；链路 16Mbps 天花板。
-  文案（`docs/campaign/*`）已把 4K 当 Pro 卖点。
-- **步骤**：
-  1. 精读 `IBCameraDevice.swift`、`CameraExtensionStream.swift`、
-     `CameraSinkFeeder.swift`、`VideoEncodingPolicy.swift`。
-  2. 决策三选一：**(a) 真做 4K**（A2+A3+A4）／**(b) 降级为"1080p 高清"**／
-     **(c) 4K 只在"录制/预览"口径**。
-  3. 决策写入 §9，并同步 §8 文案条目。
-- **影响面**：只影响对外承诺与优先级，不改代码。
-- **验证**：决策本身。
+### A1. 口径已定（用户 2026-10-09）：4K = **摄像头链路**，投屏/扩展屏不算
+- **用户原话**：4K 指"摄像头传输的画面"（像 Camo），扩展屏/投屏支不支持 4K 不重要。
+- **精读后的真相**：
+  - iOS 采集/编码 4K：**真的**（`.hd4K3840x2160`，`CaptureEngine.swift:1367`）。
+  - **唯一的墙**：Mac 虚拟摄像头对 app **只广告一个 1080p 格式**
+    （`IBCameraDevice.swift:35-36`、`CameraExtensionStream.swift:57-64,100-101`、
+    `CameraSinkStream.swift:77-84,130-131`、`CameraSinkFeeder.swift:151-169`）。
+    Zoom/OBS 拿到的永远是 1080p，所以"4K 摄像头"当前不成立。
+  - **16Mbps 天花板在 iOS 上是惰性的**（`VideoEncodingPolicy.swift:12,37,64`：
+    `Quality` 覆盖 `AverageBitRate`）——**A3「抬天花板」是错的方向，已作废**。
+- **真机实测（2026-10-09，`REMOTECRAB_E2E_RESOLUTION` + `REMOTECRAB_E2E_BITRATE`）**：
+  4K30 编码**真的跑 30fps**（`frames=61`/2s）；开场关键帧 `achieved=42,954 kbps`
+  （远超 `req=16,000`，坐实天花板惰性）。静态画面稳态 ~100kbps（受场景所限）。
 
-### A2. Mac 虚拟摄像头支持多分辨率（若选 a）
-- **现状**：`IBCameraDevice.width/height` 写死 1920×1080；`CameraExtensionStream`
-  只广告一个 BGRA 格式；`CameraSinkFeeder` 的 pool + draw 写死 1080p（aspect-fit）。
-- **步骤**：
-  1. 精读 `RemoteCrabCameraExtension/*` 与 `RemoteCrabReceiver/CameraSinkFeeder.swift`，
-     理清 source/sink 两个 stream、format 广告、pool buffer 的生命周期。
-  2. 设计：按输入分辨率**动态**广告格式（或广告固定 1080p + 允许 4K 源下采样）。
-  3. ⚠️ 精读部署规则（AGENTS.md："改扩展必须 bump `CFBundleVersion` + 重新批准；
-     换签名会打掉 Accessibility/扩展授权"）。
-- **影响面**：相机扩展、系统扩展注册/批准、`release-mac.sh` 签名流程、
-  `CameraSinkFeeder` 的 flow-control（one-in-one-out，`readyToEnqueue` 初始 true）。
-- **验证**：真机在 Zoom/QuickTime 里看到 4K 选项并取到非零像素
-  （参考 CMIO handoff 的像素探针）。
+### A2. Mac 虚拟摄像头支持多分辨率（4K 摄像头）★核心
+- **现状**：source/sink 两个 stream 各只广告一个 1080p BGRA 格式；feeder 的
+  pool + draw 写死 `IBCameraDevice.width/height`（aspect-fit 进 1080p 画布）。
+- **设计（读代码后，2026-10-09）**：
+  1. `IBCameraDevice` 加 `resolutions: [Resolution]`（**index 0 保持 1080p**，新增 4K），
+     保证**默认行为不变**、4K 为可选。
+  2. `CameraExtensionStream` / `CameraSinkStream` 的 `formats` 按 `resolutions` 广告多个；
+     `streamProperties(.streamActiveFormatIndex)` 返回当前索引；`setStreamProperties`
+     记录 app 的选择。
+  3. `CameraSinkFeeder` 按 **active format 的尺寸**建 pool / draw（查不到就退回 1080p）。
+  4. ⚠️ **硬依赖**：改扩展必须 bump `CFBundleVersion`（现 "8"→"9"）+ **用户在系统设置
+     重新批准相机扩展**；**我无法替用户点，也无法在无批准下测**。
+- **影响面**：⚠️ 相机扩展、系统扩展批准、`release-mac.sh` 签名、feeder flow-control。
+  **不能盲改**（现扩展已验证可用；改坏 = 用户相机失效直到再次批准修复）。
+- **验证**：真机在 Zoom/QuickTime 看到 4K 选项并取到非零像素（CMIO 像素探针）。
 
-### A3. 抬 `ceilingBps` 并让 4K30 拿到足够码率（若选 a）
-- **现状**：`ceilingBps = 16_000_000`（`VideoEncodingPolicy.swift:64`），4K30
-  请求 ~37Mbps 被截到 43%。测试
-  `testTheCeilingIsReachableButOnlyByGenuinelyLargeFormats` 钉住它。
-- **步骤**：
-  1. 精读 `VideoEncodingPolicy.swift` + `VideoEncodingPolicyTests.swift`。
-  2. 决定新上限（考虑 HOME WiFi 承载力 + 手机热），并加/改测试。
-  3. 实测 4K30 的**实际**码率（`REMOTECRAB_E2E_BITRATE=1`，见 D2）。
-- **影响面**：带宽、手机发热/降频、Windows 解码压力、家庭路由。
-- **验证**：真机实测码率达到目标，且不触发过热/丢帧。
+### A3. ❌ 作废（2026-10-09）—— 天花板在 iOS 上是惰性的
+- 原以为要抬 `ceilingBps`。精读 `VideoEncodingPolicy.swift:12,37,64` 后确认：
+  iOS 上 `kVTCompressionPropertyKey_Quality` **完全覆盖** `AverageBitRate`，
+  所以 `bitrate()` 的钳制对 iOS 毫无作用（真机也证实：`achieved=42,954` > `req=16,000`）。
+- **真正要测的是 4K 稳态码率**（由 `Quality=0.75` 决定），需要**有细节/运动的场景**；
+  若太占带宽/WiFi 扛不住，才需要**为 4K 单独降 Quality**（这才是 4K 的正确码率旋钮）。
 
 ### A4. Windows 4K 解码的"设备相关性"测量矩阵
 - **现状**：单机实测 ~15fps，瓶颈=OpenH264 软件解码 + `to_bgra`。
@@ -441,27 +440,35 @@
 
 ## 8. 工作流 G：Apple Pencil（重要卖点）
 
-### G1. Pencil 支持审计 + 设计
-- **现状**：❌ 无 `UITouch.TouchType`/`allowedTouchTypes`/pressure/azimuth；
-  `TouchSurface.swift:528` 用 `majorRadius` 做 force-click 启发——Pencil 的
-  `majorRadius` 语义不同，会被误判。
-- **步骤**：
-  1. 精读 `RemoteCrabCapture/Input/TouchSurface.swift` 全部触摸处理，
-     以及 iOS 输入编码 `TouchEvent`（`IBEvents.swift`）与 Mac 注入
-     `CGEventInjector`。
-  2. 决策：Pencil 用来做什么？
-     - 当**精确指针**（映射到 Mac 光标，压感可选映射为压力/绘图）？
-     - 在**投屏**上做**批注/绘画**（PencilKit）？
-     - 与触控板手势如何区分（Pencil vs 手指）？
-  3. 设计事件扩展（wire 新字段必须向后兼容）。
-  4. 评估 hover / 压感 / 倾斜是否能跨平台传递（Mac 端 CGEvent 无原生压感——
-     可能需要私有 API 或降级）。
-- **影响面**：⚠️ `TouchSurface`（触控板+键盘 mini-pad+投屏共用）、wire 协议、
-  Mac/Windows 注入。改动会波及所有触摸界面——必须逐界面回归。
-- **验证**：真机 + Pencil，逐界面确认不破坏手指交互。
+### G1. Apple Pencil = 绘画板（用户 2026-10-09 定：手机上画，精准传到电脑）
+- **现状**：❌ 无 `UITouch.TouchType`/`allowedTouchTypes`/压感/倾斜；
+  `TouchSurface.swift:528` 用 `majorRadius` 做 force-click——Pencil 会被误判成手指。
+  `CGEventInjector` **没有** tablet/压感注入；`TouchEvent` **没有** pressure/tilt 字段。
+- **设计（读代码后，2026-10-09）**：
+  1. iOS：新增**绘画面**（独立于触控板的 `TouchSurface`），只收 `touch.type == .pencil`；
+     采集绝对坐标 + `force`（压感）+ `altitudeAngle`/`azimuthAngle`。
+  2. wire：`TouchEvent` 加**可选**字段 `pressure`/`altitude`/`azimuth`（缺省 nil，向后兼容）。
+  3. Mac：`CGEventInjector` 加 **tablet 事件注入**（`CGEventType.tabletPointer` +
+     `.tabletEventPointPressure` / `.tabletEventTiltX/Y` + `.tabletEventPointButtons`），
+     绝对映射到 Mac 屏或投屏窗口。
+  4. 区分：Pencil 走绘画面，手指照旧做触控板手势。
+- **⚠️ 不确定（需 spike）**：合成的 CGEvent tablet 事件**是否被 Photoshop/Krita/笔记
+  等 app 认作真实数位板输入**（很多 app 读 `NSEvent` 的 tablet 子类型，纯 `CGEventPost`
+  未必被采纳）。→ 先做**最小 spike**：注入 tablet 事件，在目标 app 验证压感/坐标；
+  不生效则降级为"仅精确指针、无压感"。
+- **影响面**：⚠️ 新增绘画 UI + wire 字段 + Mac 注入；触控板/键盘/投屏**不动**（用独立面）。
+- **验证**：真机 + Pencil，在 Mac 目标 app 里画出连续线、看压感是否变化。
 
-### G2. 网站更新 Pencil 卖点
-- **依赖**：G1 的结论（**先有实现再宣传**，别重演 4K 的"宣传领先于实现"）。
+### G2. 网站文案对齐（用户 2026-10-09：全站对齐，不止 Pencil）
+- **现状（2026-10-09 精读 `/Users/edwinhao/VGOAPP/remotecrab`）**：
+  - `features/camera/index.html:7` 现在写 **"1080p 30 帧"**——**和今天现实一致**
+    （虚拟摄像头 1080p）。**4K 目前不在线上文案里**（4K 只在内部 `docs/campaign/*`
+    当 Pro 卖点）。→ A2 做完后把 camera 页改成 4K。
+  - 站上有 11 个 feature 页（camera/microphone/trackpad/keyboard/voice/…）。
+- **要做**：① 4K 摄像头落地后更新 `features/camera`（1080p→4K）；
+  ② Pencil 绘画板落地后新增 feature 页 + 首页卖点；③ 全站逐页核对与真实能力一致。
+- **依赖**：**先有实现再宣传**（别重演内部 4K 文档领先于代码的事）。
+- **影响面**：仅文案/网站（`~/VGOAPP/remotecrab`），发布走 `VGOAPP/scripts/deploy.sh`。
 
 ---
 
@@ -478,6 +485,9 @@
 | 2026-10-09 | B9 | 发现"启动即开流+浏览"，故原场景存疑；加防御性 picker 浏览 + `E2E_SHEET=picker` | 真机 `[presence] results=1 online=1`（未显式开流） |
 | 2026-10-09 | B10 e2e | `e2e-current-computer.sh` Phase D 改为断言 B10 行为；Phase E 改运行时判定 legacy 并 SKIP | `pass=24 fail=0 skipped=1` |
 | 2026-10-09 | harness | 根因：`MacPairingStore.removeAll`（e2e reset）**不清 `seen`** → 每轮 stand-in（同名不同 id）堆成"重复电脑"。已修 + 测试 | 手机 prefs 事后 `seen=[]`、`paired=[]`、`preferred=None` |
+| 2026-10-09 | A 复核 | 精读后更正：4K 的墙是**虚拟摄像头单一 1080p 格式**；16Mbps 天花板在 iOS 惰性（A3 作废） | `VideoEncodingPolicy.swift:12,37,64` |
+| 2026-10-09 | A 实测 | 加 `REMOTECRAB_E2E_RESOLUTION` 钩子，真机测 4K 编码 | 4K30 真跑 30fps（frames=61/2s），关键帧 42,954 kbps > req 16,000 |
+| 2026-10-09 | G/网站 | 确认真相：线上 camera 页写 "1080p 30 帧"（诚实）；4K 只在内部 campaign 文档 | `~/VGOAPP/remotecrab/features/camera/index.html:7` |
 
 ---
 
