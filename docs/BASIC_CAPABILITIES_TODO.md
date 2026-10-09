@@ -253,6 +253,20 @@
 - **验证**：真机冷启动、未开流时，picker 能列出局域网内开着 Mac/Windows 端的电脑，
   点一下能连上。
 
+### B10. 🆕 忘掉某台电脑后，它应仍能在"扫描到的电脑"里被重新加回（用户 2026-10-09 提出）
+- **现状**：iOS 上"忘记当前电脑"后，那台电脑不再显示；要加回来只能从 Mac 端主动连。
+- **期望（用户原话）**：像 iOS 的 WiFi 列表——**"已记录的"**和**"扫描到的"**都要列，
+  忘了也能从扫描列表里重新添加。
+- **步骤**：
+  1. 精读 `MacPairingStore`（`forget`/`seen`/`paired`/`current`）、`ComputerRoster`、
+     `ComputerPickerView`、`CaptureEngine.refreshOnlineComputers` / `forgottenComputerIds`。
+  2. 设计：picker 分两段——"已知/已配对"与"扫描到的（在线/离线）"；
+     forget 只从"已记录"移除，不影响"扫描到"段的展示，并可一键重新添加。
+  3. 与 B9 合并设计（都要求 presence 浏览独立于 streaming）。
+- **影响面**：⚠️ 中。`forgottenComputerIds` 的过滤、`seen` 的去重/优先级、
+  `current` 门卫（`decide`）。别让"忘记"又变回"哪台都连不上"。
+- **验证**：真机：忘掉当前电脑 → 它在"扫描到"段仍可见 → 点一下能重新连上并恢复配对。
+
 ---
 
 ## 4. 工作流 C：后台 / 锁屏 / 打断连续性
