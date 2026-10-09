@@ -187,13 +187,38 @@ TUN 在 `auto-route` / `gvisor` / `system` 不同栈下回程是否真的绕开�
 | `PhoneHello` serde 结构（camelCase，`nonce`/`capabilities` 可选） | `events.rs:417-444` |
 | 键名 / raw值 / 解析器回归测试 | `windows/crates/rc-protocol/tests/wire_keys.rs`（`phone_hello_*`）、`wire.rs:648-678` |
 
-### ❌ **未做**（本文档第 2 节的全部四项）
+### ✅ 已实现（本机编译 / 交叉检查通过；**Windows 真机未验**）
 
-`spawn_knock_listener` 仍是 `drop(stream)` 不读；`rc-net` 无服务端握手入口；
-自动重连未按能力协商停；accepted socket 未 pin。**这些都没有在 Windows 上跑过。**
+实现 commit **`cff9eb6`**（`feat(windows): serve phone-initiated connections on
+the presence port`）。**这一节是运行时改动，`cff9eb6` 只在本机（macOS host）编译并跑过
+host 测试 + `x86_64-pc-windows-gnu` 交叉检查 —— 没有在 Windows 上运行过一行。**
+验收仍必须按第 4 节在真机重跑。
 
-> 依据 lesson 117 / 148：交接里写「已实现」是最强的断言（对端无法核验），
-> **这条文档故意只把 `dbe5c0c` 标为已做**——它可被 `git show dbe5c0c` 独立复核。
+| 待办 | 落地 | 关键锚点 |
+|---|---|---|
+| **2.1** 监听口读首帧分流 | `spawn_knock_listener` 在 500 ms 预算内读首帧（`read_first_inbound_frame`），按 `rc_net::inbound::classify_inbound` 三态分流；真 hello → `session.accept_inbound`，别机 → 礼貌关闭，占用中 → 裸 `sessionReply{busy}`（`send_busy_and_close`）；无帧/非 hello → 原敲门回拨。**`KNOCK_MIN_INTERVAL` 现在只限敲门**，握手帧不受它限流 | `windows/crates/rc-app/src/main.rs:428-625` |
+| **2.2** 被拨入服务端握手 | `Session::accept_inbound` + `Command::AcceptInbound` + `start_inbound` + `run_server_session`；与出站共用 `run_session`（解析/`answer_challenge` 一处）。`clientHello.token = nil`；token 按 `phoneId` 查（name 回退 + backfill）；接受后按 id 持久化 + 镜像名字表 + 标记 `phoneInitiated` | `rc-net/src/lib.rs:296-306,374-387`、`supervisor.rs:748-836,1013-1104` |
+| **2.2st** 存储（additive） | `TokenStoreData` 新增 `tokens_by_phone_id` / `phone_initiated` / `phone_id_by_name`，全部 `#[serde(default)]`；`token_for_phone_id` id 优先、name 回退并 backfill；`forget` 同步清 id 半边。旧文件加载测试已扩展 | `rc-net/src/token.rs:45-73,129-215`；测试 `token.rs::an_older_token_file_loads_without_losing_anything` / `a_name_keyed_token_backfills_into_the_id_table` |
+| **2.3** 去自动重连（按能力） | `maybe_autoconnect` 跳过 `is_phone_initiated_name` 为真的发现项；未标记（旧手机）保持原自动拨。保留手动 Retry、敲门一次性回拨 | `rc-net/src/supervisor.rs:651-669` |
+| **2.4** accepted socket 回程 pin | 新增 `pub rc_discovery::pin_unicast_interface(stream, ifindex)`（`IP_UNICAST_IF`，网络字节序，与出站同一 `setsockopt`）；listener accept 后按对端 IP 选物理网卡并 pin，被拒则打印一行 | `rc-discovery/src/lib.rs:503-527`；调用 `rc-app/src/main.rs:556-563` |
+
+**本机已验证**（命令与结果见本节末）：
+
+- `cargo test --workspace --lib` → **326 passed / 0 failed**（含新增 `inbound::tests::*` 6 条、token 迁移回归）。
+- `cargo build --workspace` → 通过（host 全 target 编译，覆盖 bin）。
+- `cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` → 通过；`cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` → 0 warning。
+- ⚠️ 逐字的 `cargo test --workspace`（不带 `--lib`）在本机**红**，原因是既有的
+  `rc-vcam-source` 示例 `dump_ring` 是 Windows-only（`scripts/test.sh` 早有注释），
+  **与本改动无关**；仓库的 host 门禁本就是 `--lib` + `cargo build --workspace`。
+
+**未验 / 边界（如实）**：Windows 真机运行（第 4 节全部）；`IP_UNICAST_IF` 施加在
+accepted socket 上是否被 Windows 采纳、TUN 各栈下回程是否真绕开隧道；服务器播入
+实时行为（`rc-phone-sim --dial` 尚未实现，见 4.2）。**未做**：本机无 Windows 运行时，
+这些只能由 Windows session 补。
+
+> 依据 lesson 117 / 148：交接里写「已实现」是最强的断言（对端无法核验），所以上面
+> 每一项都附了可 `git show cff9eb6` 复核的文件/行锚点，并明确区分「本机编译通过」与
+> 「Windows 真机已验」——后者没有发生。
 
 ---
 
