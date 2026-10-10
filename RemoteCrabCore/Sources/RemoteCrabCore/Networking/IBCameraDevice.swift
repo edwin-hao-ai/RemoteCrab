@@ -54,6 +54,7 @@ public enum IBCameraDevice {
     /// offered, not delivered.)
     public static let resolutions: [Resolution] = [
         Resolution(width: 1920, height: 1080),
+        Resolution(width: 3840, height: 2160),
     ]
 
     /// Index into `resolutions` a client gets by default.
