@@ -107,6 +107,11 @@ final class ReceiverSession: ObservableObject {
     private var telemetryStartedAt = Date()
     /// The last *measured* fps (as opposed to the phone's requested rate).
     @Published private(set) var achievedFps: Double = 0
+
+    /// Measured device-side pipeline latency (D3): arrival → decoded, exact and
+    /// on this Mac's clock (the decoder returns the arrival PTS verbatim).
+    private var latencyStats = LatencyStats()
+    @Published private(set) var decodeLatencyMs: Double = 0
     private var audioPacketCount = 0
     /// Lazily created on the first Opus packet; nil-decodable packets
     /// (legacy senders) never touch it.
@@ -379,6 +384,13 @@ final class ReceiverSession: ObservableObject {
                 self?.cameraSinkFeeder.feed(image: image)
                 self?.latestFrame = image
                 self?.recorder.appendVideo(image)
+            }
+        }
+        decoder.onDecodeLatency = { [weak self] ms in
+            Task { @MainActor in
+                guard let self else { return }
+                self.latencyStats.add(ms)
+                self.decodeLatencyMs = self.latencyStats.median
             }
         }
         cameraSinkFeeder.start()
@@ -2792,7 +2804,7 @@ final class ReceiverSession: ObservableObject {
                                                    interval: elapsed)
                     // Keep the "video frames received:" marker (e2e + humans
                     // grep it) and append the measured stream numbers.
-                    Self.log.info("video frames received: \(self.videoFrameCount) — \(s.summary, privacy: .public)")
+                    Self.log.info("video frames received: \(self.videoFrameCount) — \(s.summary, privacy: .public), decode \(Int(self.decodeLatencyMs.rounded()), privacy: .public)ms")
                     achievedFps = s.fps
                     telemetryBytes = 0
                     telemetryFrames = 0

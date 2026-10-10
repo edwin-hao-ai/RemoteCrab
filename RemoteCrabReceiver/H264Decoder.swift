@@ -16,6 +16,8 @@ final class H264Decoder: @unchecked Sendable {
         ProcessInfo.processInfo.environment["REMOTECRAB_DEBUG_FRAME_PROBE"] == "1"
 
     var onDecoded: (@Sendable (CGImage) -> Void)?
+    /// Arrival→decoded milliseconds, per frame, on one clock (D3).
+    var onDecodeLatency: (@Sendable (Double) -> Void)?
 
     private var session: VTDecompressionSession?
     private var formatDescription: CMVideoFormatDescription?
@@ -230,7 +232,7 @@ final class H264Decoder: @unchecked Sendable {
             sampleBuffer: sampleBuffer,
             flags: [._EnableAsynchronousDecompression],
             infoFlagsOut: nil
-        ) { [weak self] status, _, imageBuffer, _, _, _ in
+        ) { [weak self] status, _, imageBuffer, presentationTime, _ in
             guard status == noErr, let imageBuffer else {
                 if status != noErr {
                     let head = data.prefix(8).map { String(format: "%02x", $0) }.joined()
@@ -245,7 +247,7 @@ final class H264Decoder: @unchecked Sendable {
                 }
                 return
             }
-            self?.emit(imageBuffer: imageBuffer)
+            self?.emit(imageBuffer: imageBuffer, presentationTimeMs: presentationTime.seconds * 1000)
         }
 
         if decodeStatus != noErr {
@@ -294,7 +296,7 @@ final class H264Decoder: @unchecked Sendable {
     /// and shows up as visible stutter. One context per decoder.
     private lazy var ciContext = CIContext(options: [.cacheIntermediates: false])
 
-    private func emit(imageBuffer: CVImageBuffer) {
+    private func emit(imageBuffer: CVImageBuffer, presentationTimeMs: Double) {
         if !emittedAny {
             emittedAny = true
             Self.log.info("first frame decoded OK")
@@ -326,5 +328,11 @@ final class H264Decoder: @unchecked Sendable {
             Self.log.info("frame probe: min=\(mn) max=\(mx) avg=\(sum / (px.count / 4)) w=\(cgImage.width) h=\(cgImage.height)")
         }
         onDecoded?(cgImage)
+        // Exact device-side pipeline latency (D3): the sample buffer's PTS is
+        // the arrival time we stamped when building it, returned verbatim by
+        // the decoder — one clock, and per-frame rather than a FIFO that drifts
+        // when the decoder drops frames.
+        let latency = Date().timeIntervalSince1970 * 1000 - presentationTimeMs
+        if latency >= 0 { onDecodeLatency?(latency) }
     }
 }
