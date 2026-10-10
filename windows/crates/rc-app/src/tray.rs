@@ -52,6 +52,11 @@ pub enum TrayCommand {
     Reconnect,
     Disconnect,
     ToggleAutostart,
+    /// Publish (or stop publishing) the phone's video to the "RemoteCrab"
+    /// virtual camera.
+    ToggleVcam,
+    /// Play (or stop playing) the phone's mic on this PC's speakers.
+    TogglePcAudio,
     Quit,
 }
 
@@ -140,6 +145,10 @@ mod win32 {
         has_last_file: bool,
         /// The preview window is open.
         preview_on: bool,
+        /// This PC is publishing the phone's video to the virtual camera.
+        vcam_on: bool,
+        /// The phone's mic is playing on this PC's speakers.
+        pc_audio_on: bool,
         /// Short reason, already localized — rendered into the menu row.
         diagnosis_summary: String,
         /// The full explanation, shown in a dialog when the row is clicked.
@@ -273,6 +282,18 @@ mod win32 {
         pub fn set_preview(&self, on: bool) {
             if let Ok(mut s) = self.shared.lock() {
                 s.preview_on = on;
+            }
+        }
+
+        pub fn set_vcam(&self, on: bool) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.vcam_on = on;
+            }
+        }
+
+        pub fn set_pc_audio(&self, on: bool) {
+            if let Ok(mut s) = self.shared.lock() {
+                s.pc_audio_on = on;
             }
         }
 
@@ -597,7 +618,7 @@ mod win32 {
 
         // Snapshot the state up front; the popup blocks this thread, so
         // don't hold the mutex across it.
-        let (status, features, recording, autostart, has_last_file, preview_on, diagnosis, details) = {
+        let (status, features, recording, autostart, has_last_file, preview_on, vcam_on, pc_audio_on, diagnosis, details) = {
             let Ok(s) = ctx.shared.lock() else {
                 return;
             };
@@ -608,6 +629,8 @@ mod win32 {
                 s.autostart,
                 s.has_last_file,
                 s.preview_on,
+                s.vcam_on,
+                s.pc_audio_on,
                 s.diagnosis_summary.clone(),
                 s.details.clone(),
             )
@@ -650,6 +673,8 @@ mod win32 {
                 let installed = true;
                 installed
             },
+            vcam_on,
+            pc_audio_on,
         };
         let mut model = super::menu_rows(&state);
         // The status line goes first, above the readouts submenu.
@@ -763,6 +788,8 @@ mod win32 {
             ids::CLIPBOARD => Some(TrayCommand::SendClipboard),
             ids::SHOW_FILE => Some(TrayCommand::ShowLastFile),
             ids::PREVIEW => Some(TrayCommand::TogglePreview),
+            ids::VCAM => Some(TrayCommand::ToggleVcam),
+            ids::PC_AUDIO => Some(TrayCommand::TogglePcAudio),
             // Registering the camera needs administrator rights, so the whole
             // action is one Windows UAC prompt. Declining is a normal outcome,
             // so it gets a sentence that says the row is still there — not an
@@ -1087,6 +1114,10 @@ impl TrayHandle {
     pub fn set_autostart(&self, _on: bool) {}
     pub fn set_has_last_file(&self, _on: bool) {}
     pub fn set_preview(&self, _on: bool) {}
+
+    pub fn set_vcam(&self, _on: bool) {}
+
+    pub fn set_pc_audio(&self, _on: bool) {}
 
     /// No-op off Windows: there is no tray to explain anything on.
     pub fn set_diagnosis(&self, _summary: &str, _detail: &str) {}

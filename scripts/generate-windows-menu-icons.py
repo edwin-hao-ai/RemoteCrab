@@ -68,6 +68,8 @@ ROWS = [
     "setup",         # 17
     "settings",      # 18
     "self_check",    # 19
+    "virtual_camera",# 20
+    "pc_audio",      # 21
 ]
 
 
@@ -266,6 +268,28 @@ def draw_self_check(d, o):
     line(d, o + 7, o + 11, o + 11, o + 5)
 
 
+def draw_virtual_camera(d, o):
+    # A camcorder — a body with a lens triangle — so it is not confused with the
+    # three still-camera glyphs already in the sheet (`camera`, `switch_camera`,
+    # `install_vcam`). The triangle where the lens would be is the whole
+    # difference, and it is the classic "video" shape at any size.
+    box(d, o + 1, o + 5, o + 10, o + 12, r=2)
+    d.polygon([(o + 10, o + 8), (o + 15, o + 5), (o + 15, o + 11)], fill=255)
+
+
+def draw_pc_audio(d, o):
+    # A speaker with two sound waves: the phone's mic playing out of this PC.
+    # The cone is filled (it reads as solid at 16px); the waves are two short
+    # arcs on the right, kept to two so they do not merge into the cone.
+    d.polygon(
+        [(o + 2, o + 6), (o + 5, o + 6), (o + 9, o + 3), (o + 9, o + 13),
+         (o + 5, o + 10), (o + 2, o + 10)],
+        fill=255,
+    )
+    d.arc([o + 9, o + 5, o + 14, o + 11], start=290, end=70, fill=255, width=STROKE)
+    d.arc([o + 8, o + 3, o + 15, o + 13], start=290, end=70, fill=255, width=STROKE)
+
+
 def draw_settings(d, o):
     # A gear, for the settings window. Deliberately *not* the same wrench as
     # `setup`: the wizard is a one-time guided flow and this is the standing
@@ -333,6 +357,8 @@ DRAW = {
     "setup": draw_setup,
     "settings": draw_settings,
     "self_check": draw_self_check,
+    "virtual_camera": draw_virtual_camera,
+    "pc_audio": draw_pc_audio,
 }
 
 

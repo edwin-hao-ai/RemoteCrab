@@ -34,6 +34,7 @@ mod autostart;
 mod console;
 mod diagnostics;
 mod notify_relay;
+mod prefs;
 #[cfg(windows)]
 mod selfcheck_win;
 #[cfg(windows)]
@@ -914,7 +915,7 @@ async fn main() -> ExitCode {
     // `--no-vcam` asks. `--vcam` forces the attempt even when unregistered, so
     // the "install it" message still appears for a user who asked.
     #[cfg(windows)]
-    let want_vcam = args.vcam || (!args.no_vcam && vcam::is_registered());
+    let want_vcam = args.vcam || (!args.no_vcam && prefs::vcam() && vcam::is_registered());
     #[cfg(not(windows))]
     let want_vcam = args.vcam;
 
@@ -923,7 +924,11 @@ async fn main() -> ExitCode {
     // needed when only `--vcam` is on (e.g. `--no-preview --vcam`), and when
     // only `--decode-only` is on. `Args::decode_pipeline_needed` owns that
     // question so it cannot drift from the flag's meaning again.
-    let mut preview: Option<rc_render::PreviewPipeline> = if args.decode_pipeline_needed() || want_vcam {
+    // The decoder also feeds the virtual camera and the preview window, and
+    // both are toggleable from the tray at runtime — so with a tray the decoder
+    // always runs, and turning the camera or the preview on later just works.
+    let need_decode = args.decode_pipeline_needed() || want_vcam || !args.no_tray;
+    let mut preview: Option<rc_render::PreviewPipeline> = if need_decode {
         match rc_render::PreviewPipeline::new() {
             Ok(p) => Some(p),
             Err(e) => {
@@ -973,17 +978,19 @@ async fn main() -> ExitCode {
         preview_window.open();
     }
 
-    // Audio: Opus decode + speaker playback. Muted by default (the Mac
-    // receiver does the same — playing the iPhone mic on the speakers next
-    // to the live phone is a feedback loop). `--unmute` enables it.
+    // Audio: Opus decode + speaker playback of the phone's microphone. Off by
+    // default (playing a mic out of the speakers next to the live phone is a
+    // feedback loop), but now a persisted tray toggle / `--unmute` rather than a
+    // flag a normal user cannot pass.
+    let want_pc_audio = args.unmute || prefs::pc_audio();
     let mut audio = rc_audio::AudioPlayer::new();
-    audio.set_muted(!args.unmute);
-    if !args.unmute {
+    audio.set_muted(!want_pc_audio);
+    if !want_pc_audio {
         println!(
             "  {}",
             i18n::t(
-                "（默认静音以避免回声——加 --unmute 才能听见）",
-                "(muted by default to avoid feedback — pass --unmute to hear it)",
+                "（默认静音以避免回声——托盘里打开「播放手机麦克风」即可听见）",
+                "(muted to avoid feedback — turn on \"Play phone mic here\" in the tray to hear it)",
             )
         );
     }
@@ -1057,6 +1064,8 @@ async fn main() -> ExitCode {
     #[cfg(windows)]
     tray.set_autostart(rc_os::autostart::is_enabled());
     tray.set_preview(preview_window.is_open());
+    tray.set_vcam(want_vcam);
+    tray.set_pc_audio(want_pc_audio);
     // Now that there is a thread with a message pump, the first-run wizard can
     // be built. Before the tray existed this was called from the runtime thread,
     // which never pumps — so the window was created, shown, and then answered
@@ -1889,6 +1898,33 @@ async fn main() -> ExitCode {
                                 }
                                 #[cfg(not(windows))]
                                 println!("  {}", i18n::t("开机自启动仅限 Windows", "autostart is Windows-only"));
+                            }
+                            Some(tray::TrayCommand::ToggleVcam) => {
+                                #[cfg(windows)]
+                                {
+                                    let on = !prefs::vcam();
+                                    prefs::set_vcam(on);
+                                    // Start/stop the camera at runtime. `Vcam`'s
+                                    // `Drop` stops the session camera, so taking
+                                    // the `Option` down is the whole teardown.
+                                    vcam = if on {
+                                        vcam::Vcam::start("RemoteCrab")
+                                    } else {
+                                        None
+                                    };
+                                    let live = vcam.is_some();
+                                    tray.set_vcam(live);
+                                    let state = if live { i18n::t("开", "on") } else { i18n::t("关", "off") };
+                                    println!("  {} {state}", i18n::t("虚拟摄像头", "virtual camera"));
+                                }
+                            }
+                            Some(tray::TrayCommand::TogglePcAudio) => {
+                                let on = !prefs::pc_audio();
+                                prefs::set_pc_audio(on);
+                                audio.set_muted(!on);
+                                tray.set_pc_audio(on);
+                                let state = if on { i18n::t("开", "on") } else { i18n::t("关", "off") };
+                                println!("  {} {state}", i18n::t("播放手机麦克风", "play phone mic here"));
                             }
                             Some(tray::TrayCommand::Quit) => {
                                 println!("\nShutting down…");
