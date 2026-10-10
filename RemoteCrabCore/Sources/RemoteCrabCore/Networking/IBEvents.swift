@@ -52,6 +52,13 @@ public struct TouchEvent: Codable, Sendable, Equatable {
     /// inertia/rubber-banding instead of treating it as finger input.
     /// Optional for wire compatibility with older senders.
     public let momentum: Bool?
+    /// Apple Pencil. `pressure` is normalized 0...1 (force / maximumPossibleForce);
+    /// `altitude` (radians from the surface) and `azimuth` (radians) describe the
+    /// tilt. All optional, so a finger sender — or an older build — simply omits
+    /// them and the receiver treats the event as a finger (G1, forward-compatible).
+    public let pressure: Float?
+    public let altitude: Float?
+    public let azimuth: Float?
     public let timestampMicros: UInt64
 
     public init(
@@ -62,6 +69,9 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         dy: Float = 0,
         modifiers: UInt8 = 0,
         momentum: Bool? = nil,
+        pressure: Float? = nil,
+        altitude: Float? = nil,
+        azimuth: Float? = nil,
         timestampMicros: UInt64 = 0
     ) {
         self.phase = phase
@@ -71,8 +81,15 @@ public struct TouchEvent: Codable, Sendable, Equatable {
         self.dy = dy
         self.modifiers = modifiers
         self.momentum = momentum
+        self.pressure = pressure
+        self.altitude = altitude
+        self.azimuth = azimuth
         self.timestampMicros = timestampMicros
     }
+
+    /// A stylus (Apple Pencil) event, as opposed to a finger.
+    public var isPencil: Bool { pressure != nil }
+
 
     public var hasCommand: Bool { modifiers & Modifier.command.rawValue != 0 }
     public var hasShift:   Bool { modifiers & Modifier.shift.rawValue   != 0 }

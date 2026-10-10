@@ -28,6 +28,23 @@ final class IBEventsTests: XCTestCase {
         XCTAssertEqual(decoded, event)
     }
 
+    func testPencilTouchRoundTrip() throws {
+        let event = TouchEvent(phase: .move, x: 0.5, y: 0.5,
+                               pressure: 0.62, altitude: 0.7, azimuth: 1.1,
+                               timestampMicros: 9)
+        let decoded = try IBWire.decodeTouch(IBWire.Parser().append(IBWire.encode(touch: event)).first!)
+        XCTAssertEqual(decoded, event)
+        XCTAssertTrue(decoded.isPencil)
+    }
+
+    func testFingerTouchCarriesNoPencilFields() throws {
+        let decoded = try IBWire.decodeTouch(IBWire.Parser().append(IBWire.encode(touch: TouchEvent(phase: .down))).first!)
+        XCTAssertNil(decoded.pressure)
+        XCTAssertNil(decoded.altitude)
+        XCTAssertNil(decoded.azimuth)
+        XCTAssertFalse(decoded.isPencil)
+    }
+
     func testTouchEventModifierFlags() {
         var event = TouchEvent(phase: .down)
         XCTAssertFalse(event.hasCommand)
