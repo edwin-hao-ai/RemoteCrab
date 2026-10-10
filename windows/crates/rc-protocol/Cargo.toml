@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "rc-protocol"
 description = "RemoteCrab wire protocol — Rust port of RemoteCrabCore/Networking (compatible with the iOS sender and Mac receiver)."
 version.workspace = true
@@ -17,3 +17,5 @@ hmac.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 getrandom.workspace = true
+chacha20poly1305 = "0.10"
+hkdf = "0.12"

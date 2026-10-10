@@ -11,6 +11,7 @@
 
 pub mod base64_serde;
 pub mod peer_auth;
+pub mod transport;
 pub mod events;
 pub mod protocol;
 pub mod wire;
