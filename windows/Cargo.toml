@@ -21,6 +21,7 @@ members = [
     "crates/rc-vcam",
     "crates/rc-vcam-source",
     "crates/rc-vdisplay",
+    "crates/rc-vmic",
     "crates/rc-phone-sim",
     "crates/rc-notify",
     "crates/rc-app",
@@ -49,6 +50,7 @@ rc-record = { path = "crates/rc-record" }
 rc-mirror = { path = "crates/rc-mirror" }
 rc-vcam = { path = "crates/rc-vcam" }
 rc-vdisplay = { path = "crates/rc-vdisplay" }
+rc-vmic = { path = "crates/rc-vmic" }
 rc-app = { path = "crates/rc-app" }
 
 serde = { version = "1", features = ["derive"] }

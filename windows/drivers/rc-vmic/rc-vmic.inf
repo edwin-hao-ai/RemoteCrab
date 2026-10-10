@@ -1,0 +1,62 @@
+;
+; rc-vmic.inf — RemoteCrab virtual microphone driver.
+;
+; A root-enumerated PortCls audio **capture** device. Installing it (once, with
+; admin) creates the software device; the driver then answers the control pipe
+; the receiver probes and exposes "RemoteCrab Microphone" as an input every app
+; can select.
+;
+; Adapted from Microsoft's sysvad sample (Windows-driver-samples, MS-PL).
+; See README.md next to this file for the contract and the implementation plan.
+;
+
+[Version]
+PnpLockDown = 1
+Signature   = "$Windows NT$"
+Class       = MEDIA
+ClassGUID   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+CatalogFile = rc-vmic.cat
+DriverVer   = ; set by stampinf at build time
+
+[Manufacturer]
+%ManufacturerName%=Standard,NT$ARCH$.10.0...22000
+
+[Standard.NT$ARCH$.10.0...22000]
+%DeviceName%=RemoteCrabMic_Install, Root\RemoteCrabVMic
+
+[SourceDisksFiles]
+rc-vmic.sys=1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+; =================== PortCls device ===============================
+
+[RemoteCrabMic_Install.NT]
+CopyFiles=rcvmic.CopyFiles
+
+[RemoteCrabMic_Install.NT.Services]
+AddService=rcvmic,%SPSVCINST_ASSOCSERVICE%,rcvmic_Service_Inst
+
+[rcvmic_Service_Inst]
+DisplayName   = %ServiceName%
+ServiceType   = 1   ; kernel-mode driver
+StartType     = 3   ; demand — PortCls starts it with the device
+ErrorControl  = 1
+ServiceBinary = %12%\rc-vmic.sys
+
+[DestinationDirs]
+rcvmic.CopyFiles=12
+
+[rcvmic.CopyFiles]
+rc-vmic.sys,,,0x100
+
+; =================== Strings ======================================
+
+[Strings]
+ManufacturerName="RemoteCrab"
+DiskName="RemoteCrab Microphone Driver"
+DeviceName="RemoteCrab Microphone"
+ServiceName="RemoteCrab Microphone Driver"
+SPSVCINST_ASSOCSERVICE=0x00000002

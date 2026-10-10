@@ -33,6 +33,7 @@ rc-mirror.workspace = true
 # Non-target-gated: its Windows code is `cfg(windows)` and the rest stubs to
 # "not available", so this crate still builds on the Mac that runs the suite.
 rc-vdisplay.workspace = true
+rc-vmic.workspace = true
 png.workspace = true
 # A fake iPhone on localhost, for `--selftest` / `--preview-selftest`.
 # Optional and OFF by default: a release build must not ship a second copy

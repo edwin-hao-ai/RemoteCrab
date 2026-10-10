@@ -1407,6 +1407,7 @@ dependencies = [
  "rc-vcam",
  "rc-vcam-source",
  "rc-vdisplay",
+ "rc-vmic",
  "serde",
  "serde_json",
  "tokio",
@@ -1568,6 +1569,13 @@ version = "1.0.0"
 dependencies = [
  "rc-protocol",
  "rc-vcam",
+ "windows",
+]
+
+[[package]]
+name = "rc-vmic"
+version = "1.0.0"
+dependencies = [
  "windows",
 ]
 
