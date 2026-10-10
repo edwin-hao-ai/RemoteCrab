@@ -2057,7 +2057,7 @@ fn run_logon_task(_install: bool) -> std::process::ExitCode {
 /// The state the wizard reports on, read fresh each time.
 #[cfg(windows)]
 fn current_first_run() -> rc_net::firstrun::FirstRun {
-    use rc_net::firstrun::{Camera, FirstRun};
+    use rc_net::firstrun::{Camera, FirstRun, Microphone};
     FirstRun {
         camera: if vcam::is_registered() {
             Camera::Ready
@@ -2065,6 +2065,11 @@ fn current_first_run() -> rc_net::firstrun::FirstRun {
             Camera::Missing
         },
         integrity: notify_relay::integrity(),
+        microphone: if rc_audio::pick_virtual_cable(&rc_audio::output_device_names()).is_some() {
+            Microphone::Ready
+        } else {
+            Microphone::Missing
+        },
         autostart: rc_os::autostart::is_enabled(),
         notify_relay: notify_relay::is_enabled(),
     }
@@ -2221,18 +2226,40 @@ fn session_forget_phone(name: &str) {
 #[cfg(windows)]
 static SESSION: std::sync::OnceLock<rc_net::Session> = std::sync::OnceLock::new();
 
+/// The free virtual audio cable the phone-as-microphone feature needs (Path A).
+/// Its installer is permissive to redistribute but we point at the vendor page
+/// so the user gets the vendor's own, current, signed build.
+const VB_CABLE_URL: &str = "https://vb-audio.com/Cable/";
+
 /// Open the wizard now, from the tray or from first run.
 #[cfg(windows)]
 fn open_wizard() {
     wizard_win::show(
         current_first_run(),
         Box::new(|| {
-            // The action on the camera page: the same one-click, UAC-raising path
-            // the tray's install row uses. The wizard does not get a private way
-            // to do it, so the two cannot drift.
-            wizard::record_action(wizard::install_outcome(
-                vcam::install_with_elevation(),
-            ))
+            // One button, two jobs, chosen by the page it sits on. The camera
+            // page installs the camera — the same one-click, UAC-raising path
+            // the tray's install row uses, so the two cannot drift. The
+            // microphone page opens the free virtual-cable download, which is
+            // Path A's only manual step.
+            let outcome = match wizard::current_page() {
+                wizard::Page::Microphone => {
+                    if rc_os::system_keys::open_url(VB_CABLE_URL) {
+                        Some((
+                            "已打开下载页。装好虚拟声卡后回到这里，它就会变成「已装」。",
+                            "The download page is open. Once the cable is installed, come back here \
+                             and it will read as installed.",
+                        ))
+                    } else {
+                        Some((
+                            "打不开浏览器。请手动访问 vb-audio.com/Cable/。",
+                            "Could not open a browser. Visit vb-audio.com/Cable/ yourself.",
+                        ))
+                    }
+                }
+                _ => wizard::install_outcome(vcam::install_with_elevation()),
+            };
+            wizard::record_action(outcome);
         }),
     );
 }
