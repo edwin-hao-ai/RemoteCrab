@@ -311,6 +311,25 @@ public enum IBWire {
         return out
     }
 
+    // MARK: - Sealed transport (F1)
+
+    /// Seal a frame's payload. The kind byte stays cleartext so the receiver
+    /// can route without decrypting; it is also the AEAD's additional data, so
+    /// a tampered kind fails to open. See `TransportCipher`.
+    public static func seal(frame: Frame, using sealer: inout TransportCipher.Sealer) -> Data {
+        encodeFrame(kind: frame.kind, payload: sealer.seal(frame.payload, kind: frame.kind.rawValue))
+    }
+
+    /// Parse sealed bytes and open each frame. Callers only use this after the
+    /// transport has been negotiated — the handshake frames are read in the
+    /// clear, before this mode is entered.
+    public static func open(data: Data, using opener: inout TransportCipher.Opener,
+                            parser: Parser) throws -> [Frame] {
+        try parser.append(data).map { frame in
+            Frame(kind: frame.kind, payload: try opener.open(frame.payload, kind: frame.kind.rawValue))
+        }
+    }
+
     // MARK: - Decoding
 
     public struct Frame: Equatable {
