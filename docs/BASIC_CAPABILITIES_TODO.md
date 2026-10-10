@@ -156,6 +156,12 @@
 - **下一步（需真机）**：查**客户端为什么 start 后立刻 stop**。怀疑：source 的格式/时序描述被
   AVFoundation 拒绝，或设备上第二条 sink 流的存在让 AVFoundation 的会话配置失败。对照 Apple
   的 CMIOExtension 样例 / `daily-virtual-camera` 的 stream 生命周期逐项比对。
+- **与 daily-virtual-camera 逐项比对（2026-10-11，读其 `VirtualCamera.swift`）**：
+  格式创建（`CMVideoFormatDescriptionCreate(kCVPixelFormatType_32BGRA)`）、`CMIOExtensionStreamFormat`
+  （max=min=1/fps、`validFrameDurations: nil`）、`stream.send(...)` 都**和我们逐字相同**。
+  **唯一的架构差异：Daily 的设备只有一条 source 流，没有 sink 流。** 我们多一条 sink。
+  → **首要候选实验**：查第二条流是否让 AVFoundation 的会话配置失败（例如把 sink 暂时从 device
+  移除、或换一个 host→extension 通道再测）。
 - **工具**：`/tmp/rcprobe/CamProbe.app`（打开相机抓帧）；扩展的诊断日志已能打出
   `setStreamProperties` / `authorizedToStartStream` / `startStream` / `stopStream`。
 
