@@ -142,6 +142,32 @@
   → **最终确认留给你在 Zoom 里跑一次**（你做 4K 重新批准那一步时顺带看）。
 - **诚实结论**：4K 摄像头**格式真、发送真**；"app 里真看到 4K 像素"这最后一格待 Zoom 确认。
 
+### A2 真机复测 · 2026-10-11（撤回 4K 后，单 1080p 也拿不到帧）
+- **撤回 4K**（`IBCameraDevice.resolutions = [1080p]`），因为多格式下客户端也坏。但——
+- **单 1080p 同样坏**：探针（`AVCaptureSession`，默认 `.high`）**确实附着到 source**
+  （`source stream started (clients=1)`），**11ms 后 STOP**（`source stream STOPPED (clients=0)`），
+  之后 `source sent ... (clients=0)`——一帧都到不了客户端（探针 `TIMEOUT`）。
+- **判据**：客户端在**格式协商完成后、任何帧发出之前**就掉线 → 是**启动期的 config 拒绝**，
+  与"帧的格式/时序"无关（那时还没有帧）。宿主侧全链路是活的（`video frames received` →
+  `feeding virtual camera` → `sink received`）。
+- **已试、未解决**：① `availableProperties` 加 `.streamFrameDuration` 并在 `streamProperties` 返回；
+  ② 改用 Apple/Daily 的 `activeFormatIndex`/`frameDuration` setter（不再用 `setPropertyState`）；
+  ③ 去掉 source 的 `attachedClients > 0` 守卫（守卫计数会漂到 0）。三者都没让客户端留住。
+- **下一步（需真机）**：查**客户端为什么 start 后立刻 stop**。怀疑：source 的格式/时序描述被
+  AVFoundation 拒绝，或设备上第二条 sink 流的存在让 AVFoundation 的会话配置失败。对照 Apple
+  的 CMIOExtension 样例 / `daily-virtual-camera` 的 stream 生命周期逐项比对。
+- **工具**：`/tmp/rcprobe/CamProbe.app`（打开相机抓帧）；扩展的诊断日志已能打出
+  `setStreamProperties` / `authorizedToStartStream` / `startStream` / `stopStream`。
+
+### 顺带修掉的一个真崩溃（扬声器，非相机）
+- **症状**：点 Re-register（输管理员密码后）整个接收端 SIGTRAP 崩。
+- **根因（反汇编定位，crash `RemoteCrab-2026-10-10-185525`）**：崩在
+  `SystemAudioTap.ingest` 的 `pendingDrops += dropped`——CoreAudio IO 线程上的**非回绕 UInt64 加法**。
+  `dropped` 来自 `gap = writeIndex &- readIndex`，消费者短暂读到前面时该减法回绕成 ~UInt64.max，
+  于是加法溢出 → trap → 整个 app 死（所以崩在 Re-register 的那一刻，因为 tap 正活着）。
+- **修法**：`SpeakerRing.dropCount()` 纯函数（回绕差返回 0，有测试）+ `&+=` + pump 侧把 drop 夹到实际可用帧数。
+  已部署、已提交、767 测试全绿。
+
 ### A3. ❌ 作废（2026-10-09）—— 天花板在 iOS 上是惰性的
 - 原以为要抬 `ceilingBps`。精读 `VideoEncodingPolicy.swift:12,37,64` 后确认：
   iOS 上 `kVTCompressionPropertyKey_Quality` **完全覆盖** `AverageBitRate`，
