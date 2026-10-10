@@ -335,6 +335,10 @@ public enum IBWire {
     public struct Frame: Equatable {
         public let kind: Kind
         public let payload: Data
+        public init(kind: Kind, payload: Data) {
+            self.kind = kind
+            self.payload = payload
+        }
     }
 
     /// Incremental parser. Feed incoming bytes; receive zero or more

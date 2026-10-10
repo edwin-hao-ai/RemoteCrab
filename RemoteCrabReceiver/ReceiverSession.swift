@@ -302,6 +302,9 @@ final class ReceiverSession: ObservableObject {
     /// `clientHello`; the phone echoes it back inside the MAC it computes, which
     /// is what stops a recorded exchange from being replayed (see `PeerAuth`).
     private var clientNonce: String?
+    /// Set once the transport is sealed (F1). nil = cleartext (an old phone, or
+    /// before the grant).
+    private var opener: TransportCipher.Opener?
     /// Whether the live session proved identity in both directions. False for a
     /// legacy phone that cannot do the exchange, and false until the proof
     /// lands — the UI says so rather than pretending the link is verified.
@@ -1842,7 +1845,8 @@ final class ReceiverSession: ObservableObject {
                                   appVersion: version,
                                   capabilities: [.latencyProbe, .commandResult, .peerAuth,
                                                  .extendedDisplay],
-                                  nonce: nonce)
+                                  nonce: nonce,
+                                  transport: TransportCipher.versionName)
         do {
             let data = try IBWire.encode(clientHello: hello)
             Self.log.info("clientHello sent (paired: \(token != nil, privacy: .public))")
@@ -1919,6 +1923,23 @@ final class ReceiverSession: ObservableObject {
         connection?.cancel()
     }
 
+    /// If both ends advertised `aead-v1`, derive the session key (pairing token
+    /// + both handshake nonces) and turn on sealing for the live session (F1).
+    /// Absent on either side → stays cleartext (an old peer). The nonces are
+    /// used as their UTF-8 bytes so both ends agree.
+    private func enableTransportIfSupported(reply: IBSessionReply) {
+        guard reply.transport == TransportCipher.versionName,
+              let name = currentPhoneName(),
+              let token = tokenStore[name],
+              let clientNonce, let serverNonce = reply.nonce else { return }
+        let key = TransportCipher.sessionKey(token: token,
+                                             initiatorNonce: Data(clientNonce.utf8),
+                                             responderNonce: Data(serverNonce.utf8))
+        broadcaster?.sealer = TransportCipher.Sealer(key: key)
+        opener = TransportCipher.Opener(key: key)
+        Self.log.info("transport: sealed (aead-v1)")
+    }
+
     private func handleSessionReply(_ reply: IBSessionReply) {
         handshakeTimeoutTask?.cancel()
         handshakeTimeoutTask = nil
@@ -1950,6 +1971,7 @@ final class ReceiverSession: ObservableObject {
             sessionGranted = true
             recordAcceptedPairing(token: reply.token, peer: inboundPeer)
             startGrantedSession()
+            enableTransportIfSupported(reply: reply)
 
         case .pending:
             sessionGranted = false
@@ -2710,19 +2732,33 @@ final class ReceiverSession: ObservableObject {
     /// its own parser.
     private func processFrames(_ frames: [IBWire.Frame]) {
         let screenSize = NSScreen.main?.frame.size ?? CGSize(width: 1920, height: 1080)
-        for frame in frames {
+        for raw in frames {
             // The ownership decision is always processed: it is what
             // turns `sessionGranted` on.
-            if frame.kind == .sessionReply {
-                if let reply = try? IBWire.decodeSessionReply(frame) {
+            if raw.kind == .sessionReply {
+                if let reply = try? IBWire.decodeSessionReply(raw) {
                     handleSessionReply(reply)
                 }
                 continue
             }
             // Nothing else is meaningful until the iPhone accepted us.
             guard sessionGranted else {
-                Self.log.info("dropping \(String(describing: frame.kind), privacy: .public) before session grant")
+                Self.log.info("dropping \(String(describing: raw.kind), privacy: .public) before session grant")
                 continue
+            }
+            // Sealed transport: open the payload (F1). The handshake above is
+            // always cleartext; everything after the grant is sealed when both
+            // ends advertised `aead-v1`.
+            let frame: IBWire.Frame
+            if var o = opener {
+                guard let payload = try? o.open(raw.payload, kind: raw.kind.rawValue) else {
+                    Self.log.error("sealed frame failed to open (\(String(describing: raw.kind), privacy: .public)) — dropping")
+                    continue
+                }
+                opener = o
+                frame = IBWire.Frame(kind: raw.kind, payload: payload)
+            } else {
+                frame = raw
             }
             switch frame.kind {
             case .metadata:
