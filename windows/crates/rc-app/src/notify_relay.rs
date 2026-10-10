@@ -550,7 +550,7 @@ pub fn set_quality(q: rc_net::settings::Quality) {
 /// A missing directory is not an error here: the caller writes, and a failed
 /// write is reported by the write itself. A read on a machine with no app data
 /// simply yields the default.
-fn app_data_dir() -> Option<std::path::PathBuf> {
+pub(crate) fn app_data_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDATA")
         .map(std::path::PathBuf::from)
         .map(|d| d.join("RemoteCrab"))

@@ -83,6 +83,14 @@ pub mod ids {
     /// is worth *more* on Windows: input injection leaves no visible trace, so
     /// without it "did my tap land?" has no answer anywhere.
     pub const SELF_CHECK: usize = 125;
+    /// The virtual camera (the phone's video published as a "RemoteCrab"
+    /// camera for Zoom/OBS/the Windows Camera app). **On by default** — a
+    /// normal user has no command line — so this row is the off switch.
+    pub const VCAM: usize = 128;
+    /// Play the phone's microphone on this PC's speakers (the `--unmute`
+    /// flag, as a persisted toggle). Off by default: playing a mic on the
+    /// speakers next to the phone is a feedback loop.
+    pub const PC_AUDIO: usize = 129;
     /// Mute this PC's audio while the phone plays the computer's sound (kind
     /// `0x24`).
     ///
@@ -145,6 +153,10 @@ pub struct MenuState {
     /// only state in which the user has something to do about it, so it is the
     /// only state that shows the install row.
     pub vcam_installed: bool,
+    /// Whether this PC is publishing the phone's video to the virtual camera.
+    pub vcam_on: bool,
+    /// Whether the phone's microphone is playing out of this PC's speakers.
+    pub pc_audio_on: bool,
 }
 
 /// The install row's label, as a pair rather than a resolved string.
@@ -204,7 +216,17 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
     // program can act on. This row exists only while it is missing, and
     // clicking it is the whole fix, so it sits directly under the camera it is
     // about rather than in a diagnostics corner.
-    if !state.vcam_installed {
+    if state.vcam_installed {
+        // The same slot as the install row below, whichever state the camera is
+        // in: a toggle once it works, an install button while it is missing. One
+        // row either way, so the menu does not change height as the install
+        // lands. On by default, so this is the off switch.
+        push(
+            Row::Item,
+            ids::VCAM,
+            t("虚拟摄像头", "Virtual camera").to_string(),
+        );
+    } else {
         push(
             Row::Item,
             ids::INSTALL_VCAM,
@@ -234,6 +256,16 @@ pub fn menu_rows(state: &MenuState) -> Vec<MenuRow> {
             t(crate::speaker::TITLE.0, crate::speaker::TITLE.1),
             crate::speaker::status_line(state.connected, state.speaker_on)
         ),
+    );
+    // The other direction: this PC's speakers playing the phone's microphone.
+    // A toggle, not a status row — the *PC* owns this decision, unlike the
+    // speaker row above, whose decision the phone owns. A user who wants to use
+    // the phone as a mic (and has no virtual-mic driver yet) can at least hear
+    // it here without a command line.
+    push(
+        Row::Item,
+        ids::PC_AUDIO,
+        t("播放手机麦克风", "Play phone mic here").to_string(),
     );
     push(
         Row::Item,
@@ -484,6 +516,8 @@ pub fn known_ids() -> &'static [usize] {
         ids::SETUP,
         ids::SETTINGS,
         ids::SELF_CHECK,
+        ids::VCAM,
+        ids::PC_AUDIO,
     ]
 }
 
@@ -523,6 +557,8 @@ pub fn is_on(id: usize, state: &MenuState) -> bool {
         // — and a privacy switch you cannot read is a privacy switch nobody
         // will trust to have been off.
         ids::NOTIFY => state.notify_relay,
+        ids::VCAM => state.vcam_on,
+        ids::PC_AUDIO => state.pc_audio_on,
         _ => false,
     }
 }
@@ -559,6 +595,8 @@ pub fn icon_cell(id: usize) -> Option<usize> {
         ids::SETUP => 17,
         ids::SETTINGS => 18,
         ids::SELF_CHECK => 19,
+        ids::VCAM => 20,
+        ids::PC_AUDIO => 21,
         // `SPEAKER_MUTE` is deliberately absent until the sheet has a speaker
         // glyph to give it; see the id's doc comment for the exact steps.
         // `RECORD` is deliberately absent: it is the one row whose glyph
@@ -593,7 +631,7 @@ pub fn row_icon_cell(id: usize, recording: bool) -> Option<usize> {
 }
 
 /// How many cells `scripts/generate-windows-menu-icons.py` writes.
-pub const ICON_CELLS_FOR_THE_SHEET: usize = 20;
+pub const ICON_CELLS_FOR_THE_SHEET: usize = 22;
 
 /// Render a row's text the way it should appear in the popup.
 ///
@@ -621,7 +659,10 @@ mod tests {
     fn state() -> MenuState {
         // Installed, so the tests below that count rows are counting the normal
         // menu. The missing-camera case has its own test.
-        MenuState::default()
+        MenuState {
+            vcam_installed: true,
+            ..Default::default()
+        }
     }
 
     fn labels(rows: &[MenuRow]) -> Vec<&str> {
@@ -764,20 +805,29 @@ mod tests {
     /// behind a tray menu that never mentioned them.
     #[test]
     fn every_known_id_has_a_row() {
-        // A couple of states, because RECORD is the one row that comes and goes.
-        for s in [state(), {
-            let mut s = state();
-            s.recording = true;
-            s
-        }] {
-            let rows = menu_rows(&s);
-            for id in known_ids() {
-                assert!(
-                    rows.iter().any(|r| r.kind == Row::Item && r.id == *id),
-                    "known_ids() lists {id} but no row pushes it in this state — \
-                     either build the row or drop the id"
-                );
+        // Collect what can appear across the states where the menu differs. The
+        // camera's install row and its on/off toggle share one slot (mutually
+        // exclusive), and RECORD is state-dependent — so the invariant is "each
+        // id has a row in *some* state", not "in every state".
+        let mut present = std::collections::BTreeSet::new();
+        for vcam_installed in [true, false] {
+            for recording in [true, false] {
+                let mut s = state();
+                s.vcam_installed = vcam_installed;
+                s.recording = recording;
+                for row in menu_rows(&s) {
+                    if row.kind == Row::Item {
+                        present.insert(row.id);
+                    }
+                }
             }
+        }
+        for id in known_ids() {
+            assert!(
+                present.contains(id),
+                "known_ids() lists {id} but no row pushes it in any state — \
+                 either build the row or drop the id"
+            );
         }
     }
 
@@ -872,13 +922,34 @@ mod tests {
         let mut s = state();
         s.camera = true;
         s.autostart = true;
+        s.vcam_on = true;
+        s.pc_audio_on = true;
         for row in menu_rows(&s) {
             if row.kind != Row::Item {
                 continue;
             }
             let checked = is_on(row.id, &s);
-            assert_eq!(checked, row.id == ids::CAMERA || row.id == ids::AUTOSTART);
+            let expect = matches!(
+                row.id,
+                ids::CAMERA | ids::AUTOSTART | ids::VCAM | ids::PC_AUDIO
+            );
+            assert_eq!(checked, expect, "row {} (id {})", row.text, row.id);
         }
+    }
+
+    /// The two device toggles must go off as well as on, or a row that says
+    /// "off" would still draw a check.
+    #[test]
+    fn the_device_toggles_track_their_own_state() {
+        let mut s = state();
+        s.vcam_on = true;
+        s.pc_audio_on = false;
+        assert!(is_on(ids::VCAM, &s));
+        assert!(!is_on(ids::PC_AUDIO, &s));
+        s.vcam_on = false;
+        s.pc_audio_on = true;
+        assert!(!is_on(ids::VCAM, &s));
+        assert!(is_on(ids::PC_AUDIO, &s));
     }
 
     #[test]
@@ -954,6 +1025,8 @@ mod sheet_order_tests {
             connected: true,
             speaker_on: false,
             vcam_installed: true,
+            vcam_on: false,
+            pc_audio_on: false,
         }
     }
 
@@ -1015,6 +1088,8 @@ mod sheet_order_tests {
             (ids::SETUP, 17),
             (ids::SETTINGS, 18),
             (ids::SELF_CHECK, 19),
+            (ids::VCAM, 20),
+            (ids::PC_AUDIO, 21),
         ];
         for (id, cell) in expected {
             assert_eq!(icon_cell(id), Some(cell), "id {id} draws the wrong cell");
@@ -1064,6 +1139,8 @@ mod sheet_order_tests {
                 "setup" => ids::SETUP,
                 "settings" => ids::SETTINGS,
                 "self_check" => ids::SELF_CHECK,
+                "virtual_camera" => ids::VCAM,
+                "pc_audio" => ids::PC_AUDIO,
                 other => panic!("the generator draws {other:?}, which no menu row claims"),
             };
             assert_eq!(

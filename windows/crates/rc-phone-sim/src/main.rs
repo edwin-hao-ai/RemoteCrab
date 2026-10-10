@@ -180,6 +180,13 @@ struct Args {
     /// instead of hanging until someone interrupts it.
     max_frames: Option<usize>,
     seconds: Option<u64>,
+    /// **Phone-initiated**: dial this receiver's knock address (`host:port`)
+    /// instead of listening, sending `phoneHello` as the first frame.
+    dial: Option<std::net::SocketAddr>,
+    /// The computer id to name in that `phoneHello`. Required with `--dial`.
+    target_pc: Option<String>,
+    phone_id: String,
+    phone_name: String,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -188,9 +195,25 @@ fn parse_args() -> Result<Args, String> {
     let mut max_frames = None;
     let mut video = None;
     let mut seconds = None;
+    let mut dial = None;
+    let mut target_pc = None;
+    let mut phone_id = "rc-phone-sim".to_string();
+    let mut phone_name = "rc-phone-sim".to_string();
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--dial" => {
+                let v = it.next().ok_or("--dial needs host:port")?;
+                dial = Some(
+                    v.parse()
+                        .map_err(|_| format!("--dial wants an ip:port, got {v:?}"))?,
+                );
+            }
+            "--target-pc" => {
+                target_pc = Some(it.next().ok_or("--target-pc needs an id")?);
+            }
+            "--phone-id" => phone_id = it.next().ok_or("--phone-id needs a value")?,
+            "--phone-name" => phone_name = it.next().ok_or("--phone-name needs a value")?,
             "--port" => {
                 port = it
                     .next()
@@ -255,6 +278,10 @@ fn parse_args() -> Result<Args, String> {
         video,
         max_frames,
         seconds,
+        dial,
+        target_pc,
+        phone_id,
+        phone_name,
     })
 }
 
@@ -369,13 +396,35 @@ fn main() {
     };
 
     runtime.block_on(async move {
-        let phone = FakeIphone::start_on(with_video(args.scenario.config(), args.video), args.port).await;
+        let cfg = with_video(args.scenario.config(), args.video);
+        let phone = match args.dial {
+            Some(addr) => {
+                let Some(target) = args.target_pc.clone() else {
+                    eprintln!("rc-phone-sim: --dial needs --target-pc <computer id>");
+                    std::process::exit(2);
+                };
+                let hello = rc_protocol::PhoneHello {
+                    phone_id: args.phone_id.clone(),
+                    phone_name: args.phone_name.clone(),
+                    target_pc_id: target,
+                    app_version: "rc-phone-sim".to_string(),
+                    nonce: None,
+                    capabilities: Some(vec!["phoneInitiated".to_string()]),
+                };
+                FakeIphone::dial(cfg, addr, Some(hello)).await
+            }
+            None => FakeIphone::start_on(cfg, args.port).await,
+        };
         let mut phone: FakeIphone = match phone {
             Ok(p) => p,
             Err(e) => {
                 eprintln!(
-                    "rc-phone-sim: could not listen on 127.0.0.1:{} — {e}",
-                    args.port
+                    "rc-phone-sim: could not {} — {e}",
+                    if args.dial.is_some() {
+                        "dial the receiver".to_string()
+                    } else {
+                        format!("listen on 127.0.0.1:{}", args.port)
+                    }
                 );
                 eprintln!(
                     "  (is something already on that port? the receiver itself is 8765 by default)"
@@ -384,16 +433,26 @@ fn main() {
             }
         };
 
-        println!(
-            "rc-phone-sim: listening on 127.0.0.1:{}  scenario={:?}",
-            phone.addr.port(),
-            args.scenario
-        );
-        println!("rc-phone-sim: point the receiver at it with");
-        println!(
-            "               remotecrab.exe --connect 127.0.0.1:{}",
-            phone.addr.port()
-        );
+        match args.dial {
+            Some(addr) => {
+                println!(
+                    "rc-phone-sim: dialed {addr} (phone-initiated)  scenario={:?}",
+                    args.scenario
+                );
+            }
+            None => {
+                println!(
+                    "rc-phone-sim: listening on 127.0.0.1:{}  scenario={:?}",
+                    phone.addr.port(),
+                    args.scenario
+                );
+                println!("rc-phone-sim: point the receiver at it with");
+                println!(
+                    "               remotecrab.exe --connect 127.0.0.1:{}",
+                    phone.addr.port()
+                );
+            }
+        }
         println!("rc-phone-sim: Ctrl-C to stop");
 
         let deadline = args
