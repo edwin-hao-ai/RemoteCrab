@@ -85,6 +85,13 @@ final class BonjourBrowser: @unchecked Sendable {
             ))
         }
 
+        // Collapse the same phone advertising on several interfaces (WiFi +
+        // AWDL + …): they share name+port, so the id dedupes them. Without this
+        // the picker showed one phone several times, and the auto-connect could
+        // race itself between two addresses of the same phone (B4).
+        var seen = Set<String>()
+        phones = phones.filter { seen.insert($0.id).inserted }
+
         Task { @MainActor in
             onChange(phones)
         }
