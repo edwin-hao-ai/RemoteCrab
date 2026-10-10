@@ -1950,7 +1950,7 @@ final class ReceiverSession: ObservableObject {
                                                   token: token,
                                                   clientNonce: clientNonce,
                                                   serverNonce: reply.nonce)
-        Self.log.info("[transport] derive fp=\(key.map(TransportCipher.fingerprint) ?? "nil", privacy: .public) token=\(token?.suffix(6) ?? "nil", privacy: .public) clientNonce=\(clientNonce?.suffix(6) ?? "nil", privacy: .public) serverNonce=\(reply.nonce?.suffix(6) ?? "nil", privacy: .public)")
+        Self.log.info("[transport] derive fp=\(key.map(TransportCipher.fingerprint) ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(clientNonce != nil, privacy: .public) serverNonce=\(reply.nonce != nil, privacy: .public)")
         return key
     }
 

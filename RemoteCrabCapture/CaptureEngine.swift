@@ -2184,7 +2184,7 @@ final class CaptureEngine: ObservableObject {
                                                                token: challenge.mac.token,
                                                                clientNonce: challenge.clientNonce,
                                                                serverNonce: challenge.serverNonce)
-            Forensic.log("[transport] derive fp=\(transportKey.map(TransportCipher.fingerprint) ?? "nil") token=\(String(challenge.mac.token.suffix(6))) clientNonce=\(String(challenge.clientNonce.suffix(6))) serverNonce=\(String(challenge.serverNonce.suffix(6)))")
+            Forensic.log("[transport] derive fp=\(transportKey.map(TransportCipher.fingerprint) ?? "nil") token=\(challenge.mac.token.isEmpty ? "no" : "yes") clientNonce=\(challenge.clientNonce.isEmpty ? "no" : "yes") serverNonce=\(challenge.serverNonce.isEmpty ? "no" : "yes")")
             grant(connection: challenge.connection, mac: challenge.mac,
                   platform: challenge.hello.platform,
                   capabilities: challenge.hello.capabilities ?? [],
