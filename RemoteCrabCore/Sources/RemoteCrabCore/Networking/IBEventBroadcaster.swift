@@ -13,6 +13,11 @@ public final class IBEventBroadcaster: @unchecked Sendable {
     private let connection: NWConnection
     private let encoder = JSONEncoder()
 
+    /// Set once the transport is negotiated (both peers advertise `aead-v1`).
+    /// nil = cleartext: an old peer, or the handshake before the grant. While
+    /// set, every outgoing frame's payload is sealed (F1).
+    public var sealer: TransportCipher.Sealer?
+
     public init(connection: NWConnection, queue: DispatchQueue) {
         self.connection = connection
         self.queue = queue
@@ -174,7 +179,15 @@ public final class IBEventBroadcaster: @unchecked Sendable {
     private func send(kind: IBWire.Kind, _ encode: () throws -> Data) {
         guard connection.state == .ready else { return }
         do {
-            let data = try encode()
+            var data = try encode()
+            if var sealer {
+                // `data` is `[4-byte len][kind][payload]`; seal the payload and
+                // re-frame. The kind stays cleartext so the peer routes without
+                // decrypting, and is the AEAD's additional data.
+                let sealed = sealer.seal(Data(data.dropFirst(5)), kind: kind.rawValue)
+                self.sealer = sealer
+                data = IBWire.encodeFrame(kind: kind, payload: sealed)
+            }
             connection.send(content: data, completion: .contentProcessed { _ in })
         } catch {
             Self.log.error("encode \(String(describing: kind), privacy: .public) failed: \(error, privacy: .public)")
