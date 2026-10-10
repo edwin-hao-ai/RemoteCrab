@@ -58,3 +58,6 @@ kimi-export-session_*.md
 # Isolated git worktrees
 .worktrees/
 
+# rc-idd driver build output (rc-idd.dll / .cat / stamped .inf / .obj)
+windows/drivers/*/x64/
+

@@ -5,9 +5,13 @@ be finished from a Mac. This file says exactly what exists, what is missing,
 and what a person with a Windows machine + WDK + a code-signing certificate
 must do. Read it before claiming either feature is done.
 
-> Written on macOS. **Nothing here was built, signed, or run on Windows.**
-> Every "done" below is receiver-side code that compiles and is unit-tested;
-> every "not done" is a driver.
+> **Updated 2026-10-10 on the Windows box:** the extended-display driver now
+> **compiles and packages** (`windows/drivers/rc-idd/build-cl.ps1` →
+> `rc-idd.dll` + `rc-idd.cat`, Inf2Cat signability clean). It is still
+> **unsigned** and **has not run on hardware** — that needs a code-signing
+> certificate and test-signing, neither of which exists here. Everything else
+> marked "done" is receiver-side code that compiles and is unit-tested; every
+> "not done" is a driver.
 
 ---
 
@@ -26,7 +30,7 @@ blue-screen, but it still must be **signed** and installed as a device.
 | `--vdisplay-probe` diagnostic | `rc-app/src/args.rs`, `main.rs` | ✅ |
 | iOS row gated on the capability | `RemoteCrabCapture/ContentView.swift` (`canExtendDisplay`) | ✅ present; hidden on Windows until the driver works |
 | MSI installs/removes the driver (one UAC) | `windows/tools/RemoteCrab.wxs` | ⚠️ not built (needs the driver payload) |
-| **The driver** | `windows/drivers/rc-idd/` (`.cpp/.h/.inf/.vcxproj/build.ps1/README.md`) | ❌ **written, never compiled** |
+| **The driver** | `windows/drivers/rc-idd/` (`.cpp/.h/.inf/.vcxproj/build*.ps1/README.md`) | ⚠️ **compiles + packages** (`build-cl.ps1`; Inf2Cat signability clean) — but **unsigned, never loaded** |
 
 **Contract** (so a driver author needs nothing else): control pipe
 `\\.\pipe\RemoteCrabVDisplay` (`PING`→`PONG 1`, `MONITOR <w> <h>`→`OK`,
@@ -35,8 +39,12 @@ blue-screen, but it still must be **signed** and installed as a device.
 `windows/drivers/rc-idd/README.md`.
 
 **To finish** (on a machine with VS 2022 + Windows SDK + WDK + admin):
-1. `cd windows\drivers\rc-idd; pwsh -File build.ps1` — fix whatever the compiler
-   says (this is the untested part; expect a few).
+1. ~~Build~~ **Done** — `build-cl.ps1` compiles with `cl`/`link` and packages
+   with `stampinf` + `Inf2Cat`, one command, no registered VS toolset needed.
+   Two code bugs the first real compile caught are fixed (an invented
+   `Microsoft::WRL::Wrappers::Thread` → a raw `HANDLE`; a `stampinf` call that
+   needed an explicit `-v`). See the README for why `build.ps1` (msbuild) needs
+   a registered toolset and `build-cl.ps1` does not.
 2. Test-sign + install on a throwaway machine (`bcdedit /set testsigning on`,
    self-signed cert, `signtool`, `pnputil /add-driver rc-idd.inf /install`).
    Confirm `Get-PnpDevice -FriendlyName 'RemoteCrab Display'` and
