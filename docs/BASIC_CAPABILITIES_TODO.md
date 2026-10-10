@@ -131,6 +131,17 @@
   `CameraExtensionDevice` 的 `onSampleBuffer → sourceStream.send` 源码是接好的，**原因未定**，
   需要一次扩展调试循环（每次改都要重新部署）才能定位。**这是当前唯一的 4K 遗留点。**
 
+### A2 真机复测 · 更正（2026-10-10 晚，手机连着时）
+- ✅ **扩展确实在发送**：手机推 4K 流 + 客户端附着时，日志出现
+  **`source sent N frames (clients=1)`**，且加过 `sink: onSampleBuffer is NIL` 诊断**未触发** →
+  `onSampleBuffer → sourceStream.send` **确实在跑**。之前的"没发送"是**那一刻链路没起来**
+  （sink 没在喂）造成的误判。
+- ✅ 顺带用 D2 遥测实测到 4K 入站：`video frames received: — 11 fps, 16100 kbps`。
+- ❓ **仍未验证**：客户端**像素级**收到 4K。我的 `AVCaptureSession` 探针（默认 `.high` 预设，
+  可能不接受 4K）和 `ffmpeg`（相机 TCC 被挡）都读不到帧——**这是接收端工具的问题，不是扩展**。
+  → **最终确认留给你在 Zoom 里跑一次**（你做 4K 重新批准那一步时顺带看）。
+- **诚实结论**：4K 摄像头**格式真、发送真**；"app 里真看到 4K 像素"这最后一格待 Zoom 确认。
+
 ### A3. ❌ 作废（2026-10-09）—— 天花板在 iOS 上是惰性的
 - 原以为要抬 `ceilingBps`。精读 `VideoEncodingPolicy.swift:12,37,64` 后确认：
   iOS 上 `kVTCompressionPropertyKey_Quality` **完全覆盖** `AverageBitRate`，
