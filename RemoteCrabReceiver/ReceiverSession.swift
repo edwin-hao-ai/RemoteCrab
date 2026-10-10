@@ -1858,7 +1858,16 @@ final class ReceiverSession: ObservableObject {
                                   capabilities: [.latencyProbe, .commandResult, .peerAuth,
                                                  .extendedDisplay],
                                   nonce: nonce,
-                                  transport: TransportCipher.versionName)
+                                  // DISABLED (2026-10-11): F1's sealing proved
+                                  // fragile across the phone-initiated
+                                  // multi-connection topology — the two ends
+                                  // made independent seal/cleartext decisions
+                                  // and disagreed, dropping every frame. Until
+                                  // the negotiation is robust, the receiver
+                                  // advertises nothing and the link stays
+                                  // cleartext (working). Re-enable with a
+                                  // symmetric, per-connection handshake.
+                                  transport: nil)
         do {
             let data = try IBWire.encode(clientHello: hello)
             Self.log.info("clientHello sent (paired: \(token != nil, privacy: .public))")

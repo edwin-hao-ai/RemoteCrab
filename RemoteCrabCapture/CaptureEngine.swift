@@ -2120,9 +2120,13 @@ final class CaptureEngine: ObservableObject {
             Forensic.log("[auth] receiver proved the token for \(challenge.hello.id.prefix(8))")
             pairingStore.noteOutcome(.streaming, for: challenge.hello.id)
             refreshPairedMacs()
+            // Advertise the transport ONLY when we will actually seal — i.e.
+            // the computer advertised it (we hold the token). Advertising
+            // unconditionally made the Mac seal while we stayed cleartext and
+            // the link broke (F1).
             sendSessionReply(IBSessionReply(result: .accepted,
                                             nonce: challenge.serverNonce,
-                                            transport: TransportCipher.versionName),
+                                            transport: challenge.hello.transport),
                              on: challenge.connection)
             grant(connection: challenge.connection, mac: challenge.mac,
                   platform: challenge.hello.platform,
