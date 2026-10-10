@@ -553,6 +553,8 @@
 | 2026-10-10 | C3/B3 | iOS `.inactive` → 回前台重assert keep-alive；candidate `.waiting` 记日志 | 测通过 |
 | 2026-10-10 | G1 step1 | `TouchEvent` 加可选 `pressure/altitude/azimuth`（向后兼容，+2 测） | 测通过 |
 | 2026-10-10 | G1 step2 | Mac `CGEventInjector` 有压感时注入 **tablet 事件**（不认的 app 降级为普通鼠标，无回归） | 编译 + 门禁绿 |
+| 2026-10-10 | D1 | MetricKit 崩溃/hang/CPU 诊断 → os_log + forensic（无三方、无上传，符合"无云"） | 编译 + 门禁绿 |
+| 2026-10-10 | A2 诊断 | 扩展加日志：`source.send` 无客户端 / device 被释放（为 4K 取帧调试铺路） | 已提交 |
 
 ---
 
