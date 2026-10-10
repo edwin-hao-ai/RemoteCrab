@@ -30,8 +30,13 @@ const USAGE: &[(&str, &str, &str)] = &[
     ),
     (
         "--vcam",
-        "把画面发布为 \"RemoteCrab\" 虚拟摄像头",
-        "Publish the video to a \"RemoteCrab\" virtual camera",
+        "把画面发布为 \"RemoteCrab\" 虚拟摄像头（已默认开启）",
+        "Publish the video to the \"RemoteCrab\" virtual camera (on by default)",
+    ),
+    (
+        "--no-vcam",
+        "关闭虚拟摄像头（默认开启）",
+        "Turn the \"RemoteCrab\" virtual camera off (it is on by default)",
     ),
     (
         "--unmute",

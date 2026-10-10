@@ -16,6 +16,8 @@ fn test_config() -> Config {
         token_path: None,
         // No virtual-display driver in a test host.
         extended_display: false,
+        // Cleartext by default, like the app; the sealed-session test turns it on.
+        transport_sealing: false,
     }
 }
 
@@ -933,7 +935,9 @@ async fn a_phone_that_cannot_prove_itself_is_allowed_and_marked_unauthenticated(
 /// directions silent — which is exactly what this asserts against.
 #[tokio::test]
 async fn a_sealed_session_opens_both_directions() {
-    let (config, path) = test_config_with_token_file("sealed");
+    let (mut config, path) = test_config_with_token_file("sealed");
+    // Only this test turns sealing on; the app ships it off (see `Config`).
+    config.transport_sealing = true;
     pair_once(&config, &path).await;
 
     let mut phone = FakeIphone::start(FakeIphoneConfig {

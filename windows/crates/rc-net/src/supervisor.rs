@@ -1115,10 +1115,15 @@ async fn run_session(
             }
             caps
         }),
-        // F1: advertise that this receiver can seal, so the phone starts
-        // sealing once it is granted. Absence is what an old peer sees; a
-        // cleartext session is the honest fallback, never a refusal.
-        transport: Some(rc_protocol::transport::VERSION.to_string()),
+        // F1: advertise only when we will actually seal. `transport_sealing`
+        // is off in the app (see `Config`), so this sends nothing — the phone
+        // then stays cleartext too, which is the symmetric decision `ec92600`
+        // needed. Tests enable it to exercise the sealed paths.
+        transport: if config.transport_sealing {
+            Some(rc_protocol::transport::VERSION.to_string())
+        } else {
+            None
+        },
     };
     let Ok(frame) = encode_client_hello(&hello) else {
         return ConnEndKind::Lost;
@@ -1310,7 +1315,7 @@ async fn run_session(
     // sealed.
     let mut sealer: Option<rc_protocol::transport::Sealer> = None;
     let mut opener: Option<rc_protocol::transport::Opener> = None;
-    if reply.transport.as_deref() == Some(rc_protocol::transport::VERSION) {
+    if config.transport_sealing && reply.transport.as_deref() == Some(rc_protocol::transport::VERSION) {
         match (stored_token.as_deref(), reply.nonce.as_deref()) {
             (Some(token), Some(server_nonce)) => {
                 let key = rc_protocol::transport::session_key(

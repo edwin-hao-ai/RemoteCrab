@@ -15,6 +15,12 @@ pub struct Args {
     pub preview_selftest: bool,
     pub audio_selftest: bool,
     pub vcam: bool,
+    /// Turn the virtual camera **off** for this run.
+    ///
+    /// The camera is on by default (a normal user launches from the tray /
+    /// Start Menu and never sees a command line), so this is the opt-out. Only
+    /// meaningful on Windows; see `main` for where the default is decided.
+    pub no_vcam: bool,
     pub vcam_selftest: bool,
     pub preview: bool,
     pub no_preview: bool,
@@ -118,6 +124,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--unmute" => args.unmute = true,
             "--audio-selftest" => args.audio_selftest = true,
             "--vcam" => args.vcam = true,
+            "--no-vcam" => args.no_vcam = true,
             "--vcam-selftest" => args.vcam_selftest = true,
             "--record" => args.record = true,
             "--version" | "-V" => args.version = true,
@@ -250,6 +257,21 @@ mod arg_tests {
         // consumer of decoded frames.
         let a = args(&["--vcam", "--no-preview"]);
         assert!(Args::decode_pipeline_needed(&a));
+    }
+
+    /// The virtual camera is on by default (a normal user has no command line),
+    /// so the *new* flag is the opt-out. `--vcam` still parses, for a caller
+    /// that wants to be explicit. The platform default itself is decided in
+    /// `main`, next to the driver probe — not here, so this parses the same on
+    /// every host.
+    #[test]
+    fn the_virtual_camera_flag_and_its_opt_out_both_parse() {
+        assert!(args(&["--vcam"]).vcam);
+        assert!(!args(&["--vcam"]).no_vcam);
+        assert!(args(&["--no-vcam"]).no_vcam);
+        assert!(!args(&["--no-vcam"]).vcam);
+        assert!(!args(&[]).vcam);
+        assert!(!args(&[]).no_vcam);
     }
 
     #[test]
