@@ -908,12 +908,22 @@ async fn main() -> ExitCode {
     #[cfg(windows)]
     let mut mirror = mirror::MirrorController::new(session.clone());
 
+    // The virtual camera is ON by default on Windows: the product is launched
+    // from the tray / Start Menu, and a normal user cannot pass `--vcam`. It
+    // stays off when the driver is not registered (nothing to feed) or when
+    // `--no-vcam` asks. `--vcam` forces the attempt even when unregistered, so
+    // the "install it" message still appears for a user who asked.
+    #[cfg(windows)]
+    let want_vcam = args.vcam || (!args.no_vcam && vcam::is_registered());
+    #[cfg(not(windows))]
+    let want_vcam = args.vcam;
+
     // Video preview: decode in this task, blit from the window thread. The
     // virtual camera consumes the same decoded frames, so the decoder is also
     // needed when only `--vcam` is on (e.g. `--no-preview --vcam`), and when
     // only `--decode-only` is on. `Args::decode_pipeline_needed` owns that
     // question so it cannot drift from the flag's meaning again.
-    let mut preview: Option<rc_render::PreviewPipeline> = if args.decode_pipeline_needed() {
+    let mut preview: Option<rc_render::PreviewPipeline> = if args.decode_pipeline_needed() || want_vcam {
         match rc_render::PreviewPipeline::new() {
             Ok(p) => Some(p),
             Err(e) => {
@@ -930,10 +940,10 @@ async fn main() -> ExitCode {
     };
 
     // Virtual camera: register the COM source DLL and publish decoded frames
-    // into the shared-memory ring. Off unless `--vcam` is passed — it writes a
-    // per-user COM registration and creates a session-scoped device.
+    // into the shared-memory ring. **On by default** (`want_vcam`, above) so a
+    // normal user needs no flags; `--no-vcam` turns it off.
     #[cfg(windows)]
-    let mut vcam = if args.vcam {
+    let mut vcam = if want_vcam {
         vcam::Vcam::start("RemoteCrab")
     } else {
         None
