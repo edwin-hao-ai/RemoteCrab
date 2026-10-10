@@ -365,6 +365,62 @@ final class EventPipelineEndToEndTests: XCTestCase {
         listener.cancel()
     }
 
+    /// Regression (2026-10-11): the Mac sent appList / windowList /
+    /// installedApps / featureControl / clipboard / fileAck / cameraCommand /
+    /// speakerAudio via a raw `connection.send`, bypassing the sealer, so a
+    /// sealed link dropped every one of them — the speaker was the visible
+    /// casualty (found by `scripts/e2e-speaker.sh`). They now go through the
+    /// broadcaster; this drives those exact methods.
+    func testMacControlFramesSealThroughTheBroadcaster() throws {
+        let marker = "clipboard-marker-xyz"
+        let key = TransportCipher.sessionKey(token: "t", initiatorNonce: Data([1]), responderNonce: Data([2]))
+        let box = ByteBox()
+        let listener = try NWListener(using: NWParameters.tcp)
+        listener.newConnectionHandler = { c in
+            c.start(queue: .global())
+            Self.receiveRaw(on: c) { box.append($0) }
+        }
+        listener.start(queue: .global())
+        let port = try waitForPort(listener)
+
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: port, using: NWParameters.tcp)
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { if case .ready = $0 { connected.fulfill() } }
+        connection.start(queue: .global())
+        wait(for: [connected], timeout: 3.0)
+
+        let b = IBEventBroadcaster(connection: connection, queue: .global())
+        b.sealer = TransportCipher.Sealer(key: key)
+        b.send(IBAppList(apps: [IBAppInfo(id: "com.x", name: "X", pid: 1, isActive: true)]))
+        b.send(IBWindowList(windows: [], canCapture: false))
+        b.send(IBInstalledApps(apps: []))
+        b.send(FeatureControl(feature: .camera, enabled: true))
+        b.send(IBClipboard(text: marker))
+        b.send(IBFileAck(id: "f", status: .saved, receivedBytes: 1))
+        b.send(IBCameraCommand(position: .front))
+        b.sendSpeakerAudio(AudioPacket(opusData: Data([1, 2, 3, 4]), sampleRate: 48_000,
+                                       channels: 2, timestampMicros: 1, codec: AudioPacket.codecPCM))
+
+        let got = expectation(description: "sealed frames received")
+        let poller = DispatchSource.makeTimerSource(queue: .global())
+        poller.schedule(deadline: .now() + 0.02, repeating: 0.05)
+        poller.setEventHandler {
+            var opener = TransportCipher.Opener(key: key)
+            let opened = IBWire.Parser().append(box.snapshot()).compactMap { f -> IBWire.Frame? in
+                guard let p = try? opener.open(f.payload, kind: f.kind.rawValue) else { return nil }
+                return IBWire.Frame(kind: f.kind, payload: p)
+            }
+            if opened.count >= 8 { got.fulfill() }
+        }
+        poller.resume()
+        wait(for: [got], timeout: 5.0)
+        poller.cancel()
+
+        XCTAssertNil(box.snapshot().range(of: Data(marker.utf8)), "clipboard leaked in cleartext")
+        connection.cancel()
+        listener.cancel()
+    }
+
     private final class ByteBox: @unchecked Sendable {
         private let lock = NSLock()
         private var data = Data()

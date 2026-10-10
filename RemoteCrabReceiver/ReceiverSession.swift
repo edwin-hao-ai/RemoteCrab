@@ -493,11 +493,9 @@ final class ReceiverSession: ObservableObject {
                                  iconPNG: includeIcons ? iconPNG(for: app, key: bid) : nil)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        macApps = apps
-        Self.log.info("published \(apps.count, privacy: .public) apps to iPhone (icons: \(includeIcons, privacy: .public))")
-        if let data = try? IBWire.encode(appList: IBAppList(apps: apps)) {
-            connection.send(content: data, completion: .contentProcessed { _ in })
-        }
+            macApps = apps
+            Self.log.info("published \(apps.count, privacy: .public) apps to iPhone (icons: \(includeIcons, privacy: .public))")
+            broadcaster?.send(IBAppList(apps: apps))
     }
 
     /// Rasterize an app icon to a 128 px PNG once and cache it by id.
@@ -531,10 +529,8 @@ final class ReceiverSession: ObservableObject {
             guard let self, self.sessionGranted,
                   let connection = self.connection, connection.state == .ready else { return }
             let previews = list.windows.filter { $0.snapshotJPEG != nil }.count
-            Self.log.info("published \(list.windows.count, privacy: .public) windows (\(previews, privacy: .public) with previews, canCapture=\(list.canCapture, privacy: .public))")
-            if let data = try? IBWire.encode(windowList: list) {
-                connection.send(content: data, completion: .contentProcessed { _ in })
-            }
+                Self.log.info("published \(list.windows.count, privacy: .public) windows (\(previews, privacy: .public) with previews, canCapture=\(list.canCapture, privacy: .public))")
+                broadcaster?.send(list)
         }
     }
 
@@ -616,7 +612,7 @@ final class ReceiverSession: ObservableObject {
             // logged next to the count: 113 apps was 14.25 MB as 192px
             // lossless PNG and is 1.06 MB as 192px JPEG.
             Self.log.info("installedApps frame: \(data.count / 1024, privacy: .public)KB in \(Int(Date().timeIntervalSince(started) * 1000), privacy: .public)ms")
-            connection.send(content: data, completion: .contentProcessed { _ in })
+            broadcaster?.send(IBInstalledApps(apps: apps))
         }
     }
 
@@ -913,11 +909,9 @@ final class ReceiverSession: ObservableObject {
         }
     }
 
-    private func sendFileAck(_ ack: IBFileAck) {
-        guard let connection, connection.state == .ready,
-              let data = try? IBWire.encode(fileAck: ack) else { return }
-        connection.send(content: data, completion: .contentProcessed { _ in })
-    }
+        private func sendFileAck(_ ack: IBFileAck) {
+            broadcaster?.send(ack)
+        }
 
     // MARK: - Selection rewrite
 
@@ -977,11 +971,10 @@ final class ReceiverSession: ObservableObject {
     /// Push the Mac's clipboard text to the iPhone.
     func sendClipboardToPhone() {
         guard sessionGranted, let connection, connection.state == .ready else { return }
-        let text = NSPasteboard.general.string(forType: .string) ?? ""
-        guard !text.isEmpty,
-              let data = try? IBWire.encode(clipboard: IBClipboard(text: text)) else { return }
-        connection.send(content: data, completion: .contentProcessed { _ in })
-        Self.log.info("clipboard sent to iPhone (\(text.count) chars)")
+            let text = NSPasteboard.general.string(forType: .string) ?? ""
+            guard !text.isEmpty else { return }
+            broadcaster?.send(IBClipboard(text: text))
+            Self.log.info("clipboard sent to iPhone (\(text.count) chars)")
     }
 
     // MARK: - Notification relay (Mac → iPhone)
@@ -1208,13 +1201,8 @@ final class ReceiverSession: ObservableObject {
 
     /// Mac → iPhone: toggle a feature remotely. No-op when disconnected.
     func setFeature(_ feature: IBFeature, _ enabled: Bool) {
-        guard sessionGranted, let connection, connection.state == .ready else { return }
-        do {
-            let data = try IBWire.encode(featureControl: FeatureControl(feature: feature, enabled: enabled))
-            connection.send(content: data, completion: .contentProcessed { _ in })
-        } catch {
-            Self.log.error("featureControl encode failed: \(error, privacy: .public)")
-        }
+        guard sessionGranted else { return }
+        broadcaster?.send(FeatureControl(feature: feature, enabled: enabled))
     }
 
     // MARK: - Speaker path (the Mac captures, the phone plays)
@@ -1315,8 +1303,10 @@ final class ReceiverSession: ObservableObject {
                 channels: SystemAudioTap.channels,
                 timestampMicros: UInt64(Date().timeIntervalSince1970 * 1_000_000),
                 codec: AudioPacket.codecPCM)
-            guard let data = try? IBWire.encode(speakerAudio: packet) else { break }
-            connection.send(content: data, completion: .contentProcessed { _ in })
+            // Through the broadcaster so it is sealed when the transport is on
+            // (F1). A raw `connection.send` here is cleartext and the phone
+            // drops it — the bug that silently killed the speaker (2026-10-11).
+            broadcaster?.sendSpeakerAudio(packet)
             sent += 1
             packetBytes = pcm.count
             if sent >= 20 { break }   // never let a backlog starve the rest of the link
@@ -1339,13 +1329,8 @@ final class ReceiverSession: ObservableObject {
 
     /// Mac → iPhone: switch the streaming camera. No-op when disconnected.
     func switchCamera(to position: IBCameraPosition) {
-        guard sessionGranted, let connection, connection.state == .ready else { return }
-        do {
-            let data = try IBWire.encode(cameraCommand: IBCameraCommand(position: position))
-            connection.send(content: data, completion: .contentProcessed { _ in })
-        } catch {
-            Self.log.error("cameraCommand encode failed: \(error, privacy: .public)")
-        }
+        guard sessionGranted else { return }
+        broadcaster?.send(IBCameraCommand(position: position))
     }
 
     /// Flip the iPhone's camera between front and back.
@@ -1961,10 +1946,12 @@ final class ReceiverSession: ObservableObject {
     /// candidate path replayed pending frames before, so sealed frames were
     /// read as cleartext.
     private func transportKey(reply: IBSessionReply, token: String?, clientNonce: String?) -> SymmetricKey? {
-        TransportNegotiation.sessionKey(peerTransport: reply.transport,
-                                        token: token,
-                                        clientNonce: clientNonce,
-                                        serverNonce: reply.nonce)
+        let key = TransportNegotiation.sessionKey(peerTransport: reply.transport,
+                                                  token: token,
+                                                  clientNonce: clientNonce,
+                                                  serverNonce: reply.nonce)
+        Self.log.info("[transport] derive fp=\(key.map(TransportCipher.fingerprint) ?? "nil", privacy: .public) token=\(token?.suffix(6) ?? "nil", privacy: .public) clientNonce=\(clientNonce?.suffix(6) ?? "nil", privacy: .public) serverNonce=\(reply.nonce?.suffix(6) ?? "nil", privacy: .public)")
+        return key
     }
 
     private func handleSessionReply(_ reply: IBSessionReply) {

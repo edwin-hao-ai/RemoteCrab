@@ -34,6 +34,15 @@ public enum TransportCipher {
         )
     }
 
+    /// A short, non-reversible fingerprint of a key, for logs. Both ends must
+    /// print the SAME value for a working seal; a mismatch names the side whose
+    /// derivation inputs (token / nonces) differ — the diagnostic that pinned
+    /// the "Mac seals, phone cannot open" split (2026-10-11).
+    public static func fingerprint(_ key: SymmetricKey) -> String {
+        let digest = SHA256.hash(data: key.withUnsafeBytes { Data($0) })
+        return digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Seals outgoing frames with a monotonically increasing nonce.
     public struct Sealer {
         private let key: SymmetricKey

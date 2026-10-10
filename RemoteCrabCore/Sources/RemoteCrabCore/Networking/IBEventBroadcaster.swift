@@ -47,6 +47,34 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .featureState) { try IBWire.encode(featureState: snapshot) }
     }
 
+    // MARK: - Mac → iPhone control/data frames
+    //
+    // All of these MUST go through the broadcaster, not a raw
+    // `connection.send`: when the transport is sealed (F1) the peer opens every
+    // post-grant frame, so a cleartext one is dropped (measured 2026-10-11 —
+    // the Mac's speaker audio, app list, window list, installed-app list and
+    // feature toggles were all silently lost on a sealed link).
+
+    /// Mac → iPhone: the running-app list (app switcher).
+    public func send(_ list: IBAppList) {
+        send(kind: .appList) { try IBWire.encode(appList: list) }
+    }
+
+    /// Mac → iPhone: the switchable-window list (window picker).
+    public func send(_ list: IBWindowList) {
+        send(kind: .windowList) { try IBWire.encode(windowList: list) }
+    }
+
+    /// Mac → iPhone: the launcher's installed-app list.
+    public func send(_ list: IBInstalledApps) {
+        send(kind: .installedApps) { try IBWire.encode(installedApps: list) }
+    }
+
+    /// Mac → iPhone: a remote feature toggle.
+    public func send(_ control: FeatureControl) {
+        send(kind: .featureControl) { try IBWire.encode(featureControl: control) }
+    }
+
     /// iPhone → computer: the phone's identity handshake, sent as the first
     /// frame on a phone-initiated TCP connection (kind `0x27`).
     public func send(_ hello: IBPhoneHello) {
