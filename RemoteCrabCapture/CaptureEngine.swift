@@ -383,7 +383,7 @@ final class CaptureEngine: ObservableObject {
     /// instead of silently arming a knock with nothing to knock.
     private var pendingAutoDialId: String?
 
-    let pairingStore = MacPairingStore()
+    let pairingStore = MacPairingStore(tokenStore: KeychainTokenStore())
 
     /// Stable identity of this iPhone, persisted so the receiver keys pairings
     /// by id rather than the display name (a rename no longer forces a

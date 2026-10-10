@@ -170,6 +170,9 @@ public final class MacPairingStore {
 
     private let defaults: UserDefaults
     private let key: String
+    /// Where pairing tokens are kept. `nil` = the legacy cleartext JSON (tests,
+    /// previews). The app supplies a Keychain store (F2).
+    private let tokenStore: TokenStoring?
     private let preferredIdKey: String
     private let preferredAtKey: String
     /// The name of the preferred computer, kept so a preference can be armed
@@ -250,9 +253,12 @@ public final class MacPairingStore {
     /// The allow-list of approved computers.
     public private(set) var paired: [PairedMac]
 
-    public init(defaults: UserDefaults = .standard, key: String = "remotecrab.ios.pairedMacs") {
+    public init(defaults: UserDefaults = .standard,
+                key: String = "remotecrab.ios.pairedMacs",
+                tokenStore: TokenStoring? = nil) {
         self.defaults = defaults
         self.key = key
+        self.tokenStore = tokenStore
         self.preferredIdKey = key + ".preferredId"
         self.preferredAtKey = key + ".preferredAt"
         self.preferredNameKey = key + ".preferredName"
@@ -261,7 +267,7 @@ public final class MacPairingStore {
         self.disconnectedNameKey = key + ".disconnectedName"
         self.currentIdKey = key + ".currentId"
         self.currentNameKey = key + ".currentName"
-        self.paired = Self.load(from: defaults, key: key)
+        self.paired = Self.load(from: defaults, key: key, tokenStore: tokenStore)
         self.seen = Self.loadSeen(from: defaults, key: key + ".seenComputers")
     }
 
@@ -527,6 +533,7 @@ public final class MacPairingStore {
     /// icon/label. A forgotten computer has no icon and no name to show.
     public func forget(id: String) {
         paired.removeAll { $0.id == id }
+        tokenStore?.remove(for: id)
         forgetSeen(id: id)
         if preferredId == id { clearPreferred() }
         if disconnected?.id == id { clearDisconnected() }
@@ -541,6 +548,7 @@ public final class MacPairingStore {
     }
 
     public func removeAll() {
+        if let tokenStore { paired.forEach { tokenStore.remove(for: $0.id) } }
         paired = []
         // "Remove all" must clear the history too, not just the allow-list.
         // The e2e reset hook is the only caller, and it left `seen` behind:
@@ -555,15 +563,39 @@ public final class MacPairingStore {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(paired) {
+        var encoded = paired
+        if let tokenStore {
+            for i in encoded.indices where !encoded[i].token.isEmpty {
+                // Only drop the cleartext copy once the Keychain write landed
+                // (fail-open: a Keychain failure leaves the token where it was
+                // rather than losing the pairing).
+                if tokenStore.set(encoded[i].token, for: encoded[i].id) {
+                    encoded[i].token = ""
+                }
+            }
+        }
+        if let data = try? JSONEncoder().encode(encoded) {
             defaults.set(data, forKey: key)
         }
     }
 
-    private static func load(from defaults: UserDefaults, key: String) -> [PairedMac] {
+    private static func load(from defaults: UserDefaults, key: String, tokenStore: TokenStoring?) -> [PairedMac] {
         guard let data = defaults.data(forKey: key),
-              let value = try? JSONDecoder().decode([PairedMac].self, from: data) else {
+              var value = try? JSONDecoder().decode([PairedMac].self, from: data) else {
             return []
+        }
+        // F2: when a token store is supplied, the real token lives there and
+        // the JSON copy may be blank. Read it back, and migrate a legacy
+        // cleartext token into the store on the way (fail-open: if there is no
+        // stored token we keep whatever the JSON had).
+        if let tokenStore {
+            for i in value.indices {
+                if let stored = tokenStore.token(for: value[i].id), !stored.isEmpty {
+                    value[i].token = stored
+                } else if !value[i].token.isEmpty {
+                    tokenStore.set(value[i].token, for: value[i].id)
+                }
+            }
         }
         return value
     }
