@@ -2742,7 +2742,9 @@ final class ReceiverSession: ObservableObject {
                     let s = StreamTelemetry.sample(bytes: telemetryBytes,
                                                    frames: telemetryFrames,
                                                    interval: elapsed)
-                    Self.log.info("stream: \(s.summary, privacy: .public) (total \(self.videoFrameCount) frames)")
+                    // Keep the "video frames received:" marker (e2e + humans
+                    // grep it) and append the measured stream numbers.
+                    Self.log.info("video frames received: \(self.videoFrameCount) — \(s.summary, privacy: .public)")
                     achievedFps = s.fps
                     telemetryBytes = 0
                     telemetryFrames = 0
