@@ -25,6 +25,7 @@ param(
     [int]$Port = 8765,
     [int]$VideoFrames = 200,
     [string]$Scenario = 'normal',
+    [switch]$PhoneInitiated,
     [switch]$NoBuild,
     [int]$TimeoutSeconds = 25
 )
@@ -58,8 +59,6 @@ if (-not $NoBuild) {
 
 $sim = Join-Path $win 'target\x86_64-pc-windows-msvc\debug\rc-phone-sim.exe'
 $receiver = Join-Path $win 'target\x86_64-pc-windows-msvc\debug\remotecrab.exe'
-$sim = Join-Path $win 'target\x86_64-pc-windows-msvc\debug\rc-phone-sim.exe'
-$receiver = Join-Path $win 'target\x86_64-pc-windows-msvc\debug\remotecrab.exe'
 if (-not (Test-Path $sim)) { throw "missing $sim (run without -NoBuild)" }
 
 # --- hermetic state dir -----------------------------------------------------
@@ -77,64 +76,96 @@ Start-Sleep -Milliseconds 500
 $fail = 0
 $simProc = $null
 $recvProc = $null
-try {
-    Say "starting fake iPhone: rc-phone-sim --port $Port --scenario $Scenario --video $VideoFrames"
-    $simArgs = @('--port', "$Port", '--scenario', "$Scenario", '--video', "$VideoFrames", '--seconds', '60')
-    $simProc = Start-Process -FilePath $sim -ArgumentList $simArgs `
-        -RedirectStandardOutput $simOut -RedirectStandardError $simErr -PassThru -WindowStyle Hidden
-    Start-Sleep -Milliseconds 800
 
-    Say "starting receiver: remotecrab --connect 127.0.0.1:$Port --no-tray --no-preview --decode-only"
-    # Hermetic: the child's APPDATA/LOCALAPPDATA point at the temp dir, so the
-    # token store, prefs and log are the test's, not the user's.
+function Log() {
+    $text = ''
+    if (Test-Path $out) { $text += (Get-Content $out -Raw) }
+    if (Test-Path $err) { $text += (Get-Content $err -Raw) }
+    return $text
+}
+function Check($name, $pattern) {
+    if ((Log) -match $pattern) {
+        Write-Host ("  PASS  {0}" -f $name)
+    } else {
+        Write-Host ("  FAIL  {0}  (no match for /{1}/)" -f $name, $pattern) -ForegroundColor Red
+        $script:fail++
+    }
+}
+# Start the receiver with the child's APPDATA/LOCALAPPDATA pointed at the temp
+# dir, so its tokens/prefs/log are the test's, not the user's.
+function Start-Receiver($extraArgs) {
     $savedAppData = $env:APPDATA
     $savedLocalAppData = $env:LOCALAPPDATA
     $env:APPDATA = $state
     $env:LOCALAPPDATA = $state
     try {
-        $recvProc = Start-Process -FilePath $receiver `
-            -ArgumentList @('--connect', "127.0.0.1:$Port", '--no-tray', '--no-preview', '--decode-only') `
+        Start-Process -FilePath $receiver -ArgumentList $extraArgs `
             -RedirectStandardOutput $out -RedirectStandardError $err -PassThru -WindowStyle Hidden
     } finally {
         $env:APPDATA = $savedAppData
         $env:LOCALAPPDATA = $savedLocalAppData
     }
+}
 
-    # --- wait for the markers ------------------------------------------------
-    function Log() {
-        $text = ''
-        if (Test-Path $out) { $text += (Get-Content $out -Raw) }
-        if (Test-Path $err) { $text += (Get-Content $err -Raw) }
-        return $text
-    }
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $sawStream = $false
-    $sawDecode = $false
-    while ((Get-Date) -lt $deadline) {
-        $t = Log
-        if ($t -match 'streaming:') { $sawStream = $true }
-        if ($t -match 'decoded / \d+ received') { $sawDecode = $true }
-        if ($sawStream -and ($VideoFrames -le 0 -or $sawDecode)) { break }
-        Start-Sleep -Milliseconds 250
-    }
-
-    $log = Log
-    Say "checking the receiver log"
-
-    function Check($name, $pattern) {
-        if ($log -match $pattern) {
-            Write-Host ("  PASS  {0}" -f $name)
-        } else {
-            Write-Host ("  FAIL  {0}  (no match for /{1}/)" -f $name, $pattern) -ForegroundColor Red
-            $script:fail++
+try {
+    if ($PhoneInitiated) {
+        # The phone dials the receiver's knock port. Start the receiver first.
+        Say "starting receiver (knock listener on 8766)"
+        $recvProc = Start-Receiver @('--no-tray', '--no-preview', '--decode-only')
+        $pcid = $null
+        for ($i = 0; $i -lt 40 -and -not $pcid; $i++) {
+            Start-Sleep -Milliseconds 250
+            $tf = Join-Path $state 'RemoteCrab\tokens.json'
+            if (Test-Path $tf) {
+                try { $pcid = (Get-Content $tf -Raw | ConvertFrom-Json).pc_id } catch {}
+            }
         }
-    }
+        if (-not $pcid) { throw "the receiver never wrote a pc_id" }
+        Say "receiver pc_id=$pcid - dialing it as the phone"
+        $simProc = Start-Process -FilePath $sim `
+            -ArgumentList @('--dial', '127.0.0.1:8766', '--target-pc', $pcid,
+                            '--video', "$VideoFrames", '--seconds', '12') `
+            -RedirectStandardOutput $simOut -RedirectStandardError $simErr -PassThru -WindowStyle Hidden
 
-    Check 'dial reached the fake phone'  'TCP connected to 127\.0\.0\.1'
-    Check 'handshake answered'           'sessionReply:\s*(Accepted|Pending)'
-    Check 'stream metadata arrived'      'streaming:'
-    if ($VideoFrames -gt 0) {
-        Check 'H.264 decoded (frames > 0)' 'decoded / \d+ received'
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        while ((Get-Date) -lt $deadline) {
+            $t = Log
+            if ($t -match 'sessionReply:\s*(Accepted|Pending)') {
+                if ($VideoFrames -le 0 -or $t -match 'decoded / \d+ received') { break }
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        Say "checking the receiver log"
+        Check 'phoneHello reached the knock listener' 'phoneHello for this PC'
+        Check 'server handshake answered'             'sessionReply:\s*(Accepted|Pending)'
+        if ($VideoFrames -gt 0) {
+            Check 'H.264 decoded (frames > 0)' 'decoded / \d+ received'
+        }
+    } else {
+        Say "starting fake iPhone: rc-phone-sim --port $Port --scenario $Scenario --video $VideoFrames"
+        $simArgs = @('--port', "$Port", '--scenario', "$Scenario", '--video', "$VideoFrames", '--seconds', '60')
+        $simProc = Start-Process -FilePath $sim -ArgumentList $simArgs `
+            -RedirectStandardOutput $simOut -RedirectStandardError $simErr -PassThru -WindowStyle Hidden
+        Start-Sleep -Milliseconds 800
+
+        Say "starting receiver: remotecrab --connect 127.0.0.1:$Port --no-tray --no-preview --decode-only"
+        $recvProc = Start-Receiver @('--connect', "127.0.0.1:$Port", '--no-tray', '--no-preview', '--decode-only')
+
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        while ((Get-Date) -lt $deadline) {
+            $t = Log
+            $stream = $t -match 'streaming:'
+            $decode = $t -match 'decoded / \d+ received'
+            if ($stream -and ($VideoFrames -le 0 -or $decode)) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        Say "checking the receiver log"
+        Check 'dial reached the fake phone' 'TCP connected to 127\.0\.0\.1'
+        Check 'handshake answered'          'sessionReply:\s*(Accepted|Pending)'
+        Check 'stream metadata arrived'     'streaming:'
+        if ($VideoFrames -gt 0) {
+            Check 'H.264 decoded (frames > 0)' 'decoded / \d+ received'
+        }
     }
 
     Write-Host ''
