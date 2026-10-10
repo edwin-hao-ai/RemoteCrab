@@ -1764,6 +1764,7 @@ final class ReceiverSession: ObservableObject {
         }
         switch newState {
         case .ready:
+            reconnectAttempt = 0
             // TCP is up but we are NOT the session owner yet: identify
             // ourselves and wait for the iPhone's ownership decision.
             if let connection {
@@ -2160,10 +2161,14 @@ final class ReceiverSession: ObservableObject {
     /// stays fresh; if the phone disappears the connect fails and this
     /// re-arms. Prefers a paired phone, but will re-dial any discovered
     /// phone (the iPhone gates access itself).
+    private var reconnectAttempt = 0
+
     private func scheduleReconnect() {
         guard !suppressReconnect else { return }
+        let delay = ReconnectBackoff.delay(attempt: reconnectAttempt)
+        reconnectAttempt += 1
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(delay))
             guard let self, self.connection == nil else { return }
             guard let phone = self.preferredPhone() else { return }
             if self.isPhoneInitiated(phone) {
