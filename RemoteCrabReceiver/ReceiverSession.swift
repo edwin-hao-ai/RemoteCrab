@@ -1521,7 +1521,11 @@ final class ReceiverSession: ObservableObject {
     }
 
     private func probeFallbackCandidates() async {
-        let port: UInt16 = 8765
+        // Use the port the phone actually listened on last time (B2). The
+        // iPhone falls back to a random ephemeral port when 8765 is taken, so
+        // a hardcoded 8765 made the direct fallback dial the wrong port.
+        let stored = UserDefaults.standard.integer(forKey: "remotecrab.lastPhonePort")
+        let port: UInt16 = (stored > 0 && stored <= 65535) ? UInt16(stored) : 8765
         for host in fallbackCandidates() {
             if Task.isCancelled || connection != nil { return }
             let name = Self.phoneNameByIP[host] ?? IBLocale.Connection.directPhone
@@ -1616,7 +1620,7 @@ final class ReceiverSession: ObservableObject {
     /// IP is learned in the first place.
     private func persistLastPhoneEndpoint(_ conn: NWConnection) {
         guard let remote = conn.currentPath?.remoteEndpoint,
-              case .hostPort(let host, _) = remote,
+              case .hostPort(let host, let port) = remote,
               case .ipv4(let addr) = host else { return }
         let ip = "\(addr)"
         // Never remember an address that cannot be a phone on the LAN —
@@ -1627,6 +1631,9 @@ final class ReceiverSession: ObservableObject {
             return
         }
         UserDefaults.standard.set(ip, forKey: "remotecrab.lastPhoneIP")
+        if let p = port.rawValue {
+            UserDefaults.standard.set(Int(p), forKey: "remotecrab.lastPhonePort")
+        }
         if let name = connectedPhoneName {
             var map = Self.phoneNameByIP
             map[ip] = name
