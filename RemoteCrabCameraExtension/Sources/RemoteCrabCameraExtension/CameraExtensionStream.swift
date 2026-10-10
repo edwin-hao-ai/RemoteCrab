@@ -85,7 +85,7 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     func streamProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionStreamProperties {
         let streamProperties = CMIOExtensionStreamProperties(dictionary: [:])
         if properties.contains(.streamActiveFormatIndex) {
-            streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: activeFormatIndex)), forProperty: .streamActiveFormatIndex)
+            streamProperties.activeFormatIndex = activeFormatIndex
         }
         if properties.contains(.streamFrameDuration) {
             streamProperties.frameDuration = CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate))
@@ -94,7 +94,7 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     }
 
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {
-        logger.info("source setStreamProperties: activeFormatIndex=\(streamProperties.activeFormatIndex.map(String.init) ?? "nil") frameDuration=\(streamProperties.frameDuration.map { String(format: "%.4f", $0.seconds) } ?? "nil")")
+        logger.info("source setStreamProperties: activeFormatIndex=\(streamProperties.activeFormatIndex.map(String.init) ?? "nil", privacy: .public) frameDuration=\(streamProperties.frameDuration.map { String(format: "%.4f", $0.seconds) } ?? "nil", privacy: .public)")
         // Remember the client's choice so `streamProperties()` reports it back
         // and the host can size its buffers to the same format.
         if let index = streamProperties.activeFormatIndex,
