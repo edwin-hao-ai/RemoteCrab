@@ -130,6 +130,15 @@ public final class SystemAudioTap: @unchecked Sendable {
     public private(set) var capturedRms: Double = 0
     public private(set) var capturedPeak: Int = 0
 
+    // Diagnostics for the "arithmetic overflow" SIGTRAP on the IO thread
+    // (2026-10-11): the largest buffer the IOProc ever handed us, the largest
+    // raw |sample| before clamping, and how many samples were non-finite.
+    // Written on the realtime thread, read by the pump — racy but harmless.
+    public private(set) var maxInterleavedCount: Int = 0
+    public private(set) var maxRawAbsSample: Int = 0
+    public private(set) var nonFiniteSamples: UInt64 = 0
+    private var diagPacketCount: UInt64 = 0
+
     public init() {
         ring = .allocate(capacity: Self.ringFrames * Self.channels)
         ring.initialize(repeating: 0, count: Self.ringFrames * Self.channels)
@@ -363,6 +372,7 @@ public final class SystemAudioTap: @unchecked Sendable {
         let capacity = UInt64(Self.ringFrames)
         var w = writeIndex
         let count = interleaved.count
+        if count > maxInterleavedCount { maxInterleavedCount = count }
         var i = 0
 
         // The tap is configured for interleaved stereo, so a whole frame is
@@ -410,6 +420,8 @@ public final class SystemAudioTap: @unchecked Sendable {
             let al = abs(Int(l)), ar = abs(Int(r))
             if al > peak { peak = al }
             if ar > peak { peak = ar }
+            trackRaw(interleaved[j])
+            trackRaw(interleaved[j + 1])
             j &+= 2
         }
         energySum += sum
@@ -436,6 +448,16 @@ public final class SystemAudioTap: @unchecked Sendable {
     @inline(__always)
     private static func clampToInt16(_ value: Float) -> Int16 {
         SpeakerSample.clampToInt16(value)
+    }
+
+    @inline(__always)
+    private func trackRaw(_ value: Float) {
+        if value.isFinite {
+            let a = Int(min(abs(Double(value)), 1e18))
+            if a > maxRawAbsSample { maxRawAbsSample = a }
+        } else {
+            nonFiniteSamples &+= 1
+        }
     }
 
     // MARK: - Drain (not realtime)
@@ -473,6 +495,12 @@ public final class SystemAudioTap: @unchecked Sendable {
         readIndex &+= UInt64(Self.framesPerPacket)
         capturedRms = energyCount > 0 ? (energySum / Double(energyCount)).squareRoot() : 0
         capturedPeak = peakSeen
+        diagPacketCount &+= 1
+        if diagPacketCount % 50 == 0 {
+            os_log(.info, log: Self.log,
+                   "ingest diag: maxCount=%d maxRawAbs=%d nonFinite=%llu",
+                   maxInterleavedCount, maxRawAbsSample, nonFiniteSamples)
+        }
         return samples.withUnsafeBytes { Data($0) }
     }
 }
