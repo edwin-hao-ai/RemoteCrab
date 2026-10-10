@@ -39,17 +39,21 @@ public enum IBCameraDevice {
         }
     }
 
-    /// Frame sizes offered to apps. **Single 4K is deliberate.** The camera is
-    /// a source↔sink passthrough, and a CMIO client (Zoom/QuickTime) picks the
-    /// source format while the host fills the sink; the host cannot read the
-    /// client's choice back (measured 2026-10-10: `kCMIOStreamPropertyFormat
-    /// Description` from the host stays at the default even after the client
-    /// selects another format), so offering two formats left a 4K client with a
-    /// 1080p buffer and no picture. One format has nothing to get wrong.
+    /// Frame sizes offered to apps, in order. **Index 0 must be 1080p.**
     ///
-    /// The host scales whatever the phone sends into this size, so a lower
-    /// phone resolution is upscaled — set the phone to 4K for true detail.
+    /// A single 4K format broke every app that uses the default `.high` preset:
+    /// measured 2026-10-11, a `.high` `AVCaptureSession` against a 4K-only
+    /// virtual camera starts but delivers **zero frames** — the camera is dead
+    /// in Photo Booth, Zoom, QuickTime. 1080p first keeps the camera working for
+    /// normal apps; 4K is offered as a second format for a client that asks for
+    /// it explicitly.
+    ///
+    /// (The host still fills the sink at index 0. Making a 4K *client* actually
+    /// receive 4K needs the host to follow the client's choice, which needs the
+    /// extension to report it — a separate, deeper CMIO fix. Until then 4K is
+    /// offered, not delivered.)
     public static let resolutions: [Resolution] = [
+        Resolution(width: 1920, height: 1080),
         Resolution(width: 3840, height: 2160),
     ]
 
