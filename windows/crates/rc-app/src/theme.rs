@@ -8,16 +8,17 @@
 //!
 //! | token  | light     | dark      | source                   |
 //! |--------|-----------|-----------|--------------------------|
-//! | canvas | `#F5F5FA` | `#0A0A0F` | `IBColors.canvas`        |
-//! | card   | `#FFFFFF` | `#15151B` | glass tint over canvas   |
+//! | card   | `#FFFFFF` | `#15151B` | glass tint over the glass |
 //! | text   | `#000000` | `#FFFFFF` | `IBColors.textPrimary`   |
 //! | accent | `#0A85FF` | `#40A8FF` | `IBColors.accentGlass`   |
 //! | line   | 10% fg    | 10% fg    | `IBColors.borderRegular` |
 //!
-//! Two things are deliberately *not* copied. Liquid Glass translucency, because a
-//! Win32 child control cannot be made translucent without compositing the entire
-//! window ourselves, which is a different program; and Mac corner radii, because
-//! 16pt on a 32px button is a capsule rather than a corner.
+//! The window *background* is not a token at all any more: it is the Windows 11
+//! Fluent backdrop (Mica), applied by [`apply_backdrop`], which is this
+//! platform's counterpart to the Mac's Liquid Glass. The client is left
+//! transparent so the material shows through, and the cards and controls paint
+//! on top. Mac corner radii are likewise not copied, because 16pt on a 32px
+//! button is a capsule rather than a corner.
 //!
 //! The spacing rhythm *is* copied. `IBSpace` runs 4/8/12/16/24/32 and the layouts
 //! here use those numbers rather than whatever looked right at the time, so the
@@ -31,15 +32,46 @@ use std::sync::OnceLock;
 
 use windows::core::w;
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, RECT, WPARAM};
+use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 use windows::Win32::Graphics::Gdi::{
-    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, FillRect, LineTo,
+    CreateFontW, CreatePen, CreateSolidBrush, DeleteObject, DrawTextW, GetStockObject, LineTo,
     MoveToEx, RoundRect, SelectObject, SetBkColor, SetBkMode, SetTextColor, CLIP_DEFAULT_PRECIS,
-    DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FONT_QUALITY, HBRUSH, HDC, HFONT,
+    DEFAULT_CHARSET, DEFAULT_PITCH, FF_DONTCARE, FONT_QUALITY, HBRUSH, HDC, HFONT, HOLLOW_BRUSH,
     OUT_DEFAULT_PRECIS, PS_SOLID, TRANSPARENT, DT_CENTER, DT_LEFT, DT_SINGLELINE, DT_VCENTER,
 };
 use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
 use windows::Win32::UI::Controls::{DRAWITEMSTRUCT, ODS_DISABLED, ODS_SELECTED};
 use windows::Win32::UI::WindowsAndMessaging::{GetWindowTextW, SendMessageW, WM_SETFONT};
+
+/// Windows' answer to the Mac's Liquid Glass: the Fluent backdrop.
+///
+/// Mica (`DWMSBT_MAINWINDOW`) samples the desktop wallpaper, tints it with the
+/// theme and blurs it — the material Windows 11 uses for Settings, Explorer and
+/// every first-party window. Rounding the corners and matching the immersive
+/// title bar to the light/dark setting is the rest of it, so a RemoteCrab
+/// window sits in the desktop the way the Mac's do.
+///
+/// Best-effort, like every other native call in this file: each attribute is
+/// ignored on failure. On Windows 10 (no Mica) the window simply keeps whatever
+/// its controls paint, which is the previous look — it degrades, it does not
+/// break.
+pub fn apply_backdrop(hwnd: HWND) {
+    let write = |attr: i32, value: i32| unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(attr),
+            (&value as *const i32).cast(),
+            std::mem::size_of::<i32>() as u32,
+        );
+    };
+    // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE; 33 = DWMWA_WINDOW_CORNER_PREFERENCE
+    // (2 = DWMWCP_ROUND); 38 = DWMWA_SYSTEMBACKDROP_TYPE (2 = DWMSBT_MAINWINDOW,
+    // Mica). The values are documented Win11 attributes; the crate's enum does
+    // not name 38 in 0.62, so the raw integers are used.
+    write(20, if apps_use_dark() { 1 } else { 0 });
+    write(33, 2);
+    write(38, 2);
+}
 
 /// A control's position and size.
 ///
@@ -78,8 +110,6 @@ const fn rgb(r: u32, g: u32, b: u32) -> COLORREF {
 /// [`brush_for`] with the colour it already got from here.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
-    /// Window background.
-    pub canvas: COLORREF,
     /// Panels and cards sitting on the canvas.
     pub card: COLORREF,
     /// Body text and headings.
@@ -112,7 +142,6 @@ pub fn palette() -> &'static Palette {
     PALETTE.get_or_init(|| {
         if apps_use_dark() {
             Palette {
-                canvas: rgb(0x0A, 0x0A, 0x0F),
                 card: rgb(0x15, 0x15, 0x1B),
                 text: rgb(0xFF, 0xFF, 0xFF),
                 text_soft: rgb(0xB0, 0xB0, 0xB8),
@@ -125,7 +154,6 @@ pub fn palette() -> &'static Palette {
             }
         } else {
             Palette {
-                canvas: rgb(0xF5, 0xF5, 0xFA),
                 card: rgb(0xFF, 0xFF, 0xFF),
                 text: rgb(0x1A, 0x1A, 0x1F),
                 text_soft: rgb(0x55, 0x55, 0x5E),
@@ -263,16 +291,6 @@ pub fn brush_for(colour: COLORREF) -> HBRUSH {
     brush
 }
 
-/// Fill `rect` in the window background colour.
-///
-/// Called first by everything that paints, so that a control which paints only
-/// part of its rectangle does not leave the previous frame's pixels behind.
-pub fn fill_canvas(hdc: HDC, rect: &RECT) {
-    unsafe {
-        FillRect(hdc, rect, brush_for(palette().canvas));
-    }
-}
-
 /// Paint a control's background and text with the palette applied, and return the
 /// brush Win32 should use for that control.
 ///
@@ -284,15 +302,21 @@ pub fn fill_canvas(hdc: HDC, rect: &RECT) {
 /// `back` may be `None` for controls that should show the canvas through, which
 /// is what text labels sitting directly on the window want.
 pub fn tint_child(hdc: HDC, colour: COLORREF, back: Option<COLORREF>) -> HBRUSH {
-    let back = back.unwrap_or_else(|| palette().canvas);
     unsafe {
         SetTextColor(hdc, colour);
-        SetBkColor(hdc, back);
         // Labels on the canvas need a transparent background or they paint a
-        // rectangle of their own colour over the window.
+        // rectangle of their own colour over the window. A hollow brush leaves
+        // the backdrop (Mica) showing through, so the text floats on the glass
+        // the way the Mac's does.
         SetBkMode(hdc, TRANSPARENT);
+        match back {
+            None => HBRUSH(GetStockObject(HOLLOW_BRUSH).0),
+            Some(back) => {
+                SetBkColor(hdc, back);
+                brush_for(back)
+            }
+        }
     }
-    brush_for(back)
 }
 
 /// Draw an owner-drawn checkbox.
@@ -310,7 +334,8 @@ pub fn paint_check(di: &DRAWITEMSTRUCT, checked: bool) {
     let hdc = di.hDC;
     let rect = di.rcItem;
 
-    fill_canvas(hdc, &rect);
+    // No `fill_canvas`: the backdrop (Mica) must show in the pixels the rounded
+    // box does not cover, so the control is drawn straight onto the glass.
 
     let enabled = di.itemState.0 & ODS_DISABLED.0 == 0;
     let box_size = 16;
@@ -388,10 +413,8 @@ pub fn paint_button(di: &DRAWITEMSTRUCT, style: ButtonStyle) {
     let hdc = di.hDC;
     let rect = di.rcItem;
 
-    // Start from the window colour so the rounded corners have something to sit
-    // on rather than the last frame's pixels.
-    fill_canvas(hdc, &rect);
-
+    // No `fill_canvas` — see `paint_check`. The button is a card floating on the
+    // Mica backdrop, so its corners are transparent rather than canvas-coloured.
     let enabled = di.itemState.0 & ODS_DISABLED.0 == 0;
     let pressed = di.itemState.0 & ODS_SELECTED.0 != 0;
 
