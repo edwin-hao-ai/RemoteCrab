@@ -579,6 +579,9 @@
 | 2026-10-11 | B4 | Bonjour 发现按 id 去重（手机多接口只出现一次） | 真机 `discovered 1 phone(s)` |
 | 2026-10-11 | F2 | 配对 token 进 **Keychain**（opt-in、fail-open 迁移、forget/removeAll 清理）；+4 测 | 真机：手机 JSON `token_len=0`（token 已移出 UserDefaults） |
 | 2026-10-11 | E1 结论 | **AEC 对本架构不适用**：手机是**只录不放**（放音在 Mac），没有参考信号可消；`.record` 类别也拿不到 voice-processing。故不加，属非问题 | 读代码结论 |
+| 2026-10-11 | F1 规格+计划 | 设计 `docs/superpowers/specs/2026-10-11-transport-encryption-design.md` + 计划 `…/plans/2026-10-11-transport-encryption.md` | 已批准 |
+| 2026-10-11 | F1 实现 | 计划 Phase 1 + Task 4 完成：`TransportCipher`（HKDF+ChaCha20-Poly1305+防重放，4 测）、跨语言向量、握手 `transport` 字段（4 测）、`IBWire` seal/open（2 测）、broadcaster 发送钩子（inert）、**Mac 端接入（inert，等手机也广告才加密）** | 门禁全绿；`0eecfc8..31aa240` |
+| 2026-10-11 | F1 待续 | **iOS 端接入（Task 5c）**：accepted 回复目前不带 nonce → 两端会派生出**不同密钥**而断连；需补 nonce 管线 + 手机接收循环 open + Rust 端（Task 6）+ 抓包/真机（Task 7）。**当前传输仍是明文（安全、行为未变），不是半加密** | ⏸ 需专门的安全敏感改动 |
 
 ---
 
