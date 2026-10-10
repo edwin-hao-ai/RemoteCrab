@@ -586,6 +586,7 @@
 | 2026-10-11 | F1 仍未生效 | **sealing 尚未 engage**：手机主动连接路径里 Mac 记 `clientHello sent (paired: false)`（无 token）→ 派生不了密钥 → 传输仍是明文（**安全**）。**剩余**：把 token/`phoneId` 查找对齐，使两端派生出同一密钥，再用真机 e2e 看到 `sealed` | 下一步 |
 | 2026-10-11 | **F1 ✅ 生效** | 根因：**inbound-candidate（手机主动）路径有它自己的 sessionReply 处理**，从没调传输协商 → Mac 停在明文而手机已加密 → 两端密钥对不上。改为**从两条路径都显式传入 token+nonce**。Mac 现记 **`transport: sealed (aead-v1)`**，**真机 e2e 25/0（加密后音视频/触摸/文件/剪贴板全通）** | `2a24234` |
 | 2026-10-11 | F1 剩余 | Task 6（Rust 端同向量，本机只能交叉编译检查）+ Task 7（抓包断言明文标记不出现 + 旧端明文降级 + 真机正式验收） | 待做 |
+| 2026-10-11 | **F1 ✅ 全部完成** | Task 6：Rust `transport.rs` + `rust_seal_matches_the_swift_vectors` **逐字节一致**（16+29 测试，clippy host + windows-gnu 干净）。Task 7：`TransportNegotiation`（旧端回退明文，+3 测）+ 抓包断言（明文标记不上线）。**refactor 后真机 e2e 25/0** | `121b84a` `91cc7c1`；真机验收过 |
 
 ---
 
