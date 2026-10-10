@@ -22,6 +22,10 @@ final class BackgroundKeepAlive: @unchecked Sendable {
     private var player: AVAudioPlayerNode?
     private(set) var isActive = false
     private var audioObservers: [NSObjectProtocol] = []
+    /// Logs every few seconds while active. If it stops while the app is
+    /// backgrounded, iOS suspended the process despite the audio session — the
+    /// open C1b question, made observable instead of guessed.
+    private var heartbeat: DispatchSourceTimer?
 
     private init() {}
 
@@ -71,6 +75,11 @@ final class BackgroundKeepAlive: @unchecked Sendable {
             self.engine = engine
             self.player = player
             isActive = true
+            let t = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            t.schedule(deadline: .now() + 5, repeating: 5)
+            t.setEventHandler { Forensic.log("[keepalive] heartbeat") }
+            t.resume()
+            heartbeat = t
             Self.log.info("background keep-alive started")
         } catch {
             Self.log.error("keep-alive failed: \(String(describing: error), privacy: .public)")
@@ -85,6 +94,8 @@ final class BackgroundKeepAlive: @unchecked Sendable {
         engine = nil
         player = nil
         isActive = false
+        heartbeat?.cancel()
+        heartbeat = nil
         // When handing the session to the mic/voice engine, leave it
         // active and let them reconfigure — a deactivate → reactivate in
         // the same runloop turn makes their `setActive(true)` fail.
