@@ -1631,9 +1631,7 @@ final class ReceiverSession: ObservableObject {
             return
         }
         UserDefaults.standard.set(ip, forKey: "remotecrab.lastPhoneIP")
-        if let p = port.rawValue {
-            UserDefaults.standard.set(Int(p), forKey: "remotecrab.lastPhonePort")
-        }
+        UserDefaults.standard.set(Int(port.rawValue), forKey: "remotecrab.lastPhonePort")
         if let name = connectedPhoneName {
             var map = Self.phoneNameByIP
             map[ip] = name
