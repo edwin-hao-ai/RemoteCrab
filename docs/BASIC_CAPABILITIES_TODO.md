@@ -575,6 +575,9 @@
 | 2026-10-11 | B2 | 直连回退改用手机**真实端口**（记 `lastPhonePort`，默认 8765） | 门禁绿（含一次构建修复） |
 | 2026-10-11 | e2e 全套 | 手机连着时跑真机 e2e：`e2e-device` **25/0**、`e2e-current-computer` 通过（B10 验证）、`e2e-speaker` 通过（负载降下来后）、`e2e-mic` 仅"安静房间"一条（环境） | 我的改动不破坏任何设备流程 |
 | 2026-10-11 | A2 澄清 | 扩展**确实在发送**（`source sent N frames`）；"没发送"是链路没起来时的误判；D2 实测 4K 入站 11fps/16Mbps | 待 Zoom 像素确认 |
+| 2026-10-11 | G1 step3 | 触控板面识别 **Pencil**：带压感/倾角 + 落笔即 arm 拖拽（可画）；手指不受影响 | 门禁绿（需真笔验） |
+| 2026-10-11 | B4 | Bonjour 发现按 id 去重（手机多接口只出现一次） | 真机 `discovered 1 phone(s)` |
+| 2026-10-11 | F2 | 配对 token 进 **Keychain**（opt-in、fail-open 迁移、forget/removeAll 清理）；+4 测 | 真机：手机 JSON `token_len=0`（token 已移出 UserDefaults） |
 
 ---
 
