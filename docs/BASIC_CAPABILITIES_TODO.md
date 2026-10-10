@@ -578,6 +578,7 @@
 | 2026-10-11 | G1 step3 | 触控板面识别 **Pencil**：带压感/倾角 + 落笔即 arm 拖拽（可画）；手指不受影响 | 门禁绿（需真笔验） |
 | 2026-10-11 | B4 | Bonjour 发现按 id 去重（手机多接口只出现一次） | 真机 `discovered 1 phone(s)` |
 | 2026-10-11 | F2 | 配对 token 进 **Keychain**（opt-in、fail-open 迁移、forget/removeAll 清理）；+4 测 | 真机：手机 JSON `token_len=0`（token 已移出 UserDefaults） |
+| 2026-10-11 | E1 结论 | **AEC 对本架构不适用**：手机是**只录不放**（放音在 Mac），没有参考信号可消；`.record` 类别也拿不到 voice-processing。故不加，属非问题 | 读代码结论 |
 
 ---
 
