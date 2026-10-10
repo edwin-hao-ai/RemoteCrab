@@ -49,6 +49,7 @@ struct MenuBarMenu: View {
                 Divider().opacity(0.4)
             }
             streamRow
+            diagnosticsRow
             Divider().opacity(0.4)
             togglesSection
             Divider().opacity(0.4)
@@ -285,6 +286,27 @@ struct MenuBarMenu: View {
             .padding(.horizontal, 14)
             .frame(height: 74)
         }
+    }
+
+    // MARK: - Connection doctor (B6)
+
+    /// A fixed-height diagnosis line, so a stuck connection can be read off the
+    /// popover instead of guessed. Fixed height on purpose: a
+    /// `MenuBarExtra(.window)` popover re-sizes (and animates) whenever its
+    /// content height changes.
+    private var diagnosticsRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "stethoscope")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            Text(session.connectionDiagnostics)
+                .font(IBFont.monoSmall)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 24)
     }
 
     // MARK: - Devices (bidirectional pairing)

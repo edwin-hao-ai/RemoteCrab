@@ -3141,4 +3141,16 @@ extension ReceiverSession {
         }
         return state.message
     }
+
+    /// A compact, honest one-line diagnosis (B6). The status pill already says
+    /// *what* state we are in; this says *why* — most often "nothing was
+    /// discovered", which is the single most common cause and the one the UI
+    /// never stated. Kept to one short line so it can live in a fixed-height row.
+    var connectionDiagnostics: String {
+        if discovered.isEmpty {
+            return "No computer found — make sure RemoteCrab is open on the iPhone."
+        }
+        let names = discovered.map(\.name).joined(separator: ", ")
+        return "Found \(discovered.count): \(names)"
+    }
 }
