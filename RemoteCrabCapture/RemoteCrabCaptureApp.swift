@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         NotificationTapRouter.shared.install()
+        // On-device crash/metric diagnostics; no upload path (see MetricsReporter).
+        MetricsReporter.shared.start()
         return true
     }
 }
