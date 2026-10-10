@@ -67,7 +67,7 @@ Two different things, often confused:
 |---|---|
 | **Play the phone's mic on this PC's speakers** | ✅ **done** — `rc-audio` (Opus/PCM → cpal), wired in `rc-app`, muted by default like the Mac |
 | **Path A — make the phone's mic *selectable*** by playing into an installed virtual audio cable | ✅ **done, ships today** — `rc-audio::pick_virtual_cable`, wired in `rc-app`; the first-run wizard's "Virtual microphone" page walks the user through the free VB-CABLE. No driver, no signing. |
-| **Path B — "RemoteCrab Microphone" as a first-class input device** | ⚠️ **receiver half done + tested** (`windows/crates/rc-vmic`, 15 tests; `rc-app` feeds the ring and `--vmic-probe` reports); **the driver is not written** — `windows/drivers/rc-vmic/` holds the INF + contract + plan |
+| **Path B — "RemoteCrab Microphone" as a first-class input device** | ⚠️ **receiver half done + tested** (`windows/crates/rc-vmic`, 15 tests; `rc-app` feeds the ring and `--vmic-probe` reports); **the driver is an early skeleton** — `windows/drivers/rc-vmic/` has the INF, contract, ring reader + miniport structure, but it does not yet compile (the PortCls class reports abstract) |
 
 Path A is the answer for almost every user; Path B removes the one manual step
 (installing a third-party cable). This was an explicit decision, not an
@@ -79,8 +79,9 @@ CoreAudio HAL plugin) already ships, so the Windows half is the only gap.
 **To do the driver** (a real project — budget days, not hours):
 1. Base on Microsoft's **sysvad** sample, cut to capture-only, and drain the
    ring (`windows/crates/rc-vmic/src/shm.rs`) into the WaveRT buffer each
-   period; on underrun fill silence and leave `read_pos` alone. Serve the
-   control pipe `\\.\pipe\RemoteCrabVMic`. The full contract is in
+   period; on underrun fill silence and leave `read_pos` alone. Name the capture
+   endpoint "RemoteCrab Microphone" (that is the liveness signal — a kernel
+   driver cannot expose a `\\.\pipe\…`). The full contract is in
    `windows/drivers/rc-vmic/README.md`.
 2. Build with the WDK (`../rc-idd/build-cl.ps1` shows the no-toolset path),
    test-sign, install (`pnputil`), confirm the device shows under **Sound, video

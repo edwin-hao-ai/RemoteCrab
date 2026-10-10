@@ -699,18 +699,15 @@ async fn main() -> ExitCode {
     // The sibling of --vdisplay-probe, and for the same reason: only the user's
     // own machine can answer "is the virtual-mic driver installed".
     if args.vmic_probe {
-        return match rc_vmic::probe() {
-            Some(version) => {
-                println!("RemoteCrab Microphone driver present — protocol version {version}");
-                ExitCode::SUCCESS
-            }
-            None => {
-                println!(
-                    "RemoteCrab Microphone driver not found — the phone's mic is still usable \
-                     through a virtual audio cable (VB-CABLE); see windows/drivers/rc-vmic/README.md."
-                );
-                ExitCode::FAILURE
-            }
+        return if rc_vmic::available() {
+            println!("RemoteCrab Microphone capture endpoint is present");
+            ExitCode::SUCCESS
+        } else {
+            println!(
+                "RemoteCrab Microphone capture endpoint not found — the phone's mic is still \
+                 usable through a virtual audio cable (VB-CABLE); see windows/drivers/rc-vmic/README.md."
+            );
+            ExitCode::FAILURE
         };
     }
     // A release build does not carry the fake sender, so these two cannot

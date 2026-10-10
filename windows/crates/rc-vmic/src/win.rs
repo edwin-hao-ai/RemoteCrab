@@ -1,58 +1,42 @@
-//! Windows half: the driver's control pipe (liveness only — the audio itself
-//! travels through the ring). Kept separate so the grammar stays testable
-//! everywhere.
+//! Windows half: liveness by **audio endpoint enumeration**.
+//!
+//! A PortCls audio driver is kernel-mode and cannot create a `\\.\pipe\…` (that
+//! was a user-mode `vdisplay`/`vcam` idiom). What it *does* provide is a capture
+//! endpoint named "RemoteCrab Microphone"; the app asks the audio stack for it.
+//! That is also exactly what the user would check by hand, and it needs no
+//! admin.
+//!
+//! Uses the MME (`waveIn*`) enumeration rather than `IMMDeviceEnumerator`: it is
+//! one call per device, needs no COM apartment, and sees every capture endpoint
+//! including a virtual one.
 
-use std::io::{BufRead, BufReader, Write};
+use windows::Win32::Media::Audio::{waveInGetDevCapsW, waveInGetNumDevs, WAVEINCAPSW};
 
-use windows::core::PCWSTR;
-use windows::Win32::System::Pipes::WaitNamedPipeW;
+/// The friendly name the driver gives its capture endpoint.
+pub const DEVICE_NAME: &str = "RemoteCrab Microphone";
 
-use crate::{parse_pong, PIPE_NAME};
-
-/// NUL-terminated wide string.
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-/// `WaitNamedPipeW` returns immediately when the name does not exist (driver not
-/// installed) and waits only when it exists but every instance is busy, so a
-/// small bound detects absence fast and rides out a momentary busy.
-const PIPE_TIMEOUT_MS: u32 = 250;
-
-/// One request/response exchange with the driver's control pipe.
-///
-/// `None` when the pipe is absent or the exchange fails. Presence is keyed on
-/// the pipe, not the ring: a stale ring file from a crashed driver is
-/// indistinguishable from a live one, but only a running driver answers.
-fn roundtrip(request: &str) -> Option<String> {
-    let name = wide(PIPE_NAME);
-    if !unsafe { WaitNamedPipeW(PCWSTR(name.as_ptr()), PIPE_TIMEOUT_MS) }.as_bool() {
-        return None;
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(PIPE_NAME)
-        .ok()?;
-    file.write_all(request.as_bytes()).ok()?;
-    file.write_all(b"\n").ok()?;
-    file.flush().ok()?;
-    let mut line = String::new();
-    BufReader::new(file).read_line(&mut line).ok()?;
-    let line = line.trim().to_string();
-    if line.is_empty() {
-        None
-    } else {
-        Some(line)
-    }
-}
-
-/// The driver's protocol version, or `None` when it is not installed/running.
-pub fn probe() -> Option<u32> {
-    parse_pong(&roundtrip("PING")?)
-}
-
-/// Whether an rc-vmic driver is installed and answering.
+/// Whether an rc-vmic capture endpoint is present.
 pub fn available() -> bool {
-    probe().is_some()
+    let count = unsafe { waveInGetNumDevs() };
+    for id in 0..count {
+        let mut caps = WAVEINCAPSW::default();
+        let rc = unsafe {
+            waveInGetDevCapsW(id as usize, &mut caps, std::mem::size_of::<WAVEINCAPSW>() as u32)
+        };
+        if rc != 0 {
+            continue;
+        }
+        // `WAVEINCAPSW` is packed, so the array must be copied out before it is
+        // referenced (an unaligned field reference is E0793).
+        if pname(&{ caps.szPname }).eq_ignore_ascii_case(DEVICE_NAME) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The fixed-size `szPname` up to its NUL, trimmed.
+fn pname(raw: &[u16]) -> String {
+    let end = raw.iter().position(|&c| c == 0).unwrap_or(raw.len());
+    String::from_utf16_lossy(&raw[..end]).trim().to_string()
 }

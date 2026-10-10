@@ -71,14 +71,15 @@ fn pump(tap: SampleQueue, mut writer: rc_vmic::AudioWriter, stop: Arc<AtomicBool
 
 /// One-line status for the startup banner and `--vmic-probe`.
 pub fn status_line() -> (String, String) {
-    match rc_vmic::probe() {
-        Some(v) => (
-            format!("虚拟麦克风驱动 v{v} 已就绪（\"RemoteCrab Microphone\"）"),
-            format!("\"RemoteCrab Microphone\" is available (rc-vmic driver v{v})"),
-        ),
-        None => (
+    if rc_vmic::available() {
+        (
+            format!("\"{}\" 已就绪（会议软件里可直接选择）", rc_vmic::DEVICE_NAME),
+            format!("\"{}\" is available — selectable in any meeting app", rc_vmic::DEVICE_NAME),
+        )
+    } else {
+        (
             "未安装虚拟麦克风驱动 —— 手机麦克风经虚拟声卡（Path A）可用".to_string(),
             "no rc-vmic driver — the phone mic is usable via a virtual audio cable (Path A)".to_string(),
-        ),
+        )
     }
 }
