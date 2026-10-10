@@ -486,6 +486,14 @@ final class ScreenStreamer: NSObject, SCStreamDelegate, SCStreamOutput, @uncheck
     private func configureDisplayStream(displayID: CGDirectDisplayID?, reason: String) async {
         await stopStreamOnly()
 
+        // A concurrent `extend()` can set the virtual display between the
+        // caller's `extendedDisplayID` check and here — `resolveAndStart` runs
+        // across `await`s. A stale `nil` must never win: it flipped
+        // `screenInfo`'s appId from "extended" back to "display", so the phone's
+        // `isExtendedDisplayOn` (appId == "extended") read wrong and its
+        // toggle/switch UI desynced (measured 2026-10-11, e2e-device).
+        let displayID = displayID ?? withLock { extendedDisplayID }
+
         let content: SCShareableContent
         do {
             content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)

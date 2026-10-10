@@ -1052,6 +1052,11 @@ cross-references rather than the file order.
 | 166 | **摇杆式相对光标从 (0,0) 起步 → 首次移动跳到左上角** — 会话开始用 `CGEvent(source:nil)?.location` 播种 `lastCursor` | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 167 | **`main` 的 macOS host-build 门禁本来就红**（`rc-app` 引用 Windows-only crate 未加 `#[cfg(windows)]`）— 先用一次性 worktree 构建 `origin/main` 证明它本来就红，别把别人的红算成自己的 | [`mac-receiver`](docs/lessons/mac-receiver.md) |
 | 168 | **一次发布需要两个互相冲突的网络方向** — 公证要 `timestamp.apple.com`（`global`），VPS 部署要 SSH:22（非 global）；分段做 | [`release-web`](docs/lessons/release-web.md) |
+| 169 | **加一层横切（加密）要覆盖每一条发送路径** — 只走 broadcaster 的帧被加密，十几处裸 `connection.send` 被对端静默丢弃；而「只断言发送方日志」的 e2e（25/25）永远抓不到 | [`protocol`](docs/lessons/protocol.md) |
+| 170 | **实时回调里的非回绕算术会 trap，而它跑在 CoreAudio IO 线程上，所以整个 app 死** — `pendingDrops += dropped` 溢出 → SIGTRAP；反汇编定位到源行；第一版修错方向（NaN vs 溢出） | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 171 | **诊断探针可以就是那个说谎的东西；多格式虚拟相机会连真实客户端一起弄坏** — 自写探针自己停会话 → 误判「不发帧」；QuickTime 才可信；多格式对真实客户端也断 → 维持单 1080p | [`mac-receiver`](docs/lessons/mac-receiver.md) |
+| 172 | **跨 `await` 的「重新解析」必须在使用前重读状态** — 过期的 `nil` 覆盖了刚设上的扩展屏，`screenInfo.appId` 从 extended 变 display，手机 UI 失同步 | [`protocol`](docs/lessons/protocol.md) |
+| 173 | **测试 hook 里「取第一个 X」在真实网络上不确定** — 用户 LAN 上的真 Windows 接收端抢走了 `PICK_ONLINE` 的目标，整套 0/25；要能指定目标 | [`protocol`](docs/lessons/protocol.md) |
 
 
 Headless e2e launch envs for the iOS app (via
@@ -1296,6 +1301,23 @@ If you're new, also read:
 - **`RemoteCrabCapture/OnboardingFlow.swift`** — how the user gets into the app
 
 ---
+
+_Last updated: 2026-10-11 (**F1 视频/数据帧加密修好 + 相机定性 + 扬声器崩溃修好 + 四个 e2e 全绿**)._
+
+**这一轮**（真机 + 真实客户端）：① **F1 的大回归（我引入的）**——密封只覆盖了走
+`IBEventBroadcaster` 的帧，iOS 视频/metadata/SPS/PPS 与 Mac 的**扬声器/app 列表/窗口列表/
+已安装应用/特性开关/剪贴板/文件回执/相机切换**八处裸 `connection.send` 全被对端静默丢弃；
+`e2e-device` 25/25 全绿（只断言发送方）而 `e2e-speaker` 立刻红。全改走 sealer + 加
+`TransportCipher.fingerprint` 诊断（两端打印同一 fp）。**lesson 169**。② **相机定性**：
+**单 1080p 真能用**（QuickTime 验），**多格式（1080p+4K）会让真实客户端也断** → 4K 撤回；
+之前「相机完全不能用」是被我自己的坏探针误导。**lesson 171**。③ **扬声器崩溃**：点
+Re-register 整个接收端 SIGTRAP —— 反汇编定位到 `SystemAudioTap.ingest` 的
+`pendingDrops += dropped`（CoreAudio IO 线程上的非回绕加法，`gap` 回绕时溢出）。**lesson 170**。
+④ **扩展屏 appId 竞态**：跨 `await` 的过期 resolve 覆盖了刚设上的虚拟屏 → 手机 UI 失同步。**lesson 172**。
+⑤ **e2e 环境坑**：用户 LAN 上的真 Windows 接收端抢走 `PICK_ONLINE` 目标 → 整套 0/25。**lesson 173**。
+**结果：`e2e-device` 25/0+2skip、`e2e-current-computer` 24/0+1skip、`e2e-speaker` PASS、
+`e2e-mic` PASS、`test.sh` 全绿（768 Core + 两 app + Windows）。** Windows 侧交接见
+`docs/HANDOFF-WINDOWS-2026-10-11.md` §8（iOS F1 已修，请复验 + 审计自己的出站点）。
 
 _Last updated: 2026-10-09 (**手机主动连接 v2 全三端 + 真机打磨 + 发布；顺手把 macOS host-build 门禁修绿**)._
 
