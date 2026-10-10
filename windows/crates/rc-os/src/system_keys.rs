@@ -108,6 +108,11 @@ fn tap(vk: u16) -> bool {
     }
 }
 
+/// Open a URL in the user's default browser via the shell.
+pub fn open_url(url: &str) -> bool {
+    open_path(url)
+}
+
 /// Launch an app (by name/path) or open a URL via the shell.
 fn open_path(target: &str) -> bool {
     let wide: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();

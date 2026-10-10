@@ -5,11 +5,15 @@ iPhone a *real* second monitor. Windows has no user-mode way to add a display
 (macOS uses the private `CGVirtualDisplay`), so a monitor that the OS and every
 app believe in has to come from a driver. `rc-idd` is that driver.
 
-> **Status: written, not yet built, signed, or run on real hardware.** It
-> cannot be built on a machine without the WDK, and it cannot be loaded without
-> a signature. Both are prerequisites, not bugs. The receiver side
-> (`rc-vdisplay`, the capability, the phone UI) *is* built and tested; see the
-> repo's handoff doc for exactly what is verified.
+> **Status: builds and packages; not yet signed or run on real hardware.**
+> `build-cl.ps1` compiles the UMDF driver with `cl`/`link` and produces a
+> catalog (`Inf2Cat`, signability clean) on a machine that has *only* the WDK +
+> Build Tools — the standalone WDK does not register the MSBuild
+> `WindowsUserModeDriver10.0` platform toolset, which is why `build.ps1`
+> (msbuild) does not work there. It still cannot be *loaded* without a
+> signature. The receiver side (`rc-vdisplay`, the capability, the phone UI)
+> *is* built and tested; see the repo's handoff doc for exactly what is
+> verified.
 
 ## What it is
 
@@ -71,14 +75,28 @@ Prerequisites, all on the machine doing the build:
 3. **Windows Driver Kit (WDK)** matching the SDK — `winget install
    Microsoft.WindowsWDK.10.0.26100` (or the version matching your SDK).
 
-Then:
+Then either:
 
 ```powershell
-cd windows\drivers\rc-idd
-pwsh -File build.ps1                 # Release | x64
+# Preferred when only the WDK + Build Tools are present: compiles with cl/link
+# directly, then runs stampinf + Inf2Cat, so one command yields the full
+# package (dll + stamped inf + cat).
+powershell -ExecutionPolicy Bypass -File build-cl.ps1            # Release | x64
+
+# MSBuild path. Only works if the WDK registered its VS platform toolset —
+# i.e. a full VS 2022 (driver workload) install, or a WDK installed while VS
+# was already present.
+pwsh -File build.ps1
 ```
 
-Output lands in `x64\Release\rc-idd\`: `rc-idd.dll`, `rc-idd.inf`, `rc-idd.cat`.
+Output lands in `x64\Release\`: `rc-idd.dll`, `rc-idd.inf` (stamped), `rc-idd.cat`.
+
+> **Why two scripts.** The WDK's MSBuild integration (`WindowsUserModeDriver10.0`)
+> is installed *into Visual Studio* by the WDK setup — but a standalone WDK
+> installed via winget when VS was absent skips that step, so `build.ps1` fails
+> with "platform toolset not found". `build-cl.ps1` does the same job with no
+> VS toolset: it finds the WDK's IddCx/UMDF headers and libs, compiles, and
+> packages. Either script works when the toolset *is* registered.
 
 ## Sign
 

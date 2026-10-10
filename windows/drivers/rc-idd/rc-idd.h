@@ -130,7 +130,9 @@ namespace IndirectDisplay
         std::shared_ptr<Direct3DDevice> m_Device;
         std::shared_ptr<RingWriter> m_Ring;
         HANDLE m_hAvailableBufferEvent;
-        Microsoft::WRL::Wrappers::Thread m_hThread;
+        // A raw HANDLE, not `Wrappers::Thread`: WRL has no such wrapper (it was
+        // invented). The destructor waits on it and closes it.
+        HANDLE m_hThread = nullptr;
         Microsoft::WRL::Wrappers::Event m_hTerminateEvent;
     };
 

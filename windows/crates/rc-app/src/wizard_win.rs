@@ -12,7 +12,7 @@
 use crate::i18n::t;
 use crate::theme;
 use crate::wizard::{current_page, Page, State};
-use rc_net::firstrun::{Camera, FirstRun, Integrity};
+use rc_net::firstrun::{Camera, FirstRun, Integrity, Microphone};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::HDC;
@@ -527,6 +527,32 @@ fn copy_for(page: Page, fr: &FirstRun) -> (String, String, String, bool) {
                     .to_string()
                 },
                 t("安装虚拟摄像头", "Install the virtual camera").to_string(),
+                !ok,
+            )
+        }
+        Page::Microphone => {
+            let ok = fr.microphone == Microphone::Ready;
+            (
+                t("虚拟麦克风", "Virtual microphone").to_string(),
+                if ok {
+                    t(
+                        "已装虚拟声卡。手机麦克风会自动接进去；在 Zoom 的「输入」里选「CABLE Output」。",
+                        "A virtual audio cable is installed. The phone's mic feeds it automatically — \
+                         pick \"CABLE Output\" as Zoom's input.",
+                    )
+                    .to_string()
+                } else {
+                    t(
+                        "想让会议软件（Zoom / Teams / OBS）把手机当麦克风，需要先装一个免费的虚拟声卡。\n\
+                         点下面的按钮打开下载页，装一次（一次管理员确认）即可；之后 RemoteCrab 会自动接好。",
+                        "For Zoom / Teams / OBS to use the phone as a microphone, install a free virtual \
+                         audio cable first.\n\
+                         The button opens its download page; install it once (one admin confirmation), \
+                         then RemoteCrab wires it up for you.",
+                    )
+                    .to_string()
+                },
+                t("获取虚拟声卡（免费）", "Get a virtual audio cable (free)").to_string(),
                 !ok,
             )
         }

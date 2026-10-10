@@ -20,6 +20,18 @@ pub enum Camera {
     Missing,
 }
 
+/// Whether a virtual audio cable is installed — which is what turns the phone's
+/// microphone into a **selectable Windows microphone** (Path A). No cable means
+/// the phone's mic can only play to a speaker, and no meeting app can pick it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Microphone {
+    /// A cable is present, so Zoom/OBS can select the phone as a microphone.
+    Ready,
+    /// No cable. One free, signed install fixes it (VB-CABLE), so the wizard
+    /// offers the download rather than dead-ending.
+    Missing,
+}
+
 /// The process integrity level, which on Windows plays the role macOS's
 /// Accessibility grant plays: it decides whether `SendInput` can reach a given
 /// window. There is nothing to *grant* — it is a property of how the program was
@@ -48,6 +60,8 @@ impl Integrity {
 pub struct FirstRun {
     pub camera: Camera,
     pub integrity: Integrity,
+    /// Whether a virtual audio cable is installed (Path A).
+    pub microphone: Microphone,
     /// Start-at-login is on. Read from the registry, so a stale Run value shows
     /// up here rather than as a lie in the menu.
     pub autostart: bool,
@@ -107,6 +121,26 @@ impl FirstRun {
                     )),
                     _ => None,
                 },
+            },
+            Step {
+                // Not `blocking`: it needs a third-party download, so it is a
+                // suggestion the wizard shows (this page is in the flow) rather
+                // than a wall that can keep re-summoning the wizard.
+                blocking: false,
+                title: (
+                    "虚拟麦克风（让会议软件把手机当麦克风）".to_string(),
+                    "Virtual microphone (so meeting apps use the phone as a mic)".to_string(),
+                ),
+                done: self.microphone == Microphone::Ready,
+                remedy: (self.microphone == Microphone::Missing).then(|| {
+                    (
+                        "装一个免费的虚拟声卡（VB-CABLE）——本页的按钮打开下载页。装完在 Zoom 里选「CABLE Output」。"
+                            .to_string(),
+                        "install a free virtual audio cable (VB-CABLE) — the button on this page \
+                         opens its download page. Then pick \"CABLE Output\" in Zoom."
+                            .to_string(),
+                    )
+                }),
             },
             Step {
                 blocking: true,
@@ -187,6 +221,7 @@ mod tests {
         FirstRun {
             camera: Camera::Ready,
             integrity: Integrity::Medium,
+            microphone: Microphone::Ready,
             autostart: true,
             notify_relay: false,
         }
@@ -218,9 +253,10 @@ mod tests {
     /// an action.
     #[test]
     fn an_unfinished_step_always_says_what_to_do() {
-        let fr = FirstRun {
+        let fr =         FirstRun {
             camera: Camera::Missing,
             integrity: Integrity::Low,
+            microphone: Microphone::Ready,
             autostart: false,
             notify_relay: false,
         };

@@ -29,6 +29,11 @@ pub enum Page {
     /// and offers the one action that can change it.
     Input,
     Camera,
+    /// Path A's onboarding: install a free virtual audio cable so the phone's
+    /// microphone becomes a *selectable* Windows microphone. Non-blocking — it
+    /// is a third-party download — but it is a page in the flow so a first-time
+    /// user sees it.
+    Microphone,
     StartAtLogin,
     Done,
 }
@@ -41,6 +46,7 @@ impl Page {
             Page::Welcome,
             Page::Input,
             Page::Camera,
+            Page::Microphone,
             Page::StartAtLogin,
             Page::Done,
         ]
@@ -73,6 +79,9 @@ impl Page {
             // The camera is a required feature on the Mac's wizard too, so it
             // gates the same way here.
             Page::Camera => fr.camera == Camera::Ready,
+            // Non-blocking: a third-party download the user can do now or later,
+            // so Next is never gated on it.
+            Page::Microphone => true,
             // Start-at-login is a convenience, so it does not gate — but it
             // asks, which is the difference between a wizard and a form.
             Page::StartAtLogin => true,
@@ -219,12 +228,13 @@ pub(crate) fn run_action() {
 #[cfg(test)]
 mod tests {
     use super::Page;
-    use rc_net::firstrun::{Camera, FirstRun, Integrity};
+    use rc_net::firstrun::{Camera, FirstRun, Integrity, Microphone};
 
     fn fr(camera: Camera, integrity: Integrity) -> FirstRun {
         FirstRun {
             camera,
             integrity,
+            microphone: Microphone::Ready,
             autostart: true,
             notify_relay: false,
         }
@@ -287,7 +297,7 @@ mod action_tests {
     action_message, current_page, install_outcome, record_action, run_action, set_page, Page, State,
     STATE,
 };
-    use rc_net::firstrun::{Camera, FirstRun, Integrity};
+    use rc_net::firstrun::{Camera, FirstRun, Integrity, Microphone};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A fully-satisfied state. `FirstRun` has no `Default`, deliberately:
@@ -296,9 +306,20 @@ mod action_tests {
         FirstRun {
             camera: Camera::Ready,
             integrity: Integrity::Medium,
+            microphone: Microphone::Ready,
             autostart: true,
             notify_relay: false,
         }
+    }
+
+    /// These tests all drive the **process-wide** `STATE`, so they must not run
+    /// concurrently: one test resetting `STATE` mid-read in another is a flake,
+    /// not a failure — and a flaky gate teaches you to re-run until it is green.
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// The action used to be `take`n out of the state, so the button worked
@@ -307,6 +328,7 @@ mod action_tests {
     /// that does not click twice.
     #[test]
     fn the_action_survives_being_run() {
+        let _guard = serial();
         static RUNS: AtomicUsize = AtomicUsize::new(0);
         if let Ok(mut g) = STATE.lock() {
             *g = Some(State {
@@ -335,6 +357,7 @@ mod action_tests {
     /// can outlive the state it was built from.
     #[test]
     fn running_with_no_state_is_harmless() {
+        let _guard = serial();
         if let Ok(mut g) = STATE.lock() {
             *g = None;
         }
@@ -345,6 +368,7 @@ mod action_tests {
     /// And the page survives a draw, which is what the window does every 200 ms.
     #[test]
     fn the_page_is_stable_across_draws() {
+        let _guard = serial();
         if let Ok(mut g) = STATE.lock() {
             *g = Some(State {
                 first_run: ok_state(),
@@ -372,6 +396,7 @@ mod action_tests {
     /// refused.
     #[test]
     fn a_refusal_is_reported_and_survives_redraws() {
+        let _guard = serial();
         let refusal = ("declined, so it is not installed", "declined, so it is not installed");
         if let Ok(mut g) = STATE.lock() {
             *g = Some(State {
@@ -403,6 +428,7 @@ mod action_tests {
     /// the thing it describes.
     #[test]
     fn a_successful_install_leaves_nothing_to_draw() {
+        let _guard = serial();
         if let Ok(mut g) = STATE.lock() {
             *g = Some(State {
                 first_run: ok_state(),
@@ -422,6 +448,7 @@ mod action_tests {
     /// old refusal gets attributed to whatever they are now looking at.
     #[test]
     fn leaving_the_camera_page_drops_its_message() {
+        let _guard = serial();
         if let Ok(mut g) = STATE.lock() {
             *g = Some(State {
                 first_run: ok_state(),
