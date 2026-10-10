@@ -1928,10 +1928,20 @@ final class ReceiverSession: ObservableObject {
     /// Absent on either side → stays cleartext (an old peer). The nonces are
     /// used as their UTF-8 bytes so both ends agree.
     private func enableTransportIfSupported(reply: IBSessionReply) {
+        // Use the SAME token the identity challenge just verified, so both ends
+        // derive the same key. A name-keyed lookup here could miss and leave
+        // this side cleartext while the phone sealed — which breaks the link.
+        let token: String?
+        if let peer = inboundPeer {
+            token = tokenIndex.token(phoneId: peer.phoneId, name: peer.name)
+        } else {
+            token = currentTokenKey.flatMap { tokenStore[$0] }
+        }
         guard reply.transport == TransportCipher.versionName,
-              let name = currentPhoneName(),
-              let token = tokenStore[name],
-              let clientNonce, let serverNonce = reply.nonce else { return }
+              let token, let clientNonce, let serverNonce = reply.nonce else {
+            Self.log.info("transport: not sealed — peerTransport=\(reply.transport ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(self.clientNonce != nil, privacy: .public) replyNonce=\(reply.nonce != nil, privacy: .public)")
+            return
+        }
         let key = TransportCipher.sessionKey(token: token,
                                              initiatorNonce: Data(clientNonce.utf8),
                                              responderNonce: Data(serverNonce.utf8))

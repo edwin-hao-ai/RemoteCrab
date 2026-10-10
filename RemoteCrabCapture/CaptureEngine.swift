@@ -322,6 +322,10 @@ final class CaptureEngine: ObservableObject {
         /// The handshake token this challenge belongs to, so a superseded
         /// connection cannot complete someone else's challenge.
         let handshakeToken: UUID
+        /// Both nonces, kept so the accepted reply can carry the phone's nonce
+        /// and the transport key can be derived from token + both nonces (F1).
+        let clientNonce: String
+        let serverNonce: String
         var timeout: Task<Void, Never>?
     }
     private var pendingChallenge: PendingChallenge?
@@ -393,6 +397,10 @@ final class CaptureEngine: ObservableObject {
     /// Shared broadcaster for touch / key / audio events. Created when
     /// a Mac connects and torn down when the connection drops.
     private(set) var broadcaster: IBEventBroadcaster?
+
+    /// Set once the transport is sealed (F1); nil = cleartext (an old computer,
+    /// or before the grant).
+    private var opener: TransportCipher.Opener?
 
     private(set) var audioEncoder: MicrophoneEncoder?
 
@@ -2058,12 +2066,15 @@ final class CaptureEngine: ObservableObject {
                                                    clientNonce: clientNonce, serverNonce: serverNonce)
         Forensic.log("[auth] challenge sent for \(hello.id.prefix(8))")
         sendSessionReply(IBSessionReply(result: .pending, nonce: serverNonce, mac: serverMac,
-                                        capabilities: [PeerAuth.capability]), on: conn)
+                                        capabilities: [PeerAuth.capability],
+                                        transport: TransportCipher.versionName), on: conn)
 
         let parser = parser ?? candidateParser ?? IBWire.Parser()
         var challenge = PendingChallenge(connection: conn, hello: hello, mac: mac,
                                          expectedClientMac: expectedClientMac,
-                                         handshakeToken: token, timeout: nil)
+                                         handshakeToken: token,
+                                         clientNonce: clientNonce, serverNonce: serverNonce,
+                                         timeout: nil)
         challenge.timeout = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             guard let self, self.pendingChallenge?.handshakeToken == token else { return }
@@ -2109,13 +2120,31 @@ final class CaptureEngine: ObservableObject {
             Forensic.log("[auth] receiver proved the token for \(challenge.hello.id.prefix(8))")
             pairingStore.noteOutcome(.streaming, for: challenge.hello.id)
             refreshPairedMacs()
-            sendSessionReply(IBSessionReply(result: .accepted), on: challenge.connection)
+            sendSessionReply(IBSessionReply(result: .accepted,
+                                            nonce: challenge.serverNonce,
+                                            transport: TransportCipher.versionName),
+                             on: challenge.connection)
             grant(connection: challenge.connection, mac: challenge.mac,
                   platform: challenge.hello.platform,
                   capabilities: challenge.hello.capabilities ?? [])
+            enableTransport(token: challenge.mac.token,
+                            clientNonce: challenge.clientNonce,
+                            serverNonce: challenge.serverNonce)
         } else {
             refuseChallenge(challenge, reason: "wrong MAC")
         }
+    }
+
+    /// Both ends advertised `aead-v1`: derive the session key and turn on
+    /// sealing for the live session (F1). The same key the receiver derives —
+    /// token + the two handshake nonces as UTF-8 bytes.
+    private func enableTransport(token: String, clientNonce: String, serverNonce: String) {
+        let key = TransportCipher.sessionKey(token: token,
+                                             initiatorNonce: Data(clientNonce.utf8),
+                                             responderNonce: Data(serverNonce.utf8))
+        broadcaster?.sealer = TransportCipher.Sealer(key: key)
+        opener = TransportCipher.Opener(key: key)
+        Forensic.log("[transport] sealed (aead-v1)")
     }
 
     /// Drop an unproven challenge and tell the computer why.
@@ -3327,7 +3356,15 @@ final class CaptureEngine: ObservableObject {
                 guard let self, self.outboundConnection === conn,
                       self.outboundTarget?.id == target.id else { return }
                 if let data, !data.isEmpty {
-                    for frame in parser.append(data) {
+                    for raw in parser.append(data) {
+                        let frame: IBWire.Frame
+                        if var o = self.opener {
+                            guard let payload = try? o.open(raw.payload, kind: raw.kind.rawValue) else { continue }
+                            self.opener = o
+                            frame = IBWire.Frame(kind: raw.kind, payload: payload)
+                        } else {
+                            frame = raw
+                        }
                         switch frame.kind {
                         case .clientHello:
                             // Validate this dial's identity BEFORE disarming
@@ -3968,7 +4005,20 @@ final class CaptureEngine: ObservableObject {
 
     private func handleInbound(_ data: Data) {
         lastInboundAt = Date()
-        for frame in parser.append(data) {
+        for raw in parser.append(data) {
+            // Sealed transport: open the payload (F1). `opener` is nil until the
+            // grant, so the handshake above stays cleartext.
+            let frame: IBWire.Frame
+            if var o = opener {
+                guard let payload = try? o.open(raw.payload, kind: raw.kind.rawValue) else {
+                    Forensic.log("[transport] sealed frame failed to open (\(raw.kind)) — dropping")
+                    continue
+                }
+                opener = o
+                frame = IBWire.Frame(kind: raw.kind, payload: payload)
+            } else {
+                frame = raw
+            }
             switch frame.kind {
             case .featureControl:
                 if let control = try? IBWire.decodeFeatureControl(frame) {
