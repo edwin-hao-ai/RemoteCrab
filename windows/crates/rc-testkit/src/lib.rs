@@ -168,6 +168,40 @@ impl FakeIphone {
             out_tx,
         })
     }
+
+    /// **Phone-initiated**: dial a receiver's knock port instead of listening.
+    ///
+    /// Sends `hello` as the first frame (the real phone's `phoneHello`, kind
+    /// `0x27`), then runs the *same* phone logic as [`start_on`] on that socket
+    /// — the receiver answers with `clientHello` and the handshake proceeds with
+    /// the roles unchanged. This is what lets the phone-initiated path be
+    /// exercised against the shipped binary without a phone.
+    pub async fn dial(
+        config: FakeIphoneConfig,
+        addr: SocketAddr,
+        hello: Option<rc_protocol::PhoneHello>,
+    ) -> std::io::Result<FakeIphone> {
+        let mut stream = TcpStream::connect(addr).await?;
+        if let Some(h) = hello {
+            let frame = rc_protocol::encode_phone_hello(&h)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            stream.write_all(&frame).await?;
+            stream.flush().await?;
+        }
+        let (hello_tx, hellos) = mpsc::unbounded_channel();
+        let (in_tx, inbound) = mpsc::unbounded_channel();
+        let (out_tx, _) = tokio::sync::broadcast::channel(64);
+        let out_rx = out_tx.subscribe();
+        tokio::spawn(async move {
+            serve(stream, config, hello_tx, in_tx, out_rx).await;
+        });
+        Ok(FakeIphone {
+            addr,
+            hellos,
+            inbound,
+            out_tx,
+        })
+    }
 }
 
 /// Seal an outgoing frame if the session is sealed, else pass it through (F1).
