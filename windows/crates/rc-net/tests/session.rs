@@ -448,6 +448,7 @@ async fn link_loss_reconnects_on_its_own() {
                     nonce: None,
                     mac: None,
                     capabilities: None,
+                    transport: None,
                 };
                 let _ = wr.write_all(&encode_session_reply(&reply).unwrap()).await;
                 // `stream` drops here — the link dies without a FIN handshake
@@ -912,4 +913,108 @@ async fn a_phone_that_cannot_prove_itself_is_allowed_and_marked_unauthenticated(
         ),
         other => panic!("expected Streaming, got {other:?}"),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Transport encryption (F1) — both directions sealed.
+// ---------------------------------------------------------------------------
+
+/// With both ends advertising `aead-v1`, everything after the grant is sealed.
+///
+/// This is the load-bearing cross-end test: it runs the real `run_session`
+/// against a fake phone that seals too, and checks **both** directions —
+///   * the phone's `metadata` arrives as ciphertext, so it only appears if the
+///     receiver opened it;
+///   * a `featureControl` the receiver sends is sealed, so it only reaches the
+///     fake phone's decoder if the fake phone's opener accepted it.
+///
+/// A one-sided implementation (the Mac's real-machine mistake: "we forgot the
+/// second connection path also handles `sessionReply`") leaves one of the two
+/// directions silent — which is exactly what this asserts against.
+#[tokio::test]
+async fn a_sealed_session_opens_both_directions() {
+    let (config, path) = test_config_with_token_file("sealed");
+    pair_once(&config, &path).await;
+
+    let mut phone = FakeIphone::start(FakeIphoneConfig {
+        peer_auth_token: Some("test-token".to_string()),
+        transport: true,
+        ..FakeIphoneConfig::default()
+    })
+    .await
+    .unwrap();
+
+    let session = Session::spawn(config);
+    // Drain events from before the connect, so the sealed `metadata` is not
+    // missed between the handshake and the assertion loop.
+    let mut events = session.subscribe();
+    let (collected_tx, mut collected_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(e) => {
+                    if collected_tx.send(e).is_err() {
+                        return;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                Err(_) => {}
+            }
+        }
+    });
+
+    session.connect_manual("127.0.0.1", phone.addr.port());
+    let hello = recv_hello(&mut phone).await;
+    assert_eq!(
+        hello.transport.as_deref(),
+        Some(rc_protocol::transport::VERSION),
+        "the receiver must advertise the sealed transport"
+    );
+
+    wait_for_state(
+        &session,
+        |s| matches!(s, State::Streaming { .. }),
+        Duration::from_secs(5),
+    )
+    .await
+    .expect("the sealed session never reached streaming");
+
+    // Phone → receiver: the sealed metadata must be opened and delivered.
+    let mut got_metadata = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline && !got_metadata {
+        if let Ok(Some(Event::Metadata(_))) =
+            tokio::time::timeout(Duration::from_millis(500), collected_rx.recv()).await
+        {
+            got_metadata = true;
+        }
+    }
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        got_metadata,
+        "sealed metadata never arrived — the receiver did not open the phone's frames"
+    );
+
+    // Receiver → phone: the receiver must seal too, or the fake phone's opener
+    // drops this and nothing reaches its `inbound` channel.
+    session.send_frame(
+        rc_protocol::encode_feature_control(&rc_protocol::FeatureControl {
+            feature: rc_protocol::Feature::Camera,
+            enabled: true,
+        })
+        .unwrap(),
+    );
+    let mut got_control = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while tokio::time::Instant::now() < deadline && !got_control {
+        match tokio::time::timeout(Duration::from_millis(500), phone.inbound.recv()).await {
+            Ok(Some(rc_testkit::Frame2::FeatureControl(_))) => got_control = true,
+            Ok(Some(_)) => {}
+            _ => {}
+        }
+    }
+    assert!(
+        got_control,
+        "the receiver's featureControl never reached the phone — the receiver did not seal"
+    );
 }

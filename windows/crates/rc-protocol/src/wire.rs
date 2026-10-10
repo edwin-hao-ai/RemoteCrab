@@ -206,12 +206,48 @@ pub struct Frame {
 
 /// Prepend the 4-byte big-endian length (kind byte + payload) and the kind.
 pub fn encode_frame(kind: Kind, payload: &[u8]) -> Vec<u8> {
+    encode_frame_bytes(kind as u8, payload)
+}
+
+/// Like [`encode_frame`], but from a raw kind byte — used by the sealed
+/// transport, which reads the kind off an already-encoded frame and must put
+/// the **same byte** back (a `Kind::Unknown` round-trip would corrupt it).
+pub fn encode_frame_bytes(kind: u8, payload: &[u8]) -> Vec<u8> {
     let length = 1u32 + payload.len() as u32;
     let mut out = Vec::with_capacity(4 + length as usize);
     out.extend_from_slice(&length.to_be_bytes());
-    out.push(kind as u8);
+    out.push(kind);
     out.extend_from_slice(payload);
     out
+}
+
+// ---------------------------------------------------------------------------
+// Sealed transport (F1)
+// ---------------------------------------------------------------------------
+
+/// Seal a complete `[len][kind][payload]` frame's payload in place (F1).
+///
+/// The kind byte stays cleartext so the receiver routes without decrypting; it
+/// is also the AEAD's additional data, so a tampered kind fails to open.
+/// Mirrors `IBWire.seal(frame:using:)`.
+pub fn seal_frame(frame: &[u8], sealer: &mut crate::transport::Sealer) -> Vec<u8> {
+    debug_assert!(frame.len() >= 5, "a frame has a 4-byte header and a kind byte");
+    let kind = frame[4];
+    let sealed = sealer.seal(&frame[5..], kind);
+    encode_frame_bytes(kind, &sealed)
+}
+
+/// Open a complete frame's sealed payload, rebuilding the cleartext frame.
+/// Mirrors `IBWire.open(data:using:parser:)` for a single parsed frame.
+pub fn open_frame(
+    frame: Frame,
+    opener: &mut crate::transport::Opener,
+) -> Result<Frame, crate::transport::Error> {
+    let payload = opener.open(&frame.payload, frame.kind as u8)?;
+    Ok(Frame {
+        kind: frame.kind,
+        payload,
+    })
 }
 
 fn encode_json<T: Serialize>(kind: Kind, value: &T) -> Result<Vec<u8>, serde_json::Error> {
@@ -760,5 +796,48 @@ mod speaker_audio_kind_tests {
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].kind, Kind::RequestKeyframe);
         assert!(frames[0].payload.is_empty());
+    }
+}
+
+/// The sealed transport, at the frame level (F1).
+#[cfg(test)]
+mod sealed_frame_tests {
+    use super::*;
+    use crate::transport::{Opener, Sealer};
+
+    fn sealer() -> Sealer {
+        Sealer::new(crate::transport::session_key("tok", b"init", b"resp"))
+    }
+
+    /// The marker a sniffer would look for must NOT appear on the wire — the
+    /// same assertion the Swift `TransportWireTests` makes. Reversing it (no
+    /// sealing) makes this fail, which is what gives it meaning.
+    #[test]
+    fn a_sealed_clipboard_marker_never_appears_on_the_wire() {
+        let marker = b"RemoteCrab-e2e-OK";
+        let frame = encode_frame(Kind::ClipboardSet, marker);
+        let sealed = seal_frame(&frame, &mut sealer());
+        assert!(
+            sealed.windows(marker.len()).all(|w| w != marker),
+            "the plaintext marker leaked into the sealed frame"
+        );
+    }
+
+    /// The kind byte stays cleartext so the receiver routes without decrypting,
+    /// and the opened payload is byte-identical to the original.
+    #[test]
+    fn seal_frame_round_trips_and_keeps_the_kind_cleartext() {
+        let key = crate::transport::session_key("tok", b"init", b"resp");
+        let mut s = Sealer::new(key);
+        let mut o = Opener::new(key);
+        let frame = encode_frame(Kind::Touch, b"payload");
+        let sealed = seal_frame(&frame, &mut s);
+        // The kind is still at byte 4.
+        assert_eq!(sealed[4], Kind::Touch as u8);
+        let parsed = Parser::new().append(&sealed);
+        assert_eq!(parsed.len(), 1);
+        let opened = open_frame(parsed[0].clone(), &mut o).unwrap();
+        assert_eq!(opened.kind, Kind::Touch);
+        assert_eq!(opened.payload, b"payload".to_vec());
     }
 }

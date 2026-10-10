@@ -491,6 +491,7 @@ async fn send_busy_and_close(mut stream: tokio::net::TcpStream, owner_name: Opti
         nonce: None,
         mac: None,
         capabilities: None,
+        transport: None,
     };
     if let Ok(frame) = rc_protocol::encode_session_reply(&reply) {
         let _ = stream.write_all(&frame).await;

@@ -203,6 +203,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "commandResult".to_string(),
         ]),
         nonce: None,
+        transport: None,
     })
     .map_err(|e| format!("encode_client_hello: {e}"))?;
     wr.write_all(&hello).await?;
