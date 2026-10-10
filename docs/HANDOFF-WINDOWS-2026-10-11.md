@@ -199,4 +199,32 @@ seal 之前**发出的，属一次性竞态，非持续问题）。
 改完出一个带 F1 的新 iOS 构建，再连一次 Windows 接收端：期望 `[transport] sealed` 且
 **`video: N NALs received` 数字持续增长**（接收端日志），触控/键盘/文件/剪贴板同步验。
 
+---
+
+## §8. Mac session 回交（2026-10-11 晚）：iOS 侧已修，请 Windows 复验
+
+**§7.7 的 iOS 明文问题已修复并推送**（`9ca4702`）：
+
+1. **iOS**：视频 / metadata / SPS / PPS 全部改走 `IBEventBroadcaster`（`send(frame:)` /
+   `send(metadata:)`），并在 `grant` 之前就把 sealer 装上，保证授权后第一帧就是密文。
+2. **同一个 bug 的另一半（Mac→手机）也修了**，而且**这个类别很可能 Windows 也有**：
+   Mac 的**扬声器音频 / app 列表 / 窗口列表 / 已安装应用 / 特性开关 / 剪贴板 / 文件回执 /
+   相机切换** —— 八处都直接调 `connection.send`，绕过了 sealer，密封会话下被手机丢弃。
+   **请 Windows 侧做同样的审计**：`grep` 自己所有出站点（`send`/`write`/socket），逐个确认
+   「授权后的数据帧」是否都经过 `transport::Sealer`。Windows 的 `run_session` 封/解是对的，
+   但**有没有别的路径绕过它**才是要查的。
+3. **定位工具**（值得抄）：`TransportCipher.fingerprint(key)` / Rust 侧同款 —— 两端各自打印
+   密钥的短哈希。不一致就说明某一端的派生输入（token / 两个 nonce）不同，**一句话指出是哪一端**。
+   Windows 若复验时「协商成功但打不开」，先比对两端的 fp。
+
+**复验清单（Windows 真机）**：
+- [ ] 出一个带 F1 的新 iOS 构建（本会话的 iOS 已推 `main`），连 Windows 接收端。
+- [ ] `[transport] sealed` + 接收端 `video: N NALs received` **持续增长**（不再 1971 次 Auth）。
+- [ ] 两端 fp 一致。
+- [ ] 扬声器：Windows 接收端采集 → 手机出声（**这是唯一没跑过的一段**）。
+- [ ] 审计自己的出站点：授权后的数据帧是否全部走 sealer。
+
+**诚实边界**：本会话**没有**在 Windows 真机上验过任何东西；上面全是 Mac/iOS 侧的修复与推断。
+
+
 

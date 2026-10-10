@@ -992,3 +992,30 @@ codesign -d --verbose=4 /Applications/X.app | grep CDHash
     `cfg!(windows).then(crate::vcam::is_registered)`（两分支都要编译）改成 `#[cfg]` 分派。
     **Windows 的 `cfg(windows)` 分支逐字未动**；改前先在**一次性 worktree 里构建
     `origin/main`** 证明它本来就红，别把别人的红算成自己的。
+
+170. **实时回调里的非回绕算术会 trap —— 而它跑在 CoreAudio 的 IO 线程上，所以整个 app 死。**
+    用户报「一点 Re-register、输完密码，整个 Mac 端就崩」。崩溃点反复是
+    `SystemAudioTap.ingest`「arithmetic overflow」。**反汇编**崩溃 PC（`atos` + dSYM
+    定位到源行，再看 `adds x8,x10,x8 ; b.hs <trap>`）钉到一行：`pendingDrops += dropped`
+    —— 一个 **CoreAudio IO 线程上的非回绕 `UInt64` 加法**。`dropped` 来自
+    `gap = writeIndex &- readIndex`；消费者短暂读到前面时该减法回绕成 ~`UInt64.max`，
+    于是加法溢出、trap、**整个接收端 SIGTRAP**（所以正好崩在 Re-register 那一刻 —— tap 正活着）。
+    **第一版修错了**：以为是非有限采样，给 `Int16(value * 32767)` 加了 NaN 守卫 ——
+    崩溃照旧（说明根因不在这里；`Int16(NaN)` 和「非回绕加法」是两种不同的 trap）。
+    **规则**：实时音频/视频回调里，**任何会因溢出而 trap 的算术都要用回绕版本（`&+`/`&-`）**，
+    或用纯函数先算出有界的量再累加；一个在普通线程里「绝不会溢出」的计数器，在长跑的
+    实时线程里会。**工具**：一个崩在别人的线程里的 SIGTRAP，先反汇编定位到源行，
+    再读那行的算术类型 —— 别从日志猜。
+
+171. **一个「诊断探针」可以就是那个说谎的东西；而「多格式虚拟相机」会连真实客户端一起弄坏。**
+    相机被报「完全不能用」。真相分两层：
+    - 我自己写的 `CamProbe.app`（`AVCaptureSession` + data output）**自己会把会话停掉**，
+      于是每次都 `TIMEOUT`，我据此得出「扩展没在发帧」——**探针坏了，结论错了**。
+      换 **QuickTime**（一个真实、成熟的客户端）立刻出画面。
+    - 但**多格式（对外广告 1080p+4K）确实会让真实客户端也断**：同一个 QuickTime，
+      v15（单 1080p）有画面、v16（多格式）没画面。所以「多格式会掉线」这个判断是对的，
+      只是我一度因为探针坏而怀疑它。**4K 撤回，维持单 1080p。**
+    **规则**（lesson 76/111 的又一形状）：验证一个渲染/采集产物，**要用一个你不控制的
+    真实客户端**（QuickTime/Zoom），不要只用自己写的探针；探针坏掉时它给出的「零帧」
+    和「扩展真的不发帧」长得一模一样。以及：**改扩展版本后接收端必须重启**
+    （否则 feeder 还挂在旧扩展上），客户端要**重新选一次**设备（设备变了）。
