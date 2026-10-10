@@ -429,8 +429,6 @@ public final class SystemAudioTap: @unchecked Sendable {
         if peak > peakSeen { peakSeen = peak }
         newestRingSample = peak
 
-        var dropped: UInt64 = 0
-
         // Two threads writing one index is the bug (lesson 125): the pump
         // advances `readIndex` to consume, and the callback used to reset it
         // here on overflow. Two writers means the unsigned
@@ -438,11 +436,11 @@ public final class SystemAudioTap: @unchecked Sendable {
         // guard passes on garbage and the pump reads slots that are not the
         // ones it thinks. So the callback only *counts* what must go and the
         // PUMP is the sole owner of `readIndex`.
-        let gap = w &- readIndex
-        if gap > capacity {
-            dropped = gap - capacity
-            pendingDrops += dropped
-        }
+        //
+        // `dropCount` returns 0 for a wrapped (consumer-ahead) difference, and
+        // `&+=` is deliberate: this runs on CoreAudio's IO thread, where a
+        // non-wrapping overflow traps and kills the whole app (2026-10-11).
+        pendingDrops &+= SpeakerRing.dropCount(writeIndex: w, readIndex: readIndex, capacity: capacity)
     }
 
     @inline(__always)
@@ -475,8 +473,12 @@ public final class SystemAudioTap: @unchecked Sendable {
         let toDrop = pendingDrops
         pendingDrops = 0
         if toDrop > 0 {
-            readIndex &+= toDrop
-            droppedFrames &+= toDrop
+            // Never let a drop request push the reader past the writer: a
+            // wrapped/oversized request must not desync the ring (2026-10-11).
+            let ahead = writeIndex >= readIndex ? writeIndex - readIndex : 0
+            let drop = min(toDrop, ahead)
+            readIndex &+= drop
+            droppedFrames &+= drop
         }
 
         let available = writeIndex &- readIndex
