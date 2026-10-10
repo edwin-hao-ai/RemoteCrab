@@ -250,24 +250,12 @@ struct MenuBarMenu: View {
                             .font(IBFont.monoSmall)
                             .foregroundStyle(.primary)
                     }
-                    if session.decodeLatencyMs > 0 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "timer")
-                                .font(.system(size: 9))
-                                .foregroundStyle(.secondary)
-                            // Measured arrival→decoded, this Mac's clock (D3) —
-                            // not the ping RTT shown in the header.
-                            Text("\(Int(session.decodeLatencyMs.rounded())) ms decode")
-                                .font(IBFont.monoSmall)
-                                .foregroundStyle(.primary)
-                        }
-                    }
                 }
                 Spacer()
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .frame(height: 88)
+            .frame(height: 74)
         } else {
             // Offline state — show a single hint row. The row is a FIXED
             // height and the text is one line: a `MenuBarExtra(.window)`

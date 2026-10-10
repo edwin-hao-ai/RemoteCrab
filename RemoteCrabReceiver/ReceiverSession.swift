@@ -107,13 +107,6 @@ final class ReceiverSession: ObservableObject {
     private var telemetryStartedAt = Date()
     /// The last *measured* fps (as opposed to the phone's requested rate).
     @Published private(set) var achievedFps: Double = 0
-
-    /// Measured device-side pipeline latency: video-frame arrival → decoded,
-    /// all on this Mac's clock (D3). The median is the honest number; the ping
-    /// RTT shown elsewhere is only the network half.
-    private var videoArrivals: [Date] = []
-    private var latencyStats = LatencyStats()
-    @Published private(set) var decodeLatencyMs: Double = 0
     private var audioPacketCount = 0
     /// Lazily created on the first Opus packet; nil-decodable packets
     /// (legacy senders) never touch it.
@@ -383,17 +376,9 @@ final class ReceiverSession: ObservableObject {
         pairedPhones = tokenStore.keys.sorted()
         decoder.onDecoded = { [weak self] image in
             Task { @MainActor in
-                guard let self else { return }
-                // Device-side pipeline latency: the decoder preserves order, so
-                // the oldest arrival matches this frame (D3).
-                if let arrival = self.videoArrivals.first {
-                    self.videoArrivals.removeFirst()
-                    self.latencyStats.add(Date().timeIntervalSince(arrival) * 1000)
-                    self.decodeLatencyMs = self.latencyStats.median
-                }
-                self.cameraSinkFeeder.feed(image: image)
-                self.latestFrame = image
-                self.recorder.appendVideo(image)
+                self?.cameraSinkFeeder.feed(image: image)
+                self?.latestFrame = image
+                self?.recorder.appendVideo(image)
             }
         }
         cameraSinkFeeder.start()
@@ -2813,8 +2798,6 @@ final class ReceiverSession: ObservableObject {
                     telemetryFrames = 0
                     telemetryStartedAt = now
                 }
-                videoArrivals.append(now)
-                if videoArrivals.count > 240 { videoArrivals.removeFirst(videoArrivals.count - 240) }
                 decoder.feedVideo(frame.payload)
             case .touch:
                 if let event = try? IBWire.decodeTouch(frame) {
