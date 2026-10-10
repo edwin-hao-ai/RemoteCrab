@@ -234,7 +234,11 @@ struct MenuBarMenu: View {
                         Image(systemName: "speedometer")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
-                        Text("\(md.fps) fps")
+                        // requested / measured. The phone's number is the ask;
+                        // the second is what actually arrived (D2).
+                        Text(session.achievedFps > 0
+                             ? "\(md.fps)/\(Int(session.achievedFps.rounded())) fps"
+                             : "\(md.fps) fps")
                             .font(IBFont.monoSmall)
                             .foregroundStyle(.primary)
                     }

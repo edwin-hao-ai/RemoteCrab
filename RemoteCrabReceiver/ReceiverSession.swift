@@ -105,6 +105,8 @@ final class ReceiverSession: ObservableObject {
     private var telemetryBytes = 0
     private var telemetryFrames = 0
     private var telemetryStartedAt = Date()
+    /// The last *measured* fps (as opposed to the phone's requested rate).
+    @Published private(set) var achievedFps: Double = 0
     private var audioPacketCount = 0
     /// Lazily created on the first Opus packet; nil-decodable packets
     /// (legacy senders) never touch it.
@@ -2736,6 +2738,7 @@ final class ReceiverSession: ObservableObject {
                                                    frames: telemetryFrames,
                                                    interval: elapsed)
                     Self.log.info("stream: \(s.summary, privacy: .public) (total \(self.videoFrameCount) frames)")
+                    achievedFps = s.fps
                     telemetryBytes = 0
                     telemetryFrames = 0
                     telemetryStartedAt = now
