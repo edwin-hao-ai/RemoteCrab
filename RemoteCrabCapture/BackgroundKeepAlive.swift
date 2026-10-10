@@ -21,6 +21,7 @@ final class BackgroundKeepAlive: @unchecked Sendable {
     private var engine: AVAudioEngine?
     private var player: AVAudioPlayerNode?
     private(set) var isActive = false
+    private var audioObservers: [NSObjectProtocol] = []
 
     private init() {}
 
@@ -31,6 +32,7 @@ final class BackgroundKeepAlive: @unchecked Sendable {
     }
 
     func start() {
+        observeAudioEvents()
         guard !isActive, Self.enabled else { return }
         Forensic.log("[keepalive] start requested")
         do {
@@ -103,5 +105,48 @@ final class BackgroundKeepAlive: @unchecked Sendable {
         try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
         try? session.setActive(true)
         return true
+    }
+
+    /// Recover the session after an interruption (a call, Siri, another app
+    /// taking audio) or a media-services reset (C2). Nothing observed these
+    /// before, so after a phone call the keep-alive — and with it the
+    /// background listener — stayed dead until a relaunch. Recovery rebuilds
+    /// the engine WITHOUT deactivating the session first: a
+    /// deactivate→reactivate in one runloop turn makes `setActive(true)` fail
+    /// (lesson 161).
+    private func observeAudioEvents() {
+        guard audioObservers.isEmpty else { return }
+        let nc = NotificationCenter.default
+        let handler: @Sendable (Notification) -> Void = { [weak self] note in
+            // Copy the Sendable bits out before hopping (a bare Notification
+            // is not Sendable under Swift 6).
+            let name = note.name
+            let raw = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) ?? 0
+            Task { @MainActor in self?.handleAudioEvent(name: name, interruptionRaw: raw) }
+        }
+        audioObservers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification,
+                                             object: nil, queue: .main, using: handler))
+        audioObservers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+                                             object: nil, queue: .main, using: handler))
+    }
+
+    private func handleAudioEvent(name: Notification.Name, interruptionRaw: UInt) {
+        guard Self.enabled else { return }
+        if name == AVAudioSession.interruptionNotification {
+            switch AVAudioSession.InterruptionType(rawValue: interruptionRaw) {
+            case .began:
+                Forensic.log("[audio] interruption began")
+                return   // iOS deactivated the session; recover when it ends
+            case .ended:
+                Forensic.log("[audio] interruption ended — recovering keep-alive")
+            default:
+                return
+            }
+        } else {
+            Forensic.log("[audio] media services reset — rebuilding keep-alive")
+        }
+        guard isActive else { return }
+        stop(deactivateSession: false)
+        start()
     }
 }
