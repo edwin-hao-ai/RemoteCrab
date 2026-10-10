@@ -1351,6 +1351,7 @@ async fn run_session(
             name: name.clone(),
             latency_ms: 0,
             authenticated,
+            sealed: sealer.is_some(),
         },
       );
 
@@ -1443,6 +1444,7 @@ async fn run_session(
                                             name: name.clone(),
                                             latency_ms: rtt,
                                             authenticated,
+                                            sealed: sealer.is_some(),
                                         },
                                     );
                                 }

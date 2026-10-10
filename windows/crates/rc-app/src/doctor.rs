@@ -768,6 +768,7 @@ mod tests {
                 name: "Fake iPhone".into(),
                 latency_ms: 12,
                 authenticated: true,
+                sealed: true,
             });
             let text = panel(&h, &RouteVerdict::Direct, zh);
             assert!(text.contains("Fake iPhone"), "zh={zh} {text}");

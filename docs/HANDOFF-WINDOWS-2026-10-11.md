@@ -125,10 +125,11 @@ Windows，`#[cfg(windows)]` 代码已被原生编译，故不构成缺口。）
 2. **抓包**：发已知剪贴板串，抓包断言线上不含该明文（帧级断言已在 §7.2 覆盖，
    链路级抓包是另一件事）。
 3. **旧端明文降级**：用不带 `transport` 的旧 iOS 构建连一次 → 明文可用、不崩。
-4. **用户可见的「未加密」徽标**（spec §4.5）：**未做**。接收端在连接时会把
-   `[transport] sealed` / `not sealed` 打到 stderr，但托盘/控制台**没有**常驻徽标。
-   这是有意的范围控制——它是 UI 呈现决定（放哪、怎么写），且**不在本次 F1 交接的
-   §3 清单里**；需要与设计一起定，故留作小尾巴，而不是自作主张加一行。
+4. **用户可见的「未加密」徽标**（spec §4.5）：**已做**。`State::Streaming` 新增
+   `sealed: bool`；未密封时控制台与托盘状态行都追加「（未加密）」/` (unencrypted)`，
+   密封时为空。有单测（`an_unsealed_session_says_unencrypted_and_a_sealed_one_does_not`，
+   中英双语、两个 surface），并附在 `an_unverified_session_says_so…` 那组旁边。
+   仍未做的是真机上的**肉眼确认**（见下条）。
 
 ### 7.5 ⚠️ 给 Mac session 的一条代码读取发现（非本端能验）
 
@@ -145,4 +146,10 @@ RTT；接收端对手机探针的回显同样明文 → 手机也测不到。**w
 这条是**读代码结论，未真机验证**（本端没有 Mac/手机）。请 Mac session 用真机确认：
 密封会话里两端是否还有延迟读数；若是空，则把这条 ping 路径也接进 sealer（或让手机
 对 ping 回显走 broadcaster）。
+
+### 7.6 徽标（spec §4.5）
+
+`State::Streaming.sealed` 在 `run_session` 派生密钥后设为 `sealer.is_some()`；未密封时
+`state_line`（控制台）与 `tray_status`（托盘）都追加「（未加密）」/` (unencrypted)`。
+单测覆盖中英双语 + 两个 surface。
 
