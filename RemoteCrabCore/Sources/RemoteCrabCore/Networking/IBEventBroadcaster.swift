@@ -140,6 +140,24 @@ public final class IBEventBroadcaster: @unchecked Sendable {
         send(kind: .screenVideo) { IBWire.encodeScreen(frame: frame) }
     }
 
+    /// iPhone → computer: one H.264 NAL of the live camera (video / SPS / PPS).
+    ///
+    /// MUST go through here rather than a raw `connection.send`: sending video
+    /// directly left it in **cleartext** on a sealed link, and the receiver
+    /// opens every post-grant frame, so it dropped all of them (`Auth`) — the
+    /// bug that made F1 look like "the connection carries nothing" (2026-10-11).
+    public func send(frame: IBNalFrame) {
+        let kind = IBWire.Kind(rawValue: frame.kind.rawValue) ?? .video
+        send(kind: kind) { IBWire.encode(frame: frame) }
+    }
+
+    /// iPhone → computer: the stream metadata (first frame after the grant, and
+    /// again when the video configuration changes). Sealed when the transport
+    /// is on, for the same reason as video above.
+    public func send(metadata: IBStreamMetadata) {
+        send(kind: .metadata) { try IBWire.encode(metadata: metadata) }
+    }
+
     /// iPhone → Mac: start / stop / select the mirror target.
     public func send(_ control: IBScreenControl) {
         send(kind: .screenControl) { try IBWire.encode(screenControl: control) }

@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Network
 import os
@@ -1858,16 +1859,13 @@ final class ReceiverSession: ObservableObject {
                                   capabilities: [.latencyProbe, .commandResult, .peerAuth,
                                                  .extendedDisplay],
                                   nonce: nonce,
-                                  // DISABLED (2026-10-11): F1's sealing proved
-                                  // fragile across the phone-initiated
-                                  // multi-connection topology — the two ends
-                                  // made independent seal/cleartext decisions
-                                  // and disagreed, dropping every frame. Until
-                                  // the negotiation is robust, the receiver
-                                  // advertises nothing and the link stays
-                                  // cleartext (working). Re-enable with a
-                                  // symmetric, per-connection handshake.
-                                  transport: nil)
+                                  // Advertise the sealed transport (F1). The
+                                  // phone seals iff we advertise, and echoes
+                                  // `transport` back — so the two ends can
+                                  // never disagree. (It was briefly disabled
+                                  // while iOS sent video/metadata/SPS/PPS
+                                  // around the sealer; that is fixed.)
+                                  transport: TransportCipher.versionName)
         do {
             let data = try IBWire.encode(clientHello: hello)
             Self.log.info("clientHello sent (paired: \(token != nil, privacy: .public))")
@@ -1953,22 +1951,20 @@ final class ReceiverSession: ObservableObject {
         return currentTokenKey.flatMap { tokenStore[$0] }
     }
 
-    /// If both ends advertised `aead-v1`, derive the session key and turn on
-    /// sealing for the live session (F1). `token` and `clientNonce` are passed
-    /// explicitly because the dial path and the inbound-candidate path keep
-    /// them in different places — using a single shared lookup missed the
-    /// candidate path and left this side cleartext while the phone sealed.
-    private func enableTransportIfSupported(reply: IBSessionReply, token: String?, clientNonce: String?) {
-        guard let key = TransportNegotiation.sessionKey(peerTransport: reply.transport,
-                                                         token: token,
-                                                         clientNonce: clientNonce,
-                                                         serverNonce: reply.nonce) else {
-            Self.log.info("transport: not sealed — peerTransport=\(reply.transport ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(clientNonce != nil, privacy: .public) replyNonce=\(reply.nonce != nil, privacy: .public)")
-            return
-        }
-        broadcaster?.sealer = TransportCipher.Sealer(key: key)
-        opener = TransportCipher.Opener(key: key)
-        Self.log.info("transport: sealed (aead-v1)")
+    /// The F1 session key if both ends advertised `aead-v1` and we hold the
+    /// token + both handshake nonces; nil = cleartext (an old phone, or the
+    /// handshake). `token`/`clientNonce` are passed explicitly because the dial
+    /// path and the inbound-candidate path keep them in different places.
+    ///
+    /// A pure function so the two paths cannot derive different keys — the
+    /// earlier shape applied the key *after* the session was set up, which the
+    /// candidate path replayed pending frames before, so sealed frames were
+    /// read as cleartext.
+    private func transportKey(reply: IBSessionReply, token: String?, clientNonce: String?) -> SymmetricKey? {
+        TransportNegotiation.sessionKey(peerTransport: reply.transport,
+                                        token: token,
+                                        clientNonce: clientNonce,
+                                        serverNonce: reply.nonce)
     }
 
     private func handleSessionReply(_ reply: IBSessionReply) {
@@ -2001,8 +1997,9 @@ final class ReceiverSession: ObservableObject {
             slowRetryTask = nil
             sessionGranted = true
             recordAcceptedPairing(token: reply.token, peer: inboundPeer)
-            startGrantedSession()
-            enableTransportIfSupported(reply: reply, token: currentPairingToken(), clientNonce: clientNonce)
+            let transportKey = transportKey(reply: reply, token: currentPairingToken(), clientNonce: clientNonce)
+            startGrantedSession(transportKey: transportKey)
+            if let transportKey { opener = TransportCipher.Opener(key: transportKey) }
 
         case .pending:
             sessionGranted = false
@@ -2103,7 +2100,7 @@ final class ReceiverSession: ObservableObject {
     /// broadcaster, publish the app list, start the relay, and run the headless
     /// e2e hooks. Called by the outbound `handleSessionReply` and by
     /// `adoptCandidate`.
-    private func startGrantedSession() {
+    private func startGrantedSession(transportKey: SymmetricKey? = nil) {
         // The trackpad is joystick-relative: seed the tracked cursor from where
         // the physical pointer actually is, or the first move after a connect
         // jumps from (0,0) to the top-left.
@@ -2112,8 +2109,17 @@ final class ReceiverSession: ObservableObject {
             state = .streaming(name: name, latencyMs: 0)
         }
         if let connection {
-            startPingLoop(on: connection)
+            // Broadcaster (carrying the F1 sealer) BEFORE the ping loop: the
+            // ping probe now goes through the broadcaster, so the sealer must be
+            // set or the first probe is cleartext and the phone drops it.
             broadcaster = IBEventBroadcaster(connection: connection, queue: .global())
+            if let transportKey {
+                broadcaster?.sealer = TransportCipher.Sealer(key: transportKey)
+                Self.log.info("transport: sealed (aead-v1)")
+            } else {
+                Self.log.info("transport: not sealed")
+            }
+            startPingLoop(on: connection)
         }
         publishMacApps()
         startNotificationRelay()
@@ -2204,8 +2210,15 @@ final class ReceiverSession: ObservableObject {
                 return
             }
             let micros = self.pingProbe.makeProbe(now: Date())
-            connection.send(content: IBWire.encodePing(sentMicros: micros),
-                            completion: .contentProcessed { _ in })
+            // Through the broadcaster so the probe is sealed when the transport
+            // is on (F1): a raw send here is cleartext, the phone opens every
+            // frame, and the probe is dropped — so no RTT ever comes back.
+            if let broadcaster {
+                broadcaster.sendLatencyProbe(micros)
+            } else {
+                connection.send(content: IBWire.encodePing(sentMicros: micros),
+                                completion: .contentProcessed { _ in })
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         pingTimer = timer
@@ -2279,6 +2292,9 @@ final class ReceiverSession: ObservableObject {
         inputInjector.resetMirrorCursor()
         stopNotificationRelay()
         broadcaster = nil
+        // Drop the F1 opener with the session: a stale one would try to open a
+        // later cleartext session's frames and drop all of them.
+        opener = nil
         connection = nil
         connectedPhoneName = nil
         inboundPeer = nil
@@ -2607,9 +2623,12 @@ final class ReceiverSession: ObservableObject {
         switch reply.result {
         case .accepted:
             candidate.acceptedToken = reply.token
-            resolveAcceptedCandidate(candidate)
-            enableTransportIfSupported(reply: reply, token: candidate.token,
-                                       clientNonce: candidate.clientNonce)
+            // Derive the key first and hand it to the adoption, so the opener is
+            // set BEFORE the pending frames (sealed, F1) are replayed — reading
+            // them as cleartext dropped the head of the stream.
+            let transportKey = transportKey(reply: reply, token: candidate.token,
+                                            clientNonce: candidate.clientNonce)
+            resolveAcceptedCandidate(candidate, transportKey: transportKey)
         case .pending:
             // The phone is deciding (first-contact approval card) or has just
             // proven itself and is about to send `accepted` on this socket. Hold
@@ -2628,12 +2647,12 @@ final class ReceiverSession: ObservableObject {
     /// is adopted; an unpaired one raises the Mac-side first-contact prompt;
     /// a paired one that could not prove itself is refused.
     @MainActor
-    private func resolveAcceptedCandidate(_ candidate: InboundCandidate) {
+    private func resolveAcceptedCandidate(_ candidate: InboundCandidate, transportKey: SymmetricKey?) {
         let decision = InboundGrantPolicy.decide(
             challenge: candidate.proved ? .proven : candidate.lastChallenge)
         switch decision {
         case .grant:
-            adoptCandidate(candidate)
+            adoptCandidate(candidate, transportKey: transportKey)
         case .refuse:
             Self.log.error("REFUSED: an inbound peer presented a proof that does not match the pairing token")
             closeCandidate(candidate)
@@ -2661,7 +2680,7 @@ final class ReceiverSession: ObservableObject {
     /// / ping loop leaks into the new session (review I2), and its socket is
     /// cancelled after `connection` no longer points at it.
     @MainActor
-    private func adoptCandidate(_ candidate: InboundCandidate) {
+    private func adoptCandidate(_ candidate: InboundCandidate, transportKey: SymmetricKey?) {
         let conn = candidate.conn
         let hello = candidate.hello
         Self.log.info("adopting inbound session with \(hello.phoneName, privacy: .public)")
@@ -2690,15 +2709,17 @@ final class ReceiverSession: ObservableObject {
         if inboundCandidate === candidate { inboundCandidate = nil }
         recordAcceptedPairing(token: candidate.acceptedToken,
                               peer: (phoneId: hello.phoneId, name: candidate.serviceName))
-        // Replay what the phone sent while we waited (metadata / SPS / PPS and
-        // the first frames), so the decoder starts from the head of the stream.
+        // Set the opener BEFORE replaying what the phone sent while we waited:
+        // those frames are sealed (F1), so reading them as cleartext would drop
+        // the whole head of the stream (metadata / SPS / PPS).
+        if let transportKey { opener = TransportCipher.Opener(key: transportKey) }
         if !candidate.pendingFrames.isEmpty {
             let pending = candidate.pendingFrames
             candidate.pendingFrames = []
             candidate.pendingBytes = 0
             processFrames(pending)
         }
-        startGrantedSession()
+        startGrantedSession(transportKey: transportKey)
     }
 
     @MainActor
@@ -2936,8 +2957,15 @@ final class ReceiverSession: ObservableObject {
                     // yields the CLOCK OFFSET between the two machines, which
                     // can be hours, and that number is what the menu bar
                     // would display.
-                    self.connection?.send(content: IBWire.encodePing(sentMicros: sentMicros),
-                                          completion: .contentProcessed { _ in })
+                    // Through the broadcaster so the echo is sealed when the
+                    // transport is on (F1); a raw send is cleartext and the
+                    // phone would drop it.
+                    if let broadcaster {
+                        broadcaster.sendPingEcho(frame.payload)
+                    } else {
+                        self.connection?.send(content: IBWire.encodePing(sentMicros: sentMicros),
+                                              completion: .contentProcessed { _ in })
+                    }
                     break
                 }
                 guard let rttMs = pingProbe.roundTripMs(ofEcho: sentMicros, now: Date()) else { break }

@@ -294,6 +294,92 @@ final class EventPipelineEndToEndTests: XCTestCase {
         XCTAssertEqual(try IBWire.decodeFeatureState(frames[0]), snap)
     }
 
+    // MARK: - Sealed video / metadata (F1 regression, 2026-10-11)
+
+    /// iOS used to send video/metadata/SPS/PPS via a raw `connection.send`,
+    /// bypassing the sealer — so on a sealed session the receiver dropped every
+    /// one of them (`Auth`) and the video was cleartext on the wire. They now
+    /// go through the broadcaster. This drives the exact methods the iOS side
+    /// calls (`send(metadata:)` / `send(frame:)`) and asserts the wire bytes are
+    /// sealed and round-trip with the matching opener.
+    func testSealedVideoAndMetadataGoThroughTheBroadcaster() throws {
+        let marker = "RemoteCrab-e2e-OK"
+        let metadata = IBStreamMetadata(deviceName: marker, width: 1920, height: 1080,
+                                        fps: 30, bitrateBps: 8_000_000)
+        let video = IBNalFrame(kind: .video, data: Data(repeating: 0x42, count: 256),
+                               timestampMicros: 5)
+        let key = TransportCipher.sessionKey(token: "t", initiatorNonce: Data([1]),
+                                             responderNonce: Data([2]))
+
+        let box = ByteBox()
+        let listener = try NWListener(using: NWParameters.tcp)
+        listener.newConnectionHandler = { connection in
+            connection.stateUpdateHandler = { _ in }
+            connection.start(queue: .global())
+            Self.receiveRaw(on: connection) { box.append($0) }
+        }
+        listener.start(queue: .global())
+        let port = try waitForPort(listener)
+
+        let connection = NWConnection(host: NWEndpoint.Host("127.0.0.1"), port: port,
+                                      using: NWParameters.tcp)
+        let connected = expectation(description: "connected")
+        connection.stateUpdateHandler = { if case .ready = $0 { connected.fulfill() } }
+        connection.start(queue: .global())
+        wait(for: [connected], timeout: 3.0)
+
+        let broadcaster = IBEventBroadcaster(connection: connection, queue: .global())
+        broadcaster.sealer = TransportCipher.Sealer(key: key)
+        broadcaster.send(metadata: metadata)
+        broadcaster.send(frame: video)
+
+        // Poll until both frames have arrived and opened.
+        let got = expectation(description: "sealed frames received")
+        let poller = DispatchSource.makeTimerSource(queue: .global())
+        poller.schedule(deadline: .now() + 0.02, repeating: 0.05)
+        poller.setEventHandler {
+            var opener = TransportCipher.Opener(key: key)
+            let opened = IBWire.Parser().append(box.snapshot()).compactMap { frame -> IBWire.Frame? in
+                guard let p = try? opener.open(frame.payload, kind: frame.kind.rawValue) else { return nil }
+                return IBWire.Frame(kind: frame.kind, payload: p)
+            }
+            if opened.contains(where: { $0.kind == .video }) { got.fulfill() }
+        }
+        poller.resume()
+        wait(for: [got], timeout: 5.0)
+        poller.cancel()
+
+        let raw = box.snapshot()
+        XCTAssertNil(raw.range(of: Data(marker.utf8)), "metadata leaked in cleartext")
+        XCTAssertNil(raw.range(of: video.data), "video leaked in cleartext")
+
+        var opener = TransportCipher.Opener(key: key)
+        let opened = IBWire.Parser().append(raw).compactMap { frame -> IBWire.Frame? in
+            guard let p = try? opener.open(frame.payload, kind: frame.kind.rawValue) else { return nil }
+            return IBWire.Frame(kind: frame.kind, payload: p)
+        }
+        XCTAssertTrue(opened.contains { $0.kind == .video && $0.payload == video.data })
+        XCTAssertTrue(opened.contains { $0.kind == .metadata })
+
+        connection.cancel()
+        listener.cancel()
+    }
+
+    private final class ByteBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+        func append(_ d: Data) { lock.lock(); data.append(d); lock.unlock() }
+        func snapshot() -> Data { lock.lock(); defer { lock.unlock() }; return data }
+    }
+
+    private static func receiveRaw(on connection: NWConnection,
+                                   _ handler: @escaping @Sendable (Data) -> Void) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { data, _, isComplete, _ in
+            if let data, !data.isEmpty { handler(data) }
+            if !isComplete { receiveRaw(on: connection, handler) }
+        }
+    }
+
     // MARK: - Pipeline plumbing
 
     private struct Pipeline: @unchecked Sendable {

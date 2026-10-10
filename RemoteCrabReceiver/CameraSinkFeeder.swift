@@ -33,6 +33,11 @@ final class CameraSinkFeeder: @unchecked Sendable {
     private var running = false
     private var deviceID: CMIODeviceID?
     private var sinkStream: CMIOStreamID?
+    /// The **source** stream (device → apps). The client (Zoom, …) picks its
+    /// format here; we read it so we can fill the sink at the *same* size — a
+    /// mismatch between what we enqueue and what the source advertises breaks
+    /// the picture (the extension forwards the buffer straight out).
+    private var sourceStream: CMIOStreamID?
     private var sinkQueue: Unmanaged<CMSimpleQueue>?
     private var bufferPool: CVPixelBufferPool?
     private var formatDescription: CMFormatDescription?
@@ -46,6 +51,7 @@ final class CameraSinkFeeder: @unchecked Sendable {
     private var lastFailure = "starting"
     private var enqueueCount = 0
     private var readyCallbackCount = 0
+    private var enqueueTick = 0
 
     // MARK: - Lifecycle
 
@@ -94,10 +100,16 @@ final class CameraSinkFeeder: @unchecked Sendable {
             lastFailure = "device not found"
             return false
         }
-        guard let sink = streams(of: device).first(where: { streamDirection($0) == Self.sinkDirection }) else {
+        let all = streams(of: device)
+        guard let sink = all.first(where: { streamDirection($0) == Self.sinkDirection }) else {
             lastFailure = "sink stream not found"
             return false
         }
+        // The source stream is the other one (the DAL reports the sink as 0, the
+        // source as 1). Read the client's chosen format from it so the buffers
+        // we enqueue match what it advertises.
+        sourceStream = all.first(where: { streamDirection($0) != Self.sinkDirection })
+        syncResolutionFromSource()
         guard prepareBufferPool(), let queue = makeBufferQueue(for: sink) else {
             lastFailure = "buffer queue failed"
             return false
@@ -136,7 +148,12 @@ final class CameraSinkFeeder: @unchecked Sendable {
     // MARK: - Enqueue
 
     private func enqueue(image: CGImage) {
-        guard running, isReady, let sinkQueue, let bufferPool, let formatDescription else { return }
+        guard running else { return }
+        // Follow the client's format (it can change at runtime, e.g. a user
+        // switching the camera resolution in Zoom). Cheap: ~1 Hz, not per frame.
+        enqueueTick += 1
+        if enqueueTick % 30 == 0 { syncResolutionFromSource() }
+        guard isReady, let sinkQueue, let bufferPool, let formatDescription else { return }
         let queue = sinkQueue.takeUnretainedValue()
         guard CMSimpleQueueGetCount(queue) < CMSimpleQueueGetCapacity(queue) else { return }
 
@@ -221,14 +238,50 @@ final class CameraSinkFeeder: @unchecked Sendable {
 
     // MARK: - Buffer pool
 
-    /// The size the client (app) selected. The host must fill the sink with
+    /// The size the client (app) selected, read from the source stream's active
+    /// format (`syncResolutionFromSource`). The host must fill the sink with
     /// **exactly** this: the extension forwards the buffer out the source, so a
-    /// mismatch breaks the picture. Defaults to 1080p, so if the query below
-    /// can't read a client choice the camera behaves exactly as before.
-    /// The size the extension advertises (a single 4K format). The host fills
-    /// the sink with exactly this, so the buffer the extension forwards out the
-    /// source always matches the advertised format — nothing to negotiate.
+    /// mismatch breaks the picture. Defaults to 1080p, so if the read fails the
+    /// camera behaves exactly as before.
     private var currentResolution = IBCameraDevice.resolutions[0]
+
+    /// Match our buffer size to the format the client selected on the source
+    /// stream. The extension forwards the sink buffer straight out the source,
+    /// so enqueuing 1080p while the source advertises 4K (or vice versa) makes
+    /// the client render garbage. Only sizes we advertise are accepted, and any
+    /// read failure leaves the size untouched — so the default 1080p path
+    /// behaves exactly as before.
+    private func syncResolutionFromSource() {
+        guard let sourceStream, let desc = sourceFormatDescription(sourceStream) else { return }
+        let dims = CMVideoFormatDescriptionGetDimensions(desc)
+        guard dims.width > 0, dims.height > 0 else { return }
+        let wanted = IBCameraDevice.Resolution(width: Int(dims.width), height: Int(dims.height))
+        guard wanted != currentResolution, IBCameraDevice.resolutions.contains(wanted) else { return }
+        currentResolution = wanted
+        bufferPool = nil
+        formatDescription = nil
+        _ = prepareBufferPool()
+        Self.log.info("camera sink following client format: \(wanted.width)x\(wanted.height)")
+    }
+
+    /// Read a CMIO stream's active format (the client's choice, on the source).
+    /// `kCMIOStreamPropertyFormatDescription` returns a +1 CFType.
+    private func sourceFormatDescription(_ stream: CMIOStreamID) -> CMFormatDescription? {
+        var address = CMIOObjectPropertyAddress(
+            mSelector: CMIOObjectPropertySelector(kCMIOStreamPropertyFormatDescription),
+            mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+            mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
+        var dataSize: UInt32 = 0
+        guard CMIOObjectGetPropertyDataSize(stream, &address, 0, nil, &dataSize) == 0 else { return nil }
+        var desc: Unmanaged<CMFormatDescription>?
+        var used: UInt32 = 0
+        let status = withUnsafeMutablePointer(to: &desc) { ptr -> OSStatus in
+            CMIOObjectGetPropertyData(stream, &address, 0, nil, dataSize, &used,
+                                      UnsafeMutableRawPointer(ptr))
+        }
+        guard status == 0, let unmanaged = desc else { return nil }
+        return unmanaged.takeRetainedValue()
+    }
 
     private func prepareBufferPool() -> Bool {
         if bufferPool != nil { return true }

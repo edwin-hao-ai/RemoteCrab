@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import CryptoKit
 import Darwin
 import Foundation
 import Network
@@ -225,6 +226,10 @@ final class CaptureEngine: ObservableObject {
     /// Computers currently announcing themselves, freshest browse snapshot,
     /// minus any the user forgot.
     @Published private(set) var onlineComputers: [ComputerPresence] = []
+    /// True while a presence browse is up but has not reported ready yet.
+    /// Drives the picker's "Searching…" row so an empty list reads as
+    /// "looking right now", not "there is nothing".
+    @Published private(set) var computerSearching = false
     /// The raw browse snapshot, before the forgotten-computer filter.
     private var allOnlineComputers: [ComputerPresence] = []
     /// Ids the user forgot. Persisted (additive key) so a forgotten computer
@@ -1168,8 +1173,14 @@ final class CaptureEngine: ObservableObject {
         // reaches the browse result and every computer looks unknown. Measured
         // on iPhone 14: `results=1 bonjour=0` with `.bonjour`.
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: IBServiceType.computer, domain: nil), using: params)
-        browser.stateUpdateHandler = { state in
+        browser.stateUpdateHandler = { [weak self] state in
             Forensic.log("[presence] browser state: \(state)")
+            Task { @MainActor in
+                switch state {
+                case .ready, .failed, .cancelled: self?.computerSearching = false
+                default: self?.computerSearching = true
+                }
+            }
         }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             var found: [ComputerPresence] = []
@@ -1198,6 +1209,7 @@ final class CaptureEngine: ObservableObject {
         }
         browser.start(queue: queue)
         computerBrowser = browser
+        computerSearching = true
         Self.log.info("browsing \(IBServiceType.computer, privacy: .public)")
     }
 
@@ -1206,6 +1218,23 @@ final class CaptureEngine: ObservableObject {
         computerBrowser = nil
         allOnlineComputers = []
         onlineComputers = []
+        computerSearching = false
+    }
+
+    /// Force a brand-new mDNS query. iOS suspends an `NWBrowser` while the app
+    /// is backgrounded, and a suspended browse never resumes its query — so a
+    /// computer that came online while we were away (or while the picker was
+    /// closed) stays invisible until the browse is rebuilt. That is exactly why
+    /// "kill the app and reopen" used to be the only way to see a new computer.
+    /// The picker calls this on open, and the foreground does too.
+    ///
+    /// Deliberately does NOT clear `allOnlineComputers`/`onlineComputers`: the
+    /// fresh browse replaces them as results arrive, so the list never flashes
+    /// empty, and a live session's endpoint map (`computerEndpoints`) survives.
+    func refreshComputerDiscovery() {
+        computerBrowser?.cancel()
+        computerBrowser = nil
+        startComputerBrowser()
     }
 
     /// The picker can browse computers even when the app is not streaming, so
@@ -1216,9 +1245,13 @@ final class CaptureEngine: ObservableObject {
     private var pickerBrowseActive = false
 
     func beginPickerBrowsing() {
-        guard !isStreaming, !pickerBrowseActive else { return }
+        // ALWAYS rebuild the browse when the picker opens, even if one is
+        // already up or a session is streaming: a browse started before the app
+        // was backgrounded is suspended and will not see a computer that
+        // appeared since. This is the "search when I open the list" the user
+        // expects, and it replaces the old "kill the app and reopen" dance.
         pickerBrowseActive = true
-        startComputerBrowser()
+        refreshComputerDiscovery()
     }
 
     func endPickerBrowsing() {
@@ -1255,16 +1288,25 @@ final class CaptureEngine: ObservableObject {
     }
 
     func handleDidBecomeActive() {
-        guard isStreaming else { inactiveSinceActive = false; return }
+        guard isStreaming else {
+            inactiveSinceActive = false
+            // Idle app returning to the foreground. The browse is suspended in
+            // the background too, so rebuild one that was left up (the picker is
+            // open) — otherwise a computer that came online while we were away
+            // stays invisible until the app is killed. A browse that is not up
+            // is started by the picker when it opens (`beginPickerBrowsing`).
+            if computerBrowser != nil { refreshComputerDiscovery() }
+            return
+        }
         if inactiveSinceActive {
             inactiveSinceActive = false
             applyKeepAlive()
             Forensic.log("[scene] active after inactive — re-asserted keep-alive")
         }
         // The browse is suspended in the background too — refresh it so the
-        // picker is not stale the moment the user returns.
-        stopComputerBrowser()
-        startComputerBrowser()
+        // picker is not stale the moment the user returns. (Rebuild, don't
+        // clear: the list stays populated until the fresh results land.)
+        refreshComputerDiscovery()
         // Reach the last computer again. This only dials; it never rebuilds the
         // listener (keep-alive already keeps the listener alive — rebuilding it
         // here tore down live connections, lesson 156).
@@ -1479,7 +1521,7 @@ final class CaptureEngine: ObservableObject {
                                         fps: currentFps,
                                         bitrateBps: VideoEncodingPolicy.bitrate(width: config.width, height: config.height, fps: currentFps))
             if let connection, connection.state == .ready {
-                sendMetadata(on: connection)
+                sendMetadata()
             }
         } catch {
             Self.log.error("reconfigureVideo failed: \(error, privacy: .public)")
@@ -2128,32 +2170,21 @@ final class CaptureEngine: ObservableObject {
                                             nonce: challenge.serverNonce,
                                             transport: challenge.hello.transport),
                              on: challenge.connection)
+            // Derive the transport key here and hand it to `grant`, so the
+            // sealer is on BEFORE grant sends featureState/metadata/SPS/PPS —
+            // those are post-grant frames the receiver opens, and a cleartext
+            // one is dropped (F1).
+            let transportKey = TransportNegotiation.sessionKey(peerTransport: challenge.hello.transport,
+                                                               token: challenge.mac.token,
+                                                               clientNonce: challenge.clientNonce,
+                                                               serverNonce: challenge.serverNonce)
             grant(connection: challenge.connection, mac: challenge.mac,
                   platform: challenge.hello.platform,
-                  capabilities: challenge.hello.capabilities ?? [])
-            enableTransport(peerTransport: challenge.hello.transport,
-                            token: challenge.mac.token,
-                            clientNonce: challenge.clientNonce,
-                            serverNonce: challenge.serverNonce)
+                  capabilities: challenge.hello.capabilities ?? [],
+                  transportKey: transportKey)
         } else {
             refuseChallenge(challenge, reason: "wrong MAC")
         }
-    }
-
-    /// Both ends advertised `aead-v1`: derive the session key and turn on
-    /// sealing for the live session (F1). The same key the receiver derives —
-    /// token + the two handshake nonces as UTF-8 bytes.
-    private func enableTransport(peerTransport: String?, token: String, clientNonce: String, serverNonce: String) {
-        guard let key = TransportNegotiation.sessionKey(peerTransport: peerTransport,
-                                                         token: token,
-                                                         clientNonce: clientNonce,
-                                                         serverNonce: serverNonce) else {
-            Forensic.log("[transport] not sealed (peer=\(peerTransport ?? "nil"))")
-            return
-        }
-        broadcaster?.sealer = TransportCipher.Sealer(key: key)
-        opener = TransportCipher.Opener(key: key)
-        Forensic.log("[transport] sealed (aead-v1)")
     }
 
     /// Drop an unproven challenge and tell the computer why.
@@ -2208,7 +2239,8 @@ final class CaptureEngine: ObservableObject {
     /// `capabilities` is that same hello's declared abilities, so the UI can
     /// hide a control the receiver cannot back.
     private func grant(connection conn: NWConnection, mac: PairedMac?, platform: String? = nil,
-                       capabilities: [IBClientHello.Capability] = []) {
+                       capabilities: [IBClientHello.Capability] = [],
+                       transportKey: SymmetricKey? = nil) {
         handshakeTask?.cancel()
         handshakeTask = nil
         handshakeToken = nil
@@ -2290,14 +2322,24 @@ final class CaptureEngine: ObservableObject {
 
         let broadcaster = IBEventBroadcaster(connection: conn, queue: queue)
         self.broadcaster = broadcaster
+        // Turn the sealer on BEFORE the first data-plane frames. The receiver
+        // opens every post-grant frame, so a cleartext featureState / metadata /
+        // SPS / PPS is dropped as a failed open — exactly how video died on a
+        // sealed link (F1). The handshake frames already went out cleartext.
+        if let transportKey {
+            broadcaster.sealer = TransportCipher.Sealer(key: transportKey)
+            opener = TransportCipher.Opener(key: transportKey)
+            Forensic.log("[transport] sealed (aead-v1)")
+        } else {
+            Forensic.log("[transport] not sealed")
+        }
         broadcaster.send(features.snapshot())
 
-        // Metadata + cached parameter sets so the decoder can start.
-        sendMetadata(on: conn)
+        // Metadata + cached parameter sets so the decoder can start (sealed).
+        sendMetadata()
         for param in [lastSPSFrame, lastPPSFrame] {
             guard let param else { continue }
-            conn.send(content: IBWire.encode(frame: param),
-                      completion: .contentProcessed { _ in })
+            broadcaster.send(frame: param)
         }
 
         if ProcessInfo.processInfo.environment["REMOTECRAB_E2E_MIC"] == "1", !features.micOn {
@@ -3811,6 +3853,9 @@ final class CaptureEngine: ObservableObject {
         installedAppsAskedAt = nil
         stopInstalledAppsExpiry()
         broadcaster = nil
+        // Drop the F1 opener with the session: a stale one would try to open a
+        // later cleartext session's frames and drop all of them.
+        opener = nil
         audioEncoder?.stop()
         connection = nil
         ownerMac = nil
@@ -4418,17 +4463,11 @@ final class CaptureEngine: ObservableObject {
 
     // MARK: - Sending
 
-    private func sendMetadata(on connection: NWConnection) {
-        do {
-            let encoded = try IBWire.encode(metadata: metadata)
-            connection.send(content: encoded, completion: .contentProcessed { error in
-                if let error {
-                    Self.log.error("metadata send error: \(error, privacy: .public)")
-                }
-            })
-        } catch {
-            Self.log.error("metadata encode error: \(error, privacy: .public)")
-        }
+    private func sendMetadata() {
+        // Through the broadcaster so it is sealed when the transport is on
+        // (F1). The receiver opens every post-grant frame; a cleartext
+        // metadata frame would be dropped and the decoder could never start.
+        broadcaster?.send(metadata: metadata)
     }
 
     private var e2eFrameCount = 0
@@ -4445,21 +4484,16 @@ final class CaptureEngine: ObservableObject {
         }
         guard features.cameraOn else { return }
         hasProducedVideoFrame = true
-        guard let connection, connection.state == .ready else { return }
+        guard let broadcaster, broadcaster.isReady else { return }
         lastVideoFrameAt = Date()
-        let encoded = IBWire.encode(frame: frame)
-        connection.send(content: encoded, completion: .contentProcessed { [weak self] error in
-            if let error, let self {
-                Self.forensic("video send error after \(self.e2eSendOKCount) ok frames: \(error)")
-            }
-        })
+        broadcaster.send(frame: frame)
         e2eSendOKCount += 1
         if e2eSendOKCount % 300 == 0 {
             Self.forensic("frames sent to Mac: \(e2eSendOKCount)")
         }
         if ProcessInfo.processInfo.environment["REMOTECRAB_AUTOSTREAM"] == "1" {
             e2eFrameCount += 1
-            e2eFrameBytes += encoded.count
+            e2eFrameBytes += frame.data.count
             if e2eFrameCount % 60 == 0 {
                 Forensic.log("[e2e] video frames sent: \(e2eFrameCount), bytes: \(e2eFrameBytes)")
             }

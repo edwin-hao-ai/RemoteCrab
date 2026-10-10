@@ -907,6 +907,10 @@ public enum IBLocale {
         }
         /// Section header for computers seen on the network, paired or not.
         public static let seenComputers = IBL("On this network")
+        /// Presence search in progress — so an empty list reads as "looking
+        /// right now", not "there is nothing".
+        public static let searching = IBL("Searching…")
+        public static let searchingForComputers = IBL("Searching for computers…")
         /// Badge for a computer that has never been paired (first contact).
         public static let notPairedBadge = IBL("New")
         public static let currentComputer = IBL("This iPhone")

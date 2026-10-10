@@ -64,6 +64,11 @@ struct ComputerPickerView: View {
                 }
             }
             .navigationTitle(Text(IBLocale.Pairing.macPickerTitle))
+            // Pull to search again. Opening the picker already forces a fresh
+            // scan (`beginPickerBrowsing` → `refreshComputerDiscovery`), but a
+            // computer that powers on while the sheet is open needs a way to
+            // re-query without closing it — same gesture as Mail/Photos.
+            .refreshable { engine.refreshComputerDiscovery() }
             .task {
                 // Browse nearby computers even with no session yet, so the
                 // list is populated on first launch (B9).
@@ -230,9 +235,18 @@ struct ComputerPickerView: View {
     private var rosterSection: some View {
         Section {
             if roster.isEmpty {
-                Text(IBLocale.Pairing.nonePaired)
-                    .font(IBFont.caption)
-                    .foregroundStyle(.secondary)
+                if engine.computerSearching {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(IBLocale.Pairing.searchingForComputers)
+                            .font(IBFont.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(IBLocale.Pairing.nonePaired)
+                        .font(IBFont.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 // The connected computer is already shown above with its
                 // Disconnect control; listing it again here was a duplicate row.
@@ -320,7 +334,18 @@ struct ComputerPickerView: View {
                 }
             }
         } header: {
-            Text(IBLocale.Pairing.seenComputers)
+            HStack {
+                Text(IBLocale.Pairing.seenComputers)
+                if engine.computerSearching {
+                    Spacer()
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.mini)
+                        Text(IBLocale.Pairing.searching)
+                            .font(IBFont.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
         } footer: {
             Text(IBLocale.Pairing.pickerFooter)
         }
