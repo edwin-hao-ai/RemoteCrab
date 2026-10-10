@@ -435,9 +435,7 @@ public final class SystemAudioTap: @unchecked Sendable {
 
     @inline(__always)
     private static func clampToInt16(_ value: Float) -> Int16 {
-        if value > 1 { return Int16.max }
-        if value < -1 { return Int16.min }
-        return Int16(value * 32_767)
+        SpeakerSample.clampToInt16(value)
     }
 
     // MARK: - Drain (not realtime)

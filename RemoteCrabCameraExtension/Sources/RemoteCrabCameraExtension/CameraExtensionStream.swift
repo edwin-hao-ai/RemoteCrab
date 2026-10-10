@@ -79,7 +79,7 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     }
 
     var availableProperties: Set<CMIOExtensionProperty> {
-        [.streamActiveFormatIndex]
+        [.streamActiveFormatIndex, .streamFrameDuration]
     }
 
     func streamProperties(forProperties properties: Set<CMIOExtensionProperty>) throws -> CMIOExtensionStreamProperties {
@@ -87,10 +87,14 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
         if properties.contains(.streamActiveFormatIndex) {
             streamProperties.setPropertyState(CMIOExtensionPropertyState(value: NSNumber(value: activeFormatIndex)), forProperty: .streamActiveFormatIndex)
         }
+        if properties.contains(.streamFrameDuration) {
+            streamProperties.frameDuration = CMTime(value: 1, timescale: CMTimeScale(IBCameraDevice.frameRate))
+        }
         return streamProperties
     }
 
     func setStreamProperties(_ streamProperties: CMIOExtensionStreamProperties) throws {
+        logger.info("source setStreamProperties: activeFormatIndex=\(streamProperties.activeFormatIndex.map(String.init) ?? "nil") frameDuration=\(streamProperties.frameDuration.map { String(format: "%.4f", $0.seconds) } ?? "nil")")
         // Remember the client's choice so `streamProperties()` reports it back
         // and the host can size its buffers to the same format.
         if let index = streamProperties.activeFormatIndex,
@@ -100,7 +104,8 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
     }
 
     func authorizedToStartStream(for client: CMIOExtensionClient) -> Bool {
-        true
+        logger.info("source authorizedToStartStream for client \(client.clientID.uuidString.prefix(8))")
+        return true
     }
 
     func startStream() throws {
@@ -111,6 +116,7 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
 
     func stopStream() throws {
         attachedClients = max(0, attachedClients - 1)
+        logger.info("source stream STOPPED (clients=\(self.attachedClients))")
     }
 
     /// BGRA at the given resolution — the format the host fills the sink with.
