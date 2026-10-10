@@ -25,6 +25,12 @@ use crate::injector::{
 /// How long a scroll has to be quiet before it counts as finished. The Mac
 /// uses the same 0.18 s (`ReceiverSession`/`CGEventInjector`).
 const SCROLL_SETTLE: std::time::Duration = std::time::Duration::from_millis(180);
+
+/// `MOUSEEVENTF_WHEEL`/`MOUSEEVENTF_HWHEEL` express `mouseData` in these units
+/// per notch, while [`WheelAccumulator::take`] returns **notches** — so the two
+/// must be multiplied before posting (they were not, which made scrolling
+/// 120× too slow).
+const WHEEL_DELTA: i32 = WheelAccumulator::WHEEL_DELTA as i32;
 use crate::keymap::{self, Injected};
 use rc_protocol::{KeyEvent, ScreenInput, TouchEvent, TouchPhase};
 
@@ -360,6 +366,14 @@ impl WindowsInjector {
             MouseAction::MiddleUp { x, y } => (self.send_mouse)(MOUSEEVENTF_MIDDLEUP, x, y, 0),
             MouseAction::Wheel { dx, dy } => {
                 let (h, v) = self.wheel.take(dx, dy);
+                // `take` returns whole **notches**; `MOUSEEVENTF_WHEEL` wants
+                // `mouseData` in `WHEEL_DELTA` units (120 per notch). Sending the
+                // notch count straight through was 120× too small: a full-screen
+                // swipe moved about a tenth of one notch, so scrolling looked
+                // dead. (The Mac posts pixel-unit scroll events, so it never hit
+                // this.)
+                let v = v * WHEEL_DELTA;
+                let h = h * WHEEL_DELTA;
                 if v != 0 {
                     (self.send_mouse)(MOUSEEVENTF_WHEEL, 0, 0, v);
                 }
@@ -373,6 +387,8 @@ impl WindowsInjector {
                 // scroll travel would make a pinch scroll the page, and vice
                 // versa, for as long as the remainder survived.
                 let (h, v) = self.ctrl_wheel.take(dx, dy);
+                let v = v * WHEEL_DELTA;
+                let h = h * WHEEL_DELTA;
                 if v != 0 || h != 0 {
                     (self.send_key)(VK_CONTROL, true);
                     if v != 0 {
@@ -539,11 +555,21 @@ fn record_key(vk: u16, pressed: bool) {
 }
 
 #[cfg(test)]
-fn record_mouse(_flags: MOUSE_EVENT_FLAGS, _x: i32, _y: i32, _data: i32) {}
+static SENT_MOUSE: std::sync::Mutex<Vec<(u32, i32)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record_mouse(flags: MOUSE_EVENT_FLAGS, _x: i32, _y: i32, data: i32) {
+    SENT_MOUSE.lock().expect("mouse").push((flags.0, data));
+}
 
 #[cfg(test)]
 fn sent_keys() -> Vec<(u16, bool)> {
     std::mem::take(&mut *SENT_KEYS.lock().expect("keys"))
+}
+
+#[cfg(test)]
+fn sent_mouse() -> Vec<(u32, i32)> {
+    std::mem::take(&mut *SENT_MOUSE.lock().expect("mouse"))
 }
 
 /// The tests that assert on [`SENT_KEYS`] take this first.
@@ -567,7 +593,7 @@ fn keys_lock() -> std::sync::MutexGuard<'static, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{keys_lock, normalize_axis, sent_keys, HeldKeys};
+    use super::{keys_lock, normalize_axis, sent_keys, sent_mouse, virtual_screen_size, HeldKeys};
     use crate::keymap::vk;
     use rc_protocol::{Modifier, TouchEvent, TouchPhase};
 
@@ -582,6 +608,40 @@ mod tests {
             momentum: None,
             timestamp_micros: 0,
         }
+    }
+
+    /// A scroll must post `mouseData` in `WHEEL_DELTA` units (120 per notch).
+    /// It used to post the **notch count** straight through, so a full-screen
+    /// flick moved about a tenth of one notch and scrolling looked dead on
+    /// Windows — while the Mac, which posts pixel-unit scroll events, was fine.
+    #[test]
+    fn a_scroll_posts_wheel_data_in_wheel_delta_units() {
+        let _guard = keys_lock();
+        let _ = sent_mouse(); // drain anything a sibling test left behind
+        let mut inj = super::WindowsInjector::recording();
+        let mut ev = touch(TouchPhase::Scroll, 0);
+        ev.dx = 0.0;
+        ev.dy = 0.2; // 20% of the screen height of finger travel
+        inj.inject_touch(&ev);
+
+        let data: i32 = sent_mouse()
+            .into_iter()
+            .filter(|(flags, _)| *flags == super::MOUSEEVENTF_WHEEL.0)
+            .map(|(_, d)| d)
+            .sum();
+        assert!(
+            data.abs() > 0,
+            "a 20%-of-screen flick must post a vertical wheel event"
+        );
+        assert_eq!(data % 120, 0, "mouseData is in WHEEL_DELTA units, got {data}");
+
+        // And it should track the finger: about the pixel travel, i.e. a
+        // full-screen swipe is ~10 notches, not a tenth of one.
+        let pixels = (0.2 * virtual_screen_size().height * 1.2).abs();
+        assert!(
+            (data.abs() as f64 - pixels).abs() < 120.0,
+            "posted {data} for {pixels:.0}px of travel"
+        );
     }
 
     /// The defect this whole change exists for, and the one 45 tests did not

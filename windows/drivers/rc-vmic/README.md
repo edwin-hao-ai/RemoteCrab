@@ -4,11 +4,14 @@ This is the Windows half of the **phone-as-a-microphone** feature: the piece
 that makes the iPhone's mic a **real Windows input device** every app can select
 ("RemoteCrab Microphone" in Zoom / Teams / OBS / Voice Recorder).
 
-> **Status: the receiver half is done and tested; the driver itself is NOT
-> written yet.** This file is the driver's **contract + INF + implementation
-> plan**. The **receiver half is real**: `windows/crates/rc-vmic` (the audio
-> ring, 15 tests) plus the `rc-app` wiring that feeds it and the `--vmic-probe`
-> diagnostic. Read "What is actually done" before claiming anything.
+> **Status: the receiver half is done and tested; the driver is an early
+> skeleton that does not yet compile.** `rc-vmic.cpp`/`.h` contain the real,
+> RemoteCrab-specific part (the kernel ring reader) and the miniport/stream
+> structure, but the class does not yet satisfy the PortCls WaveRT interfaces —
+> `cl` reports it still abstract — which needs a proper VS + WDK driver project
+> to resolve. It has never been signed or run. The **receiver half is real**:
+> `windows/crates/rc-vmic` (the audio ring, 15 tests) plus the `rc-app` wiring
+> that feeds it and the `--vmic-probe` diagnostic.
 
 ## Why a driver
 
@@ -32,15 +35,13 @@ one manual step.
 `windows/crates/rc-vmic` is the receiver side; the driver must honour exactly
 this.
 
-**Control pipe** `\\.\pipe\RemoteCrabVMic` (byte mode, line-delimited ASCII):
-
-| Request | Reply | Meaning |
-|---|---|---|
-| `PING` | `PONG 1` | liveness + protocol version |
-
-`rc-app` only feeds the ring when `PING` answers (`rc_vmic::available()`), so a
-driver that is not installed simply means the app never creates the ring.
-`remotecrab --vmic-probe` prints the same answer from a shell.
+**Liveness** — there is no control channel. A PortCls driver is **kernel-mode**
+and cannot create a `\\.\pipe\…` (that is a user-mode idiom, from `vdisplay` /
+`vcam`); what it provides is the capture endpoint itself. `rc-app` only feeds
+the ring when a capture endpoint named **"RemoteCrab Microphone"** exists
+(`rc_vmic::available()`, via MME enumeration), so a driver that is not installed
+simply means the app never creates the ring. `remotecrab --vmic-probe` prints
+the same answer from a shell.
 
 **Audio ring** `%ProgramData%\RemoteCrab\vmic-ring.bin` — a single-producer /
 single-consumer **byte ring** (see `windows/crates/rc-vmic/src/shm.rs`):
@@ -75,11 +76,11 @@ phone a gap in the audio rather than a click or a stall.
 | Piece | Where | State |
 |---|---|---|
 | Audio ring (format, writer, consistency checks) | `windows/crates/rc-vmic/src/{shm,writer}.rs` | ✅ compiles, **15 unit tests** (round-trip, wrap, drop-when-full, format rejection) |
-| Driver probe (`PING`/`PONG`) | `windows/crates/rc-vmic/src/win.rs` | ✅ |
+| Endpoint probe (`available()`) | `windows/crates/rc-vmic/src/win.rs` | ✅ |
 | App mirrors the decoded mic into the ring | `rc-app/src/vmic.rs`, `rc-audio` `set_tap` | ✅ wired; feeds only when the driver answers |
 | `--vmic-probe` | `rc-app/src/{args,main}.rs` | ✅ |
 | Path A (virtual cable) | `rc-audio` + first-run wizard page | ✅ **ships today** |
-| **The driver** | this directory | ❌ **not written** — INF + contract + plan only |
+| **The driver** | this directory | ⚠️ **early skeleton** — ring reader + structure written, **does not yet compile** (PortCls class still abstract); not signed/run |
 
 ## To finish the driver (on a machine with VS 2022 + WDK + a cert)
 
@@ -91,9 +92,8 @@ miniports, and cut it down to a **capture-only** device:
    `GetInputStream`/`SetState(RUN)` path, drains the ring above into the WaveRT
    buffer each period; on underrun it fills silence and does **not** advance
    `read_pos`.
-2. A small thread (or `EvtTimerFunc`) that creates the control pipe
-   `\\.\pipe\RemoteCrabVMic` with a permissive DACL (so a non-elevated app can
-   `PING` it) and answers `PONG 1`.
+2. Name the capture endpoint **"RemoteCrab Microphone"** (the INF's
+   `DeviceName`), which is what `rc_vmic::available()` looks for.
 3. Build (`cl`/`link` against `portcls.lib` + `ks.lib`, or the WDK MSBuild
    toolset — see `../rc-idd/build-cl.ps1` for the no-toolset path), then:
    - **test-sign** (`bcdedit /set testsigning on` + a self-signed cert) on a

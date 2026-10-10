@@ -1,6 +1,6 @@
 [package]
 name = "rc-vmic"
-description = "RemoteCrab for Windows — virtual microphone ring (receiver half of the rc-vmic driver)."
+description = "RemoteCrab for Windows — virtual microphone ring + endpoint probe (receiver half of the rc-vmic driver)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,5 +11,5 @@ windows = { version = "0.62", features = [
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Memory",
-    "Win32_System_Pipes",
+    "Win32_Media_Audio",
 ] }

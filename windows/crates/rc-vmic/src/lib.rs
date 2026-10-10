@@ -16,9 +16,10 @@
 //! - **Path B — the driver.** Feed this ring; "RemoteCrab Microphone" then shows
 //!   up in every app's input list with no third-party cable.
 //!
-//! The driver exposes a control pipe `\\.\pipe\RemoteCrabVMic` it answers
-//! `PING`→`PONG 1` on, so the app can offer Path B only when the driver is
-//! installed (the same pattern as `rc-vdisplay`).
+//! Liveness is the **capture endpoint itself**: a PortCls driver is kernel-mode
+//! and cannot create a `\\.\pipe\…` (that is a user-mode idiom), so `available()`
+//! asks the audio stack whether a capture device named "RemoteCrab Microphone"
+//! exists. The app feeds the ring only when it does.
 
 pub mod shm;
 
@@ -34,38 +35,12 @@ mod stub;
 #[cfg(windows)]
 pub use writer::AudioWriter;
 #[cfg(windows)]
-pub use win::{available, probe};
+pub use win::{available, DEVICE_NAME};
 #[cfg(not(windows))]
-pub use stub::{available, probe};
-
-/// Control-pipe name the driver listens on. The audio never travels on the
-/// pipe — it carries liveness (`PING`) only.
-pub const PIPE_NAME: &str = r"\\.\pipe\RemoteCrabVMic";
-
-/// Control-pipe protocol version the driver answers `PING` with.
-pub const PROTOCOL_VERSION: u32 = 1;
-
-/// Parse a `PING` answer (`"PONG <version>"`) into the version.
-pub fn parse_pong(reply: &str) -> Option<u32> {
-    reply.trim().strip_prefix("PONG ")?.trim().parse().ok()
-}
+pub use stub::{available, DEVICE_NAME};
 
 /// Convert a Rust string to a NUL-terminated wide string.
 #[cfg(windows)]
 pub fn to_wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_pong_reads_the_version() {
-        assert_eq!(parse_pong("PONG 1"), Some(1));
-        assert_eq!(parse_pong("PONG 7\n"), Some(7));
-        assert_eq!(parse_pong("PING"), None);
-        assert_eq!(parse_pong("PONG"), None);
-        assert_eq!(parse_pong("PONG x"), None);
-    }
 }
