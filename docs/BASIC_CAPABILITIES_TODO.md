@@ -592,6 +592,7 @@
 | 2026-10-11 | **D3 ✅ 修正完成** | 改用**解码器已带的 PTS**（`H264Decoder` 建 sample buffer 时就把到达时间写成 PTS，解码回调原样返回）→ **每帧精确、同一块表、无需 wire 改动**。真机实测 **`decode 26–34ms`**（不再增长，合理）；e2e 25/0 | `8fe35a8` |
 | 2026-10-11 | **F1 Windows 接入** | Rust 原语早已对齐，但 `rc-net` **从未接线**（Mac 的「真机验收过」不含 Windows）。现补齐：`transport::Sealer/Opener`、`wire::seal_frame/open_frame`、握手 `transport` 字段、`run_session` 广告/派生/seal/open（两条路径共用，含 ping 与握手缓冲队列）；`rc-testkit` 假手机支持密封。**密封会话双向**集成测试可证伪（置空 sealer/opener 各失败一次） | `cargo test --workspace` 全绿、`clippy -D warnings` 0；真机互通待跑 |
 | 2026-10-11 | **F1 未加密徽标** | `State::Streaming.sealed`；未密封时控制台 + 托盘状态行追加「（未加密）」(unencrypted)。中英双语、两个 surface 的单测 | 门禁全绿 |
+| 2026-10-11 | **F1 真机联调（Windows↔iPhone）** | 协商成功（`[transport] sealed (aead-v1)`），**密钥一致**（触控/键盘/ping 正常），但**视频打不开**：`kind=Video` 1971 次 `Auth`（+ Metadata/Sps/Pps 各 1）。根因是 **iOS 侧**：视频/metadata/SPS/PPS 走**裸 `connection.send`**，绕过 `IBEventBroadcaster` 的 sealer（`CaptureEngine.swift:4446/4419/2295`）。**Windows 端按 spec 封/解，是对的**；Mac 的「sealed e2e 含视频」存疑，需复核。**🔒 待 iOS 修复后重连验收** | 真机日志计数（见 HANDOFF-WINDOWS-2026-10-11 §7.7） |
 
 ---
 

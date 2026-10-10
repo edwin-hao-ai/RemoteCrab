@@ -153,3 +153,50 @@ RTT；接收端对手机探针的回显同样明文 → 手机也测不到。**w
 `state_line`（控制台）与 `tray_status`（托盘）都追加「（未加密）」/` (unencrypted)`。
 单测覆盖中英双语 + 两个 surface。
 
+### 7.7 🔴 真机联调结果（2026-10-11，Windows 真机 + iPhone 14 / iOS 26）：**加密生效，但 iOS 的视频是明文的**
+
+真机（Windows 接收端 = 本仓库构建，手机 = 用户 TestFlight 构建）实测，密封会话里：
+
+- F1 **协商成功**：接收端日志 `[transport] sealed (aead-v1)`。
+- **密钥一致**：触控/键盘/ping 的帧全部正常打开（日志有 `touch events received: N`、
+  `latency spike: …ms`）。
+- **视频打不开**：授予后接收端对每一帧 `open`，失败计数（去重后按帧类型）：
+
+  | kind | 次数 |
+  |---|---|
+  | `Video` | **1971** |
+  | `Metadata` | 1 |
+  | `Sps` | 1 |
+  | `Pps` | 1 |
+  | `FeatureState` | 1 |
+
+- 每条的形态：`[transport] sealed frame failed to open (kind=Video len=64…443 Auth) — dropping`。
+
+**根因（iOS 侧，定位到行）**：`RemoteCrabCapture/CaptureEngine.swift` 里，视频与元数据
+**没有经过 `IBEventBroadcaster`（唯一带 sealer 的发送器），而是裸 `connection.send`**：
+
+- 视频：`handleEncodedFrame`（`:4446-4447`，`IBWire.encode(frame:)` → `connection.send`）
+- 元数据：`sendMetadata`（`:4419-4420`）
+- SPS/PPS：`:2295`（`conn.send`）
+
+`broadcaster.sealer` 只封经 `IBEventBroadcaster.send(kind:)` 的帧（触控/键盘/音频/ping/
+featureState）。于是**握手后的视频/metadata/SPS/PPS 仍是明文**；接收端在授予后对**每一帧**
+调 opener，把明文当密文 → `Auth` 失败 → 丢弃（`FeatureState` 的那 1 条是首连在**开启
+seal 之前**发出的，属一次性竞态，非持续问题）。
+
+**三点结论：**
+
+1. **Windows 端行为是正确的**（按 spec 对所有后握手帧封/解）。这不是 Windows 缺陷。
+2. **Mac 侧那句「sealed e2e 25/0 含视频」存疑**——同样的 iOS 代码会让 Mac 也丢掉密封后的
+   视频（`ReceiverSession.processFrames:2795-2796` 也是在 open 之后才 `videoFrameCount += 1`）。
+   请 Mac session 复核那条视频断言是否空过（lesson 111），以及 `[transport] sealed` 的
+   那次是否真的解出了视频。
+3. **安全缺口**：视频在共享 WiFi 上目前是**明文**的（画面可被嗅探），与本产品「本地也保密」
+   的承诺不符。
+
+**修复（iOS，需 Xcode / 真机，本端不能改）**：让视频/metadata/SPS/PPS 也走 sealer——
+要么经 `IBEventBroadcaster`，要么在发送前直接对该 payload 调 `TransportCipher.Sealer.seal`。
+改完出一个带 F1 的新 iOS 构建，再连一次 Windows 接收端：期望 `[transport] sealed` 且
+**`video: N NALs received` 数字持续增长**（接收端日志），触控/键盘/文件/剪贴板同步验。
+
+

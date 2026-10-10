@@ -1360,11 +1360,15 @@ async fn run_session(
     // `sessionReply`) must be dispatched before we wait on new bytes. They
     // were sent after the grant, so they are sealed when the transport is on.
     while let Some(f) = queue.pop_front() {
+        let k = f.kind;
+        let n = f.payload.len();
         let f = match opener.as_mut() {
             Some(o) => match rc_protocol::wire::open_frame(f, o) {
                 Ok(opened) => opened,
                 Err(e) => {
-                    eprintln!("[transport] buffered frame failed to open ({e:?}) — dropping");
+                    eprintln!(
+                        "[transport] buffered frame failed to open (kind={k:?} len={n} {e:?}) — dropping"
+                    );
                     continue;
                 }
             },
@@ -1395,12 +1399,14 @@ async fn run_session(
                         for raw in parser.append(&buf[..n]) {
                             // F1: open sealed payloads once the transport is
                             // on. The handshake read above was cleartext.
+                            let k = raw.kind;
+                            let n = raw.payload.len();
                             let f = match opener.as_mut() {
                                 Some(o) => match rc_protocol::wire::open_frame(raw, o) {
                                     Ok(opened) => opened,
                                     Err(e) => {
                                         eprintln!(
-                                            "[transport] sealed frame failed to open ({e:?}) — dropping"
+                                            "[transport] sealed frame failed to open (kind={k:?} len={n} {e:?}) — dropping"
                                         );
                                         continue;
                                     }
