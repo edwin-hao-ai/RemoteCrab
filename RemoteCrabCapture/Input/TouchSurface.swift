@@ -455,8 +455,43 @@ final class TouchSurfaceUIView: UIView {
     private weak var primaryTouch: UITouch?
     private var forceClickFiredThisSequence = false
 
+    // MARK: - Apple Pencil (G1)
+    //
+    // The surface treats every `UITouch` as a finger, so a Pencil's pressure
+    // and tilt were simply discarded and it worked only as a blunt finger. A
+    // Pencil touch now carries its stylus data (pressure/altitude/azimuth) on
+    // the emitted event, and a Pencil landing arms the drag immediately — a
+    // pen-down is the start of a stroke, not a hover — so the Mac draws.
+    // Finger behaviour is completely untouched (the fields stay nil).
+    private var pencilPressure: Float?
+    private var pencilAltitude: Float?
+    private var pencilAzimuth: Float?
+
+    private func updatePencil(from touch: UITouch?) {
+        guard let touch, touch.type == .pencil else {
+            pencilPressure = nil
+            pencilAltitude = nil
+            pencilAzimuth = nil
+            return
+        }
+        let maxForce = touch.maximumPossibleForce
+        pencilPressure = maxForce > 0 ? Float(touch.force / maxForce) : nil
+        pencilAltitude = Float(touch.altitudeAngle)
+        pencilAzimuth = Float(touch.azimuthAngle(in: self))
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesBegan(touches, with: event)
+        updatePencil(from: touches.first)
+        // A Pencil landing is a pen-down: arm the drag without the
+        // long-press delay so a stroke draws immediately.
+        if let touch = touches.first, touch.type == .pencil, !dragArmed,
+           (event?.allTouches?.count ?? touches.count) == 1 {
+            cancelLongPressDrag()
+            dragArmed = true
+            Self.log.debug("dragStart (pencil)")
+            emit(phase: .dragStart, at: touch.location(in: self))
+        }
         // A finger landing during a glide brakes it (macOS behaviour);
         // the resulting tap must stop the scroll, not click.
         if momentumLink != nil { momentumStoppedAt = CACurrentMediaTime() }
@@ -508,6 +543,7 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesMoved(touches, with: event)
+        updatePencil(from: touches.first)
         if wheelScrollEnabled && wheelInlineEnabled, !dragArmed, (event?.allTouches?.count ?? 1) == 1,
            handleWheelClassifyOrTick(touches) {
             return   // consumed by the wheel
@@ -534,6 +570,7 @@ final class TouchSurfaceUIView: UIView {
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
+        updatePencil(from: touches.first)
         cancelLongPressDrag()
         // A long-press that armed while the finger was STILL never
         // started the pan recognizer, so no .ended will release the
@@ -864,6 +901,9 @@ final class TouchSurfaceUIView: UIView {
             dx: dx, dy: dy,
             modifiers: modifierMask,
             momentum: momentum ? true : nil,
+            pressure: pencilPressure,
+            altitude: pencilAltitude,
+            azimuth: pencilAzimuth,
             timestampMicros: ts
         ))
     }
