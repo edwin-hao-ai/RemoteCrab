@@ -978,13 +978,26 @@ async fn main() -> ExitCode {
         preview_window.open();
     }
 
-    // Audio: Opus decode + speaker playback of the phone's microphone. Off by
-    // default (playing a mic out of the speakers next to the live phone is a
-    // feedback loop), but now a persisted tray toggle / `--unmute` rather than a
-    // flag a normal user cannot pass.
+    // Audio: the phone's microphone, decoded and played back. **Path A**: if a
+    // virtual audio cable is installed (VB-CABLE, VoiceMeeter, Virtual Audio
+    // Cable, …), play into it so the phone's mic becomes a *selectable* Windows
+    // microphone for Zoom/OBS/the Camera app — no driver of our own, no signing.
+    // With no cable the phone's mic plays on the ordinary output, and the status
+    // says a cable is what makes it selectable.
+    let pc_audio_cable = rc_audio::pick_virtual_cable(&rc_audio::output_device_names());
     let want_pc_audio = args.unmute || prefs::pc_audio();
-    let mut audio = rc_audio::AudioPlayer::new();
+    let mut audio = rc_audio::AudioPlayer::open_on(pc_audio_cable.as_deref());
     audio.set_muted(!want_pc_audio);
+    match &pc_audio_cable {
+        Some(name) => println!("  {} {name}", i18n::t("手机麦克风 →", "phone mic →")),
+        None => println!(
+            "  {}",
+            i18n::t(
+                "未找到虚拟声卡——手机麦克风只能播到默认设备。装一个免费的虚拟声卡，Zoom/会议软件就能把手机当成麦克风选。",
+                "No virtual audio cable found — the phone's mic only plays to the default device. Install a free virtual cable so Zoom/meeting apps can select the phone as a microphone.",
+            )
+        ),
+    }
     if !want_pc_audio {
         println!(
             "  {}",
