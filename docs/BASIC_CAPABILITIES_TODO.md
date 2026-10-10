@@ -584,6 +584,8 @@
 | 2026-10-11 | F1 待续 | **iOS 端接入（Task 5c）**：accepted 回复目前不带 nonce → 两端会派生出**不同密钥**而断连；需补 nonce 管线 + 手机接收循环 open + Rust 端（Task 6）+ 抓包/真机（Task 7）。**当前传输仍是明文（安全、行为未变），不是半加密** | ⏸ 需专门的安全敏感改动 |
 | 2026-10-11 | F1 5c 完成 | iOS 端接入已实现（pending/accepted 带 `transport` + accepted 带 nonce + 两端接收 open + 密钥派生用**同一个 challenge 验证过的 token**）。**真机 e2e 25/0（无回归）** | `ef370b0` |
 | 2026-10-11 | F1 仍未生效 | **sealing 尚未 engage**：手机主动连接路径里 Mac 记 `clientHello sent (paired: false)`（无 token）→ 派生不了密钥 → 传输仍是明文（**安全**）。**剩余**：把 token/`phoneId` 查找对齐，使两端派生出同一密钥，再用真机 e2e 看到 `sealed` | 下一步 |
+| 2026-10-11 | **F1 ✅ 生效** | 根因：**inbound-candidate（手机主动）路径有它自己的 sessionReply 处理**，从没调传输协商 → Mac 停在明文而手机已加密 → 两端密钥对不上。改为**从两条路径都显式传入 token+nonce**。Mac 现记 **`transport: sealed (aead-v1)`**，**真机 e2e 25/0（加密后音视频/触摸/文件/剪贴板全通）** | `2a24234` |
+| 2026-10-11 | F1 剩余 | Task 6（Rust 端同向量，本机只能交叉编译检查）+ Task 7（抓包断言明文标记不出现 + 旧端明文降级 + 真机正式验收） | 待做 |
 
 ---
 
