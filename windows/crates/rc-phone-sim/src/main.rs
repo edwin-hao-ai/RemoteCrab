@@ -187,6 +187,10 @@ struct Args {
     target_pc: Option<String>,
     phone_id: String,
     phone_name: String,
+    /// Seal the transport (F1): the phone does the peer-auth challenge and seals
+    /// every post-grant frame. Requires the receiver to already hold the token
+    /// (pair once first), because the key comes from it.
+    transport: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -199,9 +203,11 @@ fn parse_args() -> Result<Args, String> {
     let mut target_pc = None;
     let mut phone_id = "rc-phone-sim".to_string();
     let mut phone_name = "rc-phone-sim".to_string();
+    let mut transport = false;
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--transport" => transport = true,
             "--dial" => {
                 let v = it.next().ok_or("--dial needs host:port")?;
                 dial = Some(
@@ -282,6 +288,7 @@ fn parse_args() -> Result<Args, String> {
         target_pc,
         phone_id,
         phone_name,
+        transport,
     })
 }
 
@@ -397,6 +404,18 @@ fn main() {
 
     runtime.block_on(async move {
         let cfg = with_video(args.scenario.config(), args.video);
+        let cfg = if args.transport {
+            let mut c = cfg;
+            c.transport = true;
+            // The challenge secret is the token the receiver already holds (it
+            // stores what this phone issued on first pairing).
+            if c.peer_auth_token.is_none() {
+                c.peer_auth_token = c.token.clone();
+            }
+            c
+        } else {
+            cfg
+        };
         let phone = match args.dial {
             Some(addr) => {
                 let Some(target) = args.target_pc.clone() else {

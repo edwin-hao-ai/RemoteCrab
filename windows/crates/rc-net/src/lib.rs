@@ -204,13 +204,12 @@ pub struct Config {
     pub extended_display: bool,
     /// Whether to advertise and actually seal the transport (F1).
     ///
-    /// **Off in the app** (2026-10-11), matching the Mac/iOS decision
-    /// (`ec92600`): the phone sends video / metadata / SPS / PPS with a raw
-    /// `connection.send` that bypasses the broadcaster's sealer, so sealing
-    /// makes those frames unopenable and video goes black. Confirmed on a real
-    /// device — every drop was `kind=Video` while touch/key/ping opened, so the
-    /// key was correct. Tests turn it on to exercise the sealed paths.
-    /// See `docs/HANDOFF-WINDOWS-2026-10-11.md` §7.7.
+    /// **On** (2026-10-11), matching the Mac/iOS side (`f5fc44a`, which fixed
+    /// the phone sending video/metadata/SPS/PPS in the clear and re-enabled the
+    /// Mac's advertisement). Both ends derive the same key from the pairing
+    /// token + both handshake nonces and seal every post-grant frame. Tests
+    /// that do not want it set it `false` explicitly. See
+    /// `docs/HANDOFF-WINDOWS-2026-10-11.md` §7.7.
     pub transport_sealing: bool,
 }
 
@@ -222,7 +221,7 @@ impl Default for Config {
             default_port: DEFAULT_PORT,
             token_path: default_token_path(),
             extended_display: false,
-            transport_sealing: false,
+            transport_sealing: true,
         }
     }
 }

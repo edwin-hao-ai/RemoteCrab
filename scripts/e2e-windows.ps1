@@ -26,6 +26,7 @@ param(
     [int]$VideoFrames = 200,
     [string]$Scenario = 'normal',
     [switch]$PhoneInitiated,
+    [switch]$Sealed,
     [switch]$NoBuild,
     [int]$TimeoutSeconds = 25
 )
@@ -142,8 +143,27 @@ try {
             Check 'H.264 decoded (frames > 0)' 'decoded / \d+ received'
         }
     } else {
-        Say "starting fake iPhone: rc-phone-sim --port $Port --scenario $Scenario --video $VideoFrames"
+        if ($Sealed) {
+            # The sealed key comes from the pairing token, so the receiver must
+            # already hold it before the phone can seal. Let the receiver create
+            # its state, then seed the token under the manual-connect name.
+            Say "seeding the pairing token for the sealed session"
+            $seedProc = Start-Receiver @('--no-tray', '--no-preview')
+            Start-Sleep -Seconds 2
+            if ($seedProc -and -not $seedProc.HasExited) {
+                Stop-Process -Id $seedProc.Id -Force -ErrorAction SilentlyContinue
+            }
+            $tf = Join-Path $state 'RemoteCrab\tokens.json'
+            if (-not (Test-Path $tf)) { throw "the receiver never created $tf" }
+            $obj = Get-Content $tf -Raw | ConvertFrom-Json
+            $obj | Add-Member -NotePropertyName tokens -NotePropertyValue `
+                (@{ 'iPhone (127.0.0.1)' = 'test-token' }) -Force
+            ($obj | ConvertTo-Json -Depth 8) | Set-Content $tf
+        }
+        $sealedNote = if ($Sealed) { ' --transport' } else { '' }
+        Say "starting fake iPhone: rc-phone-sim --port $Port --scenario $Scenario --video $VideoFrames$sealedNote"
         $simArgs = @('--port', "$Port", '--scenario', "$Scenario", '--video', "$VideoFrames", '--seconds', '60')
+        if ($Sealed) { $simArgs += '--transport' }
         $simProc = Start-Process -FilePath $sim -ArgumentList $simArgs `
             -RedirectStandardOutput $simOut -RedirectStandardError $simErr -PassThru -WindowStyle Hidden
         Start-Sleep -Milliseconds 800
@@ -165,6 +185,9 @@ try {
         Check 'stream metadata arrived'     'streaming:'
         if ($VideoFrames -gt 0) {
             Check 'H.264 decoded (frames > 0)' 'decoded / \d+ received'
+        }
+        if ($Sealed) {
+            Check 'transport sealed' '\[transport\] sealed \(aead-v1\)'
         }
     }
 
