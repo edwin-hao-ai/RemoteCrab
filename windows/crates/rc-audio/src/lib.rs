@@ -19,6 +19,47 @@ use rc_protocol::{AudioPacket, AUDIO_CODEC_OPUS};
 
 pub use decoder::OpusDecoder;
 
+/// Render-endpoint name fragments that identify a virtual audio cable.
+///
+/// These are the *output* endpoints an app plays into; the matching *input*
+/// (capture) endpoint is what Zoom/OBS then select as a microphone. Ordered
+/// most-preferred first, and the plain VB-CABLE before VoiceMeeter's
+/// multi-channel variants (which the plain one is a subset of).
+const CABLE_HINTS: &[&str] = &[
+    "CABLE Input",          // VB-Audio Virtual Cable
+    "VoiceMeeter Input",    // VoiceMeeter
+    "Virtual Audio Cable",  // Muzychenko VAC
+    "Line 1 (Virtual",      // VAC's endpoint
+    "Virtual Audio Driver", // VirtualDrivers/Virtual-Audio-Driver
+    "Virtual Speaker",      // generic virtual speakers
+    "VB-Audio",
+];
+
+/// Pick a virtual audio cable from a list of output device names, or `None`.
+///
+/// Pure, so it is tested without any audio hardware: the caller enumerates the
+/// machine's devices and this decides. The whole point of Path A — the phone's
+/// mic becomes a *selectable Windows microphone* — depends on playing into a
+/// cable the user installed, and this is the one place that decision is made.
+pub fn pick_virtual_cable(names: &[String]) -> Option<String> {
+    for hint in CABLE_HINTS {
+        let h = hint.to_lowercase();
+        if let Some(name) = names.iter().find(|n| n.to_lowercase().contains(&h)) {
+            return Some(name.clone());
+        }
+    }
+    None
+}
+
+/// The machine's output (render) device names, in cpal's order.
+pub fn output_device_names() -> Vec<String> {
+    let host = cpal::default_host();
+    match host.output_devices() {
+        Ok(devices) => devices.map(|d| d.to_string()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Thread-safe sample queue shared between the network task (producer) and
 /// the audio callback (consumer).
 #[derive(Clone, Default)]
@@ -80,22 +121,31 @@ pub struct AudioPlayer {
 }
 
 impl AudioPlayer {
-    /// Open the default output device. Call once at startup; if the device
-    /// can't be opened the player still decodes + meters (so the UI works),
-    /// it just doesn't make sound.
+    /// Open the default output device.
     pub fn new() -> Self {
+        Self::open_on(None)
+    }
+
+    /// Open a **named** output device, or the default when `device_name` is
+    /// `None` (or the name is no longer present).
+    ///
+    /// This is what makes the phone's mic a *selectable Windows microphone*:
+    /// open the player on a virtual cable's render endpoint, and the cable's
+    /// capture endpoint carries the phone's voice to Zoom/OBS.
+    pub fn open_on(device_name: Option<&str>) -> Self {
         let queue = SampleQueue::new();
         let level = Arc::new(Mutex::new(0.0f32));
         let muted = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let decoder = OpusDecoder::new().ok();
 
-        let (stream, sample_rate) = match Self::open_stream(queue.clone(), muted.clone()) {
-            Ok((s, r)) => (Some(s), r),
-            Err(e) => {
-                eprintln!("audio output unavailable ({e}); metering only");
-                (None, 48_000)
-            }
-        };
+        let (stream, sample_rate) =
+            match Self::open_stream(device_name, queue.clone(), muted.clone()) {
+                Ok((s, r)) => (Some(s), r),
+                Err(e) => {
+                    eprintln!("audio output unavailable ({e}); metering only");
+                    (None, 48_000)
+                }
+            };
 
         AudioPlayer {
             queue,
@@ -108,13 +158,20 @@ impl AudioPlayer {
     }
 
     fn open_stream(
+        device_name: Option<&str>,
         queue: SampleQueue,
         muted: Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<(cpal::Stream, u32), Box<dyn std::error::Error>> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or("no default output device")?;
+        let device = match device_name {
+            Some(name) => host
+                .output_devices()?
+                .find(|d| d.to_string() == name)
+                .ok_or_else(|| format!("output device {name:?} not found"))?,
+            None => host
+                .default_output_device()
+                .ok_or("no default output device")?,
+        };
         let config = device.default_output_config()?;
         let channels = config.channels() as usize;
 
@@ -329,5 +386,58 @@ mod tests {
     fn rms_of_small_signal_is_small() {
         let v = rms(&[327, -327, 327, -327]);
         assert!(v > 0.0 && v < 0.05, "rms = {v}");
+    }
+
+    /// A virtual cable is preferred over ordinary outputs, so the phone's mic
+    /// goes where an app can select it rather than to the speakers.
+    #[test]
+    fn a_virtual_cable_beats_the_speakers() {
+        let names = vec![
+            "Speakers (Realtek(R) Audio)".to_string(),
+            "CABLE Input (VB-Audio Virtual Cable)".to_string(),
+        ];
+        assert_eq!(
+            pick_virtual_cable(&names).as_deref(),
+            Some("CABLE Input (VB-Audio Virtual Cable)")
+        );
+    }
+
+    /// The plain VB-CABLE is preferred over VoiceMeeter's variants.
+    #[test]
+    fn the_plain_cable_wins_over_voicemeeter() {
+        let names = vec![
+            "VoiceMeeter Input (VB-Audio VoiceMeeter VAIO)".to_string(),
+            "CABLE Input (VB-Audio Virtual Cable)".to_string(),
+        ];
+        assert_eq!(
+            pick_virtual_cable(&names).as_deref(),
+            Some("CABLE Input (VB-Audio Virtual Cable)")
+        );
+    }
+
+    /// No cable means the phone's mic plays on the ordinary output — and the UI
+    /// has to say that a cable is what makes it a selectable microphone.
+    #[test]
+    fn no_cable_when_only_real_devices_exist() {
+        let names = vec![
+            "Speakers (Realtek(R) Audio)".to_string(),
+            "Headphones (2- USB Audio)".to_string(),
+        ];
+        assert_eq!(pick_virtual_cable(&names), None);
+    }
+
+    #[test]
+    fn other_virtual_cables_are_recognised() {
+        for name in [
+            "VoiceMeeter Input (VB-Audio VoiceMeeter",
+            "Line 1 (Virtual Audio Cable)",
+            "Virtual Audio Driver",
+            "CABLE Input (VB-Audio Virtual Cable)",
+        ] {
+            assert!(
+                pick_virtual_cable(&[name.to_string()]).is_some(),
+                "not recognised: {name}"
+            );
+        }
     }
 }
