@@ -58,6 +58,9 @@ pub struct Args {
     /// the receiver advertises `extendedDisplay` exactly when this probe
     /// succeeds.
     pub vdisplay_probe: bool,
+    /// One-shot: report whether the virtual-microphone (rc-vmic) driver is
+    /// installed and answering, then exit. The sibling of `--vdisplay-probe`.
+    pub vmic_probe: bool,
     /// One-shot, elevated: register the virtual camera's COM source, exit.
     /// Reached two ways — the tray's `runas`, and typed by a user who self-elevates.
     pub install_vcam: bool,
@@ -130,6 +133,7 @@ fn parse_args_from(raw: &[String]) -> Args {
             "--version" | "-V" => args.version = true,
             "--speaker-probe" => args.speaker_probe = true,
             "--vdisplay-probe" => args.vdisplay_probe = true,
+            "--vmic-probe" => args.vmic_probe = true,
             "--install-vcam" => args.install_vcam = true,
             "--uninstall-vcam" => args.uninstall_vcam = true,
             "--uninstall-vcam-machine" => args.uninstall_vcam_machine = true,

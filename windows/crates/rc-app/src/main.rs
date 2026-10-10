@@ -54,6 +54,7 @@ mod scan;
 mod selftest;
 mod single_instance;
 mod speaker;
+mod vmic;
 mod status;
 mod stream_stats;
 mod tray;
@@ -695,6 +696,23 @@ async fn main() -> ExitCode {
             }
         };
     }
+    // The sibling of --vdisplay-probe, and for the same reason: only the user's
+    // own machine can answer "is the virtual-mic driver installed".
+    if args.vmic_probe {
+        return match rc_vmic::probe() {
+            Some(version) => {
+                println!("RemoteCrab Microphone driver present — protocol version {version}");
+                ExitCode::SUCCESS
+            }
+            None => {
+                println!(
+                    "RemoteCrab Microphone driver not found — the phone's mic is still usable \
+                     through a virtual audio cable (VB-CABLE); see windows/drivers/rc-vmic/README.md."
+                );
+                ExitCode::FAILURE
+            }
+        };
+    }
     // A release build does not carry the fake sender, so these two cannot
     // work. Saying so beats a flag that quietly does nothing.
     #[cfg(feature = "selftest")]
@@ -1006,6 +1024,32 @@ async fn main() -> ExitCode {
                 "(muted to avoid feedback — turn on \"Play phone mic here\" in the tray to hear it)",
             )
         );
+    }
+
+    // Path B — the virtual-microphone driver. When it is installed, mirror the
+    // phone's mic into its ring so "RemoteCrab Microphone" appears in every
+    // app's input list. Path A above keeps running, so both work at once, and
+    // the ring is only created when a driver can actually consume it.
+    #[cfg(windows)]
+    let mut _mic_ring: Option<vmic::MicRing> = None;
+    #[cfg(windows)]
+    if rc_vmic::available() {
+        let tap = rc_audio::SampleQueue::new();
+        match vmic::MicRing::start(tap.clone()) {
+            Some(ring) => {
+                audio.set_tap(tap);
+                _mic_ring = Some(ring);
+                let (zh, en) = vmic::status_line();
+                println!("  {}", i18n::t(&zh, &en));
+            }
+            None => println!(
+                "  {}",
+                i18n::t(
+                    "虚拟麦克风驱动在，但音频环创建失败",
+                    "the rc-vmic driver is present but the audio ring could not be created",
+                )
+            ),
+        }
     }
 
     // Receives files from the iPhone into ~/Downloads/RemoteCrab.

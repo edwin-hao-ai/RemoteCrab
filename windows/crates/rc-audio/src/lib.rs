@@ -118,6 +118,10 @@ pub struct AudioPlayer {
     /// When true, audio is decoded + metered but rendered as silence
     /// (avoids the speaker→mic feedback loop).
     muted: Arc<std::sync::atomic::AtomicBool>,
+    /// Optional second sink. When set, every decoded sample is also pushed here,
+    /// so the caller can mirror the phone's mic into a virtual-microphone ring
+    /// (`rc-vmic`) while it is still playing to a cable/speaker (Path A).
+    tap: Option<SampleQueue>,
 }
 
 impl AudioPlayer {
@@ -154,6 +158,7 @@ impl AudioPlayer {
             sample_rate,
             level,
             muted,
+            tap: None,
         }
     }
 
@@ -249,7 +254,15 @@ impl AudioPlayer {
             return;
         }
         *self.level.lock().unwrap_or_else(|e| e.into_inner()) = rms(&pcm);
+        if let Some(tap) = &self.tap {
+            tap.push(&pcm);
+        }
         self.queue.push(&pcm);
+    }
+
+    /// Mirror every decoded mic sample into `tap` as well (see the field).
+    pub fn set_tap(&mut self, tap: SampleQueue) {
+        self.tap = Some(tap);
     }
 
     /// RMS level (0..1) of the last packet.
