@@ -30,6 +30,8 @@ struct RemoteCrabCaptureApp: App {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 engine.handleDidBecomeActive()
+            } else if phase == .inactive {
+                engine.handleDidBecomeInactive()
             }
         }
     }

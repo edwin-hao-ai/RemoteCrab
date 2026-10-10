@@ -1235,8 +1235,24 @@ final class CaptureEngine: ObservableObject {
     /// advertisement and usually a reset TCP link while `isStreaming`
     /// still reads true. Recreate the listener to force the service to
     /// re-register; the Mac side auto-reconnects once we're visible.
+    /// Scene went inactive — a call banner, Siri, the app switcher, or the
+    /// start of a lock. NOT a teardown; but an audio interruption can happen
+    /// while inactive, so the next foreground re-asserts the keep-alive rather
+    /// than trusting a session that may have been deactivated under us (C3).
+    private var inactiveSinceActive = false
+
+    func handleDidBecomeInactive() {
+        inactiveSinceActive = true
+        Forensic.log("[scene] inactive")
+    }
+
     func handleDidBecomeActive() {
-        guard isStreaming else { return }
+        guard isStreaming else { inactiveSinceActive = false; return }
+        if inactiveSinceActive {
+            inactiveSinceActive = false
+            applyKeepAlive()
+            Forensic.log("[scene] active after inactive — re-asserted keep-alive")
+        }
         // The browse is suspended in the background too — refresh it so the
         // picker is not stale the moment the user returns.
         stopComputerBrowser()
@@ -2539,6 +2555,12 @@ final class CaptureEngine: ObservableObject {
                 Forensic.log("[hs] \(name) disconnected while awaiting approval — releasing the slot")
                 clearPending()
             }
+        case .waiting(let error):
+            // A candidate can sit in `.waiting` (no usable route yet) and, from
+            // both ends, look identical to "no candidate at all". Record it so a
+            // stalled handshake is diagnosable instead of invisible (B3). Not a
+            // failure — the handshake timeout / watchdog still bounds it.
+            Forensic.log("[hs] candidate waiting: \(error)")
         default:
             break
         }

@@ -313,6 +313,9 @@ struct ContentView: View {
             } else if engine.features.activeSurface == .screen {
                 engine.privacyCover = true
             }
+            if phase == .inactive {
+                engine.handleDidBecomeInactive()
+            }
             // Privacy rule: the camera NEVER resumes by itself. iOS
             // hard-stops capture in the background anyway; on return the
             // stream stays off until the user turns it back on from the
