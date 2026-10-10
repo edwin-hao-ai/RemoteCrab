@@ -630,8 +630,12 @@ pub fn screen_actions(
             MouseAction::RightUp { x, y },
         ],
         ScreenInputAction::Scroll => vec![MouseAction::Wheel {
-            dx: input.dx as f64 * SCROLL_UNITS,
-            dy: input.dy as f64 * SCROLL_UNITS,
+            // Negated, like the trackpad path (and the Mac, which does
+            // `pixelDY = -dy * gain`): a two-finger swipe scrolls the content the
+            // same way wherever it happens. This arm used to skip the negation,
+            // so mirror scrolling ran backwards on Windows.
+            dx: -(input.dx as f64) * SCROLL_UNITS,
+            dy: -(input.dy as f64) * SCROLL_UNITS,
         }],
     }
 }
@@ -735,7 +739,8 @@ mod screen_tests {
         // 1/16 is exact in f32, so 0.0625 * 1200 == 75.0 exactly.
         sc.dy = 0.0625;
         let actions = screen_actions(&sc, (0.0, 0.0), (100.0, 100.0));
-        assert_eq!(actions, vec![MouseAction::Wheel { dx: 0.0, dy: 75.0 }]);
+        // Negated, to match the trackpad path and the Mac (see `screen_actions`).
+        assert_eq!(actions, vec![MouseAction::Wheel { dx: 0.0, dy: -75.0 }]);
     }
 }
 
