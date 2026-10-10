@@ -28,9 +28,9 @@ public final class CGEventInjector: InputInjector {
     public func inject(touch: TouchEvent, screenSize: CGSize) {
         switch touch.phase {
         case .down:
-            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers), pressure: touch.pressure)
         case .up:
-            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers), pressure: touch.pressure)
         case .move:
             // Uniform-axis gain: the iPhone normalizes both axes by the
             // same reference, so both are scaled by the screen HEIGHT
@@ -43,10 +43,10 @@ public final class CGEventInjector: InputInjector {
             // Plain finger move = hover; while a drag is armed
             // (dragStart seen, no up yet) = left-drag.
             if isDragging {
-                post(type: .leftMouseDragged, at: lastCursor)
+                post(type: .leftMouseDragged, at: lastCursor, pressure: touch.pressure)
             }
         case .dragStart:
-            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers), pressure: touch.pressure)
             isDragging = true
         case .scroll:
             postScroll(dx: touch.dx, dy: touch.dy, commandHeld: false,
@@ -61,8 +61,8 @@ public final class CGEventInjector: InputInjector {
         case .rightUp:
             post(type: .rightMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
         case .click:
-            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers))
-            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers))
+            post(type: .leftMouseDown, at: lastCursor, flags: eventFlags(for: touch.modifiers), pressure: touch.pressure)
+            post(type: .leftMouseUp, at: lastCursor, flags: eventFlags(for: touch.modifiers), pressure: touch.pressure)
         case .threeFingerTap:
             postOther(button: 2, down: true, at: lastCursor)   // middle click
             postOther(button: 2, down: false, at: lastCursor)
@@ -262,7 +262,7 @@ public final class CGEventInjector: InputInjector {
     }
 
     private func post(type: CGEventType, at point: CGPoint, flags: CGEventFlags = [],
-                      clickCount: Int = 1) {
+                      clickCount: Int = 1, pressure: Float? = nil) {
         // The button must match the event type — a rightMouseDown
         // built with .left confuses apps that read the button field.
         let button: CGMouseButton
@@ -277,6 +277,16 @@ public final class CGEventInjector: InputInjector {
         event?.flags = flags
         event?.setIntegerValueField(.mouseEventClickState,
                                     value: Int64(max(1, clickCount)))
+        if let pressure {
+            // Apple Pencil (G1): present the event as a tablet (pen) point so
+            // drawing apps read the stylus pressure. An app that does not honour
+            // the subtype still receives an ordinary mouse event, so this is
+            // never worse than before — it just adds a capability some apps use.
+            event?.setIntegerValueField(.mouseEventSubtype,
+                                        value: Int64(CGEventMouseSubtype.tabletPoint.rawValue))
+            event?.setDoubleValueField(.tabletEventPointPressure,
+                                       value: Double(min(1, max(0, pressure))))
+        }
         event?.post(tap: .cghidEventTap)
     }
 
