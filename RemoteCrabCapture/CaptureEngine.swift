@@ -2127,7 +2127,8 @@ final class CaptureEngine: ObservableObject {
             grant(connection: challenge.connection, mac: challenge.mac,
                   platform: challenge.hello.platform,
                   capabilities: challenge.hello.capabilities ?? [])
-            enableTransport(token: challenge.mac.token,
+            enableTransport(peerTransport: challenge.hello.transport,
+                            token: challenge.mac.token,
                             clientNonce: challenge.clientNonce,
                             serverNonce: challenge.serverNonce)
         } else {
@@ -2138,10 +2139,14 @@ final class CaptureEngine: ObservableObject {
     /// Both ends advertised `aead-v1`: derive the session key and turn on
     /// sealing for the live session (F1). The same key the receiver derives —
     /// token + the two handshake nonces as UTF-8 bytes.
-    private func enableTransport(token: String, clientNonce: String, serverNonce: String) {
-        let key = TransportCipher.sessionKey(token: token,
-                                             initiatorNonce: Data(clientNonce.utf8),
-                                             responderNonce: Data(serverNonce.utf8))
+    private func enableTransport(peerTransport: String?, token: String, clientNonce: String, serverNonce: String) {
+        guard let key = TransportNegotiation.sessionKey(peerTransport: peerTransport,
+                                                         token: token,
+                                                         clientNonce: clientNonce,
+                                                         serverNonce: serverNonce) else {
+            Forensic.log("[transport] not sealed (peer=\(peerTransport ?? "nil"))")
+            return
+        }
         broadcaster?.sealer = TransportCipher.Sealer(key: key)
         opener = TransportCipher.Opener(key: key)
         Forensic.log("[transport] sealed (aead-v1)")

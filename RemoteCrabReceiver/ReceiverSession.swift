@@ -1938,14 +1938,13 @@ final class ReceiverSession: ObservableObject {
     /// them in different places — using a single shared lookup missed the
     /// candidate path and left this side cleartext while the phone sealed.
     private func enableTransportIfSupported(reply: IBSessionReply, token: String?, clientNonce: String?) {
-        guard reply.transport == TransportCipher.versionName,
-              let token, let clientNonce, let serverNonce = reply.nonce else {
+        guard let key = TransportNegotiation.sessionKey(peerTransport: reply.transport,
+                                                         token: token,
+                                                         clientNonce: clientNonce,
+                                                         serverNonce: reply.nonce) else {
             Self.log.info("transport: not sealed — peerTransport=\(reply.transport ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(clientNonce != nil, privacy: .public) replyNonce=\(reply.nonce != nil, privacy: .public)")
             return
         }
-        let key = TransportCipher.sessionKey(token: token,
-                                             initiatorNonce: Data(clientNonce.utf8),
-                                             responderNonce: Data(serverNonce.utf8))
         broadcaster?.sealer = TransportCipher.Sealer(key: key)
         opener = TransportCipher.Opener(key: key)
         Self.log.info("transport: sealed (aead-v1)")

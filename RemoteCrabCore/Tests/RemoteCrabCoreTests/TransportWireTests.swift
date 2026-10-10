@@ -26,4 +26,17 @@ final class TransportWireTests: XCTestCase {
         let frames = IBWire.Parser().append(wire)
         XCTAssertEqual(frames.first?.kind, .touch)
     }
+
+    /// The sniffer assertion (F1 task 7): a known plaintext marker — here the
+    /// exact string the device e2e uses for the clipboard — must not appear in
+    /// the bytes on the wire.
+    func testThePlaintextMarkerNeverAppearsOnTheWire() throws {
+        var (sealer, opener) = cipher()
+        let marker = "RemoteCrab-e2e-OK"
+        let wire = IBWire.seal(frame: IBWire.Frame(kind: .clipboardSet, payload: Data(marker.utf8)),
+                               using: &sealer)
+        XCTAssertNil(wire.range(of: Data(marker.utf8)))
+        let frames = try IBWire.open(data: wire, using: &opener, parser: IBWire.Parser())
+        XCTAssertEqual(frames.first?.payload, Data(marker.utf8))
+    }
 }
