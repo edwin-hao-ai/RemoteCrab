@@ -9,6 +9,12 @@
 
 代码基线：`baff770`。仓库在 `windows/` 子目录里，是一个独立的 Rust workspace。
 
+> 🆕 **2026-10-11 — 传输加密 F1 交接**：
+> [`docs/HANDOFF-WINDOWS-2026-10-11.md`](HANDOFF-WINDOWS-2026-10-11.md)。
+> Mac/Swift 侧已完成并真机验收（e2e 25/0，`transport: sealed`）；Rust 原语
+> `rc-protocol::transport` 已实现并与 Swift **逐字节一致**；**Windows 侧要把它接进
+> `rc-net`/`rc-app` 的连接路径 + 真机联调**。
+
 本 session 的完整收尾记录：**[`docs/WINDOWS_SESSION_CLOSEOUT.md`](WINDOWS_SESSION_CLOSEOUT.md)**。
 
 ## 先读这三份，按顺序
