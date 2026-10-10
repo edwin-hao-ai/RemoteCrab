@@ -145,9 +145,9 @@ fn register(hinstance: HINSTANCE) {
         hInstance: hinstance,
         lpszClassName: CLASS,
         hCursor: cursor,
-        // See `wizard_win::register`: the window paints its own canvas colour
-        // rather than the `COLOR_WINDOW` grey it was inheriting.
-        hbrBackground: theme::brush_for(theme::palette().canvas),
+        // See `wizard_win::register`: no class brush, so the DWM backdrop
+        // (Mica) shows through the client.
+        hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
         ..Default::default()
     };
     unsafe {
@@ -164,6 +164,7 @@ unsafe extern "system" fn wnd_proc(
     unsafe {
         match msg {
             WM_CREATE => {
+                theme::apply_backdrop(hwnd);
                 build(hwnd);
                 // A plain timer, not a thread: the work is one struct read and
                 // a few labels.
@@ -173,6 +174,8 @@ unsafe extern "system" fn wnd_proc(
                 }
                 LRESULT(0)
             }
+            // Transparent client for the Mica backdrop; see `wizard_win`.
+            WM_ERASEBKGND => LRESULT(1),
             WM_TIMER => {
                 // The panel rebuilds its labels rather than mutating them, which
                 // is fine at this size — but it did so without suppressing
@@ -212,16 +215,16 @@ unsafe extern "system" fn wnd_proc(
                                 HEALTH_BAD => p.err,
                                 _ => p.text,
                             },
-                            p.canvas,
+                            None,
                         ),
-                        FIELD_SUMMARY => (p.text_soft, p.canvas),
-                        _ => (p.text_faint, p.canvas),
+                        FIELD_SUMMARY => (p.text_soft, None),
+                        _ => (p.text_faint, None),
                     }
                 } else {
                     // The footer note, which has no id and no colour of its own.
-                    (p.text_faint, p.canvas)
+                    (p.text_faint, None)
                 };
-                LRESULT(theme::tint_child(hdc, colour, Some(back)).0 as isize)
+                LRESULT(theme::tint_child(hdc, colour, back).0 as isize)
             }
             WM_DRAWITEM => {
                 if lparam.0 != 0 {

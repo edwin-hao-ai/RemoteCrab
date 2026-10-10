@@ -181,9 +181,9 @@ fn register(hinstance: HINSTANCE) {
         hInstance: hinstance,
         lpszClassName: CLASS,
         hCursor: cursor,
-        // See `wizard_win::register`: the window paints its own canvas colour
-        // rather than the `COLOR_WINDOW` grey it was inheriting.
-        hbrBackground: theme::brush_for(theme::palette().canvas),
+        // See `wizard_win::register`: no class brush, so the DWM backdrop
+        // (Mica) shows through the client.
+        hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
         ..Default::default()
     };
     unsafe {
@@ -200,9 +200,12 @@ unsafe extern "system" fn wnd_proc(
     unsafe {
         match msg {
             WM_CREATE => {
+                theme::apply_backdrop(hwnd);
                 build(hwnd);
                 LRESULT(0)
             }
+            // Transparent client for the Mica backdrop; see `wizard_win`.
+            WM_ERASEBKGND => LRESULT(1),
             // See `wizard_win` for the same message on the same kind of control. A
             // section heading is drawn darker than the text under it, and the id
             // block is the only thing that tells them apart — the id is also the
@@ -223,7 +226,7 @@ unsafe extern "system" fn wnd_proc(
                     // field labels, which are supporting text.
                     p.text_faint
                 };
-                LRESULT(theme::tint_child(hdc, colour, Some(p.canvas)).0 as isize)
+                LRESULT(theme::tint_child(hdc, colour, None).0 as isize)
             }
             // The two list boxes and the text field. Left to the system they keep
             // their own light background, which on this canvas is a white rectangle

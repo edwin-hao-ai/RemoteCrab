@@ -66,6 +66,10 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Globalization",
     "Win32_Graphics_Gdi",
+    # Fluent backdrop (Mica/Acrylic) + rounded corners + the immersive dark
+    # title bar. This is the Windows 11 material, the closest native analogue
+    # of the Mac side's Liquid Glass (`DWMWA_SYSTEMBACKDROP_TYPE` etc.).
+    "Win32_Graphics_Dwm",
     # The native windows follow the system light/dark setting, which lives in
     # the registry under `Themes\Personalize`.
     "Win32_System_Registry",

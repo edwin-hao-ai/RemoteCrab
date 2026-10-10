@@ -141,10 +141,10 @@ fn register(hinstance: HINSTANCE) {
         hInstance: hinstance,
         lpszClassName: CLASS,
         hCursor: cursor,
-        // The window's own background, so every pixel the controls do not cover
-        // is the product's canvas colour rather than `COLOR_WINDOW`, the grey
-        // that made these windows look like a 1995 utility.
-        hbrBackground: theme::brush_for(theme::palette().canvas),
+        // No class background brush: the client is transparent so the DWM
+        // backdrop (Mica) shows through, and the controls paint on top. See
+        // `theme::apply_backdrop`.
+        hbrBackground: windows::Win32::Graphics::Gdi::HBRUSH::default(),
         ..Default::default()
     };
     unsafe {
@@ -163,9 +163,13 @@ unsafe extern "system" fn wnd_proc(
     unsafe {
         match msg {
             WM_CREATE => {
+                theme::apply_backdrop(hwnd);
                 build_controls(hwnd);
                 LRESULT(0)
             }
+            // Do not erase: the client must stay transparent for the Mica
+            // backdrop. The controls paint their own pixels over it.
+            WM_ERASEBKGND => LRESULT(1),
             WM_COMMAND => {
                 let id = wparam.0 & 0xFFFF;
                 let page = current_page();
@@ -216,17 +220,18 @@ unsafe extern "system" fn wnd_proc(
                 let id = GetDlgCtrlID(control) as usize;
                 let p = theme::palette();
                 let (colour, back) = match id {
-                    ID_STATE => (p.text, p.canvas),
-                    ID_STEP => (p.text_faint, p.canvas),
-                    ID_BODY => (p.text_soft, p.canvas),
-                    ID_MESSAGE => (p.err, p.canvas),
+                    ID_STATE => (p.text, None),
+                    ID_STEP => (p.text_faint, None),
+                    ID_BODY => (p.text_soft, None),
+                    ID_MESSAGE => (p.err, None),
                     // The hairline is a one-pixel child that fills itself with the
                     // brush returned here, which is steadier than painting a rule
-                    // in `WM_PAINT` and having a control invalidate over it.
-                    ID_HAIRLINE => (p.line, p.line),
-                    _ => (p.text, p.canvas),
+                    // in `WM_PAINT` and having a control invalidate over it. It is
+                    // the one label that wants an opaque background.
+                    ID_HAIRLINE => (p.line, Some(p.line)),
+                    _ => (p.text, None),
                 };
-                LRESULT(theme::tint_child(hdc, colour, Some(back)).0 as isize)
+                LRESULT(theme::tint_child(hdc, colour, back).0 as isize)
             }
             // The buttons are owner-drawn, so this is where they get their look.
             // `wparam` is the control id and `lparam` the `DRAWITEMSTRUCT`; the id
