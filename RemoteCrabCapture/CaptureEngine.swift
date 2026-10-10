@@ -1144,7 +1144,13 @@ final class CaptureEngine: ObservableObject {
             guard let self else { return }
             for _ in 0..<40 {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-                guard let target = self.onlineComputers.first(where: { $0.id != self.currentComputerId })
+                // Prefer the harness's OWN receivers (identity prefix "e2e-")
+                // so a REAL computer on the same LAN — a Windows receiver, say
+                // — cannot steal the pick. Without this the suite only passes
+                // on a network with no other RemoteCrab computer (measured
+                // 2026-10-11: the phone dialled the user's Windows PC).
+                let pool = self.onlineComputers.filter { $0.id != self.currentComputerId }
+                guard let target = pool.first(where: { $0.id.hasPrefix("e2e-") }) ?? pool.first
                 else { continue }
                 Forensic.log("[e2e] pick online computer id=\(target.id.prefix(8)) name=\(target.name)")
                 // Run the *picker row's* action (T12): dial the tapped

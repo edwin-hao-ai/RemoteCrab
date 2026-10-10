@@ -638,6 +638,17 @@
 | 2026-10-11 | **F1 Windows 接入** | Rust 原语早已对齐，但 `rc-net` **从未接线**（Mac 的「真机验收过」不含 Windows）。现补齐：`transport::Sealer/Opener`、`wire::seal_frame/open_frame`、握手 `transport` 字段、`run_session` 广告/派生/seal/open（两条路径共用，含 ping 与握手缓冲队列）；`rc-testkit` 假手机支持密封。**密封会话双向**集成测试可证伪（置空 sealer/opener 各失败一次） | `cargo test --workspace` 全绿、`clippy -D warnings` 0；真机互通待跑 |
 | 2026-10-11 | **F1 未加密徽标** | `State::Streaming.sealed`；未密封时控制台 + 托盘状态行追加「（未加密）」(unencrypted)。中英双语、两个 surface 的单测 | 门禁全绿 |
 | 2026-10-11 | **F1 真机联调（Windows↔iPhone）** | 协商成功（`[transport] sealed (aead-v1)`），**密钥一致**（触控/键盘/ping 正常），但**视频打不开**：`kind=Video` 1971 次 `Auth`（+ Metadata/Sps/Pps 各 1）。根因是 **iOS 侧**：视频/metadata/SPS/PPS 走**裸 `connection.send`**，绕过 `IBEventBroadcaster` 的 sealer（`CaptureEngine.swift:4446/4419/2295`）。**Windows 端按 spec 封/解，是对的**；Mac 的「sealed e2e 含视频」存疑，需复核。**🔒 待 iOS 修复后重连验收** | 真机日志计数（见 HANDOFF-WINDOWS-2026-10-11 §7.7） |
+| 2026-10-11 晚 | **F1 iOS 修复 + 大回归修复（本会话）** | ① iOS 视频/metadata/SPS/PPS + Mac ping/pong 全部改走 sealer；② **发现并修掉我自己引入的大回归**：Mac→手机方向所有裸 `connection.send` 的帧在密封会话下被对端丢弃——`appList`/`windowList`/`installedApps`/`featureControl`/`clipboard`/`fileAck`/`cameraCommand`/**`speakerAudio`** 八个全部改走 `IBEventBroadcaster`（补 4 个方法）。加 `TransportCipher.fingerprint` 诊断（两端打印同一值）。**`e2e-speaker.sh` 转绿**（两端 `fp=b20d0bfc`） | `9ca4702` |
+| 2026-10-11 晚 | **相机结论（真机 + 真实客户端）** | **单 1080p 真能用**（QuickTime 出画面）；**多格式（对外广告 1080p+4K）会让真实客户端也断**——4K 撤回，维持单 1080p。之前"相机完全不能用"是被坏探针误导。 | v17 |
+| 2026-10-11 晚 | **扬声器崩溃修复** | 点 Re-register（输密码）整个接收端 SIGTRAP：反汇编定位到 `SystemAudioTap.ingest` 的 `pendingDrops += dropped`（CoreAudio IO 线程上的**非回绕 UInt64 加法**，`gap` 回绕时溢出）。`SpeakerRing.dropCount()` 纯函数 + `&+=`。**`e2e-mic.sh` PASS（rms 2187）** | `ec79e7d` |
+| 2026-10-11 晚 | **e2e 结果汇总** | `e2e-device.sh` **26/27**（唯一失败=扩展屏 appId 竞态，见下）；`e2e-speaker.sh` **PASS**；`e2e-mic.sh` **PASS**；`e2e-current-computer.sh` **未干净跑通**（真 Mac 在跑、抢当"当前电脑"，A/B 被 `busy owner=EDWIN` 挡住） | — |
+
+### 🔒 本会话留下的待办（下次测）
+
+1. **扩展屏 appId 竞态（既有，与 F1 无关）**：流虚拟屏时，前台 app 变化会让 `recheckFrontmost`→`resolveAndStart` 重新解析并**覆盖**目标，于是 Mac 发 `screenInfo ... window=display:N`（appId `"display"` 而非 `"extended"`），iOS 的 `isExtendedDisplayOn` 因此判错 → 手机 UI 状态不对。`e2e-device.sh` 里那条失败就是这个。要查：`ScreenStreamer.swift:541` 的 `targetAppId` 与 `resolveAndStart` 的桌面回退（line 366）。
+2. **`e2e-current-computer.sh` Phase A/C**：跑之前必须**先杀掉真 Mac 接收端**（否则真 Mac 抢当 `current`，手机对假身份回 `busy owner=EDWIN`）；且手机要**解锁 + 前台**。本次设备中途掉线（CoreDeviceError 4000），未得到干净结论——**下次手机在位时重跑**。
+3. **4K 摄像头**：多格式路线作废；将来要做，方向是**单格式 + 让扩展跟随手机实际分辨率**（需一条 host→extension 的共享通道），是独立设计工作。
+4. **Windows 端 F1 复验**：本会话的 iOS 侧修复 + 回归修复推上去后，Windows 那边可重连验收（`docs/HANDOFF-WINDOWS-2026-10-11.md`）。
 
 ---
 
