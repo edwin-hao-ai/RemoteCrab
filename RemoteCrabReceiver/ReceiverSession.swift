@@ -1923,23 +1923,24 @@ final class ReceiverSession: ObservableObject {
         connection?.cancel()
     }
 
-    /// If both ends advertised `aead-v1`, derive the session key (pairing token
-    /// + both handshake nonces) and turn on sealing for the live session (F1).
-    /// Absent on either side → stays cleartext (an old peer). The nonces are
-    /// used as their UTF-8 bytes so both ends agree.
-    private func enableTransportIfSupported(reply: IBSessionReply) {
-        // Use the SAME token the identity challenge just verified, so both ends
-        // derive the same key. A name-keyed lookup here could miss and leave
-        // this side cleartext while the phone sealed — which breaks the link.
-        let token: String?
+    /// The pairing token for the current session, looked up the same way the
+    /// identity challenge does.
+    private func currentPairingToken() -> String? {
         if let peer = inboundPeer {
-            token = tokenIndex.token(phoneId: peer.phoneId, name: peer.name)
-        } else {
-            token = currentTokenKey.flatMap { tokenStore[$0] }
+            return tokenIndex.token(phoneId: peer.phoneId, name: peer.name)
         }
+        return currentTokenKey.flatMap { tokenStore[$0] }
+    }
+
+    /// If both ends advertised `aead-v1`, derive the session key and turn on
+    /// sealing for the live session (F1). `token` and `clientNonce` are passed
+    /// explicitly because the dial path and the inbound-candidate path keep
+    /// them in different places — using a single shared lookup missed the
+    /// candidate path and left this side cleartext while the phone sealed.
+    private func enableTransportIfSupported(reply: IBSessionReply, token: String?, clientNonce: String?) {
         guard reply.transport == TransportCipher.versionName,
               let token, let clientNonce, let serverNonce = reply.nonce else {
-            Self.log.info("transport: not sealed — peerTransport=\(reply.transport ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(self.clientNonce != nil, privacy: .public) replyNonce=\(reply.nonce != nil, privacy: .public)")
+            Self.log.info("transport: not sealed — peerTransport=\(reply.transport ?? "nil", privacy: .public) token=\(token != nil, privacy: .public) clientNonce=\(clientNonce != nil, privacy: .public) replyNonce=\(reply.nonce != nil, privacy: .public)")
             return
         }
         let key = TransportCipher.sessionKey(token: token,
@@ -1981,7 +1982,7 @@ final class ReceiverSession: ObservableObject {
             sessionGranted = true
             recordAcceptedPairing(token: reply.token, peer: inboundPeer)
             startGrantedSession()
-            enableTransportIfSupported(reply: reply)
+            enableTransportIfSupported(reply: reply, token: currentPairingToken(), clientNonce: clientNonce)
 
         case .pending:
             sessionGranted = false
@@ -2587,6 +2588,8 @@ final class ReceiverSession: ObservableObject {
         case .accepted:
             candidate.acceptedToken = reply.token
             resolveAcceptedCandidate(candidate)
+            enableTransportIfSupported(reply: reply, token: candidate.token,
+                                       clientNonce: candidate.clientNonce)
         case .pending:
             // The phone is deciding (first-contact approval card) or has just
             // proven itself and is about to send `accepted` on this socket. Hold
