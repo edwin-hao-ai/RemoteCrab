@@ -59,6 +59,9 @@ final class CameraSinkStream: NSObject {
                 if self.receivedCount == 1 || self.receivedCount % 150 == 0 {
                     logger.info("sink received \(self.receivedCount) frames")
                 }
+                if self.onSampleBuffer == nil {
+                    logger.error("sink: onSampleBuffer is NIL (device never wired it)")
+                }
                 self.onSampleBuffer?(sampleBuffer)
                 let now = CMClockGetTime(CMClockGetHostTimeClock())
                 let output = CMIOExtensionScheduledOutput(
