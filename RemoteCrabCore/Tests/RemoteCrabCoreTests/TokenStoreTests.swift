@@ -32,6 +32,10 @@ final class TokenStoreTests: XCTestCase {
         let macs = MacPairingStore(defaults: defaults, tokenStore: store)
         XCTAssertEqual(macs.paired.first?.token, "legacy-tok")   // nothing lost
         XCTAssertEqual(store.token(for: "m2"), "legacy-tok")     // migrated
+        // …and the cleartext copy left storage immediately, not on the next save.
+        let stored = try JSONDecoder().decode([PairedMac].self,
+                                              from: defaults.data(forKey: "remotecrab.ios.pairedMacs")!)
+        XCTAssertEqual(stored.first?.token, "")
     }
 
     func testForgetRemovesTheStoredToken() {

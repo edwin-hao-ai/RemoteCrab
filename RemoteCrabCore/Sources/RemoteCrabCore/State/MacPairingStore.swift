@@ -596,6 +596,16 @@ public final class MacPairingStore {
                     tokenStore.set(value[i].token, for: value[i].id)
                 }
             }
+            // Rewrite storage now with any token the store holds blanked, so a
+            // legacy cleartext token disappears immediately rather than waiting
+            // for the next save.
+            var blanked = value
+            for i in blanked.indices where tokenStore.token(for: blanked[i].id) == value[i].token && !value[i].token.isEmpty {
+                blanked[i].token = ""
+            }
+            if let data = try? JSONEncoder().encode(blanked) {
+                defaults.set(data, forKey: key)
+            }
         }
         return value
     }
