@@ -1,0 +1,18 @@
+[
+  {
+    "token": "RemoTok",
+    "initiatorNonceHex": "010203040506",
+    "responderNonceHex": "0a0b0c",
+    "kind": 19,
+    "plaintextHex": "52656d6f7465437261622d6532652d4f4b",
+    "sealedHex": "00000000000000000000000099f746c41ffd95155c01f2a93eb5a5f761f403305985b754480b98ab1d58e75239"
+  },
+  {
+    "token": "another-token",
+    "initiatorNonceHex": "aabbccddeeff",
+    "responderNonceHex": "1122334455",
+    "kind": 4,
+    "plaintextHex": "0001ff1020",
+    "sealedHex": "0000000000000000000000002f8e13c1d6ddec59ff45871e00ef4d7c68472e65f4"
+  }
+]
