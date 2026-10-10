@@ -75,6 +75,23 @@ fn error_text(reason: &str) -> String {
     }
 }
 
+/// Appended to a live session's line when the transport is **not** sealed
+/// (F1). Empty when it is — the normal case for a current phone.
+///
+/// The point is that a cleartext session must not read as a private one: an
+/// older phone connects (never refuse it), but the user should know the frames
+/// — keystrokes, clipboard — are readable on the LAN.
+fn unencrypted_unless(sealed: bool, zh: bool) -> &'static str {
+    if sealed {
+        return "";
+    }
+    if zh {
+        "（未加密）"
+    } else {
+        " (unencrypted)"
+    }
+}
+
 pub fn state_line(state: &State, seen_frame: bool) -> String {
     match state {
         State::Searching => format!(
@@ -123,10 +140,10 @@ pub fn state_line(state: &State, seen_frame: bool) -> String {
             )
         }
         State::Streaming {
-            name, authenticated, ..
+            name, authenticated, sealed, ..
         } => {
             format!(
-                "[LIVE]  {}{name}{}",
+                "[LIVE]  {}{name}{}{}",
                 i18n::t("正在投屏 ", "streaming from "),
                 if *authenticated {
                     ""
@@ -134,7 +151,8 @@ pub fn state_line(state: &State, seen_frame: bool) -> String {
                     "（未验证身份）"
                 } else {
                     " (unverified)"
-                }
+                },
+                unencrypted_unless(*sealed, i18n::is_chinese())
             )
         }
         // This told Windows users to look for a "menu bar" — there is not
@@ -231,20 +249,26 @@ pub fn tray_status(state: &State, seen_frame: bool, zh: bool) -> String {
             name,
             latency_ms,
             authenticated,
+            sealed,
         } if *latency_ms > 0 => {
             format!(
-                "{}{name} · {latency_ms} ms{}",
+                "{}{name} · {latency_ms} ms{}{}",
                 t(zh, "正在投屏 ", "Streaming from "),
-                unverified_unless(*authenticated, zh)
+                unverified_unless(*authenticated, zh),
+                unencrypted_unless(*sealed, zh)
             )
         }
         State::Streaming {
-            name, authenticated, ..
+            name,
+            authenticated,
+            sealed,
+            ..
         } => {
             format!(
-                "{}{name}{}",
+                "{}{name}{}{}",
                 t(zh, "正在投屏 ", "Streaming from "),
-                unverified_unless(*authenticated, zh)
+                unverified_unless(*authenticated, zh),
+                unencrypted_unless(*sealed, zh)
             )
         }
         // See the note in `state_line`: the tap is on the iPhone.
@@ -372,6 +396,7 @@ mod no_video_tests {
             name: "iPhone".into(),
             latency_ms: 0,
             authenticated: true,
+            sealed: true,
         }
     }
 
@@ -447,11 +472,13 @@ mod no_video_tests {
             name: "iPhone".into(),
             latency_ms: 0,
             authenticated: true,
+            sealed: true,
         };
         let unverified = State::Streaming {
             name: "iPhone".into(),
             latency_ms: 12,
             authenticated: false,
+            sealed: false,
         };
 
         for zh in [true, false] {
@@ -476,6 +503,40 @@ mod no_video_tests {
         assert!(state_line(&unverified, true).contains(marker));
     }
 
+    /// F1: a cleartext session must say it is unencrypted, and a sealed one
+    /// must not — on both surfaces and in both languages. Without this the
+    /// `sealed` flag rides through the state and reaches nobody.
+    #[test]
+    fn an_unsealed_session_says_unencrypted_and_a_sealed_one_does_not() {
+        let sealed = State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 12,
+            authenticated: true,
+            sealed: true,
+        };
+        let cleartext = State::Streaming {
+            name: "iPhone".into(),
+            latency_ms: 12,
+            authenticated: true,
+            sealed: false,
+        };
+        for zh in [true, false] {
+            let marker = if zh { "未加密" } else { "unencrypted" };
+            assert!(
+                !tray_status(&sealed, true, zh).contains(marker),
+                "a sealed session must not carry the warning (zh={zh})"
+            );
+            assert!(
+                tray_status(&cleartext, true, zh).contains(marker),
+                "a cleartext session must say so (zh={zh})"
+            );
+        }
+        let zh = crate::i18n::is_chinese();
+        let marker = if zh { "未加密" } else { "unencrypted" };
+        assert!(!state_line(&sealed, true).contains(marker));
+        assert!(state_line(&cleartext, true).contains(marker));
+    }
+
     /// Latency with zero decoded frames measures nothing, so it must not appear
     /// in place of the waiting notice.
     ///
@@ -489,6 +550,7 @@ mod no_video_tests {
             name: "iPhone".into(),
             latency_ms: 12,
             authenticated: true,
+            sealed: true,
         };
         for zh in [true, false] {
             let waiting = if zh { "等待画面" } else { "waiting for video" };

@@ -340,6 +340,15 @@ pub struct ClientHello {
     /// rather than failing the handshake.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    /// The transport this receiver can seal with (F1). `None`/absent is an
+    /// older build that only does cleartext; `Some("aead-v1")` means the phone
+    /// may seal once both sides have advertised it.
+    ///
+    /// ADDITIVE / OPTIONAL: a phone that does not know the key ignores it, and
+    /// an old receiver's missing value decodes as `None` — never a failed
+    /// handshake.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
 }
 
 /// iPhone → receiver: the ownership decision for a `clientHello`
@@ -395,6 +404,14 @@ pub struct SessionReply {
     /// and one unknown word must not fail the handshake.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+    /// The transport the phone can seal with (F1), and the phone's nonce is
+    /// already in `nonce` above. When this is `Some("aead-v1")` and this
+    /// receiver advertised the same, both derive the session key from the
+    /// token + `clientHello.nonce` + this reply's nonce.
+    ///
+    /// ADDITIVE / OPTIONAL: absent from an older phone, which stays cleartext.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
 }
 
 /// Receiver → iPhone: this machine's answer to the phone's half of the

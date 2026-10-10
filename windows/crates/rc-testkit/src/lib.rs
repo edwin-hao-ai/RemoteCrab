@@ -50,6 +50,10 @@ pub struct FakeIphoneConfig {
     /// stored token is how a test plays an **impostor** standing on the phone's
     /// port.
     pub peer_auth_token: Option<String>,
+    /// Advertise + use the sealed transport (F1). Requires `peer_auth_token`
+    /// (the key comes from the token). Off by default so the many cleartext
+    /// tests stay cleartext — turn it on to prove the receiver seals/opens.
+    pub transport: bool,
 }
 
 impl Default for FakeIphoneConfig {
@@ -63,6 +67,7 @@ impl Default for FakeIphoneConfig {
             video_frames: 0,
             drop_after_frames: None,
             peer_auth_token: None,
+            transport: false,
         }
     }
 }
@@ -165,6 +170,15 @@ impl FakeIphone {
     }
 }
 
+/// Seal an outgoing frame if the session is sealed, else pass it through (F1).
+/// The fake phone mirrors the real one: everything after the grant is sealed.
+fn seal_out(sealer: &mut Option<rc_protocol::transport::Sealer>, frame: &[u8]) -> Vec<u8> {
+    match sealer {
+        Some(s) => rc_protocol::wire::seal_frame(frame, s),
+        None => frame.to_vec(),
+    }
+}
+
 async fn serve(
     mut stream: TcpStream,
     cfg: FakeIphoneConfig,
@@ -215,6 +229,30 @@ async fn serve(
         _ => None,
     };
 
+    // F1: when configured and this phone holds a token, both ends derive the
+    // session key from that token + both handshake nonces and seal everything
+    // after the grant. The version is advertised on the reply, the same place
+    // the real phone advertises it. Cleartext otherwise.
+    let transport_key: Option<[u8; 32]> = if cfg.transport {
+        match (secret.as_deref(), hello.nonce.as_deref(), challenge.as_ref()) {
+            (Some(secret), Some(client_nonce), Some((server_nonce, _, _))) => {
+                Some(rc_protocol::transport::session_key(
+                    secret,
+                    client_nonce.as_bytes(),
+                    server_nonce.as_bytes(),
+                ))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let transport_version = transport_key
+        .as_ref()
+        .map(|_| rc_protocol::transport::VERSION.to_string());
+    let mut sealer: Option<rc_protocol::transport::Sealer> = None;
+    let mut opener: Option<rc_protocol::transport::Opener> = None;
+
     // A phone in the middle of the exchange is `pending` by definition, whatever
     // the test asked for: it cannot accept until the receiver has answered.
     let result = if challenge.is_some() && cfg.reply == SessionReplyResult::Accepted {
@@ -239,6 +277,7 @@ async fn serve(
         capabilities: secret
             .as_ref()
             .map(|_| vec![rc_protocol::peer_auth::CAPABILITY.to_string()]),
+        transport: transport_version.clone(),
     };
     if let Ok(frame) = encode_session_reply(&reply) {
         if wr.write_all(&frame).await.is_err() {
@@ -284,15 +323,25 @@ async fn serve(
             // Issued only on the first pairing. Here the token was already
             // known to both sides, so there is nothing to hand over.
             token: None,
-            nonce: None,
+            // The accepted reply re-states the nonce + transport, exactly as
+            // the real phone does — the receiver derives the key from them.
+            nonce: Some(server_nonce.clone()),
             mac: None,
             capabilities: None,
+            transport: transport_version.clone(),
         };
         if let Ok(frame) = encode_session_reply(&accepted) {
             let _ = wr.write_all(&frame).await;
         }
         if proof_ok != Some(true) {
             return;
+        }
+        // The grant is done: from here on the phone seals. Set the key the
+        // instant the accepted reply is out, matching the real phone.
+        if let Some(key) = transport_key {
+            sealer = Some(rc_protocol::transport::Sealer::new(key));
+            opener = Some(rc_protocol::transport::Opener::new(key));
+            eprintln!("[fakeiphone] transport: sealed (aead-v1)");
         }
     } else if cfg.reply == SessionReplyResult::Pending {
         // Wait a moment, then accept (simulating the user tapping Allow).
@@ -304,6 +353,7 @@ async fn serve(
             nonce: None,
             mac: None,
             capabilities: None,
+            transport: None,
         };
         if let Ok(frame) = encode_session_reply(&accepted) {
             let _ = wr.write_all(&frame).await;
@@ -326,7 +376,7 @@ async fn serve(
             pps: None,
         };
         if let Ok(frame) = encode_metadata(&md) {
-            let _ = wr.write_all(&frame).await;
+            let _ = wr.write_all(&seal_out(&mut sealer, &frame)).await;
         }
         let snap = FeatureStateSnapshot {
             camera_on: true,
@@ -341,7 +391,7 @@ async fn serve(
             timestamp_micros: 123,
         };
         if let Ok(frame) = encode_feature_state(&snap) {
-            let _ = wr.write_all(&frame).await;
+            let _ = wr.write_all(&seal_out(&mut sealer, &frame)).await;
         }
     }
 
@@ -361,7 +411,7 @@ async fn serve(
                 data: nal,
                 timestamp_micros: 0,
             });
-            if wr.write_all(&frame).await.is_err() {
+            if wr.write_all(&seal_out(&mut sealer, &frame)).await.is_err() {
                 return;
             }
             // Pace the stream roughly like the real 30 fps sender.
@@ -382,12 +432,21 @@ async fn serve(
                 if n == 0 {
                     break;
                 }
-                for f in parser.append(&buf[..n]) {
+                for raw in parser.append(&buf[..n]) {
+            // F1: open sealed payloads once the transport is on. The handshake
+            // frames above were read in the clear, before the grant.
+            let f = match opener.as_mut() {
+                Some(o) => match rc_protocol::wire::open_frame(raw, o) {
+                    Ok(opened) => opened,
+                    Err(_) => continue,
+                },
+                None => raw,
+            };
             match f.kind {
                 rc_protocol::Kind::Ping if cfg.echo_pings => {
                     let sent = decode_ping(&f);
                     let echo = encode_ping(sent);
-                    if wr.write_all(&echo).await.is_err() {
+                    if wr.write_all(&seal_out(&mut sealer, &echo)).await.is_err() {
                         return;
                     }
                 }
@@ -442,7 +501,7 @@ async fn serve(
                 if std::env::var("RC_TESTKIT_TRACE").is_ok() {
                     eprintln!("[testkit] sending {} bytes to the receiver", frame.len());
                 }
-                if wr.write_all(&frame).await.is_err() {
+                if wr.write_all(&seal_out(&mut sealer, &frame)).await.is_err() {
                     return;
                 }
             }

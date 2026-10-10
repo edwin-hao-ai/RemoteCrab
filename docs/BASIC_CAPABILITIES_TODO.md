@@ -590,6 +590,8 @@
 | 2026-10-11 | F1 交接 | 写 `docs/HANDOFF-WINDOWS-2026-10-11.md`（Windows 接 `rc-net`/`rc-app` + 真机联调），并在 `PROMPT-WINDOWS-SESSION.md` 顶部加了指针 | `61a7c4a` |
 | 2026-10-11 | D3 尝试 + **回退** | 试了"到达→解码"的 FIFO 测法，实测 `decode 1426→1587ms`——**数字在增长**，说明解码器**丢/乱序帧**（`H264FrameGate` 丢 P-slice、`alwaysDiscardsLateVideoFrames`），FIFO 对不齐 → **是假数字**。**已 revert**（`dd67584`）。**诚实的下一步**：要精确的端侧管线延迟，必须给每帧一个**标识**（wire 加序列号/时间戳），否则只能测"帧间隔抖动"（D2 已有） | 教训 141 的形状 |
 | 2026-10-11 | **D3 ✅ 修正完成** | 改用**解码器已带的 PTS**（`H264Decoder` 建 sample buffer 时就把到达时间写成 PTS，解码回调原样返回）→ **每帧精确、同一块表、无需 wire 改动**。真机实测 **`decode 26–34ms`**（不再增长，合理）；e2e 25/0 | `8fe35a8` |
+| 2026-10-11 | **F1 Windows 接入** | Rust 原语早已对齐，但 `rc-net` **从未接线**（Mac 的「真机验收过」不含 Windows）。现补齐：`transport::Sealer/Opener`、`wire::seal_frame/open_frame`、握手 `transport` 字段、`run_session` 广告/派生/seal/open（两条路径共用，含 ping 与握手缓冲队列）；`rc-testkit` 假手机支持密封。**密封会话双向**集成测试可证伪（置空 sealer/opener 各失败一次） | `cargo test --workspace` 全绿、`clippy -D warnings` 0；真机互通待跑 |
+| 2026-10-11 | **F1 未加密徽标** | `State::Streaming.sealed`；未密封时控制台 + 托盘状态行追加「（未加密）」(unencrypted)。中英双语、两个 surface 的单测 | 门禁全绿 |
 
 ---
 

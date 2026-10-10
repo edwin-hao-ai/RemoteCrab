@@ -1115,6 +1115,10 @@ async fn run_session(
             }
             caps
         }),
+        // F1: advertise that this receiver can seal, so the phone starts
+        // sealing once it is granted. Absence is what an old peer sees; a
+        // cleartext session is the honest fallback, never a refusal.
+        transport: Some(rc_protocol::transport::VERSION.to_string()),
     };
     let Ok(frame) = encode_client_hello(&hello) else {
         return ConnEndKind::Lost;
@@ -1295,6 +1299,39 @@ async fn run_session(
         }
     };
 
+    // --- Sealed transport (F1) ------------------------------------------
+    //
+    // Both ends advertised `aead-v1` and this session proved the token, so
+    // derive the per-session key from the token + both handshake nonces (our
+    // `clientHello` nonce, the phone's `sessionReply` nonce) — the same
+    // derivation the phone and the Mac use. A peer without the capability, or
+    // a session missing either piece, stays cleartext: never a half-keyed
+    // state. The handshake frames above were cleartext; everything below is
+    // sealed.
+    let mut sealer: Option<rc_protocol::transport::Sealer> = None;
+    let mut opener: Option<rc_protocol::transport::Opener> = None;
+    if reply.transport.as_deref() == Some(rc_protocol::transport::VERSION) {
+        match (stored_token.as_deref(), reply.nonce.as_deref()) {
+            (Some(token), Some(server_nonce)) => {
+                let key = rc_protocol::transport::session_key(
+                    token,
+                    client_nonce.as_bytes(),
+                    server_nonce.as_bytes(),
+                );
+                sealer = Some(rc_protocol::transport::Sealer::new(key));
+                opener = Some(rc_protocol::transport::Opener::new(key));
+                eprintln!("[transport] sealed ({})", rc_protocol::transport::VERSION);
+            }
+            _ => eprintln!(
+                "[transport] not sealed — peer offered aead-v1 but token={} nonce={}",
+                stored_token.is_some(),
+                reply.nonce.is_some()
+            ),
+        }
+    } else {
+        eprintln!("[transport] not sealed (peer={:?})", reply.transport);
+    }
+
     // --- Streaming ------------------------------------------------------
     // Remember the address, port and token that worked, so the next launch
     // can dial it directly (even if mDNS stays silent) and be recognised
@@ -1314,13 +1351,25 @@ async fn run_session(
             name: name.clone(),
             latency_ms: 0,
             authenticated,
+            sealed: sealer.is_some(),
         },
       );
 
       // Any frames already buffered from the handshake read (the iPhone
     // typically packs `metadata` + `featureState` right behind the
-    // `sessionReply`) must be dispatched before we wait on new bytes.
+    // `sessionReply`) must be dispatched before we wait on new bytes. They
+    // were sent after the grant, so they are sealed when the transport is on.
     while let Some(f) = queue.pop_front() {
+        let f = match opener.as_mut() {
+            Some(o) => match rc_protocol::wire::open_frame(f, o) {
+                Ok(opened) => opened,
+                Err(e) => {
+                    eprintln!("[transport] buffered frame failed to open ({e:?}) — dropping");
+                    continue;
+                }
+            },
+            None => f,
+        };
         dispatch_frame(&f, events_tx);
     }
 
@@ -1343,7 +1392,21 @@ async fn run_session(
                     Ok(0) | Err(_) => return ConnEndKind::Lost,
                     Ok(n) => {
                         let before = parser.resyncs();
-                        for f in parser.append(&buf[..n]) {
+                        for raw in parser.append(&buf[..n]) {
+                            // F1: open sealed payloads once the transport is
+                            // on. The handshake read above was cleartext.
+                            let f = match opener.as_mut() {
+                                Some(o) => match rc_protocol::wire::open_frame(raw, o) {
+                                    Ok(opened) => opened,
+                                    Err(e) => {
+                                        eprintln!(
+                                            "[transport] sealed frame failed to open ({e:?}) — dropping"
+                                        );
+                                        continue;
+                                    }
+                                },
+                                None => raw,
+                            };
                             if f.kind == Kind::Ping {
                                 let sent = rc_protocol::decode_ping(&f);
                                 // ANY ping proves the link is alive, so the
@@ -1363,7 +1426,10 @@ async fn run_session(
                                     // probes of its own, so before this existed
                                     // every phone-initiated probe was reported
                                     // as a multi-hour "latency".
-                                    if write_half.write_all(&encode_ping(sent)).await.is_err() {
+                                    if write_sealed(&mut write_half, &mut sealer, encode_ping(sent))
+                                        .await
+                                        .is_err()
+                                    {
                                         return ConnEndKind::Lost;
                                     }
                                 } else if let Some(rtt) =
@@ -1378,6 +1444,7 @@ async fn run_session(
                                             name: name.clone(),
                                             latency_ms: rtt,
                                             authenticated,
+                                            sealed: sealer.is_some(),
                                         },
                                     );
                                 }
@@ -1403,7 +1470,7 @@ async fn run_session(
             out = outbound_rx.recv() => {
                 match out {
                     Some(frame) => {
-                        if write_half.write_all(&frame).await.is_err() {
+                        if write_sealed(&mut write_half, &mut sealer, frame).await.is_err() {
                             return ConnEndKind::Lost;
                         }
                     }
@@ -1415,12 +1482,30 @@ async fn run_session(
                     return ConnEndKind::Lost;
                 }
                 let frame = encode_ping(probe.make_probe(now_micros()));
-                if write_half.write_all(&frame).await.is_err() {
+                if write_sealed(&mut write_half, &mut sealer, frame).await.is_err() {
                     return ConnEndKind::Lost;
                 }
                 let _ = last_latency;
             }
         }
+    }
+}
+
+/// Write one complete frame, sealing its payload when the session is sealed
+/// (F1). The handshake frames are written directly (cleartext); every frame
+/// that goes through here is post-grant, so it must be sealed whenever the
+/// phone is sealing.
+async fn write_sealed(
+    write_half: &mut tokio::net::tcp::OwnedWriteHalf,
+    sealer: &mut Option<rc_protocol::transport::Sealer>,
+    frame: Vec<u8>,
+) -> std::io::Result<()> {
+    match sealer {
+        Some(s) => {
+            let sealed = rc_protocol::wire::seal_frame(&frame, s);
+            write_half.write_all(&sealed).await
+        }
+        None => write_half.write_all(&frame).await,
     }
 }
 

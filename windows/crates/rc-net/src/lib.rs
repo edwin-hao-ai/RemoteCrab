@@ -96,6 +96,10 @@ pub enum State {
         /// exchange — an app older than this build, or an impostor that could
         /// not.
         authenticated: bool,
+        /// Whether the transport is sealed (F1). False means the frames are in
+        /// the clear — an old peer, or a session that could not negotiate it —
+        /// and the UI must say so rather than imply the link is private.
+        sealed: bool,
     },
     Error(String),
 }

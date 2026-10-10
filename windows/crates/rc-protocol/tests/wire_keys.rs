@@ -155,6 +155,7 @@ fn client_hello_keys() {
         platform: Some("windows".into()),
         capabilities: None,
         nonce: None,
+        transport: None,
     };
     // `platform` is the additive field this port introduced; it must serialize
     // as exactly "platform" so iOS (which now reads it) sees it.
@@ -179,6 +180,7 @@ fn client_hello_declares_capabilities() {
         platform: Some("windows".into()),
         capabilities: Some(vec!["latencyProbe".into(), "commandResult".into()]),
         nonce: Some("n".into()),
+        transport: None,
     };
     assert_keys(
         &h,
@@ -273,8 +275,56 @@ fn session_reply_keys() {
         nonce: None,
         mac: None,
         capabilities: None,
+        transport: None,
     };
     assert_keys(&r, &["result", "ownerName"]);
+}
+
+/// F1: the `transport` capability is additive. A peer that never heard of it
+/// decodes to `None` (cleartext, never a failed handshake), and a receiver that
+/// sends it round-trips the exact string the phone compares against.
+#[test]
+fn transport_capability_is_additive_and_round_trips() {
+    let mut h = ClientHello {
+        name: "n".into(),
+        id: "i".into(),
+        token: None,
+        app_version: "v".into(),
+        platform: Some("windows".into()),
+        capabilities: None,
+        nonce: Some("n".into()),
+        transport: Some(rc_protocol::transport::VERSION.into()),
+    };
+    let json = serde_json::to_string(&h).unwrap();
+    assert!(json.contains("\"transport\":\"aead-v1\""));
+    assert_eq!(serde_json::from_str::<ClientHello>(&json).unwrap(), h);
+
+    h.transport = None;
+    let json = serde_json::to_string(&h).unwrap();
+    assert!(
+        !json.contains("transport"),
+        "None must serialize as absent, not null"
+    );
+    // A `clientHello` written before this field existed still decodes.
+    let old: ClientHello =
+        serde_json::from_str(r#"{"name":"n","id":"i","appVersion":"v"}"#).unwrap();
+    assert_eq!(old.transport, None);
+
+    let r = SessionReply {
+        result: SessionReplyResult::Accepted,
+        owner_name: None,
+        token: Some("t".into()),
+        nonce: Some("n".into()),
+        mac: None,
+        capabilities: None,
+        transport: Some(rc_protocol::transport::VERSION.into()),
+    };
+    let rjson = serde_json::to_string(&r).unwrap();
+    assert!(rjson.contains("\"transport\":\"aead-v1\""));
+    assert_eq!(serde_json::from_str::<SessionReply>(&rjson).unwrap(), r);
+    // An `accepted` from an older phone (no transport) decodes as cleartext.
+    let old_r: SessionReply = serde_json::from_str(r#"{"result":"accepted"}"#).unwrap();
+    assert_eq!(old_r.transport, None);
 }
 
 #[test]
