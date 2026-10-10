@@ -21,7 +21,9 @@ final class CameraExtensionStream: NSObject {
     /// feeding video into the void.
     private var attachedClients = 0
     private var sentCount = 0
-    private var dropLogs = 0
+    /// Sends since the last `startStream`, so the first few of each session log
+    /// even though the extension process (and `sentCount`) outlives a session.
+    private var sinceStart = 0
     /// The format index the client selected (default = 1080p).
     private var activeFormatIndex = IBCameraDevice.defaultFormatIndex
 
@@ -38,13 +40,18 @@ final class CameraExtensionStream: NSObject {
 
     /// Forward one decoded frame (BGRA, `IBCameraDevice.width × height`)
     /// to attached clients.
+    ///
+    /// **No client-count guard.** It used to early-return unless
+    /// `attachedClients > 0`, but that counter could drift to 0 while a client
+    /// was watching (a start/stop pair that nets to zero), so every frame was
+    /// silently dropped and the camera showed nothing — measured 2026-10-11:
+    /// `source stream started (clients=1)` yet no `source sent`, and the client
+    /// received zero frames. `CMIOExtensionStream.send` already drops when
+    /// nobody is attached, so the guard bought nothing and cost the feature.
     func send(sampleBuffer: CMSampleBuffer) {
-        guard attachedClients > 0 else {
-            if dropLogs < 3 { dropLogs += 1; logger.info("source.send with 0 clients — frame dropped (\(self.dropLogs))") }
-            return
-        }
         sentCount += 1
-        if sentCount == 1 || sentCount % 150 == 0 {
+        sinceStart += 1
+        if sinceStart <= 5 || sentCount % 150 == 0 {
             logger.info("source sent \(self.sentCount) frames (clients=\(self.attachedClients))")
         }
         let now = CMClockGetTime(CMClockGetHostTimeClock())
@@ -98,6 +105,7 @@ extension CameraExtensionStream: CMIOExtensionStreamSource {
 
     func startStream() throws {
         attachedClients += 1
+        sinceStart = 0
         logger.info("source stream started (clients=\(self.attachedClients))")
     }
 
