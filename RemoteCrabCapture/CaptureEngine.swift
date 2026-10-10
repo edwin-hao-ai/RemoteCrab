@@ -1635,6 +1635,14 @@ final class CaptureEngine: ObservableObject {
         if captureSession.canAddInput(videoInput) {
             captureSession.addInput(videoInput)
         }
+        // The pre-input `canSetSessionPreset` check above runs before a device
+        // exists, so it can accept a preset the device then silently downgrades
+        // when the input lands. Check again now, and say so — a mismatch here is
+        // exactly the encoder/metadata drift this guards against (A5).
+        if captureSession.sessionPreset != preset {
+            Logger(subsystem: "com.remotecrab", category: "capture")
+                .error("camera preset fell back after adding input: requested \(preset.rawValue, privacy: .public), got \(captureSession.sessionPreset.rawValue, privacy: .public)")
+        }
 
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.alwaysDiscardsLateVideoFrames = true
