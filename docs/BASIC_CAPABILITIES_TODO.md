@@ -582,6 +582,8 @@
 | 2026-10-11 | F1 规格+计划 | 设计 `docs/superpowers/specs/2026-10-11-transport-encryption-design.md` + 计划 `…/plans/2026-10-11-transport-encryption.md` | 已批准 |
 | 2026-10-11 | F1 实现 | 计划 Phase 1 + Task 4 完成：`TransportCipher`（HKDF+ChaCha20-Poly1305+防重放，4 测）、跨语言向量、握手 `transport` 字段（4 测）、`IBWire` seal/open（2 测）、broadcaster 发送钩子（inert）、**Mac 端接入（inert，等手机也广告才加密）** | 门禁全绿；`0eecfc8..31aa240` |
 | 2026-10-11 | F1 待续 | **iOS 端接入（Task 5c）**：accepted 回复目前不带 nonce → 两端会派生出**不同密钥**而断连；需补 nonce 管线 + 手机接收循环 open + Rust 端（Task 6）+ 抓包/真机（Task 7）。**当前传输仍是明文（安全、行为未变），不是半加密** | ⏸ 需专门的安全敏感改动 |
+| 2026-10-11 | F1 5c 完成 | iOS 端接入已实现（pending/accepted 带 `transport` + accepted 带 nonce + 两端接收 open + 密钥派生用**同一个 challenge 验证过的 token**）。**真机 e2e 25/0（无回归）** | `ef370b0` |
+| 2026-10-11 | F1 仍未生效 | **sealing 尚未 engage**：手机主动连接路径里 Mac 记 `clientHello sent (paired: false)`（无 token）→ 派生不了密钥 → 传输仍是明文（**安全**）。**剩余**：把 token/`phoneId` 查找对齐，使两端派生出同一密钥，再用真机 e2e 看到 `sealed` | 下一步 |
 
 ---
 
