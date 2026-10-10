@@ -21,6 +21,7 @@ final class CameraExtensionStream: NSObject {
     /// feeding video into the void.
     private var attachedClients = 0
     private var sentCount = 0
+    private var dropLogs = 0
     /// The format index the client selected (default = 1080p).
     private var activeFormatIndex = IBCameraDevice.defaultFormatIndex
 
@@ -38,7 +39,10 @@ final class CameraExtensionStream: NSObject {
     /// Forward one decoded frame (BGRA, `IBCameraDevice.width × height`)
     /// to attached clients.
     func send(sampleBuffer: CMSampleBuffer) {
-        guard attachedClients > 0 else { return }
+        guard attachedClients > 0 else {
+            if dropLogs < 3 { dropLogs += 1; logger.info("source.send with 0 clients — frame dropped (\(self.dropLogs))") }
+            return
+        }
         sentCount += 1
         if sentCount == 1 || sentCount % 150 == 0 {
             logger.info("source sent \(self.sentCount) frames (clients=\(self.attachedClients))")

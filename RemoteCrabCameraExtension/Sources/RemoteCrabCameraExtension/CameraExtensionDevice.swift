@@ -35,7 +35,11 @@ final class CameraExtensionDevice: NSObject {
 
         // Sink → source passthrough.
         sinkStream.onSampleBuffer = { [weak self] sampleBuffer in
-            self?.sourceStream.send(sampleBuffer: sampleBuffer)
+            guard let self else {
+                logger.error("device freed before forwarding a frame")
+                return
+            }
+            self.sourceStream.send(sampleBuffer: sampleBuffer)
         }
 
         do {
