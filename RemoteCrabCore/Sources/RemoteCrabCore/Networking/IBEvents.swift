@@ -362,6 +362,11 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     /// `PeerAuth`.
     public var nonce: String?
 
+    /// Whether this peer can seal the transport (`"aead-v1"`); nil = an old
+    /// peer that only does cleartext (F1). ADDITIVE + OPTIONAL — absence is the
+    /// legacy branch, never a failure.
+    public var transport: String?
+
     /// Declared abilities. Raw values, because an unknown string from a newer
     /// peer must decode rather than fail the whole handshake.
     public enum Capability: String, Codable, Sendable, Equatable {
@@ -385,7 +390,8 @@ public struct IBClientHello: Codable, Sendable, Equatable {
 
     public init(name: String, id: String, token: String? = nil,
                 appVersion: String = "", platform: String? = nil,
-                capabilities: [Capability]? = nil, nonce: String? = nil) {
+                capabilities: [Capability]? = nil, nonce: String? = nil,
+                transport: String? = nil) {
         self.name = name
         self.id = id
         self.token = token
@@ -393,6 +399,7 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         self.platform = platform
         self.capabilities = capabilities
         self.nonce = nonce
+        self.transport = transport
     }
 
     /// `false` for any capability the receiver did not name — including every
@@ -405,7 +412,7 @@ public struct IBClientHello: Codable, Sendable, Equatable {
     public var resolvedPlatform: String { platform ?? "macos" }
 
     private enum CodingKeys: String, CodingKey {
-        case name, id, token, appVersion, platform, capabilities, nonce
+        case name, id, token, appVersion, platform, capabilities, nonce, transport
     }
 
     public init(from decoder: Decoder) throws {
@@ -428,6 +435,8 @@ public struct IBClientHello: Codable, Sendable, Equatable {
         // handshake and cost the user their connection.
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)?
             .compactMap(Capability.init(rawValue:))
+        // Absent for an old receiver → nil → cleartext transport (F1).
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
     }
 }
 
@@ -544,18 +553,24 @@ public struct IBSessionReply: Codable, Sendable, Equatable {
     /// here, and one unknown word must not fail the handshake.
     public let capabilities: [String]?
 
+    /// Whether the phone can seal the transport (`"aead-v1"`); nil = an old
+    /// phone that only does cleartext (F1). ADDITIVE.
+    public let transport: String?
+
     public init(result: IBSessionReplyResult, ownerName: String? = nil, token: String? = nil,
-                nonce: String? = nil, mac: String? = nil, capabilities: [String]? = nil) {
+                nonce: String? = nil, mac: String? = nil, capabilities: [String]? = nil,
+                transport: String? = nil) {
         self.result = result
         self.ownerName = ownerName
         self.token = token
         self.nonce = nonce
         self.mac = mac
         self.capabilities = capabilities
+        self.transport = transport
     }
 
     private enum CodingKeys: String, CodingKey {
-        case result, ownerName, token, nonce, mac, capabilities
+        case result, ownerName, token, nonce, mac, capabilities, transport
     }
 
     public init(from decoder: Decoder) throws {
@@ -568,6 +583,7 @@ public struct IBSessionReply: Codable, Sendable, Equatable {
         nonce = try c.decodeIfPresent(String.self, forKey: .nonce)
         mac = try c.decodeIfPresent(String.self, forKey: .mac)
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities)
+        transport = try c.decodeIfPresent(String.self, forKey: .transport)
     }
 }
 
